@@ -12,6 +12,8 @@ import subprocess
 import tempfile
 import threading
 import control
+import provenance
+import compose_review
 from compose_identity import ordered_files
 from telemetry import HostMetrics, record as record_metrics
 import time
@@ -167,6 +169,9 @@ def recover(db, journal):
     replace_env(recipe['env_file'], record['previous_env'])
     run(compose(recipe, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', *recipe['services']), timeout=240)
     verify_runtime(recipe)
+    if record.get('provenance_transition'):
+        import provenance_store
+        provenance_store.rollback(db, record['provenance_transition'])
     set_status(db, record['job_id'], 'rolled-back', 'Deployment failed. Previous images were restored and passed runtime checks. The database was unchanged.')
     journal.unlink()
 
@@ -205,9 +210,27 @@ def validate_execution_recipe(project):
         raise StepFailure('An absolute deployment environment file is required.')
 
 
+def verify_recipe_provenance(recipe):
+    entries = recipe.get('service_provenance', {})
+    if not isinstance(entries, dict):
+        raise StepFailure('Compose provenance mapping is invalid.')
+    def resolve(current, service, observed_files):
+        return compose_review.review(current, service, observed_files,
+                                     Path('/opt/docker-engine/projects'),
+                                     lambda args: run(args, capture=True), COMPOSE)
+    try:
+        for service in entries:
+            if service not in recipe.get('owned_services', recipe.get('services', [])):
+                raise ValueError('Compose provenance claims an unowned service.')
+            provenance.revalidate(recipe, service, resolve)
+    except ValueError:
+        raise StepFailure('Compose provenance changed or could not be verified. Refresh reconciliation before deployment.') from None
+
+
 def verify_target_ownership(project, expected_ids=None):
     """Read actual Docker identity; a queued deployment may not wake stopped targets."""
     recipe = project['recipe']
+    verify_recipe_provenance(recipe)
     entries = containers(recipe)
     if not entries or {entry.get('Service') for entry in entries} != set(recipe['services']):
         raise StepFailure('Required target services are missing. Provisioning is not available in this deployment flow.')
@@ -223,12 +246,11 @@ def verify_target_ownership(project, expected_ids=None):
         labels = actual.get('Config', {}).get('Labels') or {}
         try:
             files = ordered_files(labels.get('com.docker.compose.project.config_files', '').split(','))
-            expected_files = ordered_files(recipe['compose_files'])
         except (ValueError, AttributeError):
             raise StepFailure('The observed container ownership configuration is invalid.') from None
-        if (labels.get('com.docker.compose.project') != recipe['compose_project'] or
-                labels.get('com.docker.compose.service') != entry['Service'] or
-                files != expected_files):
+        if (labels.get('com.docker.compose.service') != entry['Service'] or
+                not provenance.matches(recipe, labels.get('com.docker.compose.project'),
+                                       entry['Service'], list(files))):
             raise StepFailure('The observed container ownership differs from the pinned target. No services were changed.')
         if actual.get('State', {}).get('Running') is not True:
             raise StepFailure('A target container is stopped. This deployment flow cannot wake inactive environments.')
@@ -424,11 +446,27 @@ def deploy(db, job, project, validate_only=False):
             replace_env(recipe['env_file'], updates)
             run(compose(recipe, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', *recipe['services']), timeout=240)
             verify_runtime(recipe, [images[s['name']] for s in recipe['images'] if s.get('deploy', True)])
+            import provenance_store
+            recreated = {}
+            if recipe.get('service_provenance'):
+                observed_ids = [entry['ID'] for entry in containers(recipe)]
+                for row in json.loads(run([DOCKER, 'inspect', *observed_ids], capture=True)):
+                    service = (row.get('Config', {}).get('Labels') or {}).get('com.docker.compose.service')
+                    if service in recreated:
+                        raise StepFailure('Recreated service identity is ambiguous.')
+                    recreated[service] = row
+            transition = provenance_store.prepare(db, job['project'], recipe,
+                lambda current, service, files: compose_review.review(current, service, files,
+                    Path('/opt/docker-engine/projects'), lambda args: run(args, capture=True), COMPOSE), recreated=recreated)
+            if transition:
+                record['provenance_transition'] = transition
+                atomic_json(journal, record)
+                provenance_store.commit(db, transition)
+            journal.unlink()
         except Exception:
             recover(db, journal)
             return
         set_status(db, job['id'], 'succeeded', 'Deployment and runtime checks passed. ' + ('Pending development migrations were applied successfully.' if migration else 'No database migrations were run automatically.'))
-        journal.unlink()
         # No force, no volume pruning. Docker refuses images still referenced.
         for old in previous_images:
             if old not in images.values():

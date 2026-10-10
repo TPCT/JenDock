@@ -17,3 +17,13 @@ Required acceptance: captured seven variants, semantic equality, meaningful moun
 Read-only live evidence at 2026-10-10T20:58:50Z found equivalent current resolved configuration for all ten alternate-invocation services across the seven projects. See `docs/operations/compose-reconciliation-20261010.json`. SSH host/UID/address were verified. No production files, containers, bindings or database records changed.
 
 Still required: integrate immutable per-service proof into adoption and all consumers, revalidate before mutations, advance proof after legitimate config changes with journal/CAS, inspect actual runtime/config divergence and rerun database identity/sharing checks. Equality of two current definitions is not evidence that either exactly matches the already running container.
+
+## Integrated provenance lifecycle — 2026-10-11
+
+Private validated service proofs now flow through trusted adoption resolution into immutable recipes. Workspace membership, worker prebuild/precutover checks and direct container control use the shared matcher. Exact canonical legacy behavior remains compatible; explicit adopted ownership cannot be bypassed by a same-prefix unregistered service. Control resolves every stored proof before operating the canonical configuration.
+
+Authorized configuration updates prepare a successor proof transition, journal it, and CAS the environment recipe only after runtime verification. Only freshly inspected recreated services with full IDs and exact canonical labels may replace their original invocation identity with canonical identity; untouched service proofs retain their original invocation. Recovery restores runtime first, then restores the original recipe binding without overwriting concurrent preferences. Worker success is recorded only after journal cleanup.
+
+Evidence: 266 backend tests; real local alternate-file adoption with unchanged container/data; real independent-copy provenance fixture applying two consecutive RAM/CPU updates to a stopped service, verifying persisted/reopened proof, replay without recreation, cleanup and unchanged peers. `tests/live_provenance.py`, `tests/live_adoption.py`, and `tests/test_provenance_recovery.py` reproduce the checks.
+
+Remaining production acceptance: fresh live inventory and database identity/sharing review, runtime-vs-definition reconciliation, authorized activation and browser flow. No production adoption or new monitor deployment was performed for this integration.

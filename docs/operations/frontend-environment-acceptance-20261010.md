@@ -46,3 +46,10 @@ Remaining acceptance: verified live workload adoption, selected-environment buil
 - Direct container start/stop/restart now invokes and waits on immutable ID. Bound registry compatibility projection now loads and validates the exact environment recipe, preserving adopted service ownership and rejecting corruption/cross-project references.
 - Semantic Compose comparison and bounded managed resolver implemented and independently reviewed. Changed referenced secret/config bytes change the proof. Live read-only comparison succeeded for ten alternate-invocation services across seven projects; no adoption/mutation performed.
 - Full backend suite: 230 tests passed. This checkpoint does not close provisioning, migration execution, file/database tools, MCP, or production acceptance.
+
+## Provenance lifecycle checkpoint — 2026-10-11
+
+- Alternate Compose invocation proof is integrated into adoption, workspace ownership, container control and worker prebuild/precutover checks. Proofs remain private; invalid or changed proofs cannot silently grant membership/control.
+- Real Docker alternate-file adoption passed without moving data or changing container identity. Real stopped-container limits passed twice (96 MiB/0.2 CPU then 160 MiB/0.4 CPU) using independent original/canonical definitions, successor proof persistence, registry reopen and replay. Fixtures removed and peer lifecycle unchanged.
+- Journal recovery tests cover before/after proof commit, concurrent preferences, restoration/metadata failure and failed journal deletion. No deployment success is reported before cleanup.
+- 266 backend tests passed. Production binding/rollout and the remaining full-product scope are still incomplete.

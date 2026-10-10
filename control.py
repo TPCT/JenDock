@@ -64,16 +64,32 @@ def inspect_target(project_name, container_name):
         expected_files = ordered_files(recipe.get('compose_files'))
     except (ValueError, AttributeError):
         raise ControlError('Container configuration identity is invalid.') from None
-    if observed_files != expected_files:
+    if 'owned_services' in recipe or recipe.get('service_provenance') is not None:
+        import provenance
+        if not provenance.matches(recipe, group, service, list(observed_files)):
+            raise ControlError('Container configuration does not match the registered project.')
+        try:
+            for owned in recipe.get('service_provenance', {}):
+                if owned not in recipe.get('owned_services', recipe.get('services', [])):
+                    raise ValueError('Compose provenance claims an unowned service.')
+                provenance.revalidate(recipe, owned, review_compose)
+        except ValueError as error:raise ControlError(str(error)) from None
+    elif observed_files != expected_files:
         raise ControlError('Container configuration does not match the registered project.')
-    files = [checked_path(f) for f in observed_files]
+    # Operate the canonical invocation only after alternate provenance passes.
+    files = [checked_path(f) for f in expected_files]
     args = [COMPOSE,'--profile','*','-p',group]
     for f in files: args += ['-f',str(f)]
     # Resolve from the actual Compose project directory, including its .env file.
     directory = files[0].parent
-    dotenv = directory/'.env'
+    dotenv = checked_path(recipe['env_file']) if recipe.get('env_file') else directory/'.env'
     if dotenv.exists():args += ['--env-file',str(checked_path(dotenv))]
+    result['_monitor_recipe'] = recipe
     return result,service,files,args
+
+def review_compose(recipe, service, observed_files):
+    from compose_review import review
+    return review(recipe, service, observed_files, ROOT, command, COMPOSE)
 
 def effective_environment(container):
     return dict(item.split('=',1) for item in container['Config'].get('Env',[]) if '=' in item)
@@ -148,6 +164,11 @@ def restore_environment():
         raise ControlError('Restored runtime differs from the previous container.')
     if 'previous_resources' in record and resource_limits(restored)!=record['previous_resources']:
         raise ControlError('Previous resource limits were not restored.')
+    if record.get('provenance_transition'):
+        import provenance_store
+        db=connect(DATABASE)
+        try:provenance_store.rollback(db,record['provenance_transition'])
+        finally:db.close()
     JOURNAL.unlink()
 
 def details(project, name):
@@ -210,8 +231,8 @@ def execute(body):
             effective_projects(db,CONFIG)
             if JOURNAL.exists():raise ControlError('Container recovery is pending. Resolve it before adopting a workload.')
             inventory=adoption.collect(DOCKER,command)
-            if action=='adoption-preview':return adoption.public(adoption.preview(db,project,body.get('environment'),inventory))
-            result=adoption.adopt(db,project,body.get('environment'),body.get('fingerprint'),inventory,actor)
+            if action=='adoption-preview':return adoption.public(adoption.preview(db,project,body.get('environment'),inventory,resolver=review_compose))
+            result=adoption.adopt(db,project,body.get('environment'),body.get('fingerprint'),inventory,actor,resolver=review_compose)
             audit(db,actor,action,project,'Existing workload adopted as '+body['environment']+'. No containers or data moved.')
             return {'project':result,'message':'Existing workload linked to '+body['environment']+'. No containers or data were moved.'}
         except ValueError as error:raise ControlError(str(error)) from None
@@ -309,6 +330,13 @@ def execute(body):
                     observed=resource_limits(updated)
                     if abs(observed['memory_mib']-limits['memory_mib'])>.001 or abs(observed['cpu']-limits['cpu'])>.00001 or abs(observed['swap_mib']-limits['memory_mib'])>.001:
                         raise ControlError('Runtime resource limits differ from the requested allocation.')
+                import provenance_store
+                transition=provenance_store.prepare(db,project,c.get('_monitor_recipe',{}),review_compose,
+                    recreated={service: updated})
+                if transition:
+                    record['provenance_transition']=transition
+                    atomic_write(JOURNAL,json.dumps(record),0o600)
+                    provenance_store.commit(db,transition)
                 JOURNAL.unlink()
                 message=('RAM and CPU limits applied and verified.' if action in ('resource-apply','container-limits-save') else 'Environment saved and verified.')+' The service was recreated; its previous running or stopped state was preserved.'
             else:

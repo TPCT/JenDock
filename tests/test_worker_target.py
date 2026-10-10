@@ -95,3 +95,61 @@ class WorkerTargetTests(unittest.TestCase):
             with self.subTest(files=files), patch.object(worker, 'containers', return_value=[{'ID': 'a' * 12, 'Service': 'web'}]), \
                  patch.object(worker, 'run', return_value=json.dumps([actual])):
                 with self.assertRaises(worker.StepFailure): worker.verify_target_ownership(project)
+
+class WorkerProvenanceTests(unittest.TestCase):
+    project = WorkerTargetTests.project
+    observation = WorkerTargetTests.observation
+    def pinned(self):
+        import hashlib
+        project = self.project()
+        recipe = project['recipe']
+        recipe['owned_services'] = ['web', 'database']
+        recipe['service_provenance'] = {}
+        for service in recipe['owned_services']:
+            proof = {'schema_version': 1, 'service': service, 'compose_project': 'app',
+                     'observed_files': ['/managed/original.yml'], 'canonical_files': recipe['compose_files'],
+                     'environment_context_digest': 'b' * 64, 'semantic_digest': 'c' * 64}
+            proof['fingerprint'] = hashlib.sha256(json.dumps(proof, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            recipe['service_provenance'][service] = proof
+        return project
+
+    def test_original_invocation_matches_after_all_service_proofs_revalidated(self):
+        project = self.pinned(); observed = self.observation()
+        observed['Config']['Labels']['com.docker.compose.project.config_files'] = '/managed/original.yml'
+        def review(recipe, service, files, root, command, compose):
+            self.assertEqual(str(root), '/opt/docker-engine/projects')
+            self.assertEqual(files, ['/managed/original.yml'])
+            return {'equivalent': True, 'proof': recipe['service_provenance'][service]}
+        with patch.object(worker.compose_review, 'review', side_effect=review) as reviewed, \
+             patch.object(worker, 'containers', return_value=[{'ID': 'a' * 12, 'Service': 'web'}]), \
+             patch.object(worker, 'run', return_value=json.dumps([observed])):
+            ids = worker.verify_target_ownership(project)
+            self.assertEqual(worker.verify_target_ownership(project, ids), ids)
+            self.assertEqual([call.args[1] for call in reviewed.call_args_list], ['web', 'database', 'web', 'database'])
+
+    def test_missing_proof_rejects_old_invocation_and_drift_blocks_before_inspection(self):
+        project = self.pinned(); observed = self.observation()
+        observed['Config']['Labels']['com.docker.compose.project.config_files'] = '/managed/original.yml'
+        project['recipe'].pop('service_provenance')
+        with patch.object(worker, 'containers', return_value=[{'ID': 'a' * 12, 'Service': 'web'}]), \
+             patch.object(worker, 'run', return_value=json.dumps([observed])):
+            with self.assertRaisesRegex(worker.StepFailure, 'ownership'):
+                worker.verify_target_ownership(project)
+        for result in ({'equivalent': False, 'proof': None}, {'proof': {}}, None):
+            with self.subTest(result=result), patch.object(worker.compose_review, 'review', return_value=result), \
+                 patch.object(worker, 'containers') as inspect:
+                with self.assertRaisesRegex(worker.StepFailure, 'provenance'):
+                    worker.verify_target_ownership(self.pinned())
+                inspect.assert_not_called()
+
+    def test_valid_but_changed_context_proof_blocks_canonical_target(self):
+        import hashlib
+        def review(recipe, service, *args):
+            proof = dict(recipe['service_provenance'][service], environment_context_digest='d' * 64)
+            proof.pop('fingerprint')
+            proof['fingerprint'] = hashlib.sha256(json.dumps(proof, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            return {'equivalent': True, 'proof': proof}
+        with patch.object(worker.compose_review, 'review', side_effect=review), patch.object(worker, 'containers') as inspect:
+            with self.assertRaisesRegex(worker.StepFailure, 'provenance'):
+                worker.verify_target_ownership(self.pinned())
+            inspect.assert_not_called()

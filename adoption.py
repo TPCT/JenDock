@@ -116,7 +116,7 @@ def _storage(row, path=None):
     return sorted([{'type': m['type'], 'source': m['source'], 'destination': m['destination']} for m in mounts], key=lambda m: m['destination'])
 
 
-def preview(db, project, environment, inventory, *, now=None):
+def preview(db, project, environment, inventory, *, now=None, resolver=None):
     now = time.time() if now is None else now
     registered = registry.get_project(db, project)
     target = registry.get_environment(db, project, environment)
@@ -138,10 +138,11 @@ def preview(db, project, environment, inventory, *, now=None):
     if not members:
         raise ValueError('No existing containers match this registered workload.')
     expected_files = _files(recipe.get('compose_files'))
+    service_provenance = {}
     for row in members:
         if not re.fullmatch('[0-9a-f]{64}', row.get('id', '')) or not re.fullmatch('sha256:[0-9a-f]{64}', row.get('image_id', '')):
             raise ValueError('Full immutable container and image identities are required.')
-        if row.get('compose_project') != recipe.get('compose_project') or _files(row.get('compose_files')) != expected_files:
+        if row.get('compose_project') != recipe.get('compose_project'):
             raise ValueError('Container ownership conflicts with its registered Compose configuration.')
         owners = [name for name, p in projects.items() if any(row['name'].startswith(prefix) for prefix in p.get('container_prefixes', []))]
         if owners != [project]:
@@ -151,6 +152,24 @@ def preview(db, project, environment, inventory, *, now=None):
         raise ValueError('Compose services must have unique container membership.')
     if set(recipe.get('services', [])) - set(services):
         raise ValueError('Some deployment services are missing from the actual workload.')
+    for row in members:
+        observed_files = _files(row.get('compose_files'))
+        if observed_files == expected_files:
+            continue
+        if not callable(resolver):
+            raise ValueError('Container ownership conflicts with its registered Compose configuration.')
+        # This callback is supplied by the worker, never from request/inventory
+        # proof fields. A successful comparison remains private adoption evidence.
+        resolved = resolver(recipe, row['compose_service'], list(observed_files))
+        if (not isinstance(resolved, dict) or resolved.get('equivalent') is not True
+                or resolved.get('mismatches') != [] or not isinstance(resolved.get('proof'), dict)):
+            raise ValueError('Alternate Compose configuration is not verified equivalent.')
+        from provenance import validate_proof
+        proof = validate_proof(recipe, row['compose_service'], resolved['proof'])
+        if (proof is None or _files(proof['observed_files']) != observed_files
+                or resolved.get('digest') != proof['semantic_digest']):
+            raise ValueError('Compose verification does not match the observed invocation.')
+        service_provenance[row['compose_service']] = proof
     databases = []
     member_ids = {r['id'] for r in members}
     for row in members:
@@ -194,11 +213,13 @@ def preview(db, project, environment, inventory, *, now=None):
               'environment_revision': target['revision'], 'recipe_digest': _digest(recipe),
               'containers': selected, 'databases': sorted(databases, key=lambda d: d['client']),
               'state': 'active' if all(r['running'] for r in selected) else 'stopped' if not any(r['running'] for r in selected) else 'degraded'}
+    if service_provenance:
+        result['service_provenance'] = service_provenance
     result['fingerprint'] = _digest(result)
     return result
 
 
-def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None):
+def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None, resolver=None):
     initialize(db)
     with registry.transaction(db):
         previous = db.execute('SELECT environment,fingerprint,actor FROM workload_adoptions WHERE project=?', (project,)).fetchone()
@@ -206,7 +227,7 @@ def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None):
             if (previous['environment'], previous['fingerprint'], previous['actor']) != (environment, fingerprint, actor):
                 raise ValueError('This workload was adopted with a different reviewed identity.')
             return registry.get_project(db, project)
-        evidence = preview(db, project, environment, inventory, now=now)
+        evidence = preview(db, project, environment, inventory, now=now, resolver=resolver)
         if evidence['fingerprint'] != fingerprint:
             raise ValueError('Workload identity or settings changed. Review the refreshed adoption preview.')
         recipe = db.execute('SELECT id,document FROM registry_recipes WHERE project=? AND digest=?', (project, evidence['recipe_digest'])).fetchone()
@@ -214,6 +235,8 @@ def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None):
             raise ValueError('The verified recipe is unavailable.')
         document = json.loads(recipe['document'])
         document['owned_services'] = sorted(r['service'] for r in evidence['containers'])
+        if evidence.get('service_provenance'):
+            document['service_provenance'] = evidence['service_provenance']
         digest = _digest(document)
         db.execute('INSERT OR IGNORE INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
                    (project, digest, registry.canonical(document), time.time()))

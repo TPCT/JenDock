@@ -158,3 +158,35 @@ class WorkspaceTests(unittest.TestCase):
             self.assertFalse(workspace._recipe_matches(recipe, workspace._identity(row)))
         self.assertTrue(workspace._recipe_matches(recipe, workspace._identity(dict(
             self.container, ComposeConfigFiles='/managed/compose.yml,/managed/override.yml'))))
+
+class WorkspaceProvenanceTests(unittest.TestCase):
+    setUp = WorkspaceTests.setUp
+    tearDown = WorkspaceTests.tearDown
+    read = WorkspaceTests.read
+    def test_pinned_provenance_accepts_only_reviewed_ordered_invocation(self):
+        import hashlib
+        proof = {'schema_version': 1, 'service': 'web', 'compose_project': 'owned-group',
+                 'observed_files': ['/managed/old.yml', '/managed/old.override.yml'],
+                 'canonical_files': self.recipe['compose_files'],
+                 'environment_context_digest': 'b' * 64, 'semantic_digest': 'c' * 64}
+        proof['fingerprint'] = hashlib.sha256(registry.canonical(proof).encode()).hexdigest()
+        recipe = dict(self.recipe, service_provenance={'web': proof})
+        document = registry.canonical(recipe)
+        revision = self.db.execute('INSERT INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
+            ('app', hashlib.sha256(document.encode()).hexdigest(), document, time.time())).lastrowid
+        registry.update_project(self.db, 'app', 1, {'legacy_binding': 'production'})
+        self.db.execute("UPDATE registry_environments SET recipe_revision=? WHERE project='app' AND name='production'", (revision,))
+        snapshot(self.db, 'containers', [dict(self.container, ComposeConfigFiles=','.join(proof['observed_files']))])
+        result = self.read('production')
+        self.assertEqual(result['binding']['state'], 'verified')
+        self.assertEqual(len(result['services']), 1)
+        self.assertNotIn('service_provenance', json.dumps(result))
+        snapshot(self.db, 'containers', [dict(self.container, ComposeConfigFiles=','.join(reversed(proof['observed_files'])))])
+        self.assertEqual(self.read('production')['services'], [])
+
+    def test_recipe_digest_corruption_cannot_grant_membership(self):
+        registry.update_project(self.db, 'app', 1, {'legacy_binding': 'production'})
+        revision = self.db.execute('INSERT INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
+            ('app', 'a' * 64, registry.canonical(self.recipe), time.time())).lastrowid
+        self.db.execute("UPDATE registry_environments SET recipe_revision=? WHERE project='app' AND name='production'", (revision,))
+        self.assertEqual(self.read('production')['services'], [])

@@ -17,6 +17,7 @@ import tempfile
 REPOSITORY = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY))
 import adoption
+import compose_review
 import registry
 from store import connect
 
@@ -39,7 +40,11 @@ def inspect(docker, identifier):
 
 
 def identity(row):
-    return {key: row[key] for key in ('Id', 'Image', 'Mounts', 'State', 'HostConfig', 'Config')}
+    result = {key: row[key] for key in ('Id', 'Image', 'Mounts', 'HostConfig', 'Config')}
+    # Health logs advance autonomously; pin lifecycle state, not probe timestamps.
+    result['State'] = {key: row['State'].get(key) for key in
+                       ('Running', 'Paused', 'Restarting', 'OOMKilled', 'Dead', 'Pid', 'ExitCode', 'StartedAt', 'FinishedAt')}
+    return result
 
 
 def peers(docker):
@@ -81,6 +86,10 @@ def main():
             'volumes': [{'type': 'bind', 'source': str(storage), 'target': '/fixture', 'read_only': True}],
         }}}))
         compose_bytes = compose_file.read_bytes()
+        canonical_file = root / 'canonical.yml'
+        canonical_file.write_bytes(compose_bytes)
+        def resolver(recipe, service, observed_files):
+            return compose_review.review(recipe, service, observed_files, root, command, compose)
         args = [compose, '-p', PROJECT, '-f', str(compose_file)]
         db = None
         try:
@@ -107,7 +116,7 @@ def main():
             registry.import_legacy(db, {PROJECT: {
                 'repository': 'TPCT/deploy-monitor', 'repository_id': 12,
                 'branch': 'main', 'automatic': False, 'container_prefixes': [PROJECT + '-' + SERVICE + '-'],
-                'recipe': {'compose_project': PROJECT, 'compose_files': [str(compose_file)], 'services': [SERVICE]},
+                'recipe': {'compose_project': PROJECT, 'compose_files': [str(canonical_file)], 'services': [SERVICE]},
             }}, [])
             development = registry.get_environment(db, PROJECT, 'development')
             mismatch = copy.deepcopy(inventory)
@@ -119,14 +128,28 @@ def main():
             else:
                 raise AssertionError('Mismatched Compose identity was accepted')
             assert registry.get_project(db, PROJECT)['legacy_binding'] is None
-            preview = adoption.preview(db, PROJECT, 'production', inventory)
+            preview = adoption.preview(db, PROJECT, 'production', inventory, resolver=resolver)
+            proof = preview['service_provenance'][SERVICE]
+            assert proof['observed_files'] == [str(compose_file)]
+            assert proof['canonical_files'] == [str(canonical_file)]
+            # Equivalent source changes must still invalidate the reviewed context.
+            canonical_file.write_bytes(compose_bytes + b'\n')
+            try:
+                adoption.adopt(db, PROJECT, 'production', preview['fingerprint'], inventory,
+                               'local-adoption-integration', resolver=resolver)
+            except ValueError as error:
+                assert 'changed' in str(error)
+            else:
+                raise AssertionError('Changed Compose context was adopted using stale proof')
+            assert registry.get_project(db, PROJECT)['legacy_binding'] is None
+            canonical_file.write_bytes(compose_bytes)
             public = adoption.public(preview)
             assert str(root) not in json.dumps(public)
             assert public['databases'][0]['engine'] == 'sqlite'
             assert public['databases'][0]['database'] == '/fixture/synthetic.sqlite'
             fresh = adoption.collect(docker, inventory_command)
-            adopted = adoption.adopt(db, PROJECT, 'production', preview['fingerprint'], fresh, 'local-adoption-integration')
-            assert adoption.adopt(db, PROJECT, 'production', preview['fingerprint'], fresh, 'local-adoption-integration') == adopted
+            adopted = adoption.adopt(db, PROJECT, 'production', preview['fingerprint'], fresh, 'local-adoption-integration', resolver=resolver)
+            assert adoption.adopt(db, PROJECT, 'production', preview['fingerprint'], fresh, 'local-adoption-integration', resolver=resolver) == adopted
             db.close(); db = connect(state_file)
             reread = registry.get_project(db, PROJECT)
             assert reread == adopted and reread['legacy_binding'] == 'production'
@@ -135,12 +158,15 @@ def main():
             assert target['state'] == 'active'
             recipe = json.loads(db.execute('SELECT document FROM registry_recipes WHERE id=?', (target['recipe_revision'],)).fetchone()[0])
             assert recipe['owned_services'] == [SERVICE] and recipe['services'] == [SERVICE]
+            assert recipe['service_provenance'][SERVICE] == proof
+            assert recipe['compose_files'] == [str(canonical_file)]
             assert db.execute('SELECT fingerprint FROM workload_adoptions').fetchone()[0] == preview['fingerprint']
             assert identity(inspect(docker, CONTAINER)) == before
             assert synthetic.read_bytes() and hashlib.sha256(synthetic.read_bytes()).hexdigest() == database_hash
-            assert compose_file.read_bytes() == compose_bytes
+            assert compose_file.read_bytes() == canonical_file.read_bytes() == compose_bytes
             assert sorted(path.name for path in storage.iterdir()) == ['synthetic.sqlite']
-            report.update(metadata_persisted_after_reconnect=True, exact_retry_idempotent=True,
+            report.update(alternate_invocation_verified=True, provenance_persisted_after_reconnect=True,
+                          stale_proof_rejected_without_binding=True, metadata_persisted_after_reconnect=True, exact_retry_idempotent=True,
                           mismatched_compose_rejected=True, container_and_mounts_unchanged=True,
                           database_bytes_unchanged=True, compose_bytes_unchanged=True,
                           public_host_paths_omitted=True, container_id=before['Id'], fingerprint=preview['fingerprint'])

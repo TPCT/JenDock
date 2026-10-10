@@ -120,3 +120,90 @@ class AdoptionTests(unittest.TestCase):
             self.rows[0]['compose_files'] = files
             with self.subTest(files=files), self.assertRaises(ValueError): self.preview()
             self.assertIsNone(registry.get_project(self.db, 'app')['legacy_binding'])
+
+    def resolver(self, recipe, service, files, context='a' * 64):
+        from compose_reconciliation import reconcile
+        config = {'services': {service: {'image': 'fixture:v1', 'network_mode': 'none'}}}
+        return reconcile(service, config, config, files, recipe['compose_files'],
+                         compose_project=recipe['compose_project'], environment_context_digest=context)
+
+    def test_alternate_files_verified_and_provenance_persisted_privately(self):
+        self.rows[1]['compose_files'] = ['/managed/compose.yml']
+        calls = []
+        def resolver(recipe, service, files):
+            calls.append((service, files))
+            return self.resolver(recipe, service, files)
+        review = adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=resolver)
+        self.assertEqual(calls, [('db', ['/managed/compose.yml'])])
+        self.assertEqual(set(review['service_provenance']), {'db'})
+        self.assertNotIn('/managed', json.dumps(adoption.public(review)))
+        result = adoption.adopt(self.db, 'app', 'production', review['fingerprint'], self.inventory,
+                                'admin', now=1002, resolver=resolver)
+        recipe_id = result['environments']['production']['recipe_revision']
+        recipe = json.loads(self.db.execute('SELECT document FROM registry_recipes WHERE id=?', (recipe_id,)).fetchone()[0])
+        self.assertEqual(recipe['service_provenance'], review['service_provenance'])
+        self.assertEqual(recipe['services'], ['web'])
+        self.assertEqual(recipe['owned_services'], ['db', 'web'])
+        stored = json.loads(self.db.execute('SELECT evidence FROM workload_adoptions').fetchone()[0])
+        self.assertEqual(stored['service_provenance'], review['service_provenance'])
+
+    def test_exact_file_identity_never_needs_semantic_resolver(self):
+        from unittest.mock import Mock
+        resolver = Mock(side_effect=AssertionError('Exact ownership must not need reconciliation'))
+        review = adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=resolver)
+        self.assertNotIn('service_provenance', review)
+        self.assertEqual(review, self.preview())
+        adoption.adopt(self.db, 'app', 'production', review['fingerprint'], self.inventory,
+                       'admin', now=1002, resolver=resolver)
+        resolver.assert_not_called()
+
+    def test_changed_resolver_context_rejects_adoption_without_partial_binding(self):
+        self.rows[1]['compose_files'] = ['/managed/compose.yml']
+        review = adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=self.resolver)
+        def changed(recipe, service, files):
+            return self.resolver(recipe, service, files, context='b' * 64)
+        after = adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=changed)
+        self.assertNotEqual(review['fingerprint'], after['fingerprint'])
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            adoption.adopt(self.db, 'app', 'production', review['fingerprint'], self.inventory,
+                           'admin', now=1002, resolver=changed)
+        self.assertIsNone(registry.get_project(self.db, 'app')['legacy_binding'])
+        self.assertEqual(self.db.execute('SELECT count(*) FROM workload_adoptions').fetchone()[0], 0)
+
+    def test_forged_mismatched_or_failed_proofs_rejected(self):
+        self.rows[1]['compose_files'] = ['/managed/compose.yml']
+        for field, value in [('fingerprint', '0' * 64), ('service', 'web'), ('compose_project', 'other'),
+                             ('canonical_files', ['/managed/other.yml']), ('observed_files', ['/managed/wrong.yml'])]:
+            def forged(recipe, service, files):
+                result = self.resolver(recipe, service, files)
+                result['proof'][field] = value
+                return result
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=forged)
+        for resolved in ({'equivalent': False}, {'equivalent': True, 'proof': {}}, {'equivalent': 1}):
+            with self.subTest(resolved=resolved), self.assertRaises(ValueError):
+                adoption.preview(self.db, 'app', 'production', self.inventory, now=1001,
+                                 resolver=lambda *args: resolved)
+        # Caller/inventory supplied proof data is never an authority source.
+        self.rows[1]['service_provenance'] = {'fingerprint': 'forged'}
+        with self.assertRaisesRegex(ValueError, 'ownership conflicts'):
+            self.preview()
+
+    def test_alternate_proof_does_not_bypass_database_guards(self):
+        self.rows[1]['compose_files'] = ['/managed/compose.yml']
+        self.rows[0]['database_endpoint']['DB_HOST'] = 'outside.example'
+        with self.assertRaisesRegex(ValueError, 'outside this workload'):
+            adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=self.resolver)
+
+    def test_valid_proof_for_another_observed_invocation_is_rejected(self):
+        self.rows[1]['compose_files'] = ['/managed/compose.yml']
+        def unrelated(recipe, service, files):
+            return self.resolver(recipe, service, ['/managed/different.yml'])
+        with self.assertRaisesRegex(ValueError, 'observed invocation'):
+            adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=unrelated)
+        def inconsistent_digest(recipe, service, files):
+            result = self.resolver(recipe, service, files)
+            result['digest'] = 'f' * 64
+            return result
+        with self.assertRaisesRegex(ValueError, 'observed invocation'):
+            adoption.preview(self.db, 'app', 'production', self.inventory, now=1001, resolver=inconsistent_digest)

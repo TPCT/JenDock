@@ -1,10 +1,12 @@
 """Public environment workspace read model; never guesses runtime ownership."""
 import json
+import hashlib
 import re
 import time
 
 import job_target
 import registry
+import provenance
 from compose_identity import ordered_files
 
 DISPLAY_FIELDS = ('ID', 'Names', 'Image', 'State', 'Status', 'CPUPerc', 'MemUsage', 'MemPerc', 'PIDs')
@@ -32,9 +34,10 @@ def _identity(row):
 def _recipe_matches(recipe, identity, require_service=True):
     if not isinstance(recipe, dict) or identity is None:
         return False
-    return (recipe.get('compose_project') == identity[0] and _files(recipe.get('compose_files')) == identity[2]
-            and (not require_service or isinstance(recipe.get('owned_services', recipe.get('services')), list)
-                 and identity[1] in recipe.get('owned_services', recipe.get('services'))))
+    if not require_service:
+        # Legacy candidacy remains separate from verified environment membership.
+        recipe = dict(recipe, owned_services=[identity[1]])
+    return provenance.matches(recipe, identity[0], identity[1], list(identity[2]))
 
 
 def _candidate(row, recipe, prefixes):
@@ -66,10 +69,12 @@ def _snapshot(db, name):
 
 def _bound_recipes(db):
     recipes = []
-    for row in db.execute('''SELECT e.project,e.name,e.recipe_revision,r.document
+    for row in db.execute('''SELECT e.project,e.name,e.recipe_revision,r.document,r.digest
             FROM registry_environments e JOIN registry_recipes r ON r.id=e.recipe_revision AND r.project=e.project'''):
         try:
             recipe = json.loads(row['document'])
+            if hashlib.sha256(registry.canonical(recipe).encode()).hexdigest() != row['digest']:
+                continue
         except (TypeError, ValueError):
             continue
         if (isinstance(recipe, dict) and isinstance(recipe.get('compose_project'), str)

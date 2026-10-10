@@ -57,13 +57,15 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT status FROM jobs').fetchone()['status'], 'needs-review')
             db.close()
 
-    def exercise_deployment(self, validate=False, fail_build=False, fail_migration=False, target_changed=False):
+    def exercise_deployment(self, validate=False, fail_build=False, fail_migration=False, target_changed=False, fail_unlink=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = root / '.env'
             env.write_text('APP_IMAGE=app:aaaaaaa\n')
             project = self.project()
             project.update(repository='TPCT/test', branch='development')
+            if fail_unlink:
+                project['recipe'].pop('migration')
             project['recipe'].update(env_file=str(env),
                 images=[{'name': 'app', 'env_key': 'APP_IMAGE', 'dockerfile': 'Dockerfile'}],
                 tests=[{'image': 'app', 'command': ['php', '-v']}], http_checks=[{'url': 'http://localhost', 'statuses': [200]}])
@@ -76,7 +78,7 @@ class MigrationTests(unittest.TestCase):
                 if args[:2] == ['git', 'clone']:
                     Path(args[-1]).mkdir()
                 if args[:2] == ['git', 'rev-parse']: return 'b' * 40
-                if args[:2] == ['git', 'diff']: return 'database/migrations/new.php'
+                if args[:2] == ['git', 'diff']: return '' if fail_unlink else 'database/migrations/new.php'
                 if args[:2] == ['git', 'ls-files']: return 'Dockerfile\napp/Test.php'
                 if args[:2] == ['git', 'ls-remote']: return 'b' * 40 + '\trefs/heads/main'
                 if 'inspect' in args: return 'a' * 40
@@ -87,7 +89,15 @@ class MigrationTests(unittest.TestCase):
             def temporary(*args, **kwargs):
                 kwargs.pop('dir', None)
                 return temp_factory(*args, **kwargs)
-            with patch('worker.STATE', root), patch('worker.run', side_effect=execute), \
+            original_unlink = Path.unlink
+            unlink_failed = False
+            def unlink(path, *args, **kwargs):
+                nonlocal unlink_failed
+                if fail_unlink and path == root / 'transaction.json' and not unlink_failed:
+                    unlink_failed = True
+                    raise OSError('Journal removal failed')
+                return original_unlink(path, *args, **kwargs)
+            with patch.object(Path, 'unlink', autospec=True, side_effect=unlink), patch('worker.STATE', root), patch('worker.run', side_effect=execute), \
                  patch('worker.containers', return_value=[{'Image': 'app:aaaaaaa'}]), \
                  patch('worker.verify_runtime'), patch('worker.verify_target_ownership', side_effect=[{'c' * 64}, worker.StepFailure('Target changed')] if target_changed else None, return_value={'c' * 64}), patch('worker.subprocess.run'), \
                  patch('worker.tempfile.TemporaryDirectory', side_effect=temporary):
@@ -138,3 +148,10 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(any('artisan' in args or 'up' in args for args in commands))
         self.assertEqual(env, 'APP_IMAGE=app:aaaaaaa\n')
         self.assertFalse(journal)
+
+    def test_failed_journal_removal_rolls_back_without_success_status(self):
+        commands, state, env, journal = self.exercise_deployment(fail_unlink=True)
+        self.assertEqual(state['status'], 'rolled-back')
+        self.assertEqual(env, 'APP_IMAGE=app:aaaaaaa\n')
+        self.assertFalse(journal)
+        self.assertEqual(sum('up' in args for args in commands), 2)
