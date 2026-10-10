@@ -303,11 +303,9 @@ function App() {
       setClock((n) => n + 1);
       refresh().catch(() => {});
     }, 15000);
-    const touch = setInterval(() => api("session").catch(() => {}), 300000);
     return () => {
       events.close();
       clearInterval(timer);
-      clearInterval(touch);
     };
   }, [session, api, refresh]);
   useEffect(() => {
