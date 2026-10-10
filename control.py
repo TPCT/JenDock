@@ -313,8 +313,8 @@ def execute(body):
                 message=('RAM and CPU limits applied and verified.' if action in ('resource-apply','container-limits-save') else 'Environment saved and verified.')+' The service was recreated; its previous running or stopped state was preserved.'
             else:
                 operation=action.removeprefix('container-')
-                command([DOCKER,operation,*(['--time','20'] if operation in ('stop','restart') else []),name],timeout=60)
-                wait_runtime(name,operation!='stop')
+                command([DOCKER,operation,*(['--time','20'] if operation in ('stop','restart') else []),c['Id']],timeout=60)
+                wait_runtime(c['Id'],operation!='stop')
                 message='Container '+{'start':'started','stop':'stopped','restart':'restarted'}[operation]+' and runtime state verified.'
             status='succeeded'
         except Exception:

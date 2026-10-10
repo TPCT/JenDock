@@ -175,5 +175,50 @@ class RegistryTests(unittest.TestCase):
                 r.update_environment(self.db, 'app', 'development', 1, {'recipe_revision': bad})
 
 
+    def test_bound_projection_uses_newly_pinned_owned_services_recipe(self):
+        r = self.registry(); r.import_legacy(self.db, self.legacy(), [])
+        r.update_project(self.db, 'app', 1, {'legacy_binding': 'production'})
+        import hashlib
+        pinned = dict(self.legacy()['app']['recipe'], owned_services=['web', 'database'])
+        document = r.canonical(pinned)
+        recipe_id = self.db.execute('INSERT INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
+            ('app', hashlib.sha256(document.encode()).hexdigest(), document, 1)).lastrowid
+        self.db.execute("UPDATE registry_environments SET recipe_revision=? WHERE project='app' AND name='production'", (recipe_id,))
+        projected = r.legacy_projects(self.db)['app']
+        self.assertEqual(projected['recipe'], pinned)
+        self.assertEqual(projected['recipe']['owned_services'], ['web', 'database'])
+        original = json.loads(self.db.execute("SELECT legacy_document FROM registry_projects WHERE id='app'").fetchone()[0])
+        self.assertNotIn('owned_services', original['recipe'])
+        self.assertNotIn('owned_services', json.dumps(r.get_project(self.db, 'app')))
+
+    def test_bound_projection_rejects_missing_or_cross_project_recipe(self):
+        r = self.registry(); r.import_legacy(self.db, self.legacy(), [])
+        r.update_project(self.db, 'app', 1, {'legacy_binding': 'production'})
+        r.create_project(self.db, 'other', {'repository': 'TPCT/other'})
+        row = self.db.execute("SELECT digest,document FROM registry_recipes WHERE project='app'").fetchone()
+        foreign = self.db.execute('INSERT INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
+            ('other', row['digest'], row['document'], 1)).lastrowid
+        for missing in (None, 99999, foreign):
+            with self.subTest(recipe=missing):
+                self.db.execute("UPDATE registry_environments SET recipe_revision=? WHERE project='app' AND name='production'", (missing,))
+                with self.assertRaisesRegex(ValueError, 'missing or belongs'):
+                    r.legacy_projects(self.db)
+        self.db.execute("DELETE FROM registry_environments WHERE project='app' AND name='production'")
+        with self.assertRaises(ValueError):
+            r.legacy_projects(self.db)
+
+    def test_bound_projection_rejects_corrupt_recipe_even_with_legacy_fallback_available(self):
+        import hashlib
+        r = self.registry(); r.import_legacy(self.db, self.legacy(), [])
+        r.update_project(self.db, 'app', 1, {'legacy_binding': 'production'})
+        for index, document in enumerate(('{broken', '{"services":["hijacked"]}', '[]', '{}', '{"value":NaN}')):
+            digest = str(index) * 64 if index < 2 else hashlib.sha256(document.encode()).hexdigest()
+            recipe_id = self.db.execute('INSERT INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
+                ('app', digest, document, 1)).lastrowid
+            self.db.execute("UPDATE registry_environments SET recipe_revision=? WHERE project='app' AND name='production'", (recipe_id,))
+            with self.subTest(document=document), self.assertRaisesRegex(ValueError, 'bound environment recipe'):
+                r.legacy_projects(self.db)
+
+
 if __name__ == '__main__':
     unittest.main()

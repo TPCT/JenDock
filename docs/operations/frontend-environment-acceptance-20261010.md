@@ -39,3 +39,10 @@ Remaining acceptance: verified live workload adoption, selected-environment buil
 - Local browser smoke confirmed integrations and telemetry chunks load. Rebuilding while a tab held the previous entry script exposed a stale-chunk retry issue; recovery is being fixed before completing this checkpoint.
 - Recovery fix: failed dynamic imports now offer explicit Reload application to obtain current asset hashes; ordinary render failures retain Retry. A fresh local browser loaded integrations, telemetry and container detail successfully. Captured stale inventory correctly disables live log access; successful browser-to-live-worker log reading is not yet verified.
 - Final receiver and worker Docker builds both completed successfully. Frontend test rerun: 23 passed. No production deployment in this checkpoint.
+
+## Reviewed backend continuation
+
+- Real authenticated HTTP -> Unix worker -> Docker log acceptance passed (`tests/live_logs_http.py`): 401/403, owned immutable identity, redaction, stale ID after same-name replacement, refreshed ID success, fixture cleanup and unchanged peers. Rendered live browser polling remains unverified.
+- Direct container start/stop/restart now invokes and waits on immutable ID. Bound registry compatibility projection now loads and validates the exact environment recipe, preserving adopted service ownership and rejecting corruption/cross-project references.
+- Semantic Compose comparison and bounded managed resolver implemented and independently reviewed. Changed referenced secret/config bytes change the proof. Live read-only comparison succeeded for ten alternate-invocation services across seven projects; no adoption/mutation performed.
+- Full backend suite: 230 tests passed. This checkpoint does not close provisioning, migration execution, file/database tools, MCP, or production acceptance.

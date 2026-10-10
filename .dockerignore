@@ -23,3 +23,5 @@ frontend/dist
 
 !compose_identity.py
 !container_logs.py
+!compose_reconciliation.py
+!compose_review.py

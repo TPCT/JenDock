@@ -9,7 +9,7 @@ FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf5
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN pip install --no-cache-dir cryptography==48.0.1
-COPY server.py store.py telemetry.py resource_policy.py registry.py job_target.py delivery_target.py integrations.py workspace.py direct_limits.py adoption.py compose_identity.py container_logs.py ./
+COPY server.py store.py telemetry.py resource_policy.py registry.py job_target.py delivery_target.py integrations.py workspace.py direct_limits.py adoption.py compose_identity.py compose_reconciliation.py compose_review.py container_logs.py ./
 COPY --from=frontend /ui/dist ./web
 USER 65534:65534
 EXPOSE 8080
@@ -20,5 +20,5 @@ FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf5
 RUN apk add --no-cache git openssh-client ca-certificates && pip install --no-cache-dir PyYAML==6.0.3
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY worker.py store.py control.py terminal_control.py telemetry.py resource_policy.py registry.py job_target.py delivery_target.py integrations.py workspace.py direct_limits.py adoption.py compose_identity.py container_logs.py ./
+COPY worker.py store.py control.py terminal_control.py telemetry.py resource_policy.py registry.py job_target.py delivery_target.py integrations.py workspace.py direct_limits.py adoption.py compose_identity.py compose_reconciliation.py compose_review.py container_logs.py ./
 CMD ["python", "worker.py"]

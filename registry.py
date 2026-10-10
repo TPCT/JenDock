@@ -186,7 +186,19 @@ def legacy_projects(db):
                             reason='Not provisioned. Configure an environment before deployment.')
         if row['legacy_binding']:
             environment = get_environment(db, row['id'], row['legacy_binding'])
-            document.update(branch=environment['branch'], automatic=environment['automatic'], environment=environment['name'])
+            recipe = db.execute('SELECT document,digest FROM registry_recipes WHERE id=? AND project=?',
+                                (environment['recipe_revision'], row['id'])).fetchone()
+            if recipe is None:
+                raise ValueError('The bound environment recipe is missing or belongs to another project.')
+            try:
+                pinned = json.loads(recipe['document'])
+                digest = hashlib.sha256(canonical(pinned).encode()).hexdigest()
+            except (ValueError, TypeError):
+                raise ValueError('The bound environment recipe is invalid.') from None
+            if not isinstance(pinned, dict) or not pinned or digest != recipe['digest']:
+                raise ValueError('The bound environment recipe digest or document is inconsistent.')
+            document.update(branch=environment['branch'], automatic=environment['automatic'],
+                            environment=environment['name'], recipe=pinned)
         result[row['id']] = document
     return result
 

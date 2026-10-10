@@ -1,0 +1,79 @@
+{
+  "read_only": true,
+  "results": [
+    {
+      "project": "aic-academy",
+      "container": "aic-academy-db-1",
+      "service": "academy-db",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "aic-academy",
+      "container": "aic-academy-redis-1",
+      "service": "academy-redis",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "aic-sys",
+      "container": "aic-sys-db-1",
+      "service": "sys-db",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "aic-sys",
+      "container": "aic-sys-redis-1",
+      "service": "sys-redis",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "aic-website",
+      "container": "aic-website-db-1",
+      "service": "website-db",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "dsl01",
+      "container": "dsl-dsl01-1",
+      "service": "dsl01",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "dsl01",
+      "container": "dsl-dsl01-db-1",
+      "service": "dsl01-db",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "dsl02",
+      "container": "dsl-dsl02-db-1",
+      "service": "dsl02-db",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "elfak-legacy",
+      "container": "elfak-legacy-db-1",
+      "service": "legacy-db",
+      "equivalent": true,
+      "mismatches": []
+    },
+    {
+      "project": "licence",
+      "container": "shiftcodes-licence-db-1",
+      "service": "licence-db",
+      "equivalent": true,
+      "mismatches": []
+    }
+  ],
+  "captured_at": "2026-10-10T20:58:50Z",
+  "host_identity_verified": true,
+  "scope": "Current resolved configuration equivalence only; no adoption, runtime replacement or database integrity claim",
+  "production_mutations": false
+}

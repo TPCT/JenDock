@@ -164,3 +164,20 @@ class ControlTests(unittest.TestCase):
             self.assertEqual(file.read_text(), original)
             self.assertFalse((root / 'journal').exists())
             recreate.assert_not_called()
+
+    def test_direct_actions_and_verification_use_immutable_id_not_reusable_name(self):
+        for operation in ('start', 'stop', 'restart'):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as directory:
+                identifier = 'c' * 64
+                container = {'Id': identifier, 'State': {'Running': operation != 'start'}}
+                body = {'action': 'container-' + operation, 'project': 'app', 'container': 'app-1',
+                        'container_id': identifier, 'request_id': operation + '-' + 'a' * 20}
+                with patch.object(control, 'DATABASE', str(Path(directory) / 'state.sqlite')), \
+                     patch.object(control, 'JOURNAL', Path(directory) / 'journal'), \
+                     patch.object(control, 'inspect_target', return_value=(container, 'app', [], [])), \
+                     patch.object(control, 'command') as command, patch.object(control, 'wait_runtime') as wait:
+                    self.assertEqual(control.execute(body)['status'], 'succeeded')
+                    argv = command.call_args.args[0]
+                    self.assertEqual(argv[-1], identifier)
+                    self.assertNotIn('app-1', argv)
+                    wait.assert_called_once_with(identifier, operation != 'stop')
