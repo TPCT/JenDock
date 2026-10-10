@@ -14,6 +14,7 @@ import adoption
 import compose_review
 import control
 import registry
+import resource_policy
 from store import connect
 
 PROJECT, SERVICE, IMAGE = 'deploy-monitor', 'provenance-check', 'python:3.13-slim'
@@ -101,6 +102,11 @@ def main():
             adoption.adopt(db, PROJECT, 'production', preview['fingerprint'], inventory, 'local-provenance-check', resolver=resolver)
             for key, value in {'DOCKER': docker, 'COMPOSE': compose, 'ROOT': root, 'CONFIG': config,
                                'DATABASE': str(database), 'JOURNAL': root / 'journal.json'}.items(): setattr(control, key, value)
+            policy = resource_policy.read(db, PROJECT)['document']
+            policy['budget'] = {'memory_mib': 192, 'cpu': 0.5}
+            policy['environments']['production']['budget'] = dict(policy['budget'])
+            resource_policy.save(db, PROJECT, 0, policy)
+            assert policy['environments']['production']['services'] == {}
             adopted_recipe_id = registry.get_environment(db, PROJECT, 'production')['recipe_revision']
             fingerprints = [preview['service_provenance'][SERVICE]['fingerprint']]
             ids = [initial['Id']]
@@ -109,7 +115,8 @@ def main():
                 body = {'action': 'container-limits-save', 'project': PROJECT, 'container': CONTAINER,
                         'container_id': detail['container_id'], 'revision': detail['revision'],
                         'request_id': str(uuid.uuid4()), 'actor': 'local-provenance-check',
-                        'limits': {'memory_mib': memory, 'cpu': cpu}}
+                        'limits': {'memory_mib': memory, 'cpu': cpu},
+                        'policy_revision': resource_policy.read(db, PROJECT)['revision']}
                 result = control.execute(body)
                 if result['status'] != 'succeeded':
                     restored = inspect(docker, CONTAINER)
@@ -134,15 +141,27 @@ def main():
                 assert original.read_bytes() == original_bytes
                 fingerprint = saved['service_provenance'][SERVICE]['fingerprint']; fingerprints.append(fingerprint)
                 assert fingerprint != fingerprints[-2]
+                assert resource_policy.read(db, PROJECT)['document']['environments']['production']['services'][CONTAINER] == body['limits']
                 assert control.details(PROJECT, CONTAINER)['container_id'] == current['Id']
                 assert control.execute(body)['status'] == 'succeeded'
                 assert inspect(docker, CONTAINER)['Id'] == current['Id']
                 report['checks'].append({'memory_mib': memory, 'cpu': cpu, 'stopped_preserved': True,
                     'proof_advanced': True, 'details_after_save': True, 'replay_no_recreation': True})
+            before_rejection = inspect(docker, CONTAINER)['Id']
+            rejected = dict(body, request_id=str(uuid.uuid4()), limits={'memory_mib': 256, 'cpu': 0.4},
+                            policy_revision=resource_policy.read(db, PROJECT)['revision'])
+            rejected['container_id'] = current['Id']
+            rejected['revision'] = control.details(PROJECT, CONTAINER)['revision']
+            try: control.execute(rejected)
+            except control.ControlError: pass
+            else: raise AssertionError('Aggregate budget exceedance accepted')
+            assert inspect(docker, CONTAINER)['Id'] == before_rejection
+            report.update(automatic_reservation_created_and_increased=True, budget_exceed_rejected_without_recreation=True)
             assert len(set(ids)) == 3 and len(set(fingerprints)) == 3
             assert not control.JOURNAL.exists()
             db.close(); db = connect(database)
             assert registry.get_environment(db, PROJECT, 'production')['recipe_revision'] == env['recipe_revision']
+            assert resource_policy.read(db, PROJECT)['document']['environments']['production']['services'][CONTAINER] == {'memory_mib': 160, 'cpu': 0.4}
             report.update(registry_reopened=True, independent_original_unchanged=True, proof_rebased_to_canonical=True)
         finally:
             if db is not None: db.close()

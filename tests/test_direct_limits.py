@@ -114,5 +114,99 @@ class DirectLimitsTests(unittest.TestCase):
         module.admit(self.db, self.body())
         with self.assertRaises(ValueError): module.replay(self.db, dict(self.body(), actor='different-actor'))
 
+    def bound_container(self):
+        import registry
+        recipe = {'compose_project': 'app', 'compose_files': ['/managed/compose.yml'], 'services': ['web']}
+        registry.import_legacy(self.db, {'app': {'repository': 'TPCT/app', 'repository_id': 1, 'branch': 'main', 'recipe': recipe}}, [])
+        registry.update_project(self.db, 'app', 1, {'legacy_binding': 'production'})
+        return {'Id': 'a' * 64, 'Name': '/app-web', 'Config': {'Labels': {
+            'com.docker.compose.project': 'app', 'com.docker.compose.service': 'web',
+            'com.docker.compose.project.config_files': '/managed/compose.yml'}}}
+
+    def configured_budget(self):
+        doc = resource_policy.read(self.db, 'app')['document']
+        doc['budget'] = {'memory_mib': 256, 'cpu': 1}
+        doc['environments']['production']['budget'] = dict(doc['budget'])
+        resource_policy.save(self.db, 'app', 0, doc)
+        return doc
+
+    def test_verified_owner_direct_save_creates_then_increases_reservation(self):
+        module = self.module(); actual = self.bound_container(); self.configured_budget()
+        self.assertTrue(module.context(self.db, 'app', 'app-web', actual)['editable'])
+        for index, memory in enumerate((128, 192)):
+            body = dict(self.body(), request_id='reservation-operation-' + str(index), policy_revision=index + 1,
+                        limits={'memory_mib': memory, 'cpu': 0.5})
+            transition = module.admit(self.db, body, actual)
+            self.assertEqual(resource_policy.read(self.db, 'app')['revision'], index + 1)
+            module.commit(self.db, transition); module.commit(self.db, transition)
+            record = resource_policy.read(self.db, 'app')
+            self.assertEqual(record['document']['environments']['production']['services']['app-web'], body['limits'])
+            self.db.execute("UPDATE control_runs SET status='succeeded' WHERE request_id=?", (body['request_id'],))
+        with self.assertRaises(ValueError): module.check(self.db, 'app', 'app-web', {'memory_mib': 300, 'cpu': 0.5}, actual)
+        module.rollback(self.db, transition); module.rollback(self.db, transition)
+        self.assertEqual(resource_policy.read(self.db, 'app')['document']['environments']['production']['services']['app-web']['memory_mib'], 128)
+
+    def test_unassigned_and_stale_review_cannot_create_reservation(self):
+        module = self.module(); actual = self.bound_container(); self.configured_budget()
+        with self.assertRaises(ValueError): module.admit(self.db, self.body(), actual)
+        body = dict(self.body(), policy_revision=1)
+        wrong = copy.deepcopy(actual); wrong['Config']['Labels']['com.docker.compose.project'] = 'foreign'
+        with self.assertRaises(ValueError): module.admit(self.db, body, wrong)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM control_runs').fetchone()[0], 0)
+        self.assertEqual(resource_policy.read(self.db, 'app')['document']['environments']['production']['services'], {})
+
+    def test_sibling_reservations_bound_available_capacity_and_wrong_env_record_blocks(self):
+        module = self.module(); actual = self.bound_container(); doc = self.configured_budget()
+        doc['environments']['production']['services']['app-peer'] = {'memory_mib': 192, 'cpu': 0.5}
+        resource_policy.save(self.db, 'app', 1, doc)
+        self.assertEqual(module.context(self.db, 'app', 'app-web', actual)['limits_ceiling']['memory_mib'], 64)
+        with self.assertRaises(ValueError): module.check(self.db, 'app', 'app-web', self.body()['limits'], actual)
+
+    def test_policy_transition_commit_rejects_changed_owner_and_rollback_preserves_concurrent_policy(self):
+        module = self.module(); actual = self.bound_container(); self.configured_budget()
+        transition = module.admit(self.db, dict(self.body(), policy_revision=1), actual)
+        self.db.execute("UPDATE registry_environments SET revision=revision+1 WHERE project='app' AND name='production'")
+        with self.assertRaises(ValueError): module.commit(self.db, transition)
+        self.assertEqual(resource_policy.read(self.db, 'app')['revision'], 1)
+
+    def test_failure_after_policy_commit_restores_runtime_policy_and_replay(self):
+        import provenance_store
+        for failure in ('proof', 'journal'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); path = root / 'db'; db = connect(path)
+                import registry
+                recipe = {'compose_project': 'app', 'compose_files': [str(root / 'compose.yml')], 'services': ['web']}
+                registry.import_legacy(db, {'app': {'repository': 'TPCT/app', 'repository_id': 1, 'branch': 'main', 'recipe': recipe}}, [])
+                registry.update_project(db, 'app', 1, {'legacy_binding': 'production'})
+                policy = resource_policy.read(db, 'app')['document']; policy['budget'] = {'memory_mib': 256, 'cpu': 1}
+                policy['environments']['production']['budget'] = dict(policy['budget']); resource_policy.save(db, 'app', 0, policy)
+                file = root / 'compose.yml'; original = {'services': {'web': {'image': 'app:v1'}}}; file.write_text(yaml.safe_dump(original))
+                container = {'Id': 'a' * 64, 'Name': '/app-web', 'Image': 'image', 'State': {'Running': False},
+                             'HostConfig': {}, 'Config': {'Env': [], 'Labels': {'com.docker.compose.project': 'app',
+                             'com.docker.compose.service': 'web', 'com.docker.compose.project.config_files': str(file)}}}
+                body = dict(self.body(), container_id=container['Id'], policy_revision=1, revision=control.revision([file], container, original))
+                after = control.mutate_resources(original, 'web', body['limits']); updated = copy.deepcopy(container)
+                updated['HostConfig'] = {'Memory': 128 * 1048576, 'MemorySwap': 128 * 1048576, 'NanoCpus': 500000000}
+                journal = root / 'journal'; unlink = Path.unlink; failures = []
+                def fail_once(target, *args, **kwargs):
+                    if target == journal and failure == 'journal' and not failures:
+                        failures.append(True); raise OSError('fixture unlink failed')
+                    return unlink(target, *args, **kwargs)
+                def proof_step(*args, **kwargs):
+                    self.assertIn('app-web', resource_policy.read(db, 'app')['document']['environments']['production']['services'])
+                    if failure == 'proof': raise ValueError('fixture proof failed')
+                    return None
+                with patch.object(control, 'DATABASE', path), patch.object(control, 'ROOT', root), patch.object(control, 'JOURNAL', journal), \
+                     patch.object(control, 'inspect_target', return_value=(container, 'web', [file], ['compose'])), \
+                     patch.object(control, 'assert_image'), patch.object(control, 'configuration', side_effect=[original, original, original, after, original]), \
+                     patch.object(control, 'recreate') as recreate, patch.object(control, 'wait_runtime', side_effect=[updated, container]), \
+                     patch.object(provenance_store, 'prepare', side_effect=proof_step), patch.object(Path, 'unlink', fail_once):
+                    self.assertEqual(control.execute(body)['status'], 'rolled-back')
+                    self.assertEqual(control.execute(body)['status'], 'rolled-back')
+                    self.assertEqual(recreate.call_count, 2)
+                self.assertEqual(resource_policy.read(db, 'app')['document'], policy)
+                self.assertEqual(yaml.safe_load(file.read_text()), original)
+                self.assertFalse(journal.exists()); db.close()
+
 
 if __name__ == '__main__': unittest.main()

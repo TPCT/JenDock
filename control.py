@@ -164,6 +164,11 @@ def restore_environment():
         raise ControlError('Restored runtime differs from the previous container.')
     if 'previous_resources' in record and resource_limits(restored)!=record['previous_resources']:
         raise ControlError('Previous resource limits were not restored.')
+    if record.get('resource_transition'):
+        import direct_limits
+        db=connect(DATABASE)
+        try:direct_limits.rollback(db,record['resource_transition'])
+        finally:db.close()
     if record.get('provenance_transition'):
         import provenance_store
         db=connect(DATABASE)
@@ -171,14 +176,14 @@ def restore_environment():
         finally:db.close()
     JOURNAL.unlink()
 
-def details(project, name):
+def details(project, name, _with_identity=False):
     c,service,files,args=inspect_target(project,name)
     image=json.loads(command([DOCKER,'image','inspect',c['Image']]))[0]
     config=configuration(args)
     owner=next((f for f in reversed(files) if service in (yaml.safe_load(f.read_text()) or {}).get('services',{})),None)
     if service not in config['services'] or owner is None:raise ControlError('Service configuration is incomplete.')
     env=effective_environment(c)
-    return {'container':name,'container_id':c['Id'],'service':service,'image':c['Config']['Image'],
+    result={'container':name,'container_id':c['Id'],'service':service,'image':c['Config']['Image'],
             'image_id':c['Image'],'image_created':image.get('Created'),'image_digests':image.get('RepoDigests',[]),
             'commit':(image.get('Config',{}).get('Labels') or {}).get('org.opencontainers.image.revision'),
             'state':c['State']['Status'],'health':c['State'].get('Health',{}).get('Status','not configured'),
@@ -188,6 +193,8 @@ def details(project, name):
             'resources':resource_limits(c),
             'ports':c.get('NetworkSettings',{}).get('Ports',{}),
             'mounts':[{'type':m['Type'],'destination':m['Destination'],'read_only':not m['RW']} for m in c.get('Mounts',[])]}
+    if _with_identity:result['_actual']=c
+    return result
 
 def resource_limits(c):
     host=c.get('HostConfig',{})
@@ -249,10 +256,10 @@ def execute(body):
     if action=='container-details':return details(project,name)
     if action=='resource-details':
         from direct_limits import context
-        result=details(project,name);result.pop('environment',None)
+        result=details(project,name,_with_identity=True);actual=result.pop('_actual');result.pop('environment',None)
         policy_db=connect(DATABASE)
         try:
-            try:result['resource_policy']=context(policy_db,project,name)
+            try:result['resource_policy']=context(policy_db,project,name,actual)
             except ValueError as error:result['resource_policy']={'editable':False,'reason':str(error),'configured':True,'limits_ceiling':None}
         finally:policy_db.close()
         return result
@@ -283,7 +290,7 @@ def execute(body):
             elif action=='container-limits-save':
                 try:
                     limits=direct_limits.limits(body.get('limits'))
-                    direct_limits.check(db,project,name,limits)
+                    direct_limits.check(db,project,name,limits,c)
                 except ValueError as error:raise ControlError(str(error))
             else:
                 from resource_policy import allocation
@@ -292,8 +299,9 @@ def execute(body):
             assert_image(configuration(args),service,c['Image'])
             if revision(files,c,configuration(args))!=body.get('revision'):raise ControlError('Configuration changed. Reopen the editor before saving.')
         now=time.time()
+        resource_transition=None
         if action=='container-limits-save':
-            try:direct_limits.admit(db,body)
+            try:resource_transition=direct_limits.admit(db,body,c)
             except ValueError as error:raise ControlError(str(error))
         else:
             db.execute('INSERT INTO control_runs(request_id,created,updated,actor,project,container,operation,status,detail) VALUES(?,?,?,?,?,?,?,?,?)',(key,now,now,actor,project,name,action,'running','Operation started.'))
@@ -309,6 +317,7 @@ def execute(body):
                 document=mutate_service(yaml.safe_load(before),service,body['changes']) if action=='environment-save' else mutate_resources(yaml.safe_load(before),service,limits)
                 record={'path':str(owner),'before':before,'mode':mode,'compose':args,'service':service,'container':name,'was_running':was_running,'image_id':c['Image'],'environment':effective_environment(c),'activated':False,'request_id':key}
                 if action in ('resource-apply','container-limits-save'):record['previous_resources']=resource_limits(c)
+                if resource_transition:record['resource_transition']=resource_transition
                 atomic_write(JOURNAL,json.dumps(record),0o600)
                 # Compose now contains explicitly edited secrets: keep it owner-only.
                 atomic_write(owner,yaml.safe_dump(document,sort_keys=False),0o600)
@@ -330,6 +339,7 @@ def execute(body):
                     observed=resource_limits(updated)
                     if abs(observed['memory_mib']-limits['memory_mib'])>.001 or abs(observed['cpu']-limits['cpu'])>.00001 or abs(observed['swap_mib']-limits['memory_mib'])>.001:
                         raise ControlError('Runtime resource limits differ from the requested allocation.')
+                if resource_transition:direct_limits.commit(db,resource_transition)
                 import provenance_store
                 transition=provenance_store.prepare(db,project,c.get('_monitor_recipe',{}),review_compose,
                     recreated={service: updated})
