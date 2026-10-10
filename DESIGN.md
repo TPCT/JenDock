@@ -1,15 +1,18 @@
 # Shiftcodes interface
 
-The approved implementation uses React and Material UI. `frontend/src/main.jsx`
+The user-selected reference is GitHub Actions, implemented in React with official
+Octicons and customized Material UI control primitives. `frontend/src/main.jsx`
 owns the application theme and shared layout, with `style.css` for the product's
-layout rules. Container management and interactive terminal code live in dedicated
+layout rules. `github.css`, `Field.jsx` and `icons.jsx` apply the Primer-inspired
+visual and control conventions. Container management and interactive terminal code live in dedicated
 components; host telemetry has its own component. The former `web/` design is
 superseded and is not copied to the receiver image.
 
 ## Visual system
 
-A graphite desktop sidebar (#202127) anchors a white workspace. Inter is self-hosted.
-Purple (#6651d1 in light mode) identifies the primary action and selection. Use
+A light sidebar and subtle gray header (#f6f8fa) anchor a white workspace. Inter is
+self-hosted. Green (#1f883d) identifies primary execution actions; blue (#0969da)
+identifies links and selection, with GitHub-style Octicons for runtime states. Use
 thin neutral dividers, restrained panels, and readable textual states. Runtime
 state, health-check results and deployment outcomes remain separate evidence.
 Dark appearance changes the workspace and Material UI palette together.
@@ -69,3 +72,13 @@ Every dialog has a separated title header, scrollable content and a fixed action
 footer. Confirm, cancel and recovery actions belong in the footer. Branch refresh
 is a labeled reload icon inside the shared branch picker, available in both Build
 and Settings; it is not a separate footer action.
+
+## Execution records
+
+Run detail follows GitHub Actions hierarchy: outcome/title, compact recorded facts,
+execution sidebar and expandable stage diagnostics. Stages derive only from actual
+events, not an invented successful pipeline. Earlier building/testing observations
+remain Recorded. Historical records without events say that stage history is
+unavailable. Validation retries preserve their mode; validated runs explicitly
+offer Deploy from branch. Historical missing branches are not inferred from the
+current tracked branch.

@@ -1,3 +1,14 @@
+import TextField from "./Field.jsx";
+import {
+  Dns as DnsOutlined,
+  Refresh,
+  PlayArrow,
+  StopCircleOutlined,
+  Visibility as VisibilityOutlined,
+  VisibilityOff as VisibilityOffOutlined,
+  Search,
+  Add,
+} from "./icons.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -16,18 +27,9 @@ import {
   Stack,
   Tab,
   Tabs,
-  TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
-import DnsOutlined from "@mui/icons-material/DnsOutlined";
-import Refresh from "@mui/icons-material/Refresh";
-import PlayArrow from "@mui/icons-material/PlayArrow";
-import StopCircleOutlined from "@mui/icons-material/StopCircleOutlined";
-import VisibilityOutlined from "@mui/icons-material/VisibilityOutlined";
-import VisibilityOffOutlined from "@mui/icons-material/VisibilityOffOutlined";
-import Search from "@mui/icons-material/Search";
-import Add from "@mui/icons-material/Add";
 import TerminalPanel from "./TerminalPanel";
 
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);

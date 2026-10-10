@@ -1,6 +1,6 @@
+import { Terminal as TerminalOutlined } from "./icons.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, Box, Button, Chip, Stack, Typography } from "@mui/material";
-import TerminalOutlined from "@mui/icons-material/TerminalOutlined";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";

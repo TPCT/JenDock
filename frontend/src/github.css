@@ -1,0 +1,271 @@
+/* GitHub Actions / Primer-inspired operational surfaces. */
+.premium,
+.mobile-nav {
+  --line: #d1d9e0;
+  --muted: #59636e;
+  --surface: #f6f8fa;
+  --ink: #1f2328;
+  --nav-surface: #ffffff;
+  --selected: #818b981f;
+}
+.premium.night,
+.mobile-nav.night {
+  --line: #3d444d;
+  --muted: #9198a1;
+  --surface: #161b22;
+  --ink: #f0f6fc;
+  --nav-surface: #0d1117;
+  --selected: #656c7633;
+}
+::selection {
+  background: #b6e3ff;
+  color: #1f2328;
+}
+:focus-visible {
+  outline-color: #0969da !important;
+}
+.nav,
+.mobile-nav {
+  background: var(--nav-surface);
+  color: var(--ink);
+  border-right: 1px solid var(--line);
+}
+.wordmark {
+  color: inherit;
+  font-size: 19px;
+  letter-spacing: -0.025em;
+  height: 66px;
+}
+.mark,
+.login-header .mark {
+  color: inherit;
+}
+.workspace-switch {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.workspace-switch small,
+.quick-find,
+.nav-label,
+.nav-label span,
+.owner .MuiIconButton-root {
+  color: var(--muted);
+}
+.quick-find {
+  font-size: 13px;
+}
+.nav-list .MuiListItemText-primary,
+.project-nav .MuiListItemText-primary {
+  font-size: 13px;
+}
+.nav-list .MuiListItemIcon-root {
+  color: var(--muted);
+}
+.nav-list .Mui-selected,
+.project-nav .Mui-selected {
+  background: var(--selected) !important;
+  color: var(--ink);
+  font-weight: 600;
+}
+.nav-list .Mui-selected .MuiListItemIcon-root {
+  color: var(--ink);
+}
+.nav-list .Mui-selected::before,
+.project-nav .Mui-selected::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  height: 24px;
+  width: 3px;
+  border-radius: 3px;
+  background: #0969da;
+}
+.nav-counter {
+  color: var(--ink);
+  background: var(--selected);
+  border-radius: 20px;
+}
+.nav-divider {
+  background: var(--line);
+  margin: 15px 10px 20px;
+}
+.owner {
+  border-color: var(--line);
+  font-size: 12px;
+}
+.mobile-nav > .MuiIconButton-root {
+  color: var(--ink);
+}
+.workspace-top {
+  background: var(--surface);
+  height: 66px;
+  padding: 0 32px;
+}
+.workspace-top .MuiLink-root {
+  font-size: 13px;
+}
+.workspace-main > main {
+  padding: 28px 32px 0;
+}
+.project-identity {
+  gap: 12px;
+}
+.project-subtitle {
+  margin-left: 32px;
+  font-size: 13px;
+}
+.project-tabs {
+  margin-top: 24px;
+  margin-bottom: 24px;
+}
+.project-tabs .MuiTab-root {
+  font-size: 14px;
+  color: var(--muted);
+}
+.project-tabs .Mui-selected {
+  color: var(--ink);
+  font-weight: 600;
+}
+.project-tabs .MuiTabs-indicator {
+  background: #fd8c73;
+}
+.release-band {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin-top: 24px;
+}
+.health {
+  font-size: 12px;
+  color: #1a7f37;
+  gap: 6px;
+}
+.health-bad {
+  color: #d1242f;
+}
+.health-neutral {
+  color: var(--muted);
+}
+.night .health {
+  color: #3fb950;
+}
+.night .health-bad {
+  color: #f85149;
+}
+.night .health-neutral {
+  color: var(--muted);
+}
+.service-symbol {
+  border: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 0;
+  color: var(--muted);
+}
+.table-head {
+  font-size: 12px;
+  height: 42px;
+}
+.service-name .MuiLink-root {
+  font-size: 14px;
+  font-weight: 600;
+}
+.service-name small,
+.resource-number small,
+.health-caption {
+  font-size: 12px;
+}
+.resource-number {
+  font-size: 13px;
+}
+.service-line {
+  min-height: 76px;
+}
+.service-line:hover,
+.directory-row:hover,
+.deployment-row:hover {
+  background: var(--surface);
+}
+.directory-row,
+.deployment-row {
+  gap: 14px;
+  padding: 18px 16px;
+}
+.directory-row strong,
+.deployment-row strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.directory-row small,
+.deployment-row small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.deployment-row > span:nth-child(3) {
+  font-size: 12px;
+}
+.count,
+.section-heading > span,
+.delivery-line,
+.deploy-facts,
+.commit-ref {
+  font-size: 12px;
+}
+.deployment-aside .MuiButton-root {
+  font-size: 13px;
+}
+.deploy-facts {
+  line-height: 1.6;
+}
+.service-table,
+.terminal-panel {
+  border-radius: 6px;
+}
+.login-header .wordmark {
+  gap: 10px;
+}
+.login-form {
+  border-radius: 6px;
+}
+.login-form .login-submit {
+  min-height: 44px;
+}
+.login-intro h1 {
+  font-size: 25px;
+  letter-spacing: -0.025em;
+}
+@media (max-width: 800px) {
+  .workspace-top {
+    height: 58px;
+    padding: 0 12px;
+  }
+  .workspace-main > main {
+    padding: 22px 18px 0;
+  }
+  .project-subtitle {
+    margin-left: 0;
+  }
+  .release-band {
+    padding: 14px;
+  }
+  .directory-row,
+  .deployment-row {
+    padding: 16px 8px;
+  }
+  .service-name .MuiLink-root {
+    font-size: 13px;
+  }
+  .service-name small,
+  .resource-number small,
+  .health-caption {
+    font-size: 11px;
+  }
+  .table-head {
+    display: none;
+  }
+  .login-form {
+    border-radius: 0;
+  }
+}

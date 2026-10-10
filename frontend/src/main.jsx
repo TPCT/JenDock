@@ -1,3 +1,33 @@
+import TextField from "./Field.jsx";
+import {
+  WarningIcon,
+  Info,
+  PlayArrow,
+  GridView,
+  Folder,
+  History,
+  Terminal,
+  Settings,
+  Search,
+  Menu,
+  Close,
+  Arrow,
+  Refresh,
+  Rocket,
+  Check,
+  Branch,
+  Chevron,
+  Dns,
+  Dark,
+  Light,
+  Logout,
+  Visibility,
+  VisibilityOff,
+  ErrorIcon,
+  PendingIcon,
+  SkippedIcon,
+  Workflow,
+} from "./icons.jsx";
 import React, {
   useState,
   useEffect,
@@ -16,12 +46,9 @@ import {
   Button,
   IconButton,
   Tooltip,
-  Chip,
   Stack,
-  Paper,
   Tabs,
   Tab,
-  TextField,
   Autocomplete,
   Switch,
   FormControlLabel,
@@ -44,36 +71,13 @@ import {
   CircularProgress,
   RadioGroup,
   Radio,
-  Stepper,
-  Step,
-  StepLabel,
   useMediaQuery,
 } from "@mui/material";
-import GridView from "@mui/icons-material/GridViewOutlined";
-import Folder from "@mui/icons-material/FolderOutlined";
-import History from "@mui/icons-material/HistoryOutlined";
-import Terminal from "@mui/icons-material/TerminalOutlined";
-import Settings from "@mui/icons-material/TuneOutlined";
-import Search from "@mui/icons-material/Search";
-import Menu from "@mui/icons-material/Menu";
-import Close from "@mui/icons-material/Close";
-import Arrow from "@mui/icons-material/ArrowForward";
-import Refresh from "@mui/icons-material/Refresh";
-import Rocket from "@mui/icons-material/RocketLaunchOutlined";
-import Check from "@mui/icons-material/CheckCircleOutlined";
-import Branch from "@mui/icons-material/CallSplit";
-import Chevron from "@mui/icons-material/ChevronRight";
-import Dns from "@mui/icons-material/DnsOutlined";
-import Dark from "@mui/icons-material/DarkModeOutlined";
-import Light from "@mui/icons-material/LightModeOutlined";
-import Logout from "@mui/icons-material/Logout";
-import Visibility from "@mui/icons-material/VisibilityOutlined";
-import VisibilityOff from "@mui/icons-material/VisibilityOffOutlined";
 import ContainerPage from "./ContainerPage.jsx";
+import RunDetail from "./RunDetail.jsx";
 import Telemetry from "./Telemetry.jsx";
 import {
   activeStates,
-  retryStates,
   statusLabel,
   date,
   servicesFor,
@@ -82,7 +86,7 @@ import {
   buildPayload,
 } from "./model.js";
 import "./style.css";
-import { englishMessage } from "./legacyMessages.js";
+import "./github.css";
 const Context = createContext(null);
 const useApp = () => useContext(Context);
 const label = (data, id) => data.projects[id]?.label || id;
@@ -160,7 +164,17 @@ function Status({ value }) {
         "health " + (bad ? "health-bad" : good ? "" : "health-neutral")
       }
     >
-      <i />
+      {good ? (
+        <Check sx={{ fontSize: 16 }} />
+      ) : bad ? (
+        <ErrorIcon sx={{ fontSize: 16 }} />
+      ) : String(value).toLowerCase() === "running" ? (
+        <PlayArrow sx={{ fontSize: 16 }} />
+      ) : ["cancelled", "superseded", "exited"].includes(value) ? (
+        <SkippedIcon sx={{ fontSize: 16 }} />
+      ) : (
+        <PendingIcon sx={{ fontSize: 16 }} />
+      )}
       {statusLabel(value)}
     </span>
   );
@@ -329,31 +343,48 @@ function App() {
   const theme = createTheme({
     palette: {
       mode: night ? "dark" : "light",
-      primary: { main: night ? "#afa3ff" : "#6651d1" },
+      primary: { main: night ? "#4493f8" : "#0969da" },
       background: {
-        default: night ? "#17181c" : "#fff",
-        paper: night ? "#1d1e23" : "#fff",
+        default: night ? "#0d1117" : "#fff",
+        paper: night ? "#161b22" : "#fff",
       },
       text: {
-        primary: night ? "#eeeef3" : "#25262d",
-        secondary: night ? "#a1a2af" : "#686975",
+        primary: night ? "#f0f6fc" : "#1f2328",
+        secondary: night ? "#9198a1" : "#59636e",
       },
-      divider: night ? "#313239" : "#e9e9ef",
-      success: { main: night ? "#73d9b3" : "#208263" },
+      divider: night ? "#3d444d" : "#d1d9e0",
+      success: { main: night ? "#3fb950" : "#1a7f37" },
     },
     typography: {
       fontFamily: "Inter, sans-serif",
       fontSize: 14,
       button: { textTransform: "none", fontWeight: 550 },
-      h4: { fontSize: 32, fontWeight: 600, letterSpacing: "-.035em" },
+      h4: { fontSize: 26, fontWeight: 600, letterSpacing: "-.025em" },
       h6: { fontSize: 16, fontWeight: 600 },
     },
-    shape: { borderRadius: 8 },
+    shape: { borderRadius: 6 },
     components: {
       MuiFormLabel: { styleOverrides: { asterisk: { display: "none" } } },
       MuiButton: {
         defaultProps: { disableElevation: true },
-        styleOverrides: { root: { minHeight: 40 } },
+        styleOverrides: {
+          root: { minHeight: 36, fontSize: 14 },
+          containedPrimary: {
+            backgroundColor: night ? "#238636" : "#1f883d",
+            color: "#fff",
+            border: "1px solid #1f232826",
+            "&:hover": { backgroundColor: night ? "#29903b" : "#1a7f37" },
+          },
+          outlined: {
+            color: "inherit",
+            borderColor: night ? "#3d444d" : "#d1d9e0",
+            backgroundColor: night ? "#212830" : "#f6f8fa",
+            "&:hover": {
+              backgroundColor: night ? "#2a313c" : "#eff2f5",
+              borderColor: night ? "#59636e" : "#b7c0ca",
+            },
+          },
+        },
       },
       MuiIconButton: { styleOverrides: { root: { width: 40, height: 40 } } },
       MuiTab: {
@@ -368,6 +399,16 @@ function App() {
         },
       },
       MuiTooltip: { defaultProps: { enterTouchDelay: 0 } },
+      MuiAlert: {
+        defaultProps: {
+          iconMapping: {
+            error: <ErrorIcon />,
+            success: <Check />,
+            warning: <WarningIcon />,
+            info: <Info />,
+          },
+        },
+      },
       MuiPaper: { defaultProps: { elevation: 0 } },
       MuiDialog: {
         defaultProps: { scroll: "paper" },
@@ -505,7 +546,7 @@ function App() {
               />
             </aside>
             <Drawer open={drawer} onClose={() => setDrawer(false)}>
-              <div className="mobile-nav">
+              <div className={"mobile-nav " + (night ? "night" : "")}>
                 <IconAction
                   label="Close navigation"
                   icon={Close}
@@ -723,7 +764,8 @@ function Nav({
   return (
     <div className="nav-content">
       <div className="wordmark">
-        <span className="mark">s</span>shiftcodes
+        <Workflow sx={{ fontSize: 26 }} />
+        shiftcodes
       </div>
       <button className="workspace-switch" onClick={() => navigate("overview")}>
         <Avatar
@@ -732,8 +774,8 @@ function Nav({
             width: 28,
             height: 28,
             fontSize: 11,
-            bgcolor: "#363842",
-            color: "#e4e4ee",
+            bgcolor: "action.selected",
+            color: "text.primary",
           }}
         >
           TP
@@ -752,7 +794,7 @@ function Nav({
         {[
           ["overview", "Overview", GridView],
           ["projects", "Projects", Folder],
-          ["jobs", "Deployments", Rocket],
+          ["jobs", "Deployments", Workflow],
           ["containers", "Services", Dns],
           ["audit", "Activity", History],
         ].map(([key, title, I]) => (
@@ -789,7 +831,7 @@ function Nav({
             selected={key === currentId}
             onClick={() => navigate("project/" + encodeURIComponent(key))}
           >
-            <i className={"project-dot dot-" + (i % 6)} />
+            <Folder sx={{ fontSize: 16, mr: 1.5, color: "text.secondary" }} />
             <ListItemText
               primary={p.label || key}
               primaryTypographyProps={{ noWrap: true, title: p.label || key }}
@@ -840,14 +882,12 @@ function Login({ api, onLogin }) {
       className="login-page"
       sx={{
         bgcolor: (theme) =>
-          theme.palette.mode === "dark" ? "#17181c" : "#f7f7fa",
+          theme.palette.mode === "dark" ? "#0d1117" : "#f6f8fa",
       }}
     >
       <header className="login-header">
         <div className="wordmark">
-          <span className="mark" aria-hidden="true">
-            s
-          </span>
+          <Workflow sx={{ fontSize: 26 }} />
           shiftcodes
         </div>
         <Typography
@@ -1105,18 +1145,7 @@ function ProjectPage({ id }) {
       <header className="project-heading">
         <div>
           <div className="project-identity">
-            <Avatar
-              variant="rounded"
-              sx={{
-                width: 44,
-                height: 44,
-                fontSize: 20,
-                bgcolor: "action.hover",
-                color: "primary.main",
-              }}
-            >
-              {(p.label || id).slice(0, 1).toUpperCase()}
-            </Avatar>
+            <Folder sx={{ fontSize: 24, color: "text.secondary" }} />
             <Typography variant="h4" className="wrap-anywhere">
               {p.label || id}
             </Typography>
@@ -1462,18 +1491,7 @@ function ProjectsPage() {
               key={id}
               onClick={() => navigate("project/" + encodeURIComponent(id))}
             >
-              <Avatar
-                variant="rounded"
-                sx={{
-                  width: 34,
-                  height: 34,
-                  fontSize: 13,
-                  bgcolor: "action.hover",
-                  color: "text.primary",
-                }}
-              >
-                {(p.label || id).slice(0, 1)}
-              </Avatar>
+              <Folder sx={{ fontSize: 20, color: "text.secondary" }} />
               <strong>
                 {p.label || id}
                 <small>{p.repository}</small>
@@ -1566,226 +1584,18 @@ function RunsPage() {
   );
 }
 function RunPage({ id }) {
-  const { data, navigate, openBuild, action } = useApp(),
-    j = data.jobs.find((j) => j.id === Number(id));
-  const [error, setError] = useState(""),
-    [cancel, setCancel] = useState(false),
-    [busy, setBusy] = useState(false);
-  const narrow = useMediaQuery("(max-width:650px)");
-  if (!j)
-    return (
-      <Empty title="Run not found">
-        This run is not in the recent history.
-        <Button onClick={() => navigate("jobs")}>View deployments</Button>
-      </Empty>
-    );
-  const p = data.projects[j.project],
-    events = data.events
-      .filter((e) => e.job_id === j.id)
-      .sort((a, b) => a.created - b.created),
-    waiting = ["awaiting-validation", "auto-deploy-disabled"].includes(
-      j.status,
-    );
-  const descriptions = {
-    failed: "Execution failed. Review the diagnostic record before retrying.",
-    interrupted:
-      "Execution was interrupted. Review its recorded state before retrying.",
-    "needs-review": "Deployment requires review before it can continue.",
-    succeeded: "Deployment completed and runtime checks passed.",
-    validated: "Build and tests passed. Production was not changed.",
-    "rolled-back": "Deployment checks failed. Previous images were restored.",
-    queued: "Queued. The worker will start this run automatically.",
-    "validation-queued": "Queued for build and tests only.",
-    building: "Building images from the recorded commit.",
-    testing: "Testing candidate images.",
-    deploying: "Updating services and checking runtime health.",
-    recovering: "Restoring the previous deployment.",
-    cancelled: "Cancelled before execution.",
-    superseded: "A newer push replaced this queued run.",
-    "awaiting-validation":
-      "This push was recorded under an earlier policy. Start a deployment below.",
-    "auto-deploy-disabled":
-      "Automatic deployment was off when this push arrived. You can deploy manually.",
-  };
-  const order =
-      j.mode === "validate"
-        ? ["queued", "building", "testing", "validated"]
-        : ["queued", "building", "testing", "deploying", "succeeded"],
-    idx = order.indexOf(j.status === "validation-queued" ? "queued" : j.status);
+  const { data, navigate, openBuild, action } = useApp();
+  const job = data.jobs.find((job) => job.id === Number(id));
   return (
-    <>
-      <header className="project-heading">
-        <div>
-          <Typography variant="h4">Run #{j.id}</Typography>
-          <Link
-            component="button"
-            underline="hover"
-            sx={{ mt: 1 }}
-            onClick={() => navigate("project/" + encodeURIComponent(j.project))}
-          >
-            {label(data, j.project)}
-          </Link>
-        </div>
-        <Stack direction="row" spacing={1}>
-          {p?.build_ready && retryStates.includes(j.status) && (
-            <Button
-              variant="contained"
-              startIcon={<Refresh />}
-              onClick={() => openBuild(j.project, j)}
-            >
-              {waiting
-                ? "Build & deploy"
-                : j.status === "validated"
-                  ? "Deploy from branch"
-                  : "Retry run"}
-            </Button>
-          )}
-          {[
-            "queued",
-            "validation-queued",
-            "awaiting-validation",
-            "auto-deploy-disabled",
-          ].includes(j.status) && (
-            <Button color="error" onClick={() => setCancel(true)}>
-              Cancel run
-            </Button>
-          )}
-        </Stack>
-      </header>
-      <Box sx={{ my: 3 }}>
-        <Status value={j.status} />
-        <Typography sx={{ mt: 2 }}>
-          {descriptions[j.status] ||
-            englishMessage(j.detail) ||
-            "Review the recorded diagnostics before retrying."}
-        </Typography>
-      </Box>
-      {error && <Alert severity="error">{error}</Alert>}
-      <div className="release-band">
-        <div>
-          <span>Branch / commit</span>
-          <strong>
-            {j.branch || "Not recorded"}
-            <Link
-              href={"https://github.com/" + p?.repository + "/commit/" + j.sha}
-              target="_blank"
-              rel="noopener"
-            >
-              <code>{j.sha?.slice(0, 12)}</code>
-            </Link>
-          </strong>
-        </div>
-        <div>
-          <span>Triggered by</span>
-          <strong>
-            {j.actor || "GitHub"}
-            <small>
-              {j.mode === "validate" ? "Build & tests only" : "Deploy"}
-            </small>
-          </strong>
-        </div>
-        <div>
-          <span>Created</span>
-          <strong>{date(j.created)}</strong>
-        </div>
-      </div>
-      <Stepper
-        activeStep={idx}
-        orientation={narrow ? "vertical" : "horizontal"}
-        sx={{ my: 4 }}
-      >
-        {order.map((s, i) => (
-          <Step
-            key={s}
-            completed={["succeeded", "validated"].includes(j.status) || idx > i}
-          >
-            <StepLabel>
-              {
-                {
-                  queued: "Queue",
-                  building: "Build images",
-                  testing: "Run tests",
-                  deploying: "Deploy services",
-                  succeeded: "Verify",
-                  validated: "Complete",
-                }[s]
-              }
-            </StepLabel>
-          </Step>
-        ))}
-      </Stepper>
-      {j.detail && (
-        <Alert
-          severity={
-            ["failed", "interrupted", "needs-review"].includes(j.status)
-              ? "error"
-              : "info"
-          }
-          sx={{ my: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-        >
-          {englishMessage(j.detail)}
-        </Alert>
-      )}
-      {j.retry_of && (
-        <Button onClick={() => navigate("job/" + j.retry_of)}>
-          Based on run #{j.retry_of}
-        </Button>
-      )}
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        Run activity
-      </Typography>
-      <div className="event-list">
-        {[
-          {
-            created: j.created,
-            status: waiting ? j.status : "queued",
-            detail: "Run created.",
-          },
-          ...events,
-        ].map((e, i) => (
-          <div className="event-row" key={i}>
-            <time>{date(e.created)}</time>
-            <div>
-              <Status value={e.status} />
-              <pre>{englishMessage(e.detail)}</pre>
-            </div>
-          </div>
-        ))}
-      </div>
-      <Dialog open={cancel} onClose={() => !busy && setCancel(false)}>
-        <DialogTitle>Cancel run #{j.id}?</DialogTitle>
-        <DialogContent>
-          Only a run that has not started can be cancelled.
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={busy} onClick={() => setCancel(false)}>
-            Keep run
-          </Button>
-          <Button
-            disabled={busy}
-            color="error"
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await action({
-                  action: "cancel",
-                  project: j.project,
-                  job_id: j.id,
-                });
-                setCancel(false);
-              } catch (e) {
-                setError(e.message);
-                setCancel(false);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            Cancel run
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
+    <RunDetail
+      key={id}
+      job={job}
+      project={data.projects[job?.project]}
+      events={data.events}
+      onNavigate={navigate}
+      onBuild={openBuild}
+      action={action}
+    />
   );
 }
 function BuildDialog({ context, onClose }) {

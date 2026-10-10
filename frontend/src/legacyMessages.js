@@ -835,5 +835,8 @@ const legacyMessages = [
 export function englishMessage(value) {
   let text = String(value || "");
   for (const [from, to] of legacyMessages) text = text.split(from).join(to);
-  return text;
+  return text.replaceAll(
+    "راجع تشخيص العامل محليًا.",
+    "Review the protected worker diagnostics.",
+  );
 }

@@ -36,7 +36,7 @@ production operations; these checks are not a production deployment test.
 
 ## Automated verification
 
-56 Python tests and 11 frontend tests pass. The Vite production build passes.
+56 Python tests and 14 frontend tests pass. The Vite production build passes.
 The frontend suite covers service grouping, branch freshness, build request
 identity, environment drafts and validation, replacement/stale service guards,
 ambiguous retries and Unicode terminal input. The current bundle emits a size
@@ -49,3 +49,14 @@ environment recreation, a terminal connection or a business deployment. Do not
 restart healthy applications solely to manufacture acceptance. Existing failed
 business runs, external uptime checks and alert configuration are independent
 of this interface migration. Production verification is recorded separately.
+
+## GitHub Actions visual direction
+
+The user's later correction superseded the initial visual approval. Official
+Octicons now replace the Material icon package, and shared external form labels
+preserve both input associations and Autocomplete popup label IDs. A light sidebar,
+neutral surfaces, green execution actions and blue links apply throughout the app.
+Run detail uses the actual event history with no inferred successful steps. Mobile
+and dark rendering, branch reload, recovery dialog, missing history and keyboard
+labels were reviewed. Three additional tests cover recorded stage grouping and
+English rendering of historical failures.
