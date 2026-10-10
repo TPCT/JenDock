@@ -62,6 +62,18 @@
 .nav-list .MuiListItemIcon-root {
   color: var(--muted);
 }
+.nav-list .MuiListItemButton-root:hover,
+.project-nav .MuiListItemButton-root:hover,
+.nav-list .MuiListItemButton-root.Mui-focusVisible,
+.project-nav .MuiListItemButton-root.Mui-focusVisible {
+  background: var(--selected);
+  color: var(--ink);
+}
+.nav-list .MuiListItemButton-root.Mui-focusVisible,
+.project-nav .MuiListItemButton-root.Mui-focusVisible {
+  outline: 2px solid #0969da;
+  outline-offset: -2px;
+}
 .nav-list .Mui-selected,
 .project-nav .Mui-selected {
   background: var(--selected) !important;

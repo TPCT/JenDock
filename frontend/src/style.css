@@ -681,10 +681,6 @@ footer {
 .quick-find {
   cursor: default;
 }
-.nav-list .MuiListItemButton-root:hover,
-.project-nav .MuiListItemButton-root:hover {
-  background: #34333d;
-}
 .directory-row:hover,
 .deployment-row:hover {
   background: var(--surface);
