@@ -87,7 +87,7 @@ class Application:
     def state(self):
         db = connect(self.database)
         try:
-            allowed = ('repository', 'branch', 'enabled', 'reason', 'label')
+            allowed = ('repository', 'branch', 'enabled', 'reason', 'label', 'image_prefixes')
             return {'observed_at': time.time(),
                     'projects': {k: {x: v[x] for x in allowed if x in v} for k, v in projects(self.config).items()},
                     'jobs': [dict(r) for r in db.execute('SELECT * FROM jobs ORDER BY id DESC LIMIT 100')],

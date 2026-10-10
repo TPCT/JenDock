@@ -1,0 +1,414 @@
+{
+  "aic-website": {
+    "sha": "26f894acf725ec5780335034533b37c469260830",
+    "dockerfiles": [
+      "backend/Dockerfile",
+      "deploy/reverb/Dockerfile",
+      "frontend/Dockerfile",
+      "reverb/Dockerfile"
+    ],
+    "tests": [
+      "backend/tests/README.md",
+      "backend/tests/conftest.py",
+      "backend/tests/test_collection_integrity.py",
+      "backend/tests/test_database_config.py",
+      "backend/tests/test_globals_flatten.py",
+      "backend/tests/test_integration_admin.py",
+      "backend/tests/test_locale.py",
+      "backend/tests/test_locale_parity_script.py",
+      "backend/tests/test_s3_media.py",
+      "backend/tests/test_site_settings.py",
+      "backend/tests/test_workflow_security.py"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "aic-sys": {
+    "sha": "9e34d28d82b6f5421d241aa0baf2d77ec3fc3d4c",
+    "dockerfiles": [
+      "docker/local/Dockerfile",
+      "docker/production/Dockerfile",
+      "docker/testing/Dockerfile"
+    ],
+    "tests": [
+      "tests/Architecture/AdminIdentityModelBoundaryTest.php",
+      "tests/Architecture/DatabaseDialectBoundaryTest.php",
+      "tests/Architecture/DatabaseTransferBoundaryTest.php",
+      "tests/Architecture/IndependentSubmissionPresentationTest.php",
+      "tests/Architecture/IndependentVisitHardCutoverTest.php",
+      "tests/Architecture/IndependentVisitModelBoundaryTest.php",
+      "tests/Architecture/IndependentVisitMorphIdentityTest.php",
+      "tests/Architecture/ModuleControllerOwnershipTest.php",
+      "tests/Architecture/ModuleDecouplingBaselineTest.php",
+      "tests/Architecture/ModulePolicyOwnershipTest.php",
+      "tests/Architecture/PublicModuleContractTest.php",
+      "tests/Architecture/Support/IndependentVisitArchitectureScanner.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "aic-ops": {
+    "sha": "08298b5c73eadb7a70eaea81ca99ab160f7ff9f9",
+    "dockerfiles": [
+      "docker/production/Dockerfile",
+      "docker/testing/Dockerfile"
+    ],
+    "tests": [
+      "tests/Browser/account-audit-details-uat.spec.js",
+      "tests/Browser/asset-history-uat.spec.js",
+      "tests/Browser/asset-integrity-uat.spec.js",
+      "tests/Browser/availability-uat.spec.js",
+      "tests/Browser/bilingual-site-settings-uat.spec.js",
+      "tests/Browser/equipment-context-uat.spec.js",
+      "tests/Browser/evidence-uploader-reset-uat.spec.js",
+      "tests/Browser/fixtures/account-audit-details.php",
+      "tests/Browser/fixtures/asset-history.php",
+      "tests/Browser/fixtures/evidence.png",
+      "tests/Browser/fixtures/haboba.json",
+      "tests/Browser/fixtures/location-cascade-confirmation.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "aic-academy": {
+    "sha": "8ddee9e6dcc2022e8fa56051273f4572581a7dbe",
+    "dockerfiles": [
+      "Dockerfile",
+      "Dockerfile.production",
+      "docker/runtime/Dockerfile.php"
+    ],
+    "tests": [
+      "tests/Feature/AccessControl/AccessLockoutTest.php",
+      "tests/Feature/AccessControl/AdminStatusEnforcementTest.php",
+      "tests/Feature/AccessControl/BootstrapAdminTest.php",
+      "tests/Feature/AccessControl/Concerns/SeedsAccessControl.php",
+      "tests/Feature/AccessControl/DirectPermissionTest.php",
+      "tests/Feature/AccessControl/ListingFilterTest.php",
+      "tests/Feature/AccessControl/ListingPerformanceTest.php",
+      "tests/Feature/AccessControl/LocalizationTest.php",
+      "tests/Feature/AccessControl/ModuleWiringTest.php",
+      "tests/Feature/AccessControl/PermissionCatalogTest.php",
+      "tests/Feature/AccessControl/RoleManagementTest.php",
+      "tests/Feature/AccessControl/UserAccessTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "captcha": {
+    "sha": "665dd6e90312e48c1bf4294cb3f8b373b746dfe9",
+    "dockerfiles": [
+      "Dockerfile",
+      "Dockerfile.export"
+    ],
+    "tests": [
+      "tests/check_container.py",
+      "tests/check_http_equivalence.py",
+      "tests/check_onnx.py",
+      "tests/check_runtime.py",
+      "tests/synthetic-parity.json"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "dsl01": {
+    "sha": "288509ed15cfa7c0af62ee435b319406170b2ba0",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/security/test_multipart_compatibility.py",
+      "tests/test_api_auth.py",
+      "tests/test_basata_auth.py",
+      "tests/test_basata_service.py",
+      "tests/test_bill_service.py",
+      "tests/test_dependency_boundaries.py",
+      "tests/test_dsl_errors.py",
+      "tests/test_egypay_auth.py",
+      "tests/test_egypay_limits.py",
+      "tests/test_egypay_service.py",
+      "tests/test_published_opay.py",
+      "tests/test_sahl_auth.py"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "dsl02": {
+    "sha": "0cf0058607c621709cc8a3bc807d7eb59f820892",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "backend/tests/test_contract_storage.py",
+      "backend/tests/test_customer_search_scope.py",
+      "backend/tests/test_sheet_record_permissions.py",
+      "backend/tests/test_token_compatibility.py",
+      "backend/tests/test_vodafone_session_refresh.py"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "elfak01": {
+    "sha": "041f2592bdf889b64c64db80c87a9653aaa51816",
+    "dockerfiles": [
+      "Dockerfile",
+      "docker/Dockerfile.postgres",
+      "docker/Dockerfile.runtime"
+    ],
+    "tests": [
+      "tests/Feature/AccessControlTest.php",
+      "tests/Feature/AccountRowActionsTest.php",
+      "tests/Feature/AccountTransferTest.php",
+      "tests/Feature/ApiKeyTest.php",
+      "tests/Feature/ApprovalConcurrencyTest.php",
+      "tests/Feature/ApprovalNotificationTest.php",
+      "tests/Feature/ApprovalPolicyFilamentTest.php",
+      "tests/Feature/ApprovalPolicyManagementTest.php",
+      "tests/Feature/ApprovalPolicySupersessionConcurrencyTest.php",
+      "tests/Feature/ApprovalReadSecurityTest.php",
+      "tests/Feature/ApprovalWorkflowTest.php",
+      "tests/Feature/ArtificialIntelligenceTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "elfak-legacy": {
+    "sha": "7e7b1a5d0dfa12c960f1d1261d318a0ea4506fc6",
+    "dockerfiles": [
+      "Dockerfile",
+      "docker/Dockerfile.runtime"
+    ],
+    "tests": [
+      "tests/CreatesApplication.php",
+      "tests/Feature/DependencyCompatibilityTest.php",
+      "tests/Feature/ExampleTest.php",
+      "tests/Feature/LegacyUiDependencyCompatibilityTest.php",
+      "tests/Feature/LegacyValidationSecurityTest.php",
+      "tests/Feature/LogViewerAuthorizationTest.php",
+      "tests/Feature/RemoteImportFileTest.php",
+      "tests/Feature/SupplierRoutesTest.php",
+      "tests/Feature/UploadedFileStorageTest.php",
+      "tests/TestCase.php",
+      "tests/Unit/ChequeDetailsTest.php",
+      "tests/Unit/ChequeReportTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "elnahy": {
+    "sha": "3b80fca4fa11cd038ab3fb7f67d9f59e6b81ce13",
+    "dockerfiles": [
+      "Dockerfile",
+      "docker/Dockerfile.runtime"
+    ],
+    "tests": [
+      "tests/CreatesApplication.php",
+      "tests/Feature/DependencyCompatibilityTest.php",
+      "tests/Feature/ExampleTest.php",
+      "tests/Feature/LegacyUiDependencyCompatibilityTest.php",
+      "tests/Feature/LegacyValidationSecurityTest.php",
+      "tests/Feature/LogViewerAuthorizationTest.php",
+      "tests/Feature/RemoteImportFileTest.php",
+      "tests/Feature/UploadedFileStorageTest.php",
+      "tests/TestCase.php",
+      "tests/Unit/ExampleTest.php",
+      "tests/Unit/JwtKeyStrengthTest.php",
+      "tests/Unit/SecureConfigurationTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "licence": {
+    "sha": "b5fde119799f361b23dd7f93fcb1944b9e00d08c",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/CreatesApplication.php",
+      "tests/Feature/ExampleTest.php",
+      "tests/Feature/LicenceCompatibilityTest.php",
+      "tests/TestCase.php",
+      "tests/Unit/ExampleTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "us01": {
+    "sha": "2e0eafdcfc51b6b73c13d5a935e36601a91c6462",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/Feature/Auth/AuthenticationTest.php",
+      "tests/Feature/Auth/EmailVerificationTest.php",
+      "tests/Feature/Auth/PasswordConfirmationTest.php",
+      "tests/Feature/Auth/PasswordResetTest.php",
+      "tests/Feature/Auth/PasswordUpdateTest.php",
+      "tests/Feature/Auth/RegistrationTest.php",
+      "tests/Feature/ExampleTest.php",
+      "tests/Feature/ProfileTest.php",
+      "tests/Feature/ShortLinkWorkflowTest.php",
+      "tests/Feature/VisitTrackingTest.php",
+      "tests/TestCase.php",
+      "tests/Unit/ExampleTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "website": {
+    "sha": "84574c32e6c9e0030e8ec1bf319bd2d613b520b4",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/Feature/AdminPanelTest.php",
+      "tests/Feature/AssetSeederTest.php",
+      "tests/Feature/ClientGalleryTest.php",
+      "tests/Feature/ClientProjectPageTest.php",
+      "tests/Feature/CmsValidationTest.php",
+      "tests/Feature/CodexReviewFixesTest.php",
+      "tests/Feature/ColorContrastTest.php",
+      "tests/Feature/ContentModelTest.php",
+      "tests/Feature/HomePageTest.php",
+      "tests/Feature/MotionAccessibilityTest.php",
+      "tests/Feature/PrintLayoutTest.php",
+      "tests/Feature/PublicMediaTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "30sv01": {
+    "sha": "ee5b778ac6c6e07392f6dad04ef8d8fb80fe537e",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/Feature/MigrationBoundaryTest.php",
+      "tests/TestCase.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "eo01": {
+    "sha": "596f7bc63ba3e4f5bb38e1434c1e2bf7a8f03ba1",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/Feature/AdminDashboardTest.php",
+      "tests/Feature/AdminGalleryTest.php",
+      "tests/Feature/AdminPanelTest.php",
+      "tests/Feature/BrandCatalogueTest.php",
+      "tests/Feature/CatalogueFilterTest.php",
+      "tests/Feature/CatalogueTranslationTest.php",
+      "tests/Feature/CategoryTest.php",
+      "tests/Feature/ContentPageTest.php",
+      "tests/Feature/ImportImageTest.php",
+      "tests/Feature/ImportTaxRateTest.php",
+      "tests/Feature/LocaleSwitchTest.php",
+      "tests/Feature/LocaleTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "octa": {
+    "sha": "e3db9a71524692ff9b51882b71ddfa48063449d5",
+    "dockerfiles": [
+      "Dockerfile",
+      "docker/8.0/Dockerfile",
+      "docker/8.1/Dockerfile",
+      "docker/8.2/Dockerfile",
+      "docker/8.3/Dockerfile"
+    ],
+    "tests": [
+      "tests/CreatesApplication.php",
+      "tests/Feature/ExampleTest.php",
+      "tests/Feature/PublicMediaTest.php",
+      "tests/Feature/PublicRenderingTest.php",
+      "tests/Feature/RichTextUploadsTest.php",
+      "tests/TestCase.php",
+      "tests/Unit/ExampleTest.php",
+      "tests/Unit/SvgSanitizationTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "etsawaa": {
+    "sha": "1f8ef6d010d8ab1283ba357f946e91b94425d613",
+    "dockerfiles": [
+      "Dockerfile",
+      "docker/frontend.Dockerfile"
+    ],
+    "tests": [
+      "backend/tests/CreatesApplication.php",
+      "backend/tests/Feature/Accounts/CustomerAccountLifecycleTest.php",
+      "backend/tests/Feature/Accounts/LegacyApiRetirementTest.php",
+      "backend/tests/Feature/Accounts/StorefrontContractTest.php",
+      "backend/tests/Feature/ActivityAuditTrailTest.php",
+      "backend/tests/Feature/AdminPanelAccessTest.php",
+      "backend/tests/Feature/AdminSeederCredentialSafetyTest.php",
+      "backend/tests/Feature/AdminUsersNavigationTest.php",
+      "backend/tests/Feature/Affiliate/AffiliateFlowTest.php",
+      "backend/tests/Feature/AttributeDefinitionResourceTest.php",
+      "backend/tests/Feature/AttributeSubValueLabelTest.php",
+      "backend/tests/Feature/Auth/AuthLifecycleTest.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "lms-v2": {
+    "sha": "60a30fe29d79ff6c4f10d944848fce83a60948a9",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/Architecture/LayeringTest.php",
+      "tests/Architecture/ModuleContractSurfaceTest.php",
+      "tests/Architecture/ModuleOwnershipTest.php",
+      "tests/Architecture/ModuleUseCaseBoundaryTest.php",
+      "tests/Browser/audit-trail.spec.ts",
+      "tests/Browser/custom-reports.spec.ts",
+      "tests/Browser/data-operations.spec.ts",
+      "tests/Browser/fixtures/lv2-212-schools-desktop.csv",
+      "tests/Browser/fixtures/lv2-212-schools-mobile.csv",
+      "tests/Browser/platform-foundation.spec.ts",
+      "tests/Browser/public-catalog.spec.ts",
+      "tests/Browser/public-registration.spec.ts"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "smartconst": {
+    "sha": "4f4d0eb97cca048aec23f19b4c3f84563decaaa4",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "tests/security/object_storage_test.php",
+      "tests/security/safe_upload_test.php"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  },
+  "crm": {
+    "sha": "f85c8a192dc74d126c2b75ee1463a6dbf331f4e5",
+    "dockerfiles": [
+      "Dockerfile"
+    ],
+    "tests": [
+      "backend/tests/api/__init__.py",
+      "backend/tests/api/run_api_tests.py",
+      "backend/tests/api/test_admin.py",
+      "backend/tests/api/test_admin_tenants.py",
+      "backend/tests/api/test_ai_scoring.py",
+      "backend/tests/api/test_api_keys.py",
+      "backend/tests/api/test_audit.py",
+      "backend/tests/api/test_automation_auto_approve.py",
+      "backend/tests/api/test_calendar.py",
+      "backend/tests/api/test_calls.py",
+      "backend/tests/api/test_campaigns.py",
+      "backend/tests/api/test_cases.py"
+    ],
+    "tracked_env": false,
+    "truncated": false
+  }
+}

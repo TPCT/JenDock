@@ -231,10 +231,18 @@ def observe(db):
     data = []
     for line in raw.splitlines():
         obj = json.loads(line)
+        if obj.get('Names', '').startswith(('tanialab-', 'deploy-monitor-recovery-check-', 'deploy-test-')):
+            continue
         data.append({k: obj.get(k) for k in ('Names', 'Image', 'State', 'Status')})
     snapshot(db, 'containers', data)
     disk = shutil.disk_usage('/work')
     snapshot(db, 'disk', {'total': disk.total, 'free': disk.free})
+    memory = {}
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        key, value = line.split(':', 1)
+        if key in ('MemTotal', 'MemAvailable', 'SwapTotal', 'SwapFree'):
+            memory[key] = int(value.strip().split()[0]) * 1024
+    snapshot(db, 'resources', {'memory': memory, 'load_1m': os.getloadavg()[0], 'cpu_count': os.cpu_count()})
     snapshot(db, 'worker', {'state': 'running', 'external_monitor': False, 'outbound_alerts': False})
 
 
@@ -275,7 +283,9 @@ def main():
                             if journal.exists():
                                 snapshot(db, 'worker', {'state': 'recovery-failed'})
                                 raise SystemExit(1)
-                            set_status(db, job['id'], 'failed', str(error) if isinstance(error, StepFailure) else 'فشل داخلي؛ لم يُعتبر النشر ناجحًا.')
+                            phase = db.execute('SELECT detail FROM jobs WHERE id=?', (job['id'],)).fetchone()['detail']
+                            detail = str(error) if isinstance(error, StepFailure) else 'فشل داخلي؛ لم يُعتبر النشر ناجحًا.'
+                            set_status(db, job['id'], 'failed', phase + ' — ' + detail)
                         finally:
                             # Only this job's unreferenced images; never force
                             # delete a running image and never touch volumes.

@@ -22,10 +22,19 @@ function render(data) {
   $('updated').textContent = date(data.observed_at);
   const disk = data.snapshots.disk;
   $('disk').textContent = disk ? (disk.value.free/1073741824).toFixed(1)+' GiB' : 'لم تصل بيانات';
+  const resources=data.snapshots.resources?.value;
+  $('memory').textContent=resources?(resources.memory.MemAvailable/1073741824).toFixed(1)+' GiB':'لم تصل بيانات';
+  $('load').textContent=resources?resources.load_1m.toFixed(2)+' / '+resources.cpu_count+' CPU':'لم تصل بيانات';
+  containers=data.snapshots.containers?.value || [];
+  const unhealthy=containers.filter(c=>c.State!=='running'||c.Status.includes('unhealthy'));
+  $('health-summary').textContent=containers.length?`${containers.length} خدمة مراقبة · ${unhealthy.length} خدمة تحتاج مراجعة${stale?' — القراءة قديمة':''}`:'لم تصل بيانات الخدمات.';
   $('project-list').replaceChildren(...Object.entries(data.projects).map(([name,p])=>{
     const row=node('article','','project');const title=node('div','','project-title');
     title.append(node('h3',p.label || name),node('span',p.enabled?'النشر التلقائي مفعّل':'بانتظار الاعتماد',p.enabled?'badge good':'badge pending'));
-    row.append(title,node('p',p.repository+' · '+p.branch,'identifier'),node('p',p.reason || 'يُنشر الفرع المحدد فقط بعد نجاح الاختبارات.','hint'));return row;
+    const images=[...new Set(containers.filter(c=>(p.image_prefixes||[]).some(prefix=>c.Image.startsWith(prefix))).map(c=>c.Image))];
+    row.append(title,node('p',p.repository+' · '+p.branch,'identifier'),node('p',p.reason || 'يُنشر الفرع المحدد فقط بعد نجاح الاختبارات.','hint'));
+    if(images.length)row.append(node('p','الصور المستخدمة حاليًا'+(stale?' (قراءة قديمة)':'')+':','hint'),node('p',images.join(' · '),'identifier'));
+    return row;
   }));
   $('job-list').replaceChildren(...data.jobs.map(j=>{
     const row=node('article','','job');const head=node('div','','project-title');
