@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import control
+from telemetry import HostMetrics, record as record_metrics
 import time
 from pathlib import Path
 
@@ -23,6 +24,7 @@ STATE = Path(os.environ.get('STATE_DIR', '/worker-state'))
 DATABASE = os.environ.get('DATABASE', '/state/state.sqlite')
 CONFIG = os.environ.get('PROJECTS_FILE', '/config/projects.json')
 diagnostics = threading.local()
+host_metrics=HostMetrics()
 
 
 class StepFailure(Exception):
@@ -335,6 +337,16 @@ def main():
                 except (OSError,ValueError,StepFailure):
                     pass
                 time.sleep(3)
+        def host_collector():
+            measurements=connect(DATABASE)
+            while True:
+                try:
+                    reading=host_metrics.read();record_metrics(measurements,reading);snapshot(measurements,'telemetry',reading)
+                    snapshot(measurements,'telemetry-error',{'error':False})
+                except (OSError,ValueError,KeyError,IndexError):
+                    snapshot(measurements,'telemetry-error',{'error':True,'detail':'Host metrics are unavailable. Check the host measurement mounts.'})
+                time.sleep(5)
+        threading.Thread(target=host_collector,daemon=True).start()
         control.start()
         threading.Thread(target=branch_collector,daemon=True).start()
         def collector():

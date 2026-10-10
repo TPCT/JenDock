@@ -37,6 +37,7 @@ const retryStates = [
   "auto-deploy-disabled",
 ];
 const projectTabs = {};
+const settingsDrafts = {};
 let liveConnection = null;
 let data = null,
   session = null,
@@ -83,10 +84,10 @@ const button = (text, fn, cls = "secondary", disabled = false) => {
   return n;
 };
 const stale = (name) =>
-  !data?.preview && (observationFailed ||
+  observationFailed || (!data?.preview && (
   !data?.snapshots[name] ||
   Date.now() / 1000 - data.snapshots[name].updated > 90 ||
-  data.snapshots.worker?.value.state !== "running");
+  data.snapshots.worker?.value.state !== "running"));
 const containers = () => data?.snapshots.containers?.value || [];
 const projectImages = (p) =>
   containers().filter(
@@ -134,7 +135,7 @@ async function api(path, body) {
   } catch {
     throw new Error("Unable to connect. Check your connection and try again.");
   }
-  const value = await r.json();
+  let value;try{value=await r.json();}catch{throw new Error("The server returned an unreadable response. Try again or check service availability.");}
   if (!r.ok) {
     if (r.status === 401 && path !== "login") showLogin();
     throw new Error(value.error || "Request failed. Please try again.");
@@ -143,6 +144,7 @@ async function api(path, body) {
 }
 function showLogin() {
   closeTerminal();
+  for(const key of Object.keys(settingsDrafts))delete settingsDrafts[key];
   closeContainer();
   $("operation-dialog").close();
   setNavigation(false);
@@ -160,12 +162,18 @@ async function action(body) {
   actionBusy = true;
   try {
     const result = await api("action", body);
+    if(body.action==='settings')delete settingsDrafts[body.project];
     toast(result.message || "Done.");
     await refresh(true);
     return result;
   } finally {
     actionBusy = false;
   }
+}
+function formField(labelText, control) {
+  const field=el('div','','form-field'),label=el('label',labelText);
+  if(!control.id)control.id='field-'+crypto.randomUUID();
+  label.htmlFor=control.id;field.append(label,control);return field;
 }
 function section(title, actionNode) {
   const n = el("div", "", "section-head");
@@ -351,7 +359,7 @@ function projectsTable(items) {
 }
 function overview() {
   const root = $("content");
-  root.append(resources());
+  serverMonitoring(root);
   const problematic = data.jobs.filter(
     (j) =>
       retryStates.includes(j.status) &&
@@ -363,7 +371,7 @@ function overview() {
     jobTable(active),
   );
   if (problematic.length) {
-    root.append(section("Needs attention"), jobTable(problematic));
+    root.append(section("Deployment issues"), deploymentIssues(problematic));
   }
   root.append(
     section(
@@ -428,6 +436,7 @@ function branchOptions(name, select, p) {
     select.append(option);
   }
   if (entries.includes(selected)) select.value = selected;
+  else if(entries.length&&selected){const missing=el("option",selected+" (unavailable)");missing.value=selected;missing.disabled=true;select.append(missing);select.value=selected;}
   select.disabled = !entries.length;
   return observation;
 }
@@ -459,7 +468,7 @@ function serviceGroup(items, project) {
       el("span", "Memory " + (c.MemUsage || "—")),
     );
     card.append(facts);
-    if(project)card.append(button("Manage",()=>openContainer(project,c.Names),"secondary manage-container"));
+    if(project){const manage=button("Manage",()=>openContainer(project,c.Names),"secondary manage-container");manage.id="manage-"+project+"-"+c.Names;card.append(manage);}
     group.append(card);
   }
   return group;
@@ -468,7 +477,7 @@ function projectView(name) {
   const p = data.projects[name];
   if (!p)
     return $("content").append(
-      empty("Project not found", "Return to Projects."),
+      empty("Project not found", "This project is not configured in this console."),link("View projects","#projects"),
     );
   const root = $("content"),
     summary = el("div", "", "project-summary");
@@ -562,7 +571,10 @@ function projectView(name) {
     label.htmlFor = "branch-select";
     const select = el("select");
     select.id = "branch-select";
+    const draft=settingsDrafts[name];
     branchOptions(name, select, p);
+    if(draft&&[...select.options].some(o=>o.value===draft.branch))select.value=draft.branch;
+    else if(draft){const missing=el('option',draft.branch+' (unavailable)');missing.value=draft.branch;missing.disabled=true;select.append(missing);select.value=draft.branch;}
     const row = el("div", "", "form-row");
     row.append(label, select);
     panel.append(row);
@@ -570,7 +582,7 @@ function projectView(name) {
       check = el("input");
     check.type = "checkbox";
     check.id = "auto-deploy";
-    check.checked = !!p.automatic;
+    check.checked = draft ? draft.automatic : !!p.automatic;
     check.disabled = false;
     checkLabel.append(
       check,
@@ -579,16 +591,11 @@ function projectView(name) {
       ),
     );
     panel.append(checkLabel);
-    if (!p.build_ready)
-      panel.append(
-        el(
-          "p",
-          p.build_ready
-            ? "Build validation is available. Production deployment still needs approval."
-            : "Build setup is incomplete. Image definitions and tests are required.",
-          "notice",
-        ),
-      );
+    if(!p.build_ready)panel.append(el('p','Automatic deployment is not connected for this project yet. Its running services remain manageable. Saving a branch does not complete the server build configuration.','notice'));
+    const draftStatus=el('p',draft?'Unsaved settings':'All changes saved','draft-status');
+    const remember=()=>{if(select.value===p.branch&&check.checked===!!p.automatic){delete settingsDrafts[name];draftStatus.textContent='All changes saved';}else{settingsDrafts[name]={branch:select.value,automatic:check.checked};draftStatus.textContent='Unsaved settings';}};
+    select.addEventListener('change',remember);check.addEventListener('change',remember);
+    panel.append(draftStatus);
     const actions = el("div", "", "actions");
     actions.append(
       button(
@@ -616,6 +623,7 @@ function projectView(name) {
         }
       }),
     );
+    actions.append(button('Discard changes',()=>{delete settingsDrafts[name];render(true);},'secondary'));
     panel.append(
       actions,
       el("p", "Saving settings does not start a deployment.", "hint"),
@@ -649,7 +657,7 @@ function jobsView() {
     o.value = value;
     status.append(o);
   }
-  filters.append(project, status);
+  filters.append(formField("Project",project),formField("Status",status));
   toolbar.append(
     filters,
     el("p", "Latest 100 runs · retained for 30 days", "hint"),
@@ -701,7 +709,7 @@ function jobView(id) {
   hero.append(facts);
   const actions=el('div','','run-actions');
   if(waiting||j.status==='validated'||retryStates.includes(j.status)){
-    if(p.build_ready)actions.append(button(waiting?'Build & deploy':j.status==='validated'?'Deploy from this branch':'Retry deployment',()=>openBuild(j.project,j.branch||p.branch,j.id),'primary'));
+    if(p.build_ready)actions.append(button(waiting?'Build & deploy':j.status==='validated'?'Deploy from this branch':j.mode==='validate'?'Retry build & tests':'Retry deployment',()=>openBuild(j.project,j.branch||p.branch,j.id),'primary'));
     else actions.append(el('p','Build setup required: image definitions, test commands and service mapping are missing.','notice'));
   }
   if(['queued','validation-queued', 'awaiting-validation','auto-deploy-disabled'].includes(j.status))actions.append(button('Cancel run',async()=>{try{await action({action:'cancel',project:j.project,job_id:j.id});}catch(e){toast(e.message);}},'quiet danger'));
@@ -794,6 +802,7 @@ function auditView() {
     cancel: "Cancel queued run",
   };
   if(data.control_runs?.length) $("content").append(section("Container operations"),table(["Time","Project / service","Operation","Result"],data.control_runs.map(r=>[date(r.created),subtitle(r.project,r.container),r.operation,subtitle(r.status,r.detail)])));
+  if(!data.audit.length){$("content").append(empty("No activity recorded",data.preview?"Operator history is not included in this design preview.":"Sign-ins and management actions will appear here."));return;}
   $("content").append(
     el("p", "Administrative activity is retained for 90 days.", "hint"),
     table(
@@ -819,6 +828,8 @@ function render(force = false) {
     updateStatus();
     return;
   }
+  const focused=!force&&route===currentRoute&&$("content").contains(document.activeElement)?document.activeElement:null;
+  const focusMatch=focused?{tag:focused.tagName,id:focused.id,href:focused.getAttribute('href'),label:focused.getAttribute('aria-label'),text:focused.textContent}:null;
   const saved =
     !force && route === currentRoute
       ? [...$("content").querySelectorAll("input,select")].map((n) => ({
@@ -848,7 +859,7 @@ function render(force = false) {
       "Production services, build history and deployment settings.",
     ],
     container: [containerName, "Manage this service"],
-    job: ["Deployment #" + key, ""],
+    job: ["Run #" + key, ""],
   };
   const [title, description] = titles[page] || titles.overview;
   $("app").dataset.page=page;
@@ -898,12 +909,16 @@ function render(force = false) {
     n.dispatchEvent(new Event(n.tagName === "SELECT" ? "change" : "input"));
   });
   enhanceSelects($("content"));
+  if(focusMatch){const match=[...$("content").querySelectorAll('button,a,[role=tab]')].find(n=>n.tagName===focusMatch.tag&&(focusMatch.id?n.id===focusMatch.id:focusMatch.href?n.getAttribute('href')===focusMatch.href:focusMatch.label?n.getAttribute('aria-label')===focusMatch.label:n.textContent===focusMatch.text));match?.focus({preventScroll:true});}
   updateStatus();
 }
 function updateStatus() {
+  if(!data){$("refresh").hidden=false;$("connection").textContent='Unable to load monitoring data';$("connection").dataset.stale='true';return;}
+  updateMonitoringStatus();
   $("environment-note").hidden = data.environment !== "local";
-  $("environment-note").textContent=data.preview?"Design preview · Captured services with proposed deployment settings. Production actions are disconnected.":"Local preview — actions here do not change production.";
+  $("environment-note").textContent=data.preview?"Design preview · Captured services with proposed deployment settings. Production actions are disconnected."+(data.test_scenario?" Synthetic test: "+data.test_scenario:""):"Local preview — actions here do not change production.";
   updateObservationLabels();
+  updateContainerLive();
   $("project-count").textContent = Object.keys(data.projects).length;
   const old = stale("containers");
   $("connection").textContent = data.preview?"Captured server state":old
@@ -924,7 +939,7 @@ async function refresh(force = false) {
     render(force);
   } catch (e) {
     observationFailed = true;
-    updateObservationLabels();
+    updateStatus();
     $("error").textContent = e.message;
     $("error").hidden = false;
     $("connection").textContent =
@@ -948,16 +963,17 @@ async function refreshBuildBranches(name,branch,retryOf){
   }catch(e){$('build-error').textContent=e.message;$('build-error').hidden=false;}
 }
 function openBuild(name, branch, retryOf = null) {
-  const p = data.projects[name],
-    observation = data.snapshots["branches:" + name],
-    sha = observation?.value.branches?.[branch];
-  if (!sha || (!data.preview && Date.now() / 1000 - observation.updated > 600)) {
+  const p = data.projects[name],observation=data.snapshots["branches:"+name];
+  if(!observation||observation.value.error||(!data.preview&&Date.now()/1000-observation.updated>600)) {
     refreshBuildBranches(name,branch,retryOf);return;
   }
   if (!p.build_ready) {
     toast("Build definitions and tests are not configured for this project.");
     return;
   }
+  const requestedBranch=branch,branches=observation.value.branches||{};
+  if(!Object.hasOwn(branches,branch))branch='';
+  const sha=branches[branch]||'';
   buildContext = {
     project: name,
     branch,
@@ -966,20 +982,22 @@ function openBuild(name, branch, retryOf = null) {
     request_id: crypto.randomUUID(),
   };
   $("dialog-title").textContent = retryOf
-    ? "Deploy from run #" + retryOf
+    ? "Retry run #" + retryOf
     : "New build";
   const branchLabel = el("label", "Build branch");
   branchLabel.htmlFor = "build-branch";
   const branchSelect = el("select");
   branchSelect.id = "build-branch";
   branchOptions(name, branchSelect, p);
+  if(!branch){const placeholder=el('option','Choose an available branch');placeholder.value='';placeholder.disabled=true;branchSelect.prepend(placeholder);}
   branchSelect.value = branch;
-  const commit = el("code", sha, "build-commit");
+  const commit = el("code", sha||"Select a branch to view its commit", "build-commit");
   branchSelect.addEventListener("change", () => {
     buildContext.branch = branchSelect.value;
     buildContext.sha = observation.value.branches[branchSelect.value];
     buildContext.request_id = crypto.randomUUID();
     commit.textContent = buildContext.sha;
+    updateBuildActionLabel();
   });
   $("build-summary").replaceChildren(
     el("strong", p.label || name),
@@ -988,6 +1006,7 @@ function openBuild(name, branch, retryOf = null) {
     el("span", "Commit to build", "hint"),
     commit,
   );
+  if(!branch)$("build-summary").append(el("p","The original branch "+requestedBranch+" is no longer available. Choose another branch to continue.","notice"));
   if (retryOf)
     $("build-summary").append(
       el(
@@ -997,8 +1016,10 @@ function openBuild(name, branch, retryOf = null) {
       ),
     );
   $("deploy-mode").disabled = !p.build_ready;
-  document.querySelector("[name=mode][value=deploy]").checked = !!p.build_ready;
-  document.querySelector("[name=mode][value=validate]").checked = !p.build_ready;
+  const previous=data.jobs.find(j=>j.id===Number(retryOf));
+  const deploy=!!p.build_ready&&!(previous?.mode==='validate'&&previous.status!=='validated');
+  document.querySelector("[name=mode][value=deploy]").checked=deploy;
+  document.querySelector("[name=mode][value=validate]").checked=!deploy;
   $("build-limit").textContent = p.build_ready
     ? "Deploy updates this project. This branch choice does not change the webhook settings."
     : "Deployment setup is incomplete. You can run build validation.";
@@ -1009,6 +1030,7 @@ function openBuild(name, branch, retryOf = null) {
   $("build-dialog").showModal();
 }
 function updateBuildActionLabel(){
+  $("build-submit").disabled=!buildContext?.sha;
   $("build-submit").textContent=document.querySelector("[name=mode]:checked")?.value==='deploy'?'Queue deployment':'Queue build & tests';
 }
 document.querySelectorAll('[name=mode]').forEach(input=>input.addEventListener('change',updateBuildActionLabel));
@@ -1034,7 +1056,7 @@ $("build-form").addEventListener("submit", async (e) => {
     $("build-error").textContent = error.message;
     $("build-error").hidden = false;
   } finally {
-    $("build-submit").disabled = false;
+    updateBuildActionLabel();
   }
 });
 for (const id of ["dialog-close", "dialog-cancel"])
@@ -1109,11 +1131,11 @@ function startLiveUpdates() {
   liveConnection.addEventListener("expired", () => showLogin());
   liveConnection.onerror = () => {
     observationFailed = true;
-    updateObservationLabels();
+    updateStatus();
     $("connection").textContent =
       "Connection interrupted · reconnecting automatically";
   };
 }
 setInterval(() => {
-  if (session) updateObservationLabels();
+  if (session) updateStatus();
 }, 5000);

@@ -5,6 +5,15 @@ function closeTerminal() {
   clearTimeout(t.timer);t.observer?.disconnect();t.term?.dispose();
   if(t.id)api('action',{action:'terminal-close',project:t.project,container:t.name,terminal_id:t.id}).catch(()=>{});
 }
+function syncTerminalAvailability(available,reason){
+  const connect=document.querySelector('[data-terminal-connect]');if(!connect)return;
+  const status=document.querySelector('.terminal-status');
+  if(!available&&activeTerminal){closeTerminal();status.textContent='Disconnected · service unavailable';}
+  connect.disabled=!available||!!activeTerminal;
+  document.querySelector('[data-terminal-disconnect]').disabled=!activeTerminal?.id;
+  document.querySelectorAll('.terminal-keys button').forEach(b=>b.disabled=!activeTerminal?.id);
+  const notice=document.querySelector('.terminal-unavailable');notice.hidden=available;notice.textContent=available?'':reason;
+}
 function renderTerminal(body,context) {
   closeTerminal();
   const intro=el('div','','terminal-intro');
@@ -12,12 +21,12 @@ function renderTerminal(body,context) {
   const actions=el('div','','actions'),status=el('span','Disconnected','terminal-status'),host=el('div','','terminal-host');
   host.setAttribute('aria-label','Interactive container terminal');
   const connect=button('Connect terminal',start,'primary',context.detail.state!=='running');
-  const disconnect=button('Disconnect',()=>{closeTerminal();status.textContent='Disconnected';connect.disabled=false;disconnect.disabled=true;},'secondary',true);
-  actions.append(connect,disconnect,status);intro.append(actions);body.append(intro,host);
-  if(context.detail.state!=='running')body.append(el('p','This container is stopped. Start it from Details & version to connect.','notice'));
+  const disconnect=button('Disconnect',()=>{closeTerminal();status.textContent='Disconnected';connect.disabled=false;disconnect.disabled=true;updateContainerLive();},'secondary',true);
+  connect.dataset.terminalConnect="true";disconnect.dataset.terminalDisconnect="true";actions.append(connect,disconnect,status);intro.append(actions);body.append(intro,host);
+  body.append(el('p','','notice terminal-unavailable'));
   const keys=el('div','','terminal-keys');
   for(const [label,value] of [['Esc','\x1b'],['Tab','\t'],['Ctrl+C','\x03'],['Ctrl+D','\x04'],['↑','\x1b[A'],['↓','\x1b[B'],['Enter','\r']])keys.append(button(label,()=>{if(activeTerminal){activeTerminal.input+=value;activeTerminal.term.focus();}},'secondary'));
-  body.append(keys);
+  body.append(keys);updateContainerLive();
   async function start(){
     connect.disabled=true;status.textContent='Connecting…';host.replaceChildren();
     const t={project:context.project,name:context.name,input:'',cursor:0,sequence:0,term:null,id:null};activeTerminal=t;
@@ -29,8 +38,8 @@ function renderTerminal(body,context) {
       t.id=result.terminal_id;
       if(activeTerminal!==t){api('action',{action:'terminal-close',project:t.project,container:t.name,terminal_id:t.id}).catch(()=>{});return;}
       t.term.onData(value=>{if(t.input.length<8000)t.input+=value;});
-      status.textContent='Connected · /bin/sh';disconnect.disabled=false;t.term.focus();poll();
-    }catch(e){status.textContent=e.message;closeTerminal();connect.disabled=false;}
+      status.textContent='Connected · /bin/sh';disconnect.disabled=false;updateContainerLive();t.term.focus();poll();
+    }catch(e){status.textContent=e.message;closeTerminal();connect.disabled=false;updateContainerLive();}
     async function poll(){
       if(activeTerminal!==t||!host.isConnected){if(activeTerminal===t)closeTerminal();return;}
       const input=t.input.slice(0,1000);t.input=t.input.slice(input.length);
@@ -40,9 +49,9 @@ function renderTerminal(body,context) {
         if(activeTerminal!==t)return;
         if(result.truncated)t.term.write('\r\n[Earlier output expired]\r\n');
         t.term.write(Uint8Array.from(atob(result.output),c=>c.charCodeAt(0)));t.cursor=result.cursor;
-        if(result.closed){status.textContent='Session ended';closeTerminal();connect.disabled=false;disconnect.disabled=true;return;}
+        if(result.closed){status.textContent='Session ended';closeTerminal();connect.disabled=false;disconnect.disabled=true;updateContainerLive();return;}
         t.timer=setTimeout(poll,180);
-      }catch(e){if(activeTerminal===t){status.textContent='Disconnected. Input was not retried: '+e.message;closeTerminal();connect.disabled=false;disconnect.disabled=true;}}
+      }catch(e){if(activeTerminal===t){status.textContent='Disconnected. Input was not retried: '+e.message;closeTerminal();connect.disabled=false;disconnect.disabled=true;updateContainerLive();}}
     }
   }
 }

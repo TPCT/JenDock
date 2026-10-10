@@ -14,6 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from telemetry import history as metric_history
 from store import connect, enqueue, projects, effective_projects, valid_branch, audit, set_status
 
 PREFIX = '/_deploy'
@@ -231,6 +232,7 @@ class Application:
             allowed = ('repository', 'branch', 'enabled', 'automatic', 'reason', 'label', 'image_prefixes', 'container_prefixes')
             return {'observed_at': time.time(), 'environment': os.environ.get('ENVIRONMENT','production'),
                     'projects': {k: dict({x: v[x] for x in allowed if x in v}, build_ready=bool(v.get('recipe'))) for k, v in effective_projects(db,self.config).items()},
+                    'metric_history':metric_history(db),
                     'control_runs': [dict(r) for r in db.execute('SELECT * FROM control_runs ORDER BY id DESC LIMIT 100')],
                     'audit': [dict(r) for r in db.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
                     'events': [dict(r) for r in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 500')],
@@ -310,6 +312,7 @@ def handler(app):
               '/NotoSansArabic-Regular.ttf':('NotoSansArabic-Regular.ttf','font/ttf'),'/FONT-LICENSE.txt':('FONT-LICENSE.txt','text/plain')}
             files.update({'/terminal.js':('terminal.js','text/javascript; charset=utf-8'),'/vendor/xterm.js':('vendor/xterm.js','text/javascript; charset=utf-8'),'/vendor/addon-fit.js':('vendor/addon-fit.js','text/javascript; charset=utf-8'),'/vendor/xterm.css':('vendor/xterm.css','text/css; charset=utf-8')})
             files['/vendor/inter-latin.woff2']=('vendor/inter-latin.woff2','font/woff2')
+            files['/monitoring.js']=('monitoring.js','text/javascript; charset=utf-8')
             files['/product.css']=('product.css','text/css; charset=utf-8')
             if path not in files:
                 return self.respond(404,{'error':'Not found'})

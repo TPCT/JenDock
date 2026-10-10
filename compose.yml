@@ -48,6 +48,11 @@ services:
       - /run/docker-isolation.sock:/run/docker-isolation.sock
       - /opt/docker-engine/projects:/opt/docker-engine/projects
       - state:/state
+      - /proc/stat:/host/proc-stat:ro
+      - /proc/meminfo:/host/proc-meminfo:ro
+      - /proc/uptime:/host/proc-uptime:ro
+      - /proc/loadavg:/host/proc-loadavg:ro
+      - /proc/1/net/dev:/host/proc-net-dev:ro
       - worker-state:/worker-state
       - work:/work
     tmpfs: ["/tmp:size=32m,noexec,nosuid"]

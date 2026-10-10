@@ -20,7 +20,7 @@ function searchableSelect(select) {
     list.replaceChildren();active = Math.min(active,Math.max(0,options.length-1));
     options.forEach((option,index) => {
       const item = document.createElement("button"); item.type="button"; item.className="select-option"; item.textContent=option.textContent;
-      item.setAttribute("role","option");item.setAttribute("aria-selected",String(option.value===select.value));item.tabIndex=-1;item.id=list.id+"-"+index;
+      item.setAttribute("role","option");item.setAttribute("aria-selected",String(option.value===select.value));item.disabled=option.disabled;item.tabIndex=-1;item.id=list.id+"-"+index;
       if(index===active){item.classList.add("active");search.setAttribute("aria-activedescendant",item.id);}
       item.addEventListener("click",()=>{select.value=option.value;select.dispatchEvent(new Event("change",{bubbles:true}));sync();close(true);});list.append(item);
     });
@@ -66,10 +66,11 @@ function renderContainer(tab) {
   closeTerminal();
   const {project,name,detail:d}=containerContext,body=document.getElementById('container-detail');body.replaceChildren();
   body.dataset.tab=tab;
-  const tabs=el('div','','project-tabs');
+  const tabs=el('div','','project-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Service details');
   for(const [key,label] of [['details','Details & version'],['environment','Environment'],['terminal','Terminal']]) {
-    const t=button(label,()=>renderContainer(key),'project-tab');t.setAttribute('aria-pressed',String(tab===key));tabs.append(t);
+    const t=button(label,()=>renderContainer(key),'project-tab');t.setAttribute('role','tab');t.setAttribute('aria-selected',String(tab===key));t.tabIndex=tab===key?0:-1;tabs.append(t);
   }
+  tabs.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;const options=[...tabs.children],index=options.indexOf(document.activeElement);if(index<0)return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowRight'?1:-1)+options.length)%options.length;options[next].click();body.querySelector('[aria-selected=true]')?.focus();});
   body.append(tabs);
   if(tab==='terminal'){renderTerminal(body,containerContext);return;}
   if(tab==='details') {
@@ -92,14 +93,15 @@ function renderContainer(tab) {
     search.addEventListener('input',()=>{for(const row of list.children)row.hidden=!row.dataset.key.includes(search.value.toLowerCase());});
     const newKey=el('input');newKey.placeholder='NEW_VARIABLE';newKey.setAttribute('aria-label','New variable name');
     const add=button('Add variable',()=>{const key=newKey.value.trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)||Object.hasOwn(d.environment,key)||[...list.children].some(r=>r.dataset.key===key.toLowerCase()))return toast('Enter a unique environment variable name.');changes[key]='';addRow(key,'');newKey.value='';search.value='';search.dispatchEvent(new Event('input'));},'secondary');
-    const addWrap=el('div','','actions');addWrap.append(newKey,add);
+    const addWrap=el('div','','actions');addWrap.append(formField('New variable name',newKey),add);
     const draft=el('p',Object.keys(changes).length+' unsaved changes','draft-status');form.addEventListener('input',()=>{draft.textContent=Object.keys(changes).length+' unsaved changes';});
     const save=el('button','Review changes','primary');save.type='submit';const discard=button('Discard changes',()=>{containerContext.changes={};renderContainer('environment');},'secondary');
-    const formActions=el("div","","environment-actions");formActions.append(save,discard);form.append(draft,search,list,addWrap,formActions);
+    const formActions=el("div","","environment-actions");formActions.append(save,discard);form.append(draft,formField('Find an environment variable',search),list,addWrap,formActions);
     form.addEventListener('submit',event=>{event.preventDefault();if(!Object.keys(changes).length)return toast('No environment changes to save.');confirmContainer('environment-save',changes);});body.append(form);
   }
 }
 function confirmContainer(operation,changes) {
+  if(operation!=='environment-save'&&Object.keys(containerContext.changes).length){renderContainer('environment');toast('Review or discard your environment changes before changing the container state.');return;}
   const {project,name,detail:d}=containerContext,requestId=crypto.randomUUID(),dialog=document.getElementById('operation-dialog');
   document.getElementById('operation-title').textContent=operation==='environment-save'?'Apply environment changes?':operation[0].toUpperCase()+operation.slice(1)+' container?';
   const body=document.getElementById('operation-summary');body.replaceChildren(el('strong',name));
@@ -157,6 +159,7 @@ function updateContainerLive() {
   const state=body.querySelector('[data-fact="Status"]');if(state)state.textContent=unavailable?'Status unavailable':c.State;
   const health=body.querySelector('[data-fact="Health"]');if(health)health.textContent=unavailable?'Check current service details':c.Status;
   const summary=body.querySelector('.service-runtime .badge');if(summary)summary.replaceWith(badge(unavailable?'Unavailable':c.State));
+  syncTerminalAvailability(!unavailable&&c?.State==='running',unavailable?'Current service status is unavailable.':"Start this container from Details & version to connect.");
   for(const b of body.querySelectorAll('[data-operation]'))b.disabled=unavailable||(b.dataset.operation==='start'?c.State==='running':c.State!=='running');
 }
 

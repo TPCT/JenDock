@@ -1,6 +1,6 @@
 ---
 name: Shiftcodes Deployment Console
-description: An English project workspace for clear operational decisions and execution evidence.
+description: An English monitoring and deployment workspace with host measurements and operational evidence.
 colors:
   primary: "#5746cf"
   primary-hover: "#4637ad"
@@ -104,13 +104,13 @@ components:
 
 The console is a restrained English operational workspace. White navigation and white content surfaces sit on a cool neutral canvas; indigo identifies deliberate actions and the current location. Fine borders, compact typography and generous space between groups organize dense technical evidence without turning the console into a decorative dashboard.
 
-This is a code-led system extracted from the local functional redesign, not an approved visual comp or proof of deployment. The cascade loads `web/style.css` before `web/product.css`; the latter owns the current world. `web/index.html`, `web/app.js`, `web/controls.js` and `web/terminal.js` supply the implemented component and interaction evidence. Direction provenance is FORM `710ac72e`, grounded direction 4. The prior Arabic/teal visual world is superseded by the authorized replacement.
+This is a code-led system for the monitoring and deployment tool, extracted from its current implementation. Design documentation describes interface behavior; it does not establish deployment or operational acceptance. The cascade loads `web/style.css` before `web/product.css`; the latter owns the current world. `web/index.html`, `web/app.js`, `web/monitoring.js`, `web/controls.js` and `web/terminal.js` supply the implemented component and interaction evidence. Direction provenance is FORM `710ac72e`, grounded direction 4. The prior Arabic/teal visual world is superseded by the authorized replacement.
 
 **Key Characteristics:**
 - English LTR interface with readable technical identifiers.
 - White sidebar, cool neutral canvas and flat bordered surfaces.
 - Indigo actions and selection; explicit text alongside status colors.
-- Responsive catalog, project workspace and contextual execution evidence.
+- Sampled host telemetry, responsive project workspaces and contextual execution evidence.
 - SVG line icons and a distinct dark interactive terminal.
 
 ## Colors
@@ -126,7 +126,7 @@ The palette pairs a restrained indigo accent with cool neutrals and small semant
 - **Graphite Ink** (`ink`) carries titles and primary reading; **Slate Text** (`muted`) carries supporting evidence. **Fine Divider** (`line`) organizes surfaces without heavy framing.
 - **Neutral Status** (`neutral`, `neutral-surface`) is appropriate for descriptive runtime state that does not establish health.
 
-Semantic pairs `good`, `bad` and `pending` with their respective surface tokens distinguish successful, failed and waiting states. They are evidence colors, not additional brand accents.
+Semantic pairs `good`, `bad` and `pending` with their respective surface tokens distinguish successful, failed and waiting states. They are evidence colors, not additional brand accents. Charts also reuse indigo for CPU/receive, green for memory/transmit and amber for disk; in charts these colors identify labeled series and do not indicate health thresholds by themselves.
 
 **The Evidence Color Rule.** Every status color accompanies a readable state label; a running service and a verified deployment remain different claims.
 
@@ -147,6 +147,8 @@ The desktop shell has a fixed white sidebar (236px). Main content offsets by the
 The project catalog uses three columns by default, four from 1550px, two through 1180px, and one through 680px. Catalog gaps are 18px on desktop and 14px on mobile. Service cards use two columns, reducing to one at the mobile breakpoint. Content groups typically use the frontmatter spacing rhythm with 20–24px internal padding; thin dividers separate supporting facts.
 
 At 680px and below, the sidebar becomes an off-canvas navigation drawer, with a mobile brand/menu bar and 16px content gutters. Project tabs stay horizontally accessible. Data tables become labeled vertical records. Run facts retain two columns while execution steps and major action groups stack. Dialogs scroll within the viewport; build confirmation actions remain visible in a sticky footer. The environment form's save action is in normal document flow.
+
+Host summary metrics form four columns, reducing to two at 1000px. Monitoring charts use two columns with 18px gaps and become one column at that same breakpoint. Deployment issue cards use two columns and stack at 680px. Chart padding reduces from 22px to 16px on mobile; metric values use tabular numerals and reduce from 28px to 24px. These panels share the existing flat surface and corner vocabulary.
 
 ## Elevation & Depth
 
@@ -172,16 +174,26 @@ Compact text badges pair semantic foreground and background colors. Runtime desc
 Catalog cards and service cards share flat white surfaces, fine borders and panel corners. Catalog cards group identity, source, service counts, latest run and an explicit open action; their bottom action aligns consistently through flexible card content. Technical strings wrap or truncate within their own group instead of stretching the grid.
 
 ### Inputs / Fields
-Search inputs and searchable select triggers use control corners; basic text inputs retain the smaller input corners. External labels remain visible. Searchable listboxes have a separate query field, highlighted active option, selected state and an explicit no-results message. Environment values are masked until revealed, and edited values have a visible draft state. Mobile input text is enlarged without shrinking neighboring actions.
+Search inputs and searchable select triggers use control corners; basic text inputs retain the smaller input corners. Shared field wrappers keep associated external labels above controls, with an 8px gap; toolbar and filter consumers follow the same pattern. Mobile field labels increase to 14px. Placeholders supplement labels rather than replacing them. Searchable listboxes have a separate query field, highlighted active option, selected state and an explicit no-results message. Environment values are masked until revealed, and edited values have a visible draft state. Mobile input text is enlarged without shrinking neighboring actions. Settings retain the chosen branch and automatic-deployment draft across observation refreshes, with explicit “Unsaved settings” or “All changes saved” text. A selected branch that disappears remains identified as unavailable and disabled; build submission stays disabled until an available branch resolves to a commit.
 
 ### Navigation
-The white sidebar uses muted text and SVG line icons. The current destination has a lavender fill and indigo text. Hover adds a faint neutral-lavender fill. Mobile uses the same navigation in a drawer, with a close control and backdrop; breadcrumbs remain in the content. Project and service tabs use an indigo underline instead of a second navigation surface.
+The white sidebar uses muted text and SVG line icons. The current destination has a lavender fill and indigo text. Hover adds a faint neutral-lavender fill. Mobile uses the same navigation in a drawer, with a close control and backdrop; breadcrumbs remain in the content. Project and service tabs use an indigo underline instead of a second navigation surface. Tab controls support arrow/Home/End navigation. Background observations preserve the focused service action and open edits; replaced or unavailable service records add a warning and an explicit reload path rather than silently swapping the active form.
+
+### Host measurements and history
+The overview shows CPU usage, memory, disk and combined network traffic alongside sample freshness, host uptime, swap and container counts. Current readings, historical samples and unavailable data have distinct presentations. Missing CPU or network deltas say “Measuring…”; missing host observations explain that collection has not started. Stale or failed observations replace current metric values with a dash and identify the last observation time; retained charts are explicitly historical and visually subdued.
+
+History controls select 15m, 1h or 24h, with indigo indicating the pressed range. Graphs use actual timestamped samples; missing values and sampling gaps break the line rather than generating continuity. Fewer than two real samples produces an explanatory collecting state. Percentage charts use a 0–100 scale; network throughput uses a data-scaled rate axis. Each chart has labeled series, units, timestamps and a keyboard-operable sample slider. Inspecting a sample exposes “Resume live graphs” so historical scrutiny and live updates are deliberate states. Threshold alerts appear as textual notices with a service inspection link.
+
+**The Measured History Rule.** Draw only observed samples, label missing or stale measurements, and keep historical inspection visibly distinct from current readings.
+
+### Deployment issues
+Issue cards group the project link, recorded status, failure or waiting explanation, run number, branch and update time. The “Review run” action leads to its execution evidence and recovery context. Pending and failed work stays visible alongside host health; resource charts do not substitute for deployment outcomes.
 
 ### Execution evidence and terminal
 Run summaries place outcome, source facts and actions before an ordered progress sequence and chronological activity. Waiting, failed and completed states remain visible. The terminal is an intentionally dark surface containing a monospace interactive session, connection status and explicit connect/disconnect controls; mobile exposes a supplementary key row. This dark tool surface is compatible with the otherwise light console.
 
 ### Dialogs and feedback
-Build dialogs show source and execution-mode choices before confirmation. Selected mode rows use a lavender-tinted surface and border. Guarded operations have contextual confirmations and inline errors. Notices use a subdued amber surface. Brief outcome toasts use a dark ink surface with white text and the existing low ambient shadow (`0 6px 22px #152b3226`), distinct from inline errors. Preview notices explicitly distinguish captured observations and proposed settings from production operations.
+Build dialogs show source and execution-mode choices before confirmation. Retry re-resolves the selected branch and warns that the latest commit may differ from the source run. Retrying an unsuccessful validation run retains validation mode; an unavailable original branch requires an explicit replacement choice. Selected mode rows use a lavender-tinted surface and border. Guarded operations have contextual confirmations and inline errors. Notices use a subdued amber surface. Brief outcome toasts use a dark ink surface with white text and the existing low ambient shadow (`0 6px 22px #152b3226`), distinct from inline errors. When a preview context is used, its notice distinguishes captured observations and proposed settings from connected operations; preview styling is not the identity or scope of the monitoring tool.
 
 ## Do's and Don'ts
 
@@ -191,12 +203,15 @@ Build dialogs show source and execution-mode choices before confirmation. Select
 - **Do** retain project identity and source context through service and run views.
 - **Do** enlarge supporting evidence on mobile and keep forms within the viewport.
 - **Do** preserve visible labels, focus indicators and recoverable inline errors.
+- **Do** retain settings drafts and sample-inspection context during background observations.
+- **Do** distinguish current measurements, historical samples and missing data with explicit text.
 
 ### Don't:
 - **Don't** restore the superseded Arabic/teal identity as the default console world.
 - **Don't** use a healthy-looking color to imply a deployment or health check that the evidence does not establish.
 - **Don't** turn routine cards into floating layers or make the main navigation a content modal.
 - **Don't** replace SVG interface icons with decorative glyphs.
-- **Don't** present this local design preview as deployment or production acceptance.
+- **Don't** invent history, bridge missing samples, or present stale readings as live.
+- **Don't** treat visual documentation as deployment or production acceptance.
 
-Not canonized: inherited teal selection/secondary-hover remnants and very small desktop metadata are implementation inconsistencies or legibility concerns, not house-style rules. This document records the current design direction and does not establish production acceptance.
+Not canonized: very small legacy desktop metadata is a legibility concern, not a minimum for future monitoring surfaces. This document records the current design direction and does not establish production acceptance.

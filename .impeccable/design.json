@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-10T17:49:58.076581+00:00",
+  "generatedAt": "2026-10-10T18:05:23.136606+00:00",
   "title": "Design System: Shiftcodes Deployment Console",
   "extensions": {
     "colorMeta": {
@@ -294,6 +294,10 @@
       {
         "name": "wide",
         "value": "1550px"
+      },
+      {
+        "name": "monitoring-stack",
+        "value": "1000px"
       }
     ]
   },
@@ -312,7 +316,7 @@
       "refersTo": "button-secondary",
       "description": "Explicit operation control with keyboard focus and disabled state.",
       "html": "<button class=\"ds-secondary\">Review changes</button>",
-      "css": ".ds-secondary{background:#fff;color:var(--ink,#1c202b);border:1px solid #b6c5cb;border-radius:8px;padding:10px 16px;min-height:44px;font:550 14px Inter,system-ui,sans-serif;cursor:pointer;transition:background .16s ease}.ds-secondary:hover:not(:disabled){background:#edf3f4}.ds-secondary:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}.ds-secondary:disabled{opacity:.55;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
+      "css": ".ds-secondary{background:#fff;color:var(--ink,#1c202b);border:1px solid #b6c5cb;border-radius:8px;padding:10px 16px;min-height:44px;font:550 14px Inter,system-ui,sans-serif;cursor:pointer;transition:background .16s ease}.ds-secondary:hover:not(:disabled){background:#f3f1fc;border-color:#b9b0df}.ds-secondary:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}.ds-secondary:disabled{opacity:.55;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
     },
     {
       "name": "Quiet Button",
@@ -326,9 +330,9 @@
       "name": "Search Field",
       "kind": "input",
       "refersTo": "search-input",
-      "description": "Labeled catalog search.",
+      "description": "Shared external label above its search control; used consistently in toolbar and filter layouts.",
       "html": "<label class=\"ds-label\" for=\"ds-search\">Search projects</label><input id=\"ds-search\" class=\"ds-input\" placeholder=\"Project name or repository\">",
-      "css": ".ds-label{display:block;font:550 12px Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-input{margin-top:8px;min-height:44px;padding:9px 12px;border:1px solid var(--line,#e5e7ed);border-radius:8px;background:var(--surface,#fff);color:var(--ink,#1c202b);font:13px Inter,system-ui,sans-serif;max-width:100%}.ds-input:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}@media(max-width:680px){.ds-input{font-size:16px}.ds-label{font-size:13px}}"
+      "css": ".ds-label{display:block;font:600 13px Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-input{margin-top:8px;min-height:44px;padding:9px 12px;border:1px solid var(--line,#e5e7ed);border-radius:8px;background:var(--surface,#fff);color:var(--ink,#1c202b);font:13px Inter,system-ui,sans-serif;max-width:100%}.ds-input:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}@media(max-width:680px){.ds-input{font-size:16px}.ds-label{font-size:14px}}"
     },
     {
       "name": "Current Navigation",
@@ -353,16 +357,30 @@
       "description": "A single project identity with an explicit destination.",
       "html": "<article class=\"ds-card\"><h2>Project name</h2><p>Repository and runtime evidence</p><a href=\"#project\">Open project <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M5 12h14m-5-5 5 5-5 5\"/></svg></a></article>",
       "css": ".ds-card{padding:22px;background:var(--surface,#fff);border:1px solid var(--line,#e5e7ed);border-radius:12px;font:14px/1.55 Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-card h2{margin:0 0 6px;font-size:16px;font-weight:650;letter-spacing:-.025em}.ds-card p{color:var(--muted,#656c7b);font-size:12px}.ds-card a{display:flex;justify-content:space-between;align-items:center;min-height:44px;border-top:1px solid var(--line,#e5e7ed);padding-top:16px;color:var(--accent,#5746cf);font-size:12px;font-weight:600;text-decoration:none}.ds-card a:hover{text-decoration:underline}.ds-card a:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}"
+    },
+    {
+      "name": "History Range",
+      "kind": "custom",
+      "description": "Pressed range control for actual sampled history; selecting a range does not create missing measurements.",
+      "html": "<div class=\"ds-range\" role=\"group\" aria-label=\"Graph time range\"><span>History</span><button aria-pressed=\"true\">15m</button><button aria-pressed=\"false\">1h</button><button aria-pressed=\"false\">24h</button></div>",
+      "css": ".ds-range{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font:14px Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-range button{min-height:44px;padding:10px 16px;border:1px solid #b6c5cb;border-radius:8px;background:var(--surface,#fff);color:var(--ink,#1c202b);font:550 14px Inter,system-ui,sans-serif}.ds-range button:hover{background:#f3f1fc}.ds-range button[aria-pressed=true]{background:var(--accent,#5746cf);border-color:var(--accent,#5746cf);color:#fff}.ds-range button:focus-visible{outline:3px solid #aba1f0;outline-offset:3px}"
+    },
+    {
+      "name": "Deployment Issue",
+      "kind": "card",
+      "description": "Recorded outcome and explicit review destination, separate from host resource health.",
+      "html": "<article class=\"ds-issue\"><div><a href=\"#project\">Project name</a><span>Failed</span></div><p>The last run did not complete. Review its recorded failure before retrying.</p><a class=\"ds-review\" href=\"#jobs\">Review run</a></article>",
+      "css": ".ds-issue{padding:20px;background:var(--surface,#fff);border:1px solid var(--line,#e5e7ed);border-radius:12px;font:14px/1.55 Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-issue>div{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.ds-issue a{color:var(--accent,#5746cf);text-decoration:none}.ds-issue>div>a{font-weight:600}.ds-issue span{background:#fceff1;color:var(--bad,#b13449);padding:4px 8px;border-radius:5px;font-size:13px}.ds-issue p{margin:12px 0}.ds-review{display:inline-flex;align-items:center;min-height:44px}.ds-issue a:hover{text-decoration:underline}.ds-issue a:focus-visible{outline:3px solid #aba1f0;outline-offset:3px}"
     }
   ],
   "narrative": {
     "northStar": "The Project Workspace",
-    "overview": "The console is a restrained English operational workspace. White navigation and white content surfaces sit on a cool neutral canvas; indigo identifies deliberate actions and the current location. Fine borders, compact typography and generous space between groups organize dense technical evidence without turning the console into a decorative dashboard.\n\nThis is a code-led system extracted from the local functional redesign, not an approved visual comp or proof of deployment. The cascade loads `web/style.css` before `web/product.css`; the latter owns the current world. `web/index.html`, `web/app.js`, `web/controls.js` and `web/terminal.js` supply the implemented component and interaction evidence. Direction provenance is FORM `710ac72e`, grounded direction 4. The prior Arabic/teal visual world is superseded by the authorized replacement.",
+    "overview": "The console is a restrained English operational workspace. White navigation and white content surfaces sit on a cool neutral canvas; indigo identifies deliberate actions and the current location. Fine borders, compact typography and generous space between groups organize dense technical evidence without turning the console into a decorative dashboard.\n\nThis is a code-led system for the monitoring and deployment tool, extracted from its current implementation. Design documentation describes interface behavior; it does not establish deployment or operational acceptance. The cascade loads `web/style.css` before `web/product.css`; the latter owns the current world. `web/index.html`, `web/app.js`, `web/monitoring.js`, `web/controls.js` and `web/terminal.js` supply the implemented component and interaction evidence. Direction provenance is FORM `710ac72e`, grounded direction 4. The prior Arabic/teal visual world is superseded by the authorized replacement.",
     "keyCharacteristics": [
       "English LTR interface with readable technical identifiers.",
       "White sidebar, cool neutral canvas and flat bordered surfaces.",
       "Indigo actions and selection; explicit text alongside status colors.",
-      "Responsive catalog, project workspace and contextual execution evidence.",
+      "Sampled host telemetry, responsive project workspaces and contextual execution evidence.",
       "SVG line icons and a distinct dark interactive terminal."
     ],
     "rules": [
@@ -380,6 +398,11 @@
         "name": "Flat Workspace",
         "body": "Keep routine content flat; reserve elevation for content temporarily layered above the workspace.",
         "section": "elevation"
+      },
+      {
+        "name": "Measured History",
+        "body": "Draw only observed samples, label missing or stale measurements, and keep historical inspection visibly distinct from current readings.",
+        "section": "components"
       }
     ],
     "dos": [
@@ -387,14 +410,17 @@
       "**Do** pair status colors with state text and relevant observation timestamps.",
       "**Do** retain project identity and source context through service and run views.",
       "**Do** enlarge supporting evidence on mobile and keep forms within the viewport.",
-      "**Do** preserve visible labels, focus indicators and recoverable inline errors."
+      "**Do** preserve visible labels, focus indicators and recoverable inline errors.",
+      "**Do** retain settings drafts and sample-inspection context during background observations.",
+      "**Do** distinguish current measurements, historical samples and missing data with explicit text."
     ],
     "donts": [
       "**Don't** restore the superseded Arabic/teal identity as the default console world.",
       "**Don't** use a healthy-looking color to imply a deployment or health check that the evidence does not establish.",
       "**Don't** turn routine cards into floating layers or make the main navigation a content modal.",
       "**Don't** replace SVG interface icons with decorative glyphs.",
-      "**Don't** present this local design preview as deployment or production acceptance."
+      "**Don't** invent history, bridge missing samples, or present stale readings as live.",
+      "**Don't** treat visual documentation as deployment or production acceptance."
     ]
   }
 }

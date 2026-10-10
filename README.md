@@ -160,3 +160,13 @@ deployment settings; it is not evidence that those settings are active on produc
 Preview operations are disconnected. Environment values are not copied.
 The design review covers rendered desktop/mobile workflows; production terminal
 and deployment acceptance require separate live checks after rollout.
+
+## Host monitoring
+The worker reads the verified host CPU, memory, uptime, load and eth0 counters
+through five read-only proc file mounts. Disk usage is the filesystem containing
+`/opt/docker-engine/projects`. Host collection is independent of Docker observation.
+Current samples refresh every five seconds; SQLite retains one sample per fifteen
+seconds for twenty-four hours. Charts offer 15m, 1h and 24h windows with bounded
+sampling; missing history and counter warm-up are never presented as zero.
+Disconnected or expired readings are marked historical and live KPIs are masked.
+The dashboard shows current resource threshold warnings, not external alert delivery.

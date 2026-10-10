@@ -36,6 +36,7 @@ def connect(path):
         db.execute('ROLLBACK')
         raise
     db.executescript("""
+      CREATE TABLE IF NOT EXISTS telemetry(observed REAL PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, job_id INTEGER, created REAL, status TEXT, detail TEXT);
       CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, csrf TEXT NOT NULL, username TEXT NOT NULL, created REAL, touched REAL);
       CREATE TABLE IF NOT EXISTS settings(project TEXT PRIMARY KEY, branch TEXT NOT NULL, automatic INTEGER NOT NULL);

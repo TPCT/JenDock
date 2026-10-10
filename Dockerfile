@@ -1,7 +1,7 @@
 FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a AS receiver
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY server.py store.py ./
+COPY server.py store.py telemetry.py ./
 COPY web ./web
 USER 65534:65534
 EXPOSE 8080
@@ -12,5 +12,5 @@ FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf5
 RUN apk add --no-cache git openssh-client ca-certificates && pip install --no-cache-dir PyYAML==6.0.3
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY worker.py store.py control.py terminal_control.py ./
+COPY worker.py store.py control.py terminal_control.py telemetry.py ./
 CMD ["python", "worker.py"]
