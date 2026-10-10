@@ -187,8 +187,9 @@ function table(headers, rows) {
   thead.append(tr);
   for (const row of rows) {
     const r = el("tr");
-    row.forEach((value) => {
+    row.forEach((value, index) => {
       const td = el("td");
+      td.dataset.label=headers[index];
       td.append(
         typeof value === "string" ? document.createTextNode(value) : value,
       );
@@ -319,7 +320,7 @@ function resources() {
   return n;
 }
 function projectsTable(items) {
-  return table(
+  const result=table(
     ["Project", "Tracked branch", "Services", "Latest run", "Actions"],
     items.map(([name, p]) => {
       const services = projectImages(p),
@@ -341,6 +342,8 @@ function projectsTable(items) {
       ];
     }),
   );
+  result.classList.add("project-list");
+  return result;
 }
 function overview() {
   const root = $("content");
@@ -445,14 +448,14 @@ function serviceGroup(items, project) {
       ),
     );
     const image = el("code", c.Image, "service-image");
-    card.append(head, image, el("p", c.Status, "hint"));
+    card.append(head, image);
     const facts = el("div", "", "service-facts");
     facts.append(
       el("span", "CPU " + (c.CPUPerc || "—")),
       el("span", "Memory " + (c.MemUsage || "—")),
     );
     card.append(facts);
-    if(project)card.append(button("Manage container",()=>openContainer(project,c.Names),"secondary manage-container"));
+    if(project)card.append(button("Manage",()=>openContainer(project,c.Names),"secondary manage-container"));
     group.append(card);
   }
   return group;
@@ -480,6 +483,10 @@ function projectView(name) {
     ),
   );
   root.append(summary);
+  const services=projectImages(p),running=services.filter(c=>c.State==='running').length;
+  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':running===services.length?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
+  root.append(summaryLine);
+  if(!p.build_ready)root.append(el('p','Build setup pending. Container management is available below.','build-availability'));
   const tabs = el("div", "", "project-tabs");
   tabs.setAttribute("role", "tablist");
   const current = projectTabs[name] || "services";
@@ -708,6 +715,10 @@ function jobView(id) {
   actions.append(link("Open project", "#project/" + j.project));
   summary.append(info, actions);
   root.append(summary);
+  const services=projectImages(p),running=services.filter(c=>c.State==='running').length;
+  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':running===services.length?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
+  root.append(summaryLine);
+  if(!p.build_ready)root.append(el('p','Build setup pending. Container management is available below.','build-availability'));
   const strip = el("div", "", "step-strip"),
     order =
       j.mode === "validate"
@@ -843,9 +854,9 @@ function auditView() {
 function render(force = false) {
   if (!data || !session) return;
   const route = location.hash.slice(1) || "overview",
-    [page, key] = route.split("/");
+    [page, rawKey, rawName] = route.split("/"),key=decodeURIComponent(rawKey||""),containerName=decodeURIComponent(rawName||"");
   const editing =
-    document.activeElement?.matches("input,select") || document.activeElement?.closest(".select-control") || $("build-dialog").open || $("container-dialog").open || $("operation-dialog").open;
+    document.activeElement?.matches("input,select") || document.activeElement?.closest(".select-control") || $("build-dialog").open || page==="container" || $("operation-dialog").open;
   if (!force && route === currentRoute && editing) {
     updateStatus();
     return;
@@ -857,6 +868,7 @@ function render(force = false) {
           checked: n.checked,
         }))
       : [];
+  if(page!=="container")containerContext=null;
   currentRoute = route;
   const titles = {
     overview: ["Overview", "Production health and deployment activity."],
@@ -877,6 +889,7 @@ function render(force = false) {
       data.projects[key]?.label || key,
       "Production services, build history and deployment settings.",
     ],
+    container: [containerName, "Manage this service"],
     job: ["Run #" + key, "Execution stages and recorded result."],
   };
   const [title, description] = titles[page] || titles.overview;
@@ -891,11 +904,12 @@ function render(force = false) {
         page === "project" ? "#projects" : "#jobs",
       ),
     );
+  if(page==="container")$("breadcrumb").append(link("Projects","#projects"),link(projectLabel(key),"#project/"+key));
   $("breadcrumb").append(el("span", title));
   document.querySelectorAll("[data-nav]").forEach((a) => {
     const active =
       a.dataset.nav ===
-      (page === "project" ? "projects" : page === "job" ? "jobs" : page);
+      (["project","container"].includes(page) ? "projects" : page === "job" ? "jobs" : page);
     if (active) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
@@ -908,6 +922,7 @@ function render(force = false) {
       containers: containersView,
       audit: auditView,
       project: () => projectView(key),
+      container: () => containerView(key,containerName),
       job: () => jobView(key),
     })[page] || overview
   )();

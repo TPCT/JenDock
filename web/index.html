@@ -14,7 +14,7 @@
     <!-- THESIS: A deployment workbench; project decisions and execution evidence share one workflow.
 OWN-WORLD: Ink navigation, pale mineral workspace, white data surfaces, teal actions, restrained amber/red states.
 STORY: Authenticate, inspect a project, choose a real Git branch, test or deploy, follow persisted results and recovery.
-FIRST VIEWPORT: Persistent left navigation, compact health bar, project table and actionable failures; project detail groups all services, with branches limited to build and settings.
+FIRST VIEWPORT: Mobile-first project list, readable service rows and a dedicated service workspace; desktop sidebar becomes a mobile drawer. Breadcrumbs retain context. Builds and destructive confirmations alone interrupt the page.
 FORM: Operator workbench, seed 66a0a1d4, original selection 3; code-led product expansion.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
     <div id="boot" class="boot" role="status">Checking your session…</div>
@@ -172,10 +172,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           </button>
         </div>
       </form>
-    </dialog>
-    <dialog id="container-dialog" aria-labelledby="container-title">
-      <div class="dialog-head"><h2 id="container-title">Container</h2><button id="container-close" class="quiet" type="button">Close</button></div>
-      <div id="container-detail"></div>
     </dialog>
     <dialog id="operation-dialog" aria-labelledby="operation-title">
       <div class="dialog-head"><h2 id="operation-title">Confirm operation</h2></div>

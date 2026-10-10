@@ -41,16 +41,25 @@ function searchableSelect(select) {
 }
 function enhanceSelects(scope=document) {scope.querySelectorAll('select').forEach(searchableSelect);}
 let containerContext=null;
-function closeContainer() { document.getElementById('container-dialog').close();containerContext=null;document.getElementById('container-detail').replaceChildren(); }
-async function openContainer(project,name) {
-  const dialog=document.getElementById('container-dialog'),body=document.getElementById('container-detail');
-  document.getElementById('container-title').textContent=name;
-  body.replaceChildren(el('p','Loading container configuration…','hint'));dialog.showModal();
+function closeContainer() {
+  const project=containerContext?.project;
+  containerContext=null;
+  if(location.hash.startsWith('#container/'))location.hash=project?'project/'+project:'projects';
+}
+function openContainer(project,name) {
+  location.hash='container/'+encodeURIComponent(project)+'/'+encodeURIComponent(name);
+}
+async function containerView(project,name) {
+  const root=document.getElementById('content');
+  const top=el('div','','service-workspace-head');
+  top.append(link('Back to '+projectLabel(project),'#project/'+project));
+  const body=el('div');body.id='container-detail';body.append(el('p','Loading container configuration…','hint'));root.append(top,body);
+  containerContext=null;
   try {
     const detail=await api('action',{action:'container-details',project,container:name});
-    if(!dialog.open)return;
+    if(!body.isConnected)return;
     containerContext={project,name,detail};renderContainer('details');
-  } catch(error){body.replaceChildren(el('p',error.message,'error'));}
+  } catch(error){if(body.isConnected)body.replaceChildren(el('p',error.message,'error'),button('Try again',()=>{root.replaceChildren();containerView(project,name);}));}
 }
 function renderContainer(tab) {
   const {project,name,detail:d}=containerContext,body=document.getElementById('container-detail');body.replaceChildren();
@@ -65,7 +74,7 @@ function renderContainer(tab) {
     for(const [label,value] of [['Status',d.state],['Health',d.health],['Image / version',d.image],['Image ID',d.image_id],['Git commit',d.commit||'Not recorded in this image'],['Created',d.image_created],['Started',d.started_at],['Restart count',String(d.restart_count)]]) {const valueNode=el('dd',value,'identifier');valueNode.dataset.fact=label;facts.append(el('dt',label),valueNode);}
     const actions=el('div','','actions');
     for(const [operation,label] of [['start','Start'],['stop','Stop'],['restart','Restart']]){const b=button(label,()=>confirmContainer(operation),'secondary',operation==='start'?d.state==='running':d.state!=='running');b.dataset.operation=operation;actions.append(b);}
-    body.append(facts,actions,el('p', 'Live runtime status. Image and environment are checked again before applying a change.', 'hint'),el('p','Actions apply only to this container. Stopping a database or cache can affect other services in this project.','hint'));
+    const overview=el('div','','service-runtime');overview.append(badge(d.state),el('code',d.image,'service-image'),actions);body.append(overview,el('p','Actions apply only to this container. Stopping a database or cache can affect other services in this project.','hint'),section('Version & runtime'),facts);
     if(d.mounts.length)body.append(section('Persistent mounts'),table(['Type','Container path','Access'],d.mounts.map(m=>[m.type,m.destination,m.read_only?'Read only':'Read / write'])));
   } else {
     body.append(el('p',d.environment_scope,'hint'),el('p','Values stay hidden by default. Changes persist in Compose and recreate this service. Changing a database password variable does not rotate existing database accounts; update connected services and database credentials together.','notice'));
@@ -91,13 +100,14 @@ function confirmContainer(operation,changes) {
   const body=document.getElementById('operation-summary');body.replaceChildren(el('strong',name));
   body.append(el('p',operation==='environment-save'?'This recreates the service and briefly interrupts it if running. The previous configuration is restored if runtime checks fail.':'This changes the live container state. Other services may depend on it.'));
   if(changes)body.append(el('p','Changed keys: '+Object.keys(changes).join(', '),'identifier'));
+  body.append(el('p','','operation-progress'));
   const confirm=document.getElementById('operation-confirm');confirm.disabled=false;document.getElementById('operation-error').hidden=true;
   confirm.onclick=async()=>{
     confirm.disabled=true;confirm.textContent='Applying…';dialog.dataset.pending='true';document.getElementById('operation-cancel').disabled=true;const error=document.getElementById('operation-error');error.hidden=true;
     try {
       const result=await api('action',{action:operation==='environment-save'?operation:'container-'+operation,project,container:name,container_id:d.container_id,revision:d.revision,changes,request_id:requestId});
       if(result.status!=='succeeded')throw new Error(result.message);
-      dialog.close();closeContainer();toast(result.message);await refresh(true);
+      dialog.close();toast(result.message);await refresh(true);
     } catch(e){error.textContent=e.message;error.hidden=false;}finally{confirm.disabled=false;confirm.textContent='Apply';dialog.dataset.pending='false';document.getElementById('operation-cancel').disabled=false;}
   };dialog.showModal();
 }
@@ -125,8 +135,6 @@ document.addEventListener('DOMContentLoaded',()=>{
     }
   });
   matchMedia('(max-width: 680px)').addEventListener('change',()=>setNavigation(false));setNavigation(false);
-  document.getElementById('container-close').onclick=closeContainer;
-  document.getElementById('container-dialog').addEventListener('close',()=>{containerContext=null;document.getElementById('container-detail').replaceChildren();});
   document.getElementById('operation-cancel').onclick=()=>document.getElementById('operation-dialog').close();
   document.getElementById('operation-dialog').addEventListener('cancel',event=>{if(event.currentTarget.dataset.pending==='true')event.preventDefault();});
   document.getElementById('operation-dialog').addEventListener('close',()=>{document.getElementById('operation-confirm').onclick=null;});
@@ -136,7 +144,7 @@ function updateContainerLive() {
   if(!containerContext)return;
   const body=document.getElementById('container-detail');
   const c=containers().find(c=>c.Names===containerContext.name);
-  if(!c||body.dataset.tab!=='details')return;
+  if(!c||!body||body.dataset.tab!=='details')return;
   const replaced=c.ID&&!containerContext.detail.container_id.startsWith(c.ID);
   const state=body.querySelector('[data-fact="Status"]');
   if(state)state.textContent=stale('containers')?'Observation unavailable':replaced?'Replaced — close and reopen to inspect the new version':c.State;
