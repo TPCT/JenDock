@@ -1,0 +1,126 @@
+{
+  "aic-website": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "aic-sys": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "aic-ops": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "aic-academy": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "captcha": [
+    {
+      "event": "push",
+      "status_code": 202
+    },
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "dsl01": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "dsl02": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "elfak01": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "elfak-legacy": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "elnahy": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "licence": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "us01": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "website": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "30sv01": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "eo01": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "octa": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "etsawaa": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "lms-v2": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "smartconst": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ],
+  "crm": [
+    {
+      "event": "ping",
+      "status_code": 200
+    }
+  ]
+}

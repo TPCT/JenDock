@@ -10,6 +10,7 @@ services:
     cpus: 0.5
     pids_limit: 64
     environment:
+      PUBLIC_ORIGIN: https://monitoring.shiftcodes.net
       PROJECTS_FILE: /policy/projects.json
     volumes:
       - ./policy:/policy:ro

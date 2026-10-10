@@ -7,13 +7,14 @@ import json
 import subprocess
 from pathlib import Path
 
-URL = 'https://shiftcodes.net/_deploy/github'
+URL = 'https://monitoring.shiftcodes.net/github'
+LEGACY_URL = 'https://shiftcodes.net/_deploy/github'
 
 
-def api(path, payload=None):
+def api(path, payload=None, method="POST"):
     command = ['gh', 'api', path]
     if payload is not None:
-        command += ['--method', 'POST', '--input', '-']
+        command += ['--method', method, '--input', '-']
     result = subprocess.run(command, input=json.dumps(payload) if payload is not None else None,
                             capture_output=True, text=True)
     if result.returncode:
@@ -36,11 +37,13 @@ def main():
     for name, project in projects.items():
         repository = project['repository']
         endpoint = 'repos/' + repository + '/hooks'
-        matches = [h for h in api(endpoint) if h.get('config', {}).get('url') == URL]
+        matches = [h for h in api(endpoint) if h.get('config', {}).get('url') in (URL, LEGACY_URL)]
         assert len(matches) <= 1, 'Duplicate hooks require reconciliation'
         if matches:
             hook = matches[0]
             assert hook['active'] and 'push' in hook['events'], 'Existing hook is not active for pushes'
+            if hook['config']['url'] != URL:
+                hook = api(endpoint + '/' + str(hook['id']), {'config': {'url': URL, 'content_type': 'json', 'secret': secret, 'insecure_ssl': '0'}}, method='PATCH')
         else:
             hook = api(endpoint, {'name': 'web', 'active': True, 'events': ['push'],
                                   'config': {'url': URL, 'content_type': 'json', 'secret': secret, 'insecure_ssl': '0'}})

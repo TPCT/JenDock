@@ -8,7 +8,10 @@
     "image_prefixes": [
       "aic-website-"
     ],
-    "label": "aicconsultation.com"
+    "label": "aicconsultation.com",
+    "container_prefixes": [
+      "aic-website-"
+    ]
   },
   "aic-sys": {
     "repository": "TPCT/sys.aicconsultation.com",
@@ -19,7 +22,10 @@
     "image_prefixes": [
       "aic-sys-"
     ],
-    "label": "sys.aicconsultation.com"
+    "label": "sys.aicconsultation.com",
+    "container_prefixes": [
+      "aic-sys-"
+    ]
   },
   "aic-ops": {
     "repository": "TPCT/daily.shiftcodes.net",
@@ -30,7 +36,10 @@
     "image_prefixes": [
       "aic-ops-"
     ],
-    "label": "ops.shiftcodes.net"
+    "label": "ops.shiftcodes.net",
+    "container_prefixes": [
+      "aic-ops-"
+    ]
   },
   "aic-academy": {
     "repository": "TPCT/aa01sc2026.shiftcodes.net",
@@ -41,7 +50,10 @@
     "image_prefixes": [
       "aic-academy-"
     ],
-    "label": "aa01sc2026.shiftcodes.net"
+    "label": "aa01sc2026.shiftcodes.net",
+    "container_prefixes": [
+      "aic-academy-"
+    ]
   },
   "captcha": {
     "repository": "TPCT/captcha.shiftcodes.net",
@@ -93,7 +105,10 @@
     "image_prefixes": [
       "dsl-captcha:"
     ],
-    "label": "captcha.shiftcodes.net"
+    "label": "captcha.shiftcodes.net",
+    "container_prefixes": [
+      "dsl-captcha-"
+    ]
   },
   "dsl01": {
     "repository": "TPCT/dsl01sc2025.shiftcodes.net",
@@ -164,7 +179,10 @@
         }
       ]
     },
-    "label": "dsl01sc2025.shiftcodes.net"
+    "label": "dsl01sc2025.shiftcodes.net",
+    "container_prefixes": [
+      "dsl-dsl01-"
+    ]
   },
   "dsl02": {
     "repository": "TPCT/crm01sc2025.shiftcodes.net",
@@ -230,7 +248,10 @@
         }
       ]
     },
-    "label": "dsl02sc2025.shiftcodes.net"
+    "label": "dsl02sc2025.shiftcodes.net",
+    "container_prefixes": [
+      "dsl-dsl02-"
+    ]
   },
   "elfak01": {
     "repository": "TPCT/fak01sc2025.shiftcodes.net",
@@ -241,7 +262,10 @@
     "image_prefixes": [
       "elfak01-"
     ],
-    "label": "elfak01sc2026.shiftcodes.net"
+    "label": "elfak01sc2026.shiftcodes.net",
+    "container_prefixes": [
+      "elfak-elfak01-"
+    ]
   },
   "elfak-legacy": {
     "repository": "TPCT/elfakharany.shiftcodes.net",
@@ -252,7 +276,10 @@
     "image_prefixes": [
       "elfak-legacy-"
     ],
-    "label": "elfakharany.shiftcodes.net"
+    "label": "elfakharany.shiftcodes.net",
+    "container_prefixes": [
+      "elfak-legacy-"
+    ]
   },
   "elnahy": {
     "repository": "TPCT/elnahy.shiftcodes.net",
@@ -263,7 +290,10 @@
     "image_prefixes": [
       "elnahy-"
     ],
-    "label": "elnahy.shiftcodes.net"
+    "label": "elnahy.shiftcodes.net",
+    "container_prefixes": [
+      "elnahy-"
+    ]
   },
   "licence": {
     "repository": "TPCT/licence",
@@ -274,7 +304,10 @@
     "image_prefixes": [
       "shiftcodes-licence-"
     ],
-    "label": "licence.shiftcodes.net"
+    "label": "licence.shiftcodes.net",
+    "container_prefixes": [
+      "shiftcodes-licence-"
+    ]
   },
   "us01": {
     "repository": "TPCT/us01sc2025.shiftcodes.net",
@@ -285,7 +318,10 @@
     "image_prefixes": [
       "shiftcodes-us01-"
     ],
-    "label": "us01sc2025.shiftcodes.net"
+    "label": "us01sc2025.shiftcodes.net",
+    "container_prefixes": [
+      "shiftcodes-us01-"
+    ]
   },
   "website": {
     "repository": "TPCT/shiftcodes.net",
@@ -351,7 +387,10 @@
         }
       ]
     },
-    "label": "shiftcodes.net"
+    "label": "shiftcodes.net",
+    "container_prefixes": [
+      "shiftcodes-website-"
+    ]
   },
   "30sv01": {
     "repository": "TPCT/30sv01sc2026.shiftcodes.net",
@@ -418,7 +457,10 @@
         }
       ]
     },
-    "label": "30sv01sc2026.shiftcodes.net"
+    "label": "30sv01sc2026.shiftcodes.net",
+    "container_prefixes": [
+      "30sv01-"
+    ]
   },
   "eo01": {
     "repository": "TPCT/eo01sc2026.shiftcodes.net",
@@ -485,7 +527,10 @@
         }
       ]
     },
-    "label": "eo01sc2026.shiftcodes.net"
+    "label": "eo01sc2026.shiftcodes.net",
+    "container_prefixes": [
+      "eo01-"
+    ]
   },
   "octa": {
     "repository": "TPCT/octa-solutions.com",
@@ -552,7 +597,10 @@
         }
       ]
     },
-    "label": "octa-solutions.com"
+    "label": "octa-solutions.com",
+    "container_prefixes": [
+      "octa-"
+    ]
   },
   "etsawaa": {
     "repository": "TPCT/etsawaa.com",
@@ -563,7 +611,10 @@
     "image_prefixes": [
       "etsawaa-"
     ],
-    "label": "etsawaa.com"
+    "label": "etsawaa.com",
+    "container_prefixes": [
+      "etsawaa-"
+    ]
   },
   "lms-v2": {
     "repository": "TPCT/monglish-lms",
@@ -574,7 +625,10 @@
     "image_prefixes": [
       "lms-v2-"
     ],
-    "label": "lms-v2.shiftcodes.net"
+    "label": "lms-v2.shiftcodes.net",
+    "container_prefixes": [
+      "lms-v2-"
+    ]
   },
   "smartconst": {
     "repository": "TPCT/smart-const.com",
@@ -585,7 +639,10 @@
     "image_prefixes": [
       "smartconst-"
     ],
-    "label": "smart-const.com"
+    "label": "smart-const.com",
+    "container_prefixes": [
+      "smartconst-"
+    ]
   },
   "crm": {
     "repository": "TPCT/crm.shiftcodes.net",
@@ -649,6 +706,9 @@
         }
       ]
     },
-    "label": "crm.shiftcodes.net"
+    "label": "crm.shiftcodes.net",
+    "container_prefixes": [
+      "crm-"
+    ]
   }
 }

@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-from store import connect, projects, set_status, snapshot
+from store import connect, projects, effective_projects, valid_branch, set_status, snapshot
 
 DOCKER = os.environ.get('DOCKER_BIN', '/usr/local/bin/docker')
 COMPOSE = os.environ.get('COMPOSE_BIN', '/usr/local/bin/docker-compose')
@@ -167,6 +167,9 @@ def deploy(db, job, project, validate_only=False):
     diagnostics.job_id = job['id']
     recipe = project['recipe']
     name, sha = job['project'], job['sha']
+    branch = job['branch'] or project['branch']
+    if not valid_branch(branch):
+        raise StepFailure('اسم الفرع غير صالح.')
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise StepFailure('معرّف Git غير صالح.')
     if not recipe.get('tests') or not recipe.get('http_checks'):
@@ -176,7 +179,7 @@ def deploy(db, job, project, validate_only=False):
         source = Path(temp) / 'source'
         set_status(db, job['id'], 'building', 'جارٍ التحقق من Git وتحضير بناء معزول.')
         remote = 'git@github.com:' + project['repository'] + '.git'
-        run(['git', 'clone', '--single-branch', '--branch', project['branch'], '--', remote, str(source)], timeout=300)
+        run(['git', 'clone', '--branch', branch, '--', remote, str(source)], timeout=300)
         head = run(['git', 'rev-parse', 'HEAD'], cwd=source, capture=True).strip()
         if head != sha:
             set_status(db, job['id'], 'superseded', 'الفرع يحتوي إصدارًا أحدث؛ لن ننشر الإصدار القديم.')
@@ -193,7 +196,7 @@ def deploy(db, job, project, validate_only=False):
                 raise StepFailure('لا يمكن تحديد معرّف Git للصورة الحالية؛ تحتاج مراجعة قبل النشر.')
             revisions.add(value)
         changed = '\n'.join(run(['git', 'diff', '--name-only', old, sha], cwd=source, capture=True) for old in revisions)
-        schema_changes = any('/migrations/' in '/' + line for line in changed.splitlines())
+        schema_changes = any(any(part in '/' + line for part in ('/migrations/', '/alembic/versions/')) for line in changed.splitlines())
         if schema_changes and not validate_only:
             set_status(db, job['id'], 'needs-review', 'تغييرات قاعدة البيانات تحتاج خطة ترحيل قبل النشر التلقائي.')
             return
@@ -243,7 +246,7 @@ def deploy(db, job, project, validate_only=False):
             set_status(db, job['id'], 'validated', 'نجح البناء والاختبار الداخلي؛ لم تتغير خدمات الإنتاج.' + (' توجد تغييرات ترحيل تحتاج مراجعة.' if schema_changes else ''))
             return
         previous_env = env_values(recipe['env_file'], updates)
-        current_head = run(['git', 'ls-remote', '--refs', 'origin', 'refs/heads/' + project['branch']], cwd=source, capture=True).split()
+        current_head = run(['git', 'ls-remote', '--refs', 'origin', 'refs/heads/' + branch], cwd=source, capture=True).split()
         if not current_head or current_head[0] != sha:
             set_status(db, job['id'], 'superseded', 'وصل تعديل أحدث أثناء البناء؛ لم تتغير خدمات الإنتاج.')
             return
@@ -273,6 +276,11 @@ def observe(db):
         if obj.get('Names', '').startswith(('tanialab-', 'deploy-monitor-recovery-check-', 'deploy-test-')):
             continue
         data.append({k: obj.get(k) for k in ('Names', 'Image', 'State', 'Status')})
+    stats_raw = run([DOCKER, 'stats', '--no-stream', '--format', '{{json .}}'], timeout=30, capture=True)
+    stats = {row['Name']: row for row in (json.loads(line) for line in stats_raw.splitlines() if line.strip())}
+    for entry in data:
+        reading = stats.get(entry['Names'], {})
+        entry.update({key: reading.get(key) for key in ('CPUPerc','MemUsage','MemPerc','PIDs')})
     snapshot(db, 'containers', data)
     disk = shutil.disk_usage('/work')
     snapshot(db, 'disk', {'total': disk.total, 'free': disk.free})
@@ -283,6 +291,21 @@ def observe(db):
             memory[key] = int(value.strip().split()[0]) * 1024
     snapshot(db, 'resources', {'memory': memory, 'load_1m': os.getloadavg()[0], 'cpu_count': os.cpu_count()})
     snapshot(db, 'worker', {'state': 'running', 'external_monitor': False, 'outbound_alerts': False})
+
+
+def observe_branches(db, name, project):
+    try:
+        raw=run(['git','ls-remote','--heads','git@github.com:'+project['repository']+'.git'],timeout=45,capture=True)
+        branches={}
+        for line in raw.splitlines():
+            sha,ref=line.split('\t',1)
+            branch=ref.removeprefix('refs/heads/')
+            if re.fullmatch('[0-9a-f]{40}',sha) and valid_branch(branch):
+                branches[branch]=sha
+        snapshot(db,'branches:'+name,{'branches':branches,'error':False})
+    except (StepFailure,ValueError):
+        snapshot(db,'branches:'+name,{'branches':{},'error':True,'detail':'تعذر جلب فروع GitHub. أعد المحاولة.'})
+    db.execute('DELETE FROM requests WHERE project=?',(name,))
 
 
 def main():
@@ -299,6 +322,19 @@ def main():
                 snapshot(db, 'worker', {'state': 'recovery-failed', 'detail': 'تحتاج استعادة التشغيل مراجعة؛ توقفت عمليات النشر.'})
                 raise SystemExit(1)
         db.execute("UPDATE jobs SET status='interrupted',detail='توقف العامل قبل بدء التحديث؛ لم تعتبر المهمة ناجحة.' WHERE status IN ('building','testing','deploying')")
+        def branch_collector():
+            branch_db=connect(DATABASE)
+            while True:
+                try:
+                    policy=projects(CONFIG)
+                    requested=branch_db.execute('SELECT project FROM requests ORDER BY created LIMIT 1').fetchone()
+                    name=requested['project'] if requested else next((name for name in policy if not (row:=branch_db.execute('SELECT updated FROM snapshots WHERE name=?',('branches:'+name,)).fetchone()) or time.time()-row['updated']>300),None)
+                    if name in policy:
+                        observe_branches(branch_db,name,policy[name])
+                except (OSError,ValueError,StepFailure):
+                    pass
+                time.sleep(3)
+        threading.Thread(target=branch_collector,daemon=True).start()
         def collector():
             observations = connect(DATABASE)
             while True:
@@ -312,8 +348,11 @@ def main():
             try:
                 job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()
                 if job:
-                    project = projects(CONFIG).get(job['project'])
+                    project = effective_projects(db, CONFIG).get(job['project'])
                     validation = job['status'] == 'validation-queued'
+                    claimed=db.execute("UPDATE jobs SET status='building',updated=? WHERE id=? AND status=?",(time.time(),job['id'],job['status'])).rowcount
+                    if not claimed:
+                        continue
                     if not project or (not project.get('enabled') and not validation):
                         set_status(db, job['id'], 'awaiting-validation', 'النشر التلقائي غير مفعّل لهذا المشروع.')
                     else:

@@ -97,8 +97,11 @@ class ReceiverTests(unittest.TestCase):
                 urllib.request.urlopen(url)
             self.assertEqual(err.exception.code, 401)
             err.exception.close()
-            auth = 'Basic ' + base64.b64encode(b'admin:local-test-only').decode()
-            request = urllib.request.Request(url, headers={'Authorization': auth})
+            code,value,token=self.app.login({'username':'admin','password':'local-test-only'},'test')
+            self.assertEqual(code,200)
+            cookie=self.app.cookie_name+'='+token
+            auth='unused'
+            request = urllib.request.Request(url, headers={'Cookie':cookie})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(response.status, 200)
                 self.assertEqual(response.headers['Cache-Control'], 'no-store')
@@ -106,7 +109,7 @@ class ReceiverTests(unittest.TestCase):
                 self.assertNotIn('password_hash', json.dumps(value))
                 self.assertNotIn('webhook_secret', json.dumps(value))
             with self.assertRaises(urllib.error.HTTPError) as err:
-                urllib.request.urlopen(urllib.request.Request(url, data=b'{}', headers={'Authorization': auth}))
+                urllib.request.urlopen(urllib.request.Request(url, data=b'{}', headers={'Cookie':cookie}))
             self.assertEqual(err.exception.code, 404)
             err.exception.close()
         finally:

@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-10T15:56:34.938786+00:00",
+  "title": "Design System: Shiftcodes Operate",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.03243 222.51)",
+          "oklch(26.43% 0.03243 222.51)",
+          "oklch(37.86% 0.03243 222.51)",
+          "oklch(49.29% 0.03243 222.51)",
+          "oklch(60.71% 0.03243 222.51)",
+          "oklch(72.14% 0.03243 222.51)",
+          "oklch(83.57% 0.03243 222.51)",
+          "oklch(95.00% 0.03243 222.51)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.02532 222.17)",
+          "oklch(26.43% 0.02532 222.17)",
+          "oklch(37.86% 0.02532 222.17)",
+          "oklch(49.29% 0.02532 222.17)",
+          "oklch(60.71% 0.02532 222.17)",
+          "oklch(72.14% 0.02532 222.17)",
+          "oklch(83.57% 0.02532 222.17)",
+          "oklch(95.00% 0.02532 222.17)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Bg",
+        "tonalRamp": [
+          "oklch(15.00% 0.00347 219.53)",
+          "oklch(26.43% 0.00347 219.53)",
+          "oklch(37.86% 0.00347 219.53)",
+          "oklch(49.29% 0.00347 219.53)",
+          "oklch(60.71% 0.00347 219.53)",
+          "oklch(72.14% 0.00347 219.53)",
+          "oklch(83.57% 0.00347 219.53)",
+          "oklch(95.00% 0.00347 219.53)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95.00% 0.00000 89.88)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.00955 222.06)",
+          "oklch(26.43% 0.00955 222.06)",
+          "oklch(37.86% 0.00955 222.06)",
+          "oklch(49.29% 0.00955 222.06)",
+          "oklch(60.71% 0.00955 222.06)",
+          "oklch(72.14% 0.00955 222.06)",
+          "oklch(83.57% 0.00955 222.06)",
+          "oklch(95.00% 0.00955 222.06)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "nav": {
+        "role": "neutral",
+        "displayName": "Nav",
+        "tonalRamp": [
+          "oklch(15.00% 0.03077 220.54)",
+          "oklch(26.43% 0.03077 220.54)",
+          "oklch(37.86% 0.03077 220.54)",
+          "oklch(49.29% 0.03077 220.54)",
+          "oklch(60.71% 0.03077 220.54)",
+          "oklch(72.14% 0.03077 220.54)",
+          "oklch(83.57% 0.03077 220.54)",
+          "oklch(95.00% 0.03077 220.54)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15.00% 0.08527 185.03)",
+          "oklch(26.43% 0.08527 185.03)",
+          "oklch(37.86% 0.08527 185.03)",
+          "oklch(49.29% 0.08527 185.03)",
+          "oklch(60.71% 0.08527 185.03)",
+          "oklch(72.14% 0.08527 185.03)",
+          "oklch(83.57% 0.08527 185.03)",
+          "oklch(95.00% 0.08527 185.03)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Accent Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.07046 183.76)",
+          "oklch(26.43% 0.07046 183.76)",
+          "oklch(37.86% 0.07046 183.76)",
+          "oklch(49.29% 0.07046 183.76)",
+          "oklch(60.71% 0.07046 183.76)",
+          "oklch(72.14% 0.07046 183.76)",
+          "oklch(83.57% 0.07046 183.76)",
+          "oklch(95.00% 0.07046 183.76)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "good": {
+        "role": "semantic",
+        "displayName": "Good",
+        "tonalRamp": [
+          "oklch(15.00% 0.08007 165.91)",
+          "oklch(26.43% 0.08007 165.91)",
+          "oklch(37.86% 0.08007 165.91)",
+          "oklch(49.29% 0.08007 165.91)",
+          "oklch(60.71% 0.08007 165.91)",
+          "oklch(72.14% 0.08007 165.91)",
+          "oklch(83.57% 0.08007 165.91)",
+          "oklch(95.00% 0.08007 165.91)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "bad": {
+        "role": "semantic",
+        "displayName": "Bad",
+        "tonalRamp": [
+          "oklch(15.00% 0.15275 22.50)",
+          "oklch(26.43% 0.15275 22.50)",
+          "oklch(37.86% 0.15275 22.50)",
+          "oklch(49.29% 0.15275 22.50)",
+          "oklch(60.71% 0.15275 22.50)",
+          "oklch(72.14% 0.15275 22.50)",
+          "oklch(83.57% 0.15275 22.50)",
+          "oklch(95.00% 0.15275 22.50)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      },
+      "amber": {
+        "role": "semantic",
+        "displayName": "Amber",
+        "tonalRamp": [
+          "oklch(15.00% 0.09278 76.82)",
+          "oklch(26.43% 0.09278 76.82)",
+          "oklch(37.86% 0.09278 76.82)",
+          "oklch(49.29% 0.09278 76.82)",
+          "oklch(60.71% 0.09278 76.82)",
+          "oklch(72.14% 0.09278 76.82)",
+          "oklch(83.57% 0.09278 76.82)",
+          "oklch(95.00% 0.09278 76.82)"
+        ],
+        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Login story",
+        "purpose": "Desktop login statement; reduced to 39px at 1100px and hidden at 680px."
+      }
+    },
+    "shadows": [
+      {
+        "name": "toast",
+        "value": "0 6px 22px #152b3226",
+        "purpose": "Transient feedback only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "button-background",
+        "value": "background 0.16s ease",
+        "purpose": "Button hover; removed for reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile-max",
+        "value": "680px"
+      },
+      {
+        "name": "compact-max",
+        "value": "1100px"
+      },
+      {
+        "name": "wide-min",
+        "value": "1600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary button from the implemented Arabic operator workspace.",
+      "html": "<button class=\"ds-primary\" dir=\"rtl\">بناء جديد</button>",
+      "css": ".ds-primary{font:14px/1.75 Noto,Arial,sans-serif;border:1px solid transparent;border-radius:6px;padding:8px 14px;background:var(--accent, #006e65);color:#fff;cursor:pointer;transition:background .16s ease}.ds-primary:hover:not(:disabled){background:var(--accent-hover, #00534b)}.ds-primary:disabled{opacity:.55;cursor:not-allowed}.ds-primary:focus-visible{outline:3px solid #258bde;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Secondary button from the implemented Arabic operator workspace.",
+      "html": "<button class=\"ds-secondary\" dir=\"rtl\">تحديث الفروع</button>",
+      "css": ".ds-secondary{font:14px/1.75 Noto,Arial,sans-serif;border:1px solid #b6c5cb;border-radius:6px;padding:8px 14px;background:#fff;color:var(--ink, #172e36);cursor:pointer;transition:background .16s ease}.ds-secondary:hover:not(:disabled){background:#edf3f4}.ds-secondary:disabled{opacity:.55;cursor:not-allowed}.ds-secondary:focus-visible{outline:3px solid #258bde;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
+    },
+    {
+      "name": "Quiet button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Quiet button from the implemented Arabic operator workspace.",
+      "html": "<button class=\"ds-quiet\" dir=\"rtl\">إغلاق</button>",
+      "css": ".ds-quiet{font:14px/1.75 Noto,Arial,sans-serif;border:1px solid transparent;border-radius:6px;padding:8px 14px;background:transparent;color:var(--ink, #172e36);cursor:pointer;transition:background .16s ease}.ds-quiet:hover:not(:disabled){background:#e4edef}.ds-quiet:disabled{opacity:.55;cursor:not-allowed}.ds-quiet:focus-visible{outline:3px solid #258bde;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-quiet{transition:none}}"
+    },
+    {
+      "name": "Labeled login field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Externally labeled username input from session login.",
+      "html": "<label class=\"ds-label\" dir=\"rtl\" for=\"ds-username\">اسم المستخدم</label><input class=\"ds-input\" id=\"ds-username\" autocomplete=\"username\" required dir=\"ltr\"/>",
+      "css": ".ds-label{font:14px/1.75 Noto,Arial,sans-serif;display:block;font-size:13px;font-weight:600;margin-bottom:7px}.ds-input{font:14px/1.75 Noto,Arial,sans-serif;background:#fff;border:1px solid #a9bbc2;border-radius:6px;padding:9px 12px;min-height:44px;max-width:100%;color:var(--ink, #172e36);caret-color:var(--accent, #006e65)}.ds-input:focus-visible{outline:3px solid #258bde;outline-offset:3px}"
+    },
+    {
+      "name": "Current navigation",
+      "kind": "nav",
+      "description": "Current navigation from the implemented Arabic operator workspace.",
+      "html": "<nav class=\"ds-nav\" dir=\"rtl\"><a href=\"#overview\">نظرة عامة</a><a href=\"#projects\" aria-current=\"page\">المشاريع <span>20</span></a></nav>",
+      "css": ".ds-nav{font:14px/1.75 Noto,Arial,sans-serif;background:var(--nav, #152b32);padding:20px;display:grid;gap:6px}.ds-nav a{color:#c9d9de;text-decoration:none;padding:11px 14px;border-radius:6px;display:flex;justify-content:space-between;font-size:13px}.ds-nav a:hover{background:#203d47}.ds-nav a[aria-current]{background:#2a4c53;color:#fff}.ds-nav span{font-size:11px;color:#c4d8da}.ds-nav a:focus-visible{outline:3px solid #258bde;outline-offset:3px}"
+    },
+    {
+      "name": "Pending status badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Pending status badge from the implemented Arabic operator workspace.",
+      "html": "<span class=\"ds-badge\" dir=\"rtl\">انتظار</span>",
+      "css": ".ds-badge{font:14px/1.75 Noto,Arial,sans-serif;display:inline-flex;font-size:11px;padding:3px 9px;border-radius:4px;white-space:nowrap;background:#fff2d8;color:var(--amber, #78530e)}"
+    },
+    {
+      "name": "Evidence panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Evidence panel from the implemented Arabic operator workspace.",
+      "html": "<section class=\"ds-panel\" dir=\"rtl\"><h2>ما يعمل الآن</h2><p>قراءة قديمة · آخر رصد</p></section>",
+      "css": ".ds-panel{font:14px/1.75 Noto,Arial,sans-serif;background:#fff;border:1px solid var(--line, #dce4e7);border-radius:var(--radius, 8px);padding:22px;color:var(--ink, #172e36)}.ds-panel h2{font-size:19px;margin:0 0 15px}.ds-panel p{font-size:12px;color:var(--muted, #586b72);margin:0}"
+    },
+    {
+      "name": "Execution mode",
+      "kind": "custom",
+      "description": "Execution mode from the implemented Arabic operator workspace.",
+      "html": "<label class=\"ds-mode\" dir=\"rtl\"><input type=\"radio\" checked name=\"ds-mode\"/><span><strong>بناء واختبار فقط</strong><small>الموقع الحالي لا يتغير.</small></span></label>",
+      "css": ".ds-mode{font:14px/1.75 Noto,Arial,sans-serif;display:flex;align-items:start;gap:12px;padding:14px;border:1px solid var(--accent, #006e65);border-radius:6px;background:#f2faf7;color:var(--ink, #172e36)}.ds-mode input{accent-color:var(--accent, #006e65);margin-top:7px}.ds-mode strong,.ds-mode small{display:block}.ds-mode small{font-size:12px;color:var(--muted, #586b72);margin-top:5px}.ds-mode input:focus-visible{outline:3px solid #258bde;outline-offset:3px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The deployment workbench",
+    "overview": "An Arabic RTL deployment workbench for authenticated operators. Ink navigation anchors a pale mineral workspace; white bordered panels hold real branch choices, execution decisions and timestamped runtime evidence. Teal identifies primary actions, while restrained amber and red communicate pending work and failure.\n\nThis is a scan of the implemented Operate direction, recorded in the first body comment of web/index.html. The user requested advanced management controls and deployment to monitoring.shiftcodes.net; this document does not imply approval of a separate aesthetic composition. It replaces the obsolete read-only, warm-neutral description. PRODUCT.md remains the product authority.",
+    "keyCharacteristics": [
+      "Arabic reading flow with isolated LTR repository names, branches, hashes and image references.",
+      "Compact operational tables and bounded forms, with evidence beside decisions.",
+      "Visible state labels and timestamps; stale observations remain visibly stale."
+    ],
+    "rules": [
+      {
+        "name": "The Evidence Rule",
+        "body": "Every freshness claim belongs to its observed source; a successful page fetch alone does not prove that every observation is current.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do preserve Arabic RTL layout and readable LTR technical identifiers.",
+      "Do keep manual branch selection distinct from the saved automatic deployment branch.",
+      "Do show the resolved commit and execution mode before queueing a build.",
+      "Do accompany color with explicit state text and observation timestamps.",
+      "Do keep errors, incomplete configuration and recovery actions visible."
+    ],
+    "donts": [
+      "Don't describe a cached observation as current after its freshness check fails.",
+      "Don't turn a test-only result into a successful production deployment label.",
+      "Don't reset an in-progress form just to refresh observation labels.",
+      "Don't imply that screenshots establish production acceptance or aesthetic approval."
+    ]
+  }
+}
