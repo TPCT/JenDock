@@ -149,3 +149,27 @@ success/failure, stale identities, secret redaction, integration errors and unce
 write recovery, cleanup results, and desktop/mobile rendered flows. Passing mocks or
 builds alone is not operational acceptance. Do not provision all 60 environments as a
 side effect of migrating configuration; capacity and requested activation matter.
+
+## Integration credential management — owner clarification
+
+Settings > Integrations provides separate Cloudflare and GitHub connections.
+Each connection supports saving/replacing a credential, testing it, disabling its
+use by this product, and inspecting sanitized connection metadata. A disconnect
+must not silently revoke the upstream credential, since other consumers may use it.
+Replacement is tested before becoming active; a failed replacement preserves the
+previous usable connection. Never send stored tokens back to the browser; show a
+configured state and replacement input, not a reveal button. Record actor/time and
+operation result without credentials, Authorization headers or upstream raw bodies.
+
+Cloudflare must support account-owned tokens as well as user tokens. User-token
+verification failure alone is not an invalid-token verdict. Verify the applicable
+account endpoint and enumerate authorized zones; report only capabilities actually
+verified. GitHub connection testing must distinguish API access, repository access,
+clone access and webhook-management rights. Do not silently replace working SSH
+checkout authentication or import the workstation's gh credential into the product.
+
+On 2026-10-10 the supplied Cloudflare credential was tested read-only against the
+official API: account-token verification succeeded with status active, and zones
+listing returned four active zones. No DNS records or account configuration changed.
+The credential value is deliberately absent from this document and Git. Credential
+management UI, encrypted persistence and production integration remain unimplemented.
