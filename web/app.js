@@ -783,13 +783,11 @@ function render(force = false) {
   }
   const focused=!force&&route===currentRoute&&$("content").contains(document.activeElement)?document.activeElement:null;
   const focusMatch=focused?{tag:focused.tagName,id:focused.id,href:focused.getAttribute('href'),label:focused.getAttribute('aria-label'),text:focused.textContent}:null;
-  const saved =
-    !force && route === currentRoute
-      ? [...$("content").querySelectorAll("input,select")].map((n) => ({
-          value: n.value,
-          checked: n.checked,
-        }))
-      : [];
+  // Settings drafts own branch/automatic state. Never copy generated select-search
+  // inputs into unrelated fields when a live update rebuilds the page.
+  const controlKey=n=>n.tagName+':'+(n.getAttribute('aria-label')||n.id||n.name||n.placeholder||'');
+  const restorable=()=>[...$('content').querySelectorAll('input,select')].filter(n=>!n.closest('.select-popover')&&!n.matches('#branch-select,#auto-deploy,[type=range]'));
+  const saved=new Map(!force&&route===currentRoute?restorable().map(n=>[controlKey(n),{value:n.value,checked:n.checked}]):[]);
   if(page!=="container"){closeTerminal();containerContext=null;}
   currentRoute = route;
   const titles = {
@@ -851,17 +849,12 @@ function render(force = false) {
       job: () => jobView(key),
     })[page] || overview
   )();
-  [...$("content").querySelectorAll("input,select")].forEach((n, i) => {
-    const old = saved[i];
-    if (!old) return;
-    if (
-      n.tagName !== "SELECT" ||
-      [...n.options].some((o) => o.value === old.value)
-    )
-      n.value = old.value;
-    if (n.type === "checkbox") n.checked = old.checked;
-    n.dispatchEvent(new Event(n.tagName === "SELECT" ? "change" : "input"));
-  });
+  for(const n of restorable()){
+    const old=saved.get(controlKey(n));if(!old)continue;
+    if(n.tagName!=='SELECT'||[...n.options].some(o=>o.value===old.value))n.value=old.value;
+    if(n.type==='checkbox')n.checked=old.checked;
+    n.dispatchEvent(new Event(n.tagName==='SELECT'?'change':'input'));
+  }
   enhanceSelects($("content"));
   if(focusMatch){const match=[...$("content").querySelectorAll('button,a,[role=tab]')].find(n=>n.tagName===focusMatch.tag&&(focusMatch.id?n.id===focusMatch.id:focusMatch.href?n.getAttribute('href')===focusMatch.href:focusMatch.label?n.getAttribute('aria-label')===focusMatch.label:n.textContent===focusMatch.text));match?.focus({preventScroll:true});}
   updateStatus();
