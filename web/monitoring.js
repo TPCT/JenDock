@@ -6,12 +6,13 @@ const metricTime=t=>new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-di
 function svgNode(tag,attrs={}){const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));return n;}
 function metricChart(title,series,rows,format,maxValue){
   const panel=el('section','','metric-chart'),head=el('div','','chart-heading');head.append(el('h3',title));panel.append(head);
-  const chart=svgNode('svg',{viewBox:'0 0 640 190',role:'img','aria-label':title+' over '+metricWindow});
+  const chartWidth=window.innerWidth<600?360:640,left=96,right=chartWidth-12;
+  const chart=svgNode('svg',{viewBox:'0 0 '+chartWidth+' 190',role:'img','aria-label':title+' over '+metricWindow});
   const values=rows.flatMap(r=>series.map(s=>s.value(r))).filter(v=>Number.isFinite(v));
   if(rows.length<2||!values.length){panel.append(empty('Collecting measurements','A graph appears after two real samples. Missing history is never filled with estimated data.'));return panel;}
   const high=maxValue||Math.max(1,...values)*1.15,start=rows[0].observed,end=rows.at(-1).observed;
-  const x=t=>48+Math.max(0,(t-start)/(end-start||1))*580,y=v=>155-Math.max(0,Math.min(1,v/high))*135;
-  for(const v of [0,high/2,high]){chart.append(svgNode('line',{x1:48,x2:628,y1:y(v),y2:y(v),class:'chart-grid'}));const label=svgNode('text',{x:42,y:y(v)+4,'text-anchor':'end',class:'chart-axis'});label.textContent=maxValue?Math.round(v)+'%':format(v);chart.append(label);}
+  const x=t=>left+Math.max(0,(t-start)/(end-start||1))*(right-left),y=v=>155-Math.max(0,Math.min(1,v/high))*135;
+  for(const v of [0,high/2,high]){chart.append(svgNode('line',{x1:left,x2:right,y1:y(v),y2:y(v),class:'chart-grid'}));const label=svgNode('text',{x:left-8,y:y(v)+4,'text-anchor':'end',class:'chart-axis'});label.textContent=maxValue?Math.round(v)+'%':format(v);chart.append(label);}
   const gap=Math.max(45,({'15m':900,'1h':3600,'24h':86400}[metricWindow]/120)*2);
   for(const s of series){let points=[];let previous=null;const flush=()=>{if(points.length)chart.append(svgNode('polyline',{points:points.join(' '),fill:'none',stroke:s.color,'stroke-width':2.5,'vector-effect':'non-scaling-stroke'}));points=[];};for(const r of rows){const v=s.value(r);if(!Number.isFinite(v)||(previous&&r.observed-previous>gap))flush();if(Number.isFinite(v))points.push(x(r.observed)+','+y(v));previous=r.observed;}flush();}
   for(const [t,anchor] of [[start,'start'],[end,'end']]){const label=svgNode('text',{x:x(t),y:181,'text-anchor':anchor,class:'chart-axis'});label.textContent=metricTime(t);chart.append(label);}
