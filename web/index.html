@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>متابعة النشر | Shiftcodes</title><link rel="stylesheet" href="./style.css"><script src="./app.js" defer></script></head>
+<body>
+<aside><a class="brand" href="./">Shiftcodes<span>التشغيل والنشر</span></a><nav aria-label="أقسام المتابعة"><a href="#projects">المشاريع</a><a href="#jobs">سجل النشر</a><a href="#containers">الخدمات</a></nav><p>GitHub → Docker<br>النشر بالتتابع</p></aside>
+<main>
+<header><div><h1>متابعة النشر</h1><p>من وصول التعديل حتى النسخة التي تعمل بالفعل.</p></div><button id="refresh" type="button">تحديث الحالة</button></header>
+<div class="statusline"><span id="connection" role="status">جارٍ تحميل الحالة…</span><time id="updated"></time></div>
+<p id="error" role="alert" hidden></p>
+<section aria-labelledby="operations-title"><h2 id="operations-title">حالة المتابعة</h2><dl class="operations"><div><dt>عامل النشر</dt><dd id="worker">لم تصل بيانات</dd></div><div><dt>المساحة المتاحة</dt><dd id="disk">لم تصل بيانات</dd></div><div><dt>المراقبة الخارجية والتنبيهات</dt><dd>غير مُعدّة</dd></div></dl><p class="hint">هذه اللوحة تعمل على نفس السيرفر. انقطاع السيرفر بالكامل يحتاج فحصًا من خارج السيرفر حتى يصلك تنبيه.</p></section>
+<section id="projects" aria-labelledby="projects-title"><h2 id="projects-title">المشاريع</h2><p>يُفعّل النشر لكل مشروع بعد اعتماد إعداد البناء واختبار التشغيل الخاص به.</p><div id="project-list" class="rows"></div></section>
+<section id="jobs" aria-labelledby="jobs-title"><h2 id="jobs-title">سجل النشر</h2><p>كل مهمة مرتبطة بمعرّف Git محدد. وصول Webhook وحده لا يعني اكتمال النشر.</p><div id="job-list" class="rows"></div></section>
+<section id="containers" aria-labelledby="containers-title"><div class="section-head"><h2 id="containers-title">الخدمات على السيرفر</h2><label for="search">بحث <input id="search" type="search" placeholder="اسم الخدمة أو الصورة" dir="auto"></label></div><div class="table-scroll"><table><thead><tr><th scope="col">الخدمة</th><th scope="col">الصورة المستخدمة</th><th scope="col">حالة التشغيل</th></tr></thead><tbody id="container-list"></tbody></table></div></section>
+</main></body></html>

@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!server.py
+!store.py
+!worker.py
+!web/**

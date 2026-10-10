@@ -1,0 +1,176 @@
+{
+  "aic-website": {
+    "repository": "TPCT/aicconsultation.com",
+    "repository_id": 1217712774,
+    "branch": "development",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "aic-sys": {
+    "repository": "TPCT/sys.aicconsultation.com",
+    "repository_id": 1217712535,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "aic-ops": {
+    "repository": "TPCT/daily.shiftcodes.net",
+    "repository_id": 1367287794,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "aic-academy": {
+    "repository": "TPCT/aa01sc2026.shiftcodes.net",
+    "repository_id": 1303111288,
+    "branch": "development",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "captcha": {
+    "repository": "TPCT/captcha.shiftcodes.net",
+    "repository_id": 1411719795,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "recipe": {
+      "compose_project": "dsl",
+      "env_file": "/opt/docker-engine/projects/dsl/.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/dsl/compose.yml"
+      ],
+      "services": [
+        "captcha"
+      ],
+      "images": [
+        {
+          "name": "dsl-captcha",
+          "dockerfile": "Dockerfile",
+          "target": "runtime",
+          "env_key": "CAPTCHA_IMAGE"
+        },
+        {
+          "name": "deploy-test-captcha",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-captcha",
+          "command": [
+            "python",
+            "tests/check_container.py"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://captcha.shiftcodes.net/health",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    }
+  },
+  "dsl01": {
+    "repository": "TPCT/dsl01sc2025.shiftcodes.net",
+    "repository_id": 1062878648,
+    "branch": "master",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "dsl02": {
+    "repository": "TPCT/crm01sc2025.shiftcodes.net",
+    "repository_id": 1124009541,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "elfak01": {
+    "repository": "TPCT/fak01sc2025.shiftcodes.net",
+    "repository_id": 1376157514,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "elfak-legacy": {
+    "repository": "TPCT/elfakharany.shiftcodes.net",
+    "repository_id": 1369885095,
+    "branch": "developement",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "elnahy": {
+    "repository": "TPCT/elnahy.shiftcodes.net",
+    "repository_id": 1129116696,
+    "branch": "master",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "licence": {
+    "repository": "TPCT/licence",
+    "repository_id": 878709028,
+    "branch": "master",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "us01": {
+    "repository": "TPCT/us01sc2025.shiftcodes.net",
+    "repository_id": 1005235674,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "website": {
+    "repository": "TPCT/shiftcodes.net",
+    "repository_id": 1311068352,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "30sv01": {
+    "repository": "TPCT/30sv01sc2026.shiftcodes.net",
+    "repository_id": 1310001074,
+    "branch": "developement",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "eo01": {
+    "repository": "TPCT/eo01sc2026.shiftcodes.net",
+    "repository_id": 1343051852,
+    "branch": "main",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "octa": {
+    "repository": "TPCT/octa-solutions.com",
+    "repository_id": 1053687038,
+    "branch": "master",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "etsawaa": {
+    "repository": "TPCT/etsawaa.com",
+    "repository_id": 1142625950,
+    "branch": "master",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "lms-v2": {
+    "repository": "TPCT/monglish-lms",
+    "repository_id": 1323919457,
+    "branch": "development",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  },
+  "smartconst": {
+    "repository": "TPCT/smart-const.com",
+    "repository_id": 1152830480,
+    "branch": "master",
+    "enabled": false,
+    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر."
+  }
+}
