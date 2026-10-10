@@ -3,4 +3,9 @@
 !server.py
 !store.py
 !worker.py
-!web/**
+!control.py
+!terminal_control.py
+!telemetry.py
+!frontend/**
+frontend/node_modules
+frontend/dist

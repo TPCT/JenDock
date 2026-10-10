@@ -307,13 +307,14 @@ def handler(app):
                 return self.respond(200 if session else 401,{'username':session['username'],'csrf':session['csrf']} if session else {'error':'Sign in to continue.'})
             if path=='/api/state':
                 return self.respond(200,app.state()) if session else self.respond(401,{'error':'Your session expired. Sign in again.'})
-            files={'/':('index.html','text/html; charset=utf-8'), '/login':('index.html','text/html; charset=utf-8'),
-              '/controls.js':('controls.js','text/javascript; charset=utf-8'), '/legacy-messages.js':('legacy-messages.js','text/javascript; charset=utf-8'), '/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),
-              '/NotoSansArabic-Regular.ttf':('NotoSansArabic-Regular.ttf','font/ttf'),'/FONT-LICENSE.txt':('FONT-LICENSE.txt','text/plain')}
-            files.update({'/terminal.js':('terminal.js','text/javascript; charset=utf-8'),'/vendor/xterm.js':('vendor/xterm.js','text/javascript; charset=utf-8'),'/vendor/addon-fit.js':('vendor/addon-fit.js','text/javascript; charset=utf-8'),'/vendor/xterm.css':('vendor/xterm.css','text/css; charset=utf-8')})
-            files['/vendor/inter-latin.woff2']=('vendor/inter-latin.woff2','font/woff2')
-            files['/monitoring.js']=('monitoring.js','text/javascript; charset=utf-8')
-            files['/product.css']=('product.css','text/css; charset=utf-8')
+            files={
+                '/':('index.html','text/html; charset=utf-8'),
+                '/login':('index.html','text/html; charset=utf-8'),
+                '/app.js':('app.js','text/javascript; charset=utf-8'),
+                '/style.css':('style.css','text/css; charset=utf-8'),
+                '/vendor/inter-latin.woff2':('vendor/inter-latin.woff2','font/woff2'),
+                '/vendor/inter-LICENSE':('vendor/inter-LICENSE','text/plain; charset=utf-8'),
+            }
             if path not in files:
                 return self.respond(404,{'error':'Not found'})
             name,mime=files[path]

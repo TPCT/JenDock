@@ -137,7 +137,9 @@ Docker isolation does not prove integrity of the previously compromised host.
 
 ```sh
 python3 -m unittest discover -s tests -v
-node --check web/app.js
+npm --prefix frontend ci
+npm --prefix frontend test
+npm --prefix frontend run build
 ```
 
 Tests cover HMAC and repository/ref boundaries, real HTTP login/cookie/CSRF/Origin
@@ -170,3 +172,22 @@ seconds for twenty-four hours. Charts offer 15m, 1h and 24h windows with bounded
 sampling; missing history and counter warm-up are never presented as zero.
 Disconnected or expired readings are marked historical and live KPIs are masked.
 The dashboard shows current resource threshold warnings, not external alert delivery.
+
+## React interface
+
+The active frontend source is `frontend/src`, using React, Material UI and xterm.
+The receiver image serves Vite's `dist` at its existing authenticated API origin.
+`web/` is retained as legacy source and is not copied into the production image.
+No Node process runs in the receiver. The local product runtime must mount
+`frontend/dist` at `/app/web` after building; use the product's `deploy-monitor`
+Compose project. Never mistake captured local observations for production health.
+
+The project workspace owns its services, deployment history and persisted branch
+settings. SSE observations do not reset drafts or focus. Ambiguous build responses
+retain the submitted request identity for explicit retry; do not change its branch
+or commit while its outcome is unknown. Historical deployment SHAs are labeled
+separately from currently observed container images. Host graphs expose timestamped
+samples with pointer and keyboard inspection, including missing/stale states.
+
+The sign-in page uses external labels without asterisks. Required input semantics,
+inline validation, first-invalid-field focus and server authentication remain active.

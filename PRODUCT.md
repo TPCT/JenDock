@@ -3,7 +3,7 @@
 ## Platform
 web
 ## Stack
-Python service and plain HTML/CSS/JavaScript, chosen to implement the user's approved lightweight deployment service with minimal VPS overhead.
+React 19 with Material UI 7 and Vite, served by the existing Python API. The Node build stage produces static assets; the production receiver does not run Node. Docker builds from the committed source and lockfile.
 ## Users
 The owner of the TPCT production VPS, managing existing Docker Compose applications and configured Git branches.
 ## Product Purpose
@@ -33,3 +33,6 @@ Container management is not host, database account or filesystem administration.
 The English service catalog groups each project once, leading to services, runs and deployment settings. The owner explicitly rejected the prior presentation and requested a complete replacement, prioritizing desktop and mobile product design. Runtime evidence and proposed settings must be distinguished in design previews.
 
 Automatic deployment is the default; a persisted owner opt-out is respected. Legacy waiting records have an explicit manual deployment path rather than an unexplained approval state. Container terminals are session-owned interactive shells inside the selected running container, not host shells. Browser sessions and CSRF protect the control API. Preview mode disconnects production operations and never constitutes production acceptance.
+
+## Required fields
+Do not display required asterisks. Preserve required semantics and server validation, and show field-specific errors after submission. Login uses external labels, focuses the first missing field, and retains its text-and-icon submit action.

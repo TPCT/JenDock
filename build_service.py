@@ -10,7 +10,7 @@ tree = subprocess.check_output(['git', '-C', str(root), 'archive', '--format=tar
 context = io.BytesIO()
 with tarfile.open(fileobj=io.BytesIO(tree), mode='r:') as source, tarfile.open(fileobj=context, mode='w:gz', format=tarfile.GNU_FORMAT) as output:
     for item in source:
-        if item.isfile() and (item.name in ['Dockerfile', '.dockerignore', 'server.py', 'store.py', 'worker.py', 'control.py', 'terminal_control.py', 'telemetry.py'] or item.name.startswith('web/')):
+        if item.isfile() and (item.name in ['Dockerfile', '.dockerignore', 'server.py', 'store.py', 'worker.py', 'control.py', 'terminal_control.py', 'telemetry.py'] or item.name.startswith('frontend/')):
             output.addfile(item, source.extractfile(item))
 for target in ['receiver', 'worker']:
     command = ('D=/opt/docker-engine/29.8.2/docker/docker; export DOCKER_HOST=unix:///run/docker-isolation.sock; '
