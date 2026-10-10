@@ -15,7 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from telemetry import history as metric_history
-from store import connect, enqueue, projects, effective_projects, valid_branch, audit, set_status
+from delivery_target import capture_registered_target, request_identity, assert_retry_environment, webhook_bindings, public_job
+from store import connect, enqueue, projects, effective_projects, valid_branch, audit, set_status, ensure_registry, existing_delivery, assert_target_identity
 
 PREFIX = '/_deploy'
 MAX_BODY = 1024 * 1024
@@ -23,6 +24,7 @@ MAX_BODY = 1024 * 1024
 
 class Application:
     def __init__(self, config, database, credentials):
+        self.integration_key = os.environ.get("INTEGRATION_KEY_FILE", "/config/integrations.key")
         self.config = config
         self.database = database
         self.credentials = json.loads(Path(credentials).read_text())
@@ -100,11 +102,77 @@ class Application:
                 db.execute('DELETE FROM sessions WHERE token=?',(session['token'],))
                 audit(db,session['username'],'logout')
                 return 200, {'ok':True}
+            if action in ('integrations-list','integrations-save','integrations-test','integrations-disable'):
+                import integrations
+                provider=body.get('provider')
+                try:
+                    if action=='integrations-list':return 200,{'connections':integrations.list_connections(db)}
+                    if action=='integrations-save':
+                        connection=integrations.save_connection(db,provider,body.get('revision'),body.get('credential'),self.integration_key,options=body.get('options'),actor=session['username'])
+                        message='Connection verified and saved.'
+                    elif action=='integrations-test':
+                        connection=integrations.test_connection(db,provider,self.integration_key,actor=session['username'])
+                        message='Connection verified.'
+                    else:
+                        connection=integrations.disable_connection(db,provider,body.get('revision'),actor=session['username'])
+                        message='Connection disabled in this console. The provider credential was not revoked.'
+                    audit(db,session['username'],action,detail=provider+' revision '+str(connection['revision']))
+                    return 200,{'connection':connection,'message':message}
+                except integrations.IntegrationError as error:
+                    return 409,{'error':str(error)}
+            if action=='environment-workspace':
+                import workspace
+                ensure_registry(db,self.config)
+                try:
+                    return 200,workspace.read(db,body.get('project'),body.get('environment'))
+                except ValueError as error:
+                    return 409,{'error':str(error)}
+            if action in ('registry-list','registry-get','registry-create','registry-update','environment-settings'):
+                import registry
+                ensure_registry(db,self.config)
+                name=body.get('project','')
+                try:
+                    if action=='registry-list':return 200,{'projects':registry.list_projects(db)}
+                    if action=='registry-get':return 200,{'project':registry.get_project(db,name)}
+                    if action=='registry-create':
+                        result=registry.create_project(db,name,body.get('values'))
+                    elif action=='registry-update':
+                        changes=body.get('changes')
+                        if not isinstance(changes,dict) or set(changes)-{'label'}:
+                            return 400,{'error':'Only the project display name can be changed here. Workload adoption requires verified service and database identity.'}
+                        result=registry.update_project(db,name,body.get('revision'),changes)
+                    else:
+                        changes=body.get('changes')
+                        if not isinstance(changes,dict) or set(changes)-{'branch','automatic'}:
+                            return 400,{'error':'Only branch and automatic deployment preferences can be saved here.'}
+                        result=registry.update_environment(db,name,body.get('environment'),body.get('revision'),changes)
+                        audit(db,session['username'],action,name,'Environment '+result['name']+' revision '+str(result['revision']))
+                        return 200,{'environment':result,'message':'Environment preferences saved. No containers were started or changed.'}
+                    audit(db,session['username'],action,name,'Project revision '+str(result['revision']))
+                    return 200,{'project':result,'message':'Project settings saved.'}
+                except ValueError as error:
+                    return 409,{'error':str(error)}
             name=body.get('project','')
             p=effective_projects(db,self.config).get(name)
             if not p:
                 return 404, {'error':'Project not found.'}
-            if action in ('container-details','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
+            if action in ('resource-policy','resource-policy-save'):
+                from resource_policy import read, save
+                try:
+                    if action=='resource-policy': return 200,read(db,name)
+                    document=body.get('document')
+                    for environment in (document or {}).get('environments',{}).values():
+                        for container in environment.get('services',{}):
+                            if not any(container.startswith(prefix) for prefix in p.get('container_prefixes',[])):
+                                return 400,{'error':'Service is outside this project.'}
+                    result=save(db,name,body.get('revision'),document)
+                    audit(db,session['username'],action,name,'Resource budget revision '+str(result['revision']))
+                    return 200,dict(result,message='Resource budgets saved. Runtime limits change only after Apply.')
+                except ValueError as error:
+                    return 409,{'error':str(error)}
+                except (TypeError,AttributeError):
+                    return 409,{'error':'Invalid or stale resource policy. Check allocation totals and reload if another session changed settings.'}
+            if action in ('adoption-preview','adoption-save','container-logs','container-details','resource-details','resource-apply','container-limits-save','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
                 payload=dict(body,actor=session['username'],terminal_owner=session['token'])
                 try:
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
@@ -129,7 +197,11 @@ class Application:
                 audit(db,session['username'],'cancel',name,str(job['id']))
                 return 200, {'message':'Queued run cancelled.'}
             if action in ('build','retry') and re.fullmatch(r'[a-zA-Z0-9-]{16,80}',body.get('request_id','')):
-                existing=db.execute('SELECT id FROM jobs WHERE delivery=? AND project=?',('manual-'+body['request_id'],name)).fetchone()
+                try:
+                    reviewed=request_identity(body)
+                    existing=existing_delivery(db,'manual-'+body['request_id'],name,body.get('sha'),body.get('branch'),body.get('mode'),session['username'],body.get('job_id') if action=='retry' else None)
+                    if existing:assert_target_identity(db,existing['id'],reviewed)
+                except ValueError as error:return 409,{'error':str(error)}
                 if existing:
                     return 200, {'job_id':existing['id'],'message':'This request has already been recorded.'}
             branch=body.get('branch','')
@@ -145,7 +217,9 @@ class Application:
                 return 409, {'error':'The branch was not found in the latest GitHub observation.'}
             if action=='settings':
                 automatic=body.get('automatic') is True
-                db.execute('INSERT OR REPLACE INTO settings VALUES(?,?,?)',(name,branch,int(automatic)))
+                import registry
+                try:registry.save_legacy_settings(db,name,branch,automatic)
+                except ValueError as error:return 409,{'error':str(error)}
                 audit(db,session['username'],'settings',name,json.dumps({'branch':branch,'automatic':automatic}))
                 return 200, {'message':'Branch and automatic deployment settings saved. No deployment was started.'}
             if action not in ('build','retry'):
@@ -153,7 +227,7 @@ class Application:
             mode=body.get('mode')
             if mode not in ('validate','deploy'):
                 return 400, {'error':'Choose build validation or deployment.'}
-            if not p.get('recipe'):
+            if body.get('environment') is None and not p.get('recipe'):
                 return 409, {'error':'Build definitions and tests are not configured for this project.'}
             if body.get('sha') != sha:
                 return 409, {'error':'The branch changed since this form opened. Close it, refresh branches and review the new commit.'}
@@ -163,21 +237,26 @@ class Application:
                 if not old or old['status'] not in ('failed','interrupted','rolled-back','cancelled','needs-review','superseded','awaiting-validation','auto-deploy-disabled','validated'):
                     return 409, {'error':'This run cannot be retried.'}
                 retry_of=old['id']
+                try:assert_retry_environment(db,retry_of,request_identity(body)['environment'])
+                except ValueError as error:return 409,{'error':str(error)}
             key=body.get('request_id','')
             if not re.fullmatch(r'[a-zA-Z0-9-]{16,80}',key):
                 return 400, {'error':'Invalid request ID. Refresh the page.'}
             # Durable idempotency: a lost HTTP response cannot enqueue a second deployment.
-            existing=db.execute('SELECT id FROM jobs WHERE delivery=?',('manual-'+key,)).fetchone()
+            try:
+                reviewed=request_identity(body)
+                existing=existing_delivery(db,'manual-'+key,name,sha,branch,mode,session['username'],retry_of)
+                if existing:assert_target_identity(db,existing['id'],reviewed)
+            except ValueError as error:return 409,{'error':str(error)}
             if existing:
                 return 200, {'job_id':existing['id'],'message':'This request has already been recorded.'}
-            active=db.execute("SELECT id FROM jobs WHERE project=? AND status IN ('queued','validation-queued','building','testing','deploying','recovering')",(name,)).fetchone()
-            if active:
-                return 409, {'error':'This project already has an active or queued run: #'+str(active['id'])}
             try:
-                job_id,_=enqueue(db,'manual-'+key,name,sha,True,branch,mode,session['username'],retry_of)
+                target_options={field:body.get(field) for field in ('environment','environment_revision','project_revision','recipe_revision')}
+                job_id,_=enqueue(db,'manual-'+key,name,sha,True,branch,mode,session['username'],retry_of,
+                                 target_factory=lambda target_db:capture_registered_target(target_db,name,branch,sha,mode,**target_options),target_identity=reviewed)
             except ValueError as error:
                 return 409, {'error':str(error)}
-            audit(db,session['username'],action,name,json.dumps({'job_id':job_id,'branch':branch,'sha':sha,'mode':mode,'retry_of':retry_of}))
+            audit(db,session['username'],action,name,json.dumps({'job_id':job_id,'branch':branch,'sha':sha,'mode':mode,'retry_of':retry_of,'environment':reviewed['environment']}))
             return 202, {'job_id':job_id,'message':'Build queued. Runs execute one at a time.'}
         finally:
             db.close()
@@ -208,35 +287,53 @@ class Application:
                 raise ValueError()
             lookup=connect(self.database)
             try:
-                approved=effective_projects(lookup,self.config)
+                ensure_registry(lookup,self.config)
+                if not isinstance(ref,str) or not ref.startswith('refs/heads/') or not valid_branch(ref.removeprefix('refs/heads/')):
+                    raise ValueError()
+                matches=webhook_bindings(lookup,repo,repo_id,ref.removeprefix('refs/heads/'))
             finally:
                 lookup.close()
-            matches = [(name, p) for name, p in approved.items()
-                       if p['repository'] == repo and p['repository_id'] == repo_id
-                       and ref == 'refs/heads/' + p['branch']]
         except (ValueError, KeyError, TypeError):
             return 400, {'error': 'Invalid push payload'}
         if not matches:
             return 202, {'ignored': 'repository or branch not approved'}
         db = connect(self.database)
         try:
-            results = [enqueue(db, delivery + '-' + name, name, sha, p.get('automatic', False), p['branch'])
-                       for name, p in matches]
-            return 202, {'jobs': [r[0] for r in results], 'new': any(r[1] for r in results)}
+            results,skipped=[],[]
+            for binding in matches:
+                name=binding['project'];environment=binding['environment']
+                options={key:binding.get(key) for key in ('environment','project_revision','environment_revision','recipe_revision')}
+                key=delivery+'-'+name+('-'+environment if environment else '')
+                identity={'environment':environment or 'legacy-unclassified'}
+                try:
+                    result=enqueue(db,key,name,sha,binding['automatic'],binding['branch'],
+                                   target_factory=lambda target_db,binding=binding,options=options:capture_registered_target(
+                                       target_db,binding['project'],binding['branch'],sha,'deploy',execution_enabled=binding['automatic'],**options),
+                                   target_identity=identity)
+                    results.append(result)
+                except ValueError as error:
+                    skipped.append({'project':name,'environment':environment or 'legacy-unclassified','reason':str(error)})
+                    audit(db,'github','webhook-skipped',name,json.dumps(skipped[-1]))
+            return 202, {'jobs': [r[0] for r in results], 'new': any(r[1] for r in results),'skipped':skipped}
+        except ValueError as error:
+            return 409,{'error':str(error)}
         finally:
             db.close()
 
     def state(self):
         db = connect(self.database)
         try:
+            import registry
+            effective=effective_projects(db,self.config)
+            registered=registry.list_projects(db)
             allowed = ('repository', 'branch', 'enabled', 'automatic', 'reason', 'label', 'image_prefixes', 'container_prefixes')
             return {'observed_at': time.time(), 'environment': os.environ.get('ENVIRONMENT','production'),
-                    'projects': {k: dict({x: v[x] for x in allowed if x in v}, build_ready=bool(v.get('recipe'))) for k, v in effective_projects(db,self.config).items()},
+                    'projects': {k: dict({x: v[x] for x in allowed if x in v}, build_ready=bool(v.get('recipe')), has_legacy_workload=registered[k]['legacy_settings'] is not None, legacy_binding=registered[k]['legacy_binding']) for k, v in effective.items()},
                     'metric_history':metric_history(db),
                     'control_runs': [dict(r) for r in db.execute('SELECT * FROM control_runs ORDER BY id DESC LIMIT 100')],
                     'audit': [dict(r) for r in db.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
                     'events': [dict(r) for r in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 500')],
-                    'jobs': [dict(r) for r in db.execute('SELECT * FROM jobs ORDER BY id DESC LIMIT 100')],
+                    'jobs': [public_job(db,r) for r in db.execute('SELECT * FROM jobs ORDER BY id DESC LIMIT 100')],
                     'snapshots': {r['name']: {'updated': r['updated'], 'value': json.loads(r['value'])}
                                   for r in db.execute('SELECT * FROM snapshots')}}
         finally:
@@ -315,10 +412,18 @@ def handler(app):
                 '/vendor/inter-latin.woff2':('vendor/inter-latin.woff2','font/woff2'),
                 '/vendor/inter-LICENSE':('vendor/inter-LICENSE','text/plain; charset=utf-8'),
             }
+            # Vite emits hashed route chunks into this flat directory only.
+            # Never expose arbitrary web paths or follow assets outside web/.
+            if re.fullmatch(r'/assets/[A-Za-z0-9_-]+\.js',path):
+                files[path]=(path.lstrip('/'),'text/javascript; charset=utf-8')
             if path not in files:
                 return self.respond(404,{'error':'Not found'})
             name,mime=files[path]
-            return self.respond(200,(Path(__file__).parent/'web'/name).read_bytes(),mime)
+            root=(Path(__file__).parent/'web').resolve()
+            asset=(root/name).resolve()
+            if not asset.is_relative_to(root) or not asset.is_file():
+                return self.respond(404,{'error':'Not found'})
+            return self.respond(200,asset.read_bytes(),mime)
 
         def do_POST(self):
             path=self.path_only()

@@ -15,6 +15,7 @@ import {
   Refresh,
   Rocket,
   Check,
+  SelectionCheck,
   Branch,
   Chevron,
   Dns,
@@ -35,6 +36,8 @@ import React, {
   useCallback,
   createContext,
   useContext,
+  lazy,
+  Suspense,
 } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -69,13 +72,17 @@ import {
   Avatar,
   InputAdornment,
   CircularProgress,
+  Menu as ActionMenu,
+  MenuItem,
   RadioGroup,
   Radio,
   useMediaQuery,
 } from "@mui/material";
-import ContainerPage from "./ContainerPage.jsx";
-import RunDetail from "./RunDetail.jsx";
-import Telemetry from "./Telemetry.jsx";
+import Resources from "./Resources.jsx";
+import EnvironmentSettings from "./EnvironmentSettings.jsx";
+import AdoptWorkload from "./AdoptWorkload.jsx";
+import ProjectCreateDialog from "./ProjectCreateDialog.jsx";
+import Hint from "./Hint.jsx";
 import {
   activeStates,
   statusLabel,
@@ -87,6 +94,36 @@ import {
 } from "./model.js";
 import "./style.css";
 import "./github.css";
+const ContainerPage = deferredScreen(() => import("./ContainerPage.jsx"), "container");
+const RunDetail = deferredScreen(() => import("./RunDetail.jsx"), "deployment");
+const Telemetry = deferredScreen(() => import("./Telemetry.jsx"), "telemetry");
+const IntegrationsPage = deferredScreen(() => import("./IntegrationsPage.jsx"), "integrations");
+// Define once so polling and parent renders preserve each screen's state.
+function deferredScreen(load, name) {
+  const loadModule = async () => {
+    try { return await load(); }
+    catch (cause) {
+      const failure = new Error('Screen module could not be downloaded.', { cause });
+      failure.screenDownloadFailed = true;
+      throw failure;
+    }
+  };
+  return class DeferredScreen extends React.Component {
+    state = { failed: false, downloadFailed: false };
+    Screen = lazy(loadModule);
+    static getDerivedStateFromError(error) { return { failed: true, downloadFailed: error?.screenDownloadFailed === true }; }
+    retry = () => {
+      this.Screen = lazy(loadModule);
+      this.setState({ failed: false, downloadFailed: false });
+    };
+    render() {
+      if (this.state.downloadFailed) return <Alert severity="error" action={<Button color="inherit" onClick={() => window.location.reload()}>Reload application</Button>}>The {name} screen could not be downloaded. Reload the application to get the current screen files.</Alert>;
+      if (this.state.failed) return <Alert severity="error" action={<Button color="inherit" onClick={this.retry}>Retry</Button>}>The {name} screen could not open. Try again.</Alert>;
+      const Screen = this.Screen;
+      return <Suspense fallback={<Stack direction="row" spacing={2} alignItems="center" role="status" sx={{ py: 4 }}><CircularProgress size={20} aria-hidden="true"/><Typography>Loading {name}…</Typography></Stack>}><Screen {...this.props}/></Suspense>;
+    }
+  };
+}
 const Context = createContext(null);
 const useApp = () => useContext(Context);
 const label = (data, id) => data.projects[id]?.label || id;
@@ -362,6 +399,16 @@ function App() {
     },
     shape: { borderRadius: 6 },
     components: {
+      MuiAutocomplete: {
+        defaultProps: {
+          selectOnFocus: false,
+          autoHighlight: true,
+          renderOption: (props, option, { selected }, ownerState) => {
+            const { key, ...itemProps } = props;
+            return <li key={key} {...itemProps}><span className="select-option-check" aria-hidden="true"><SelectionCheck sx={{fontSize:16,visibility:selected?"visible":"hidden"}}/></span><span className="select-option-label">{ownerState.getOptionLabel(option)}</span></li>;
+          },
+        },
+      },
       MuiFormLabel: { styleOverrides: { asterisk: { display: "none" } } },
       MuiButton: {
         defaultProps: { disableElevation: true },
@@ -487,7 +534,7 @@ function App() {
     refresh,
     notify: setToast,
     navigate,
-    openBuild: (project, retry = null) => setBuild({ project, retry }),
+    openBuild: (project, retry = null, target = null) => setBuild({ project, retry, target }),
     action: onAction,
     connection,
     observationFailed: !!error,
@@ -615,7 +662,8 @@ function App() {
                               overview: "Overview",
                               projects: "Projects",
                               jobs: "Deployments",
-                              containers: "Services",
+                              containers: "Containers",
+                              integrations: "Integrations",
                               audit: "Activity",
                             }[page] || "Workspace"}
                   </Typography>
@@ -668,7 +716,16 @@ function App() {
                   </Alert>
                 )}
                 {page === "project" ? (
-                  <ProjectPage key={id} id={id} />
+                  <ProjectPage key={id} id={id}
+                    environment={new URLSearchParams(query || "").get("environment") || "development"}
+                    initialTab={new URLSearchParams(query || "").get("tab")}
+                    onEnvironmentChange={environment => {
+                      const params = new URLSearchParams(location.hash.split("?")[1] || "");
+                      params.set("environment", environment);
+                      const next = "project/" + encodeURIComponent(id) + "?" + params.toString();
+                      history.replaceState(null, "", "#" + next);
+                      setRoute(next);
+                    }} />
                 ) : page === "container" ? (
                   <ContainerPage
                     key={id + "/" + name}
@@ -691,6 +748,8 @@ function App() {
                   <ProjectsPage />
                 ) : page === "containers" ? (
                   <ServicesPage />
+                ) : page === "integrations" ? (
+                  <IntegrationsPage api={api} setDirty={setDirty} setOperationPending={setOperationPending}/>
                 ) : page === "audit" ? (
                   <Activity />
                 ) : page === "overview" ? (
@@ -793,7 +852,8 @@ function Nav({
           ["overview", "Overview", GridView],
           ["projects", "Projects", Folder],
           ["jobs", "Deployments", Workflow],
-          ["containers", "Services", Dns],
+          ["containers", "Containers", Dns],
+          ["integrations", "Integrations", Settings],
           ["audit", "Activity", History],
         ].map(([key, title, I]) => (
           <ListItemButton
@@ -938,7 +998,7 @@ function Login({ api, onLogin }) {
           <div className="login-intro">
             <Typography component="h1">Sign in to Shiftcodes</Typography>
             <Typography color="text.secondary">
-              Your projects, deployments and services.
+              Your projects, deployments and containers.
             </Typography>
           </div>
           <Stack spacing={2.5}>
@@ -1033,19 +1093,24 @@ function Services({ id, items }) {
   const old = stale(data, observationFailed);
   if (!items.length)
     return (
-      <Empty title="No services observed">
+      <Empty title="No containers observed">
         Check the project mapping or wait for the collector.
       </Empty>
     );
   return (
     <div className="service-table">
       <div className="table-head">
-        <span>Service / image</span>
+        <span>Container / image</span>
         <span>State / health</span>
         <span>CPU / memory</span>
         <span>Access</span>
       </div>
-      {items.map((c) => (
+      {items.map((c) => {
+        const unavailable = old || c.capabilities?.manage === false;
+        const reason = old
+          ? "Container observations are stale. Wait for a fresh observation before opening a terminal. You can still inspect container details."
+          : c.capabilities?.reason || "Container management is unavailable until ownership is verified. You can still inspect container details.";
+        return (
         <div className="service-line" key={c.Names}>
           <div className="service-name">
             <div className="service-symbol">
@@ -1091,6 +1156,7 @@ function Services({ id, items }) {
                 <IconAction
                   label={"Terminal · " + c.Names}
                   icon={Terminal}
+                  disabled={unavailable}
                   onClick={() =>
                     navigate(
                       "container/" +
@@ -1102,7 +1168,7 @@ function Services({ id, items }) {
                   }
                 />
                 <IconAction
-                  label={"Manage · " + c.Names}
+                  label={(unavailable ? "Inspect · " : "Manage · ") + c.Names}
                   icon={Settings}
                   onClick={() =>
                     navigate(
@@ -1113,230 +1179,73 @@ function Services({ id, items }) {
                     )
                   }
                 />
+                {unavailable && <Hint label={"Why terminal is unavailable · " + c.Names}>{reason}</Hint>}
               </>
             ) : (
               <Typography variant="caption">Observed only</Typography>
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
-function ProjectPage({ id }) {
-  const { data, navigate, openBuild, observationFailed } = useApp();
-  const [tab, setTab] = useState(0),
-    p = data.projects[id];
-  if (!p)
-    return (
-      <Empty title="Project not found">
-        <Button onClick={() => navigate("projects")}>View projects</Button>
-      </Empty>
-    );
-  const services = servicesFor(data, p),
-    runs = data.jobs.filter((j) => j.project === id),
-    latest = runs[0],
-    deployed = runs.find((j) => j.status === "succeeded"),
-    old = stale(data, observationFailed);
-  return (
-    <>
-      <header className="project-heading">
-        <div>
-          <div className="project-identity">
-            <Folder sx={{ fontSize: 24, color: "text.secondary" }} />
-            <Typography variant="h4" className="wrap-anywhere">
-              {p.label || id}
-            </Typography>
-          </div>
-          <div className="project-subtitle">
-            <Link
-              href={"https://github.com/" + p.repository}
-              target="_blank"
-              rel="noopener"
-              color="text.secondary"
-            >
-              {p.repository}
-            </Link>
-            <span>Production</span>
-          </div>
-        </div>
-        <div className="project-heading-actions">
-          <IconAction
-            label="Project settings"
-            icon={Settings}
-            onClick={() => setTab(3)}
-          />
-          <Button
-            variant="contained"
-            startIcon={<Rocket />}
-            disabled={!p.build_ready}
-            onClick={() => openBuild(id)}
-          >
-            New build
-          </Button>
-        </div>
-      </header>
-      <div className="release-band">
-        <div>
-          <span>Last verified deployment</span>
-          <strong>
-            <code>{deployed?.sha?.slice(0, 9) || "Not recorded"}</code>
-            <small>
-              {deployed
-                ? date(deployed.updated)
-                : "Inspect service image versions below"}
-            </small>
-          </strong>
-        </div>
-        <div>
-          <span>Automatic branch</span>
-          <strong>
-            <Branch sx={{ fontSize: 14 }} />
-            {p.branch}
-            <small>{p.automatic ? "Enabled" : "Disabled"}</small>
-          </strong>
-        </div>
-        <div>
-          <span>Latest run</span>
-          <strong>
-            {latest ? (
-              <>
-                <Status value={latest.status} />
-                <Button
-                  size="small"
-                  onClick={() => navigate("job/" + latest.id)}
-                >
-                  View run
-                  <Arrow sx={{ fontSize: 13, ml: 0.5 }} />
-                </Button>
-              </>
-            ) : (
-              "No runs recorded"
-            )}
-          </strong>
-        </div>
-      </div>
-      {!p.build_ready && (
-        <Alert severity="warning" sx={{ mt: 2 }}>
-          Build definitions and tests are not configured. Container management
-          remains available.
-        </Alert>
-      )}
-      <Tabs value={tab} onChange={(e, v) => setTab(v)} className="project-tabs">
-        <Tab label="Overview" />
-        <Tab label="Services" />
-        <Tab label="Deployments" />
-        <Tab label="Settings" />
-      </Tabs>
-      <Box sx={{ display: tab === 3 ? "block" : "none" }}>
-        <ProjectSettings key={id} id={id} />
-      </Box>
-      {tab === 3 ? null : tab === 2 ? (
-        <RunList jobs={runs} />
-      ) : tab === 1 ? (
-        <Services id={id} items={services} />
-      ) : (
-        <div className="project-layout">
-          <div className="project-primary">
-            <div className="project-status">
-              <div>
-                <Status
-                  value={
-                    old
-                      ? "Stale"
-                      : services.some((c) => c.Status?.includes("unhealthy"))
-                        ? "Unhealthy"
-                        : services.length &&
-                            services.every((c) => c.State === "running")
-                          ? "Running"
-                          : "Needs attention"
-                  }
-                />
-                <span>
-                  {services.filter((c) => c.State === "running").length} of{" "}
-                  {services.length} services running
-                </span>
-              </div>
-            </div>
-            <div className="section-heading">
-              <Typography variant="h6">
-                Services <span className="count">{services.length}</span>
-              </Typography>
-            </div>
-            <Services id={id} items={services} />
-          </div>
-          <aside className="deployment-aside">
-            <Typography variant="h6">Deployment activity</Typography>
-            {latest ? (
-              <>
-                <div className="deploy-success">
-                  <Status value={latest.status} />
-                </div>
-                <div className="commit-message">
-                  {latest.detail ||
-                    "Open the run to inspect its execution record."}
-                </div>
-                <div className="commit-ref">
-                  <Branch sx={{ fontSize: 14 }} />
-                  {latest.branch}
-                  <span>{latest.sha?.slice(0, 9)}</span>
-                </div>
-                <div className="deploy-facts">
-                  <span>Updated</span>
-                  <strong>{date(latest.updated)}</strong>
-                  <span>Triggered by</span>
-                  <strong>{latest.actor || "GitHub"}</strong>
-                  <span>Mode</span>
-                  <strong>
-                    {latest.mode === "validate"
-                      ? "Build & tests"
-                      : "Deployment"}
-                  </strong>
-                </div>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  color="inherit"
-                  endIcon={<Arrow />}
-                  onClick={() => navigate("job/" + latest.id)}
-                >
-                  View run #{latest.id}
-                </Button>
-              </>
-            ) : (
-              <Typography color="text.secondary" sx={{ mt: 2 }}>
-                No deployment history yet.
-              </Typography>
-            )}
-            <div className="aside-divider" />
-            <div className="section-heading">
-              <Typography variant="h6">Delivery</Typography>
-              <IconAction
-                label="Edit deployment settings"
-                icon={Settings}
-                onClick={() => setTab(3)}
-              />
-            </div>
-            <div className="delivery-line">
-              <span>Automatic deploy</span>
-              <strong>{p.automatic ? "On" : "Off"}</strong>
-            </div>
-            <div className="delivery-line">
-              <span>Tracked branch</span>
-              <code>{p.branch}</code>
-            </div>
-            <Typography fontSize={12} color="text.secondary" sx={{ mt: 2 }}>
-              A recorded deployment is separate from each container’s currently
-              observed image.
-            </Typography>
-          </aside>
-        </div>
-      )}
-    </>
-  );
+function ProjectPage({ id, environment: requestedEnvironment = "development", initialTab, onEnvironmentChange }) {
+  const { data, navigate, openBuild, api, refresh, setDirty, setOperationPending } = useApp();
+  const environment = requestedEnvironment === "production" ? "production" : "development";
+  const environmentLabel = environment === "production" ? "Production" : "Development";
+  const [tab, setTab] = useState(Math.max(0, ["overview", "containers", "deployments", "settings"].indexOf(initialTab))), [workspace, setWorkspace] = useState(null), [workspaceError, setWorkspaceError] = useState(""), [loading, setLoading] = useState(true), [reload, setReload] = useState(0), [legacyView, setLegacyView] = useState(null), [budgetsOpen, setBudgetsOpen] = useState(false), [budgetsViewed, setBudgetsViewed] = useState(false), [settingsDirty, setSettingsDirty] = useState(false), [resourcesDirty, setResourcesDirty] = useState(false), [environmentsDirty, setEnvironmentsDirty] = useState(false), [settingsPending, setSettingsPending] = useState(false), [resourcesPending, setResourcesPending] = useState(false), [environmentsPending, setEnvironmentsPending] = useState(false);
+  const p = data.projects[id];
+  const [linkedProject,setLinkedProject]=useState(null);
+  const [workloadMenu, setWorkloadMenu] = useState(null);
+  const [adoptionOpen,setAdoptionOpen]=useState(false), [adoptionDirty,setAdoptionDirty]=useState(false), [adoptionPending,setAdoptionPending]=useState(false), [adoptionEnvironment,setAdoptionEnvironment]=useState(environment);
+  const pending = settingsPending || resourcesPending || environmentsPending || adoptionPending;
+  useEffect(() => { setDirty(settingsDirty || resourcesDirty || environmentsDirty || adoptionDirty); return () => setDirty(false); }, [settingsDirty, resourcesDirty, environmentsDirty, adoptionDirty, setDirty]);
+  useEffect(() => { setOperationPending(pending); return () => setOperationPending(false); }, [pending, setOperationPending]);
+  useEffect(() => {
+    let active = true; setLoading(true); setWorkspaceError("");
+    api("action", { action: "environment-workspace", project: id, environment }).then(result => {
+      if (!active) return;
+      if (result.environment?.name !== environment || result.project?.id !== id) throw new Error("The environment response does not match this workspace. Reload to try again.");
+      setWorkspace(result);
+    }).catch(error => active && setWorkspaceError(error.message || "Environment status is unavailable."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, [id, environment, api, reload, data.snapshots.containers?.updated]);
+  if (!p) return <Empty title="Project not found"><Button onClick={() => navigate("projects")}>View projects</Button></Empty>;
+  const current = workspace?.environment?.name === environment ? workspace : null;
+  const containers = current?.services || [], runs = current?.runs || [], latest = runs[0], deployed = runs.find(run => run.status === "succeeded");
+  const unassigned = p.has_legacy_workload && !p.legacy_binding;
+  const existing = current?.legacy?.inventory_available === false && unassigned ? servicesFor(data,p) : current?.unassigned_services || [], legacyRuns = current?.unassigned_runs || [];
+  const status = current?.environment?.state || "Status unavailable";
+  const openBudgets = () => { setBudgetsViewed(true); setBudgetsOpen(true); };
+  const containerList = containers.length ? <Services id={id} items={containers}/> : <Empty title={current?.environment?.state === "not-provisioned" ? "No containers provisioned" : "No verified containers"}>{current?.binding?.reason || "No containers are verified for this environment."}</Empty>;
+  return <>
+    <header className="project-heading">
+      <div><div className="project-identity"><Folder sx={{fontSize:24,color:"text.secondary"}}/><Typography variant="h4" className="wrap-anywhere">{p.label || id}</Typography></div><div className="project-subtitle"><Link href={"https://github.com/"+p.repository} target="_blank" rel="noopener" color="text.secondary">{p.repository}</Link></div></div>
+      <div className="project-heading-actions"><IconAction label="Reload environment" icon={Refresh} disabled={loading || pending} onClick={()=>setReload(value=>value+1)}/></div>
+    </header>
+    <div className="environment-workspace-bar">
+      <Tabs value={environment} onChange={(_,value)=>onEnvironmentChange?.(value)} aria-label="Project environment" className="environment-switch"><Tab value="development" label="Development" disabled={pending}/><Tab value="production" label="Production" disabled={pending}/></Tabs>
+      <div className="environment-workspace-state"><Typography fontSize={13} color="text.secondary">{loading && !current ? "Loading…" : status.replaceAll("-"," ").replace(/^./, letter => letter.toUpperCase())}</Typography><Hint label="About this environment">All workspace tabs apply to the selected environment. Existing containers are included only after their ownership is verified.</Hint></div>
+    </div>
+    {workspaceError && <Alert severity="error" sx={{mt:2}} action={<Button onClick={()=>setReload(value=>value+1)}>Retry</Button>}>{workspaceError}</Alert>}
+    <Tabs value={tab} onChange={(_,value)=>{setTab(value); const params = new URLSearchParams(location.hash.split("?")[1] || ""); params.set("tab", ["overview", "containers", "deployments", "settings"][value]); params.set("environment", environment); history.replaceState(null, "", "#project/"+encodeURIComponent(id)+"?"+params.toString());}} className="project-tabs" aria-label={`${environmentLabel} workspace`}><Tab label="Overview"/><Tab label="Containers"/><Tab label="Deployments"/><Tab label="Settings"/></Tabs>
+    <Box sx={{display:tab===3?"block":"none"}}><EnvironmentSettings key={id} id={id} linkedProject={linkedProject} environment={environment} api={api} branches={Object.keys(branchState(data,id).branches || {})} BranchControl={BranchPicker} onDirty={setEnvironmentsDirty} onPending={setEnvironmentsPending} onSaved={()=>setReload(value=>value+1)}/><Box sx={{borderTop:1,borderColor:'divider',pt:2}}><Button color="inherit" onClick={openBudgets}>Project budgets</Button><Hint label="About project budgets">These budgets cover both environments. Saved allocations are policy settings, not proof of container ownership or applied runtime limits.</Hint></Box></Box>
+    {tab!==3 && loading && !current ? <Typography role="status" sx={{py:3}}>Loading {environmentLabel.toLowerCase()} workspace…</Typography> : tab===0 ? <>
+      <div className="release-band"><div><span>Last verified deployment</span><strong><code>{deployed?.sha?.slice(0,9)||"Not recorded"}</code><small>{deployed?date(deployed.updated):environmentLabel}</small></strong></div><div><span>Deployment branch</span><strong><Branch sx={{fontSize:14}}/>{current?.environment?.branch || "Unavailable"}<small>{current?.environment?.automatic?"Automatic preference on":"Automatic preference off"}</small></strong></div><div><span>Latest run</span><strong>{latest?<><Status value={latest.status}/><Button size="small" onClick={()=>navigate("job/"+latest.id)}>View run<Arrow sx={{fontSize:13,ml:.5}}/></Button></>:"No runs recorded"}</strong></div></div>
+      <div className="section-heading"><Typography variant="h6">Containers <span className="count">{containers.length}</span></Typography><Button onClick={()=>setTab(1)}>View containers</Button></div>{containerList}
+      <Box sx={{mt:3,display:'flex',alignItems:'center',gap:1}}><Button variant="outlined" disabled={loading || pending || !!workspaceError || !(current?.capabilities?.build?.enabled || current?.capabilities?.deploy?.enabled)} onClick={()=>openBuild(id,null,{environment,branch:current.environment.branch,project_revision:current.project.revision,environment_revision:current.environment.revision,recipe_revision:current.environment.recipe_revision})}>{`Build ${environmentLabel.toLowerCase()}`}</Button><Typography color="text.secondary" fontSize={13}>{current?.capabilities?.build?.reason || (!current?.capabilities?.build?.enabled ? "Environment deployment is not configured." : "")}</Typography></Box>
+    </> : tab===1 ? containerList : tab===2 ? runs.length?<RunList jobs={runs}/>:<Empty title={`No ${environmentLabel.toLowerCase()} runs`}>Runs appear here when their recorded target belongs to this environment.</Empty> : null}
+    {(unassigned || existing.length || legacyRuns.length) && <section className="unassigned-workload"><div><Typography variant="h6">Existing workload</Typography><Typography color="text.secondary" fontSize={13}>Environment unassigned <Hint label="About the existing workload">These containers and historical runs have not been verified as Development or Production. Their existing management remains available separately.</Hint></Typography></div><div className="unassigned-workload-actions">{unassigned&&<Button variant="outlined" disabled={pending} onClick={()=>{if(!adoptionDirty)setAdoptionEnvironment(environment);setAdoptionOpen(true);}}>{adoptionDirty?'Check linking request':'Link to '+environmentLabel}</Button>}<Button variant="outlined" onClick={()=>setLegacyView("containers")}>Containers{existing.length?` (${existing.length})`:""}</Button><Button color="inherit" aria-haspopup="menu" aria-controls={workloadMenu ? "workload-actions" : undefined} aria-expanded={!!workloadMenu} onClick={event=>setWorkloadMenu(event.currentTarget)}>More actions</Button><ActionMenu id="workload-actions" anchorEl={workloadMenu} open={!!workloadMenu} onClose={()=>setWorkloadMenu(null)}><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("history");}}><ListItemIcon><History fontSize="small"/></ListItemIcon>Deployment history</MenuItem><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("settings");}}><ListItemIcon><Settings fontSize="small"/></ListItemIcon>Deployment settings</MenuItem>{p.build_ready&&<MenuItem disabled={pending} onClick={()=>{setWorkloadMenu(null);openBuild(id,null,{environment:"legacy-unclassified"});}}><ListItemIcon><PlayArrow fontSize="small"/></ListItemIcon>Build existing workload</MenuItem>}</ActionMenu></div></section>}
+    <AdoptWorkload open={adoptionOpen} project={id} environment={adoptionEnvironment} api={api} onDirty={setAdoptionDirty} onPending={setAdoptionPending} onClose={()=>setAdoptionOpen(false)} onLinked={async(project)=>{setLinkedProject(project);await refresh();setReload(value=>value+1);setAdoptionOpen(false);}}/>
+    <Dialog open={!!legacyView} onClose={()=>!settingsPending&&setLegacyView(null)} keepMounted fullWidth maxWidth="lg" aria-labelledby="legacy-workload-title"><DialogTitle id="legacy-workload-title">Existing workload · Environment unassigned</DialogTitle><DialogContent dividers><Box sx={{display:legacyView==="containers"?"block":"none"}}>{existing.length?<Services id={id} items={existing}/>:<Empty title="Container inventory unavailable">{workspaceError || "Reload the workspace to inspect the unassigned container inventory."}<Button onClick={()=>setReload(value=>value+1)}>Reload</Button></Empty>}</Box><Box sx={{display:legacyView==="history"?"block":"none"}}>{legacyRuns.length?<RunList jobs={legacyRuns}/>:<Empty title="No unassigned runs recorded"/>}</Box><Box sx={{display:legacyView==="settings"?"block":"none"}}><ProjectSettings id={id} setDirty={setSettingsDirty} setOperationPending={setSettingsPending} onEnvironments={()=>{setLegacyView(null);setTab(3);}}/></Box></DialogContent><DialogActions><Button disabled={settingsPending} onClick={()=>setLegacyView(null)}>Close</Button></DialogActions></Dialog>
+    <Dialog open={budgetsOpen} onClose={()=>!resourcesPending&&setBudgetsOpen(false)} keepMounted fullWidth maxWidth="md" aria-labelledby="project-budgets-title"><DialogTitle id="project-budgets-title">Project budgets · Both environments</DialogTitle><DialogContent dividers>{budgetsViewed&&<Resources key={id} id={id} services={servicesFor(data,p)} api={api} setDirty={setResourcesDirty} setOperationPending={setResourcesPending}/>}</DialogContent><DialogActions><Button disabled={resourcesPending} onClick={()=>setBudgetsOpen(false)}>Close</Button></DialogActions></Dialog>
+  </>;
 }
-function ProjectSettings({ id }) {
-  const { data, action, notify, setDirty, setOperationPending } = useApp(),
+function ProjectSettings({ id, setDirty, setOperationPending, onEnvironments }) {
+  const { data, action, notify } = useApp(),
     p = data.projects[id];
   const [draft, setDraft] = useState(null),
     [busy, setBusy] = useState(false),
@@ -1354,13 +1263,14 @@ function ProjectSettings({ id }) {
     setDirty(dirty);
     return () => setDirty(false);
   }, [dirty, setDirty]);
+  if (p.has_legacy_workload === false)
+    return <Box sx={{py:3}}><Typography sx={{mb:2}}>Choose an environment to configure deployment.</Typography><Button onClick={onEnvironments}>Environment settings</Button></Box>;
   return (
     <Box sx={{ maxWidth: 680 }}>
-      <Typography variant="h6">Deployment settings</Typography>
-      <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-        Pushes to this branch build, test and deploy automatically when enabled.
-        Manual builds may use a different branch.
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{mb:2}}>
+        <Typography variant="h6">Deployment settings</Typography>
+        <Hint label="About deployment settings">Pushes to the tracked branch build and deploy when enabled. Manual builds can use another branch. Saving settings does not start a deployment.</Hint>
+      </Stack>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
@@ -1440,15 +1350,14 @@ function ProjectSettings({ id }) {
           {dirty ? "Unsaved changes" : "All changes saved"}
         </Typography>
       </Stack>
-      <Typography fontSize={12} color="text.secondary" sx={{ mt: 2 }}>
-        Saving these settings does not start a deployment.
-      </Typography>
+
     </Box>
   );
 }
 function ProjectsPage() {
-  const { data, navigate } = useApp();
+  const { data, navigate, api, refresh, notify } = useApp();
   const [search, setSearch] = useState("");
+  const [creating, setCreating] = useState(false);
   const entries = Object.entries(data.projects).filter(([id, p]) =>
     (id + " " + p.label + " " + p.repository)
       .toLowerCase()
@@ -1456,7 +1365,11 @@ function ProjectsPage() {
   );
   return (
     <>
-      <Typography variant="h4">Projects</Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+        <Typography variant="h4">Projects</Typography>
+        <Button variant="contained" onClick={() => setCreating(true)}>New project</Button>
+      </Stack>
+      <ProjectCreateDialog open={creating} onClose={() => setCreating(false)} api={api} onCreated={async (projectId) => { try { await refresh(); navigate("project/" + projectId); } catch { notify("Project created. Reload the project list to open it."); } }} />
       <Typography color="text.secondary" sx={{ mt: 1 }}>
         {Object.keys(data.projects).length} projects ·{" "}
         {Object.values(data.projects).filter((p) => p.automatic).length} with
@@ -1597,183 +1510,68 @@ function RunPage({ id }) {
   );
 }
 function BuildDialog({ context, onClose }) {
-  const { data, api, refresh, notify, navigate } = useApp(),
-    p = data.projects[context.project],
-    retry = context.retry;
-  const [branch, setBranch] = useState(retry?.branch || p.branch),
-    [mode, setMode] = useState(
-      retry?.mode === "validate" && retry?.status !== "validated"
-        ? "validate"
-        : "deploy",
-    ),
-    [selection, setSelection] = useState(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [requestId, setRequestId] = useState(() => crypto.randomUUID()),
-    [submitted, setSubmitted] = useState(null);
-  const locked = busy || !!submitted;
-  const b = branchState(data, context.project);
-  useEffect(() => {
-    if (!b.fresh)
-      api("action", {
-        action: "refresh-branches",
-        project: context.project,
-      }).catch((e) => setError(e.message));
-  }, [context.project]);
-  useEffect(() => {
-    if (!selection && b.fresh && b.branches[branch])
-      setSelection({ branch, sha: b.branches[branch] });
-  }, [b.fresh, b.updated, branch, selection]);
-  const changed = selection && b.branches[selection.branch] !== selection.sha;
-  function choose(value) {
-    setBranch(value || "");
-    setSelection(value ? { branch: value, sha: b.branches[value] } : null);
-    setRequestId(crypto.randomUUID());
-  }
-  return (
-    <Dialog open fullWidth maxWidth="sm" onClose={() => !busy && onClose()}>
-      <DialogTitle>
-        {retry ? "Retry run #" + retry.id : "New build"}
-        <Typography color="text.secondary" fontSize={13} sx={{ mt: 1 }}>
-          {p.label || context.project}
-        </Typography>
-      </DialogTitle>
-      <DialogContent>
-        <Stack spacing={3} sx={{ pt: 1 }}>
-          {error && (
-            <Alert severity="error">
-              {error}
-              {submitted &&
-                " Retry checks the original request; it will not create a duplicate run."}
-            </Alert>
-          )}
-          {!b.fresh && (
-            <Alert severity="warning">
-              Refreshing branch observations. Wait for the latest commit before
-              building.
-            </Alert>
-          )}
-          <BranchPicker
-            disabled={locked}
-            options={Object.keys(b.branches).sort()}
-            value={branch || null}
-            onChange={(event, value) => choose(value)}
-            label="Build branch"
-            error={!!branch && !b.branches[branch]}
-            helperText={
-              branch && !b.branches[branch]
-                ? "Choose an available branch."
-                : undefined
-            }
-            onRefresh={() =>
-              api("action", {
-                action: "refresh-branches",
-                project: context.project,
-              }).catch((error) => setError(error.message))
-            }
-          />
-          <Box>
-            <Typography color="text.secondary" fontSize={12}>
-              Commit to build
-            </Typography>
-            <Typography
-              component="code"
-              sx={{ overflowWrap: "anywhere", fontSize: 12 }}
-            >
-              {selection?.sha || "Select a branch"}
-            </Typography>
-          </Box>
-          {changed && (
-            <Alert severity="warning">
-              The branch changed. Review the latest commit.
-            </Alert>
-          )}
-          {retry && (
-            <Typography color="text.secondary" fontSize={13}>
-              This builds the latest commit on this branch, which may differ
-              from the original run.
-            </Typography>
-          )}
-          <RadioGroup
-            value={mode}
-            onChange={(e) => {
-              setMode(e.target.value);
-              setRequestId(crypto.randomUUID());
-            }}
-          >
-            <FormControlLabel
-              value="deploy"
-              control={<Radio disabled={locked} />}
-              label="Build, test & deploy to production"
-            />
-            <FormControlLabel
-              value="validate"
-              control={<Radio disabled={locked} />}
-              label="Build & test only — keep production unchanged"
-            />
-          </RadioGroup>
-          <Typography color="text.secondary" fontSize={12}>
-            Manual branch selection does not change the automatic deployment
-            branch. Runs execute one at a time.
-          </Typography>
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ p: 3 }}>
-        {changed && (
-          <Button disabled={locked} onClick={() => choose(branch)}>
-            Use latest commit
-          </Button>
-        )}
-        <Button disabled={busy} onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          disabled={
-            busy ||
-            !p.build_ready ||
-            (!submitted &&
-              (!selection?.sha || !b.fresh || !!changed || !b.branches[branch]))
-          }
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              const payload =
-                submitted ||
-                buildPayload({
-                  project: context.project,
-                  branch,
-                  sha: selection.sha,
-                  mode,
-                  retry,
-                  requestId,
-                });
-              setSubmitted(payload);
-              const r = await api("action", payload);
-              notify(r.message);
-              onClose();
-              navigate("job/" + r.job_id);
-              refresh().catch(() => {});
-            } catch (e) {
-              setError(e.message);
-              if (e.status && e.status < 500) setSubmitted(null);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy
-            ? "Queuing…"
-            : submitted
-              ? "Check original request"
-              : mode === "deploy"
-                ? "Queue deployment"
-                : "Queue build & tests"}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
+  const { data, api, refresh, notify, navigate } = useApp();
+  const p = data.projects[context.project], retry = context.retry;
+  const environment = context.target?.environment || retry?.target?.environment || null;
+  const scoped = environment === 'development' || environment === 'production';
+  const legacy = environment === 'legacy-unclassified';
+  const environmentLabel = scoped ? environment === 'production' ? 'Production' : 'Development' : legacy ? 'Existing workload · Environment unassigned' : 'Target not recorded';
+  const [branch,setBranch]=useState(retry?.branch || context.target?.branch || (legacy?p.branch:''));
+  const [mode,setMode]=useState(retry?.mode==='validate'&&retry?.status!=='validated'?'validate':'deploy');
+  const [selection,setSelection]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[requestId,setRequestId]=useState(()=>crypto.randomUUID()),[submitted,setSubmitted]=useState(null),[target,setTarget]=useState(null),[targetLoading,setTargetLoading]=useState(scoped),[targetError,setTargetError]=useState(''),[targetReload,setTargetReload]=useState(0);
+  const requestLock=useRef(false);
+  const locked=busy||!!submitted;
+  const b=branchState(data,context.project);
+  useEffect(()=>{
+    if(!scoped)return;
+    let active=true;setTargetLoading(true);setTargetError('');setTarget(null);
+    api('action',{action:'environment-workspace',project:context.project,environment}).then(result=>{
+      if(!active)return;
+      if(result.project?.id!==context.project||result.environment?.name!==environment)throw Error('The inspected environment does not match this build target.');
+      setTarget(result);setBranch(value=>value || result.environment.branch);
+      if(!retry&&!result.capabilities?.deploy?.enabled&&result.capabilities?.build?.enabled)setMode('validate');
+    }).catch(error=>active&&setTargetError(error.message)).finally(()=>active&&setTargetLoading(false));
+    return()=>{active=false;};
+  },[context.project,environment,api,targetReload]);
+  useEffect(()=>{if(!b.fresh)api('action',{action:'refresh-branches',project:context.project}).catch(error=>setError(error.message));},[context.project]);
+  useEffect(()=>{if(!selection&&b.fresh&&b.branches[branch])setSelection({branch,sha:b.branches[branch]});},[b.fresh,b.updated,branch,selection]);
+  const changed=selection&&b.branches[selection.branch]!==selection.sha;
+  const buildAllowed=legacy?!!p.build_ready:!!target?.capabilities?.build?.enabled;
+  const deployAllowed=legacy?!!p.build_ready:!!target?.capabilities?.deploy?.enabled;
+  const allowed=mode==='deploy'?deployAllowed:buildAllowed;
+  const disabledReason=!environment?'This historical run has no verified target. Open its project and choose an environment for a new build.':scoped?(mode==='deploy'?target?.capabilities?.deploy?.reason:target?.capabilities?.build?.reason):!p.build_ready?'Build definitions are not configured.':'';
+  function choose(value){setBranch(value||'');setSelection(value?{branch:value,sha:b.branches[value]}:null);setRequestId(crypto.randomUUID());}
+  return <Dialog open fullWidth maxWidth="sm" onClose={()=>!busy&&onClose()} aria-labelledby="build-dialog-title">
+    <DialogTitle id="build-dialog-title">{retry?'Retry run #'+retry.id:'New build'}<Typography color="text.secondary" fontSize={13} sx={{mt:1}}>{p.label||context.project} · {environmentLabel}</Typography></DialogTitle>
+    <DialogContent dividers><Stack spacing={3}>
+      {error&&<Alert severity="error">{error}{submitted&&' Checking again keeps the original request and target.'}</Alert>}
+      {targetError&&<Alert severity="error">{targetError}</Alert>}
+      {targetLoading&&<Typography role="status">Inspecting {environment} target…</Typography>}
+      {!targetLoading&&!allowed&&disabledReason&&<Typography color="text.secondary">{disabledReason}</Typography>}
+      {!b.fresh&&<Typography color="text.secondary">Waiting for current branch observations.</Typography>}
+      <BranchPicker disabled={locked||targetLoading||!environment} options={Object.keys(b.branches).sort()} value={branch||null} onChange={(_,value)=>choose(value)} label="Build branch" error={!!branch&&!b.branches[branch]} helperText={branch&&!b.branches[branch]?'Choose an available branch.':undefined} onRefresh={()=>api('action',{action:'refresh-branches',project:context.project}).catch(error=>setError(error.message))}/>
+      <Box><Typography color="text.secondary" fontSize={12}>Commit to build</Typography><Typography component="code" sx={{overflowWrap:'anywhere',fontSize:12}}>{selection?.sha||'Select a branch'}</Typography></Box>
+      {scoped&&target&&<Typography color="text.secondary" fontSize={13}>Environment revision {target.environment.revision} · Recipe {target.environment.recipe_revision || 'not configured'}<Hint label="About the build target">This request pins the reviewed environment and recipe. Later settings changes require a new review.</Hint></Typography>}
+      {changed&&<Alert severity="warning">The branch changed. Review the latest commit.</Alert>}
+      {retry&&<Typography color="text.secondary" fontSize={13}>Uses the latest branch commit and the reviewed configuration for the original environment.</Typography>}
+      <RadioGroup value={mode} onChange={event=>{setMode(event.target.value);setRequestId(crypto.randomUUID());}}><FormControlLabel value="deploy" control={<Radio disabled={locked||targetLoading||!deployAllowed}/>} label="Build, test & deploy"/><FormControlLabel value="validate" control={<Radio disabled={locked||targetLoading||!buildAllowed}/>} label="Build & test only"/></RadioGroup>
+    </Stack></DialogContent>
+    <DialogActions>
+      {!environment&&<Button onClick={()=>{onClose();navigate('project/'+encodeURIComponent(context.project));}}>Open project</Button>}
+      {scoped&&<Button disabled={locked||targetLoading} onClick={()=>{setTargetReload(value=>value+1);setRequestId(crypto.randomUUID());}}>Refresh target</Button>}
+      {changed&&<Button disabled={locked} onClick={()=>choose(branch)}>Use latest commit</Button>}
+      <Button disabled={busy} onClick={onClose}>Cancel</Button>
+      <Button variant="contained" disabled={busy||(!submitted&&(!allowed||targetLoading||!!targetError||!selection?.sha||!b.fresh||!!changed||!b.branches[branch]))} onClick={async()=>{
+        if(requestLock.current)return;requestLock.current=true;setBusy(true);setError('');
+        try {
+          const reviewedTarget=scoped?{environment,project_revision:target.project.revision,environment_revision:target.environment.revision,recipe_revision:target.environment.recipe_revision}:{environment};
+          const payload=submitted||buildPayload({project:context.project,branch,sha:selection.sha,mode,retry,requestId,target:reviewedTarget});
+          setSubmitted(payload);const result=await api('action',payload);notify(result.message);onClose();navigate('job/'+result.job_id);refresh().catch(()=>{});
+        }catch(error){setError(error.message);if(error.status&&error.status<500)setSubmitted(null);}
+        finally{requestLock.current=false;setBusy(false);}
+      }}>{busy?'Queuing…':submitted?'Check original request':mode==='deploy'?'Queue deployment':'Queue build & tests'}</Button>
+    </DialogActions>
+  </Dialog>;
 }
 function ServicesPage() {
   const { data } = useApp(),
@@ -1788,7 +1586,7 @@ function ServicesPage() {
     );
   return (
     <>
-      <Typography variant="h4">Services</Typography>
+      <Typography variant="h4">Containers</Typography>
       <TextField
         label="Find a project, service or image"
         fullWidth
@@ -1908,7 +1706,7 @@ function Overview() {
           {Object.keys(data.projects).length} projects
         </Button>
         <Button color="inherit" onClick={() => navigate("containers")}>
-          {(data.snapshots.containers?.value || []).length} services observed
+          {(data.snapshots.containers?.value || []).length} containers observed
         </Button>
         <span>{active.length} active / queued runs</span>
       </div>

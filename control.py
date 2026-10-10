@@ -14,7 +14,8 @@ import time
 from pathlib import Path
 
 import yaml
-from store import connect, projects, audit
+from compose_identity import ordered_files
+from store import connect, effective_projects, audit
 
 DOCKER = '/usr/local/bin/docker'
 COMPOSE = '/usr/local/bin/docker-compose'
@@ -41,7 +42,9 @@ def checked_path(value):
     return p
 
 def inspect_target(project_name, container_name):
-    policy = projects(CONFIG).get(project_name)
+    policy_db=connect(DATABASE)
+    try:policy=effective_projects(policy_db,CONFIG).get(project_name)
+    finally:policy_db.close()
     if not policy or not isinstance(container_name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{1,127}',container_name):
         raise ControlError('Unknown project or container.')
     if not any(container_name.startswith(p) for p in policy.get('container_prefixes',[])):
@@ -53,9 +56,17 @@ def inspect_target(project_name, container_name):
     group,service = labels.get('com.docker.compose.project'),labels.get('com.docker.compose.service')
     if not group or not service or not re.fullmatch(r'[a-zA-Z0-9_.-]+',group+service):
         raise ControlError('Container has no valid Compose owner.')
-    files = [checked_path(f) for f in labels.get('com.docker.compose.project.config_files','').split(',') if f]
-    if not files:
-        raise ControlError('Compose configuration was not found.')
+    recipe=policy.get('recipe') or {}
+    if group != recipe.get('compose_project'):
+        raise ControlError('Container Compose ownership does not match this project.')
+    try:
+        observed_files = ordered_files(labels.get('com.docker.compose.project.config_files', '').split(','))
+        expected_files = ordered_files(recipe.get('compose_files'))
+    except (ValueError, AttributeError):
+        raise ControlError('Container configuration identity is invalid.') from None
+    if observed_files != expected_files:
+        raise ControlError('Container configuration does not match the registered project.')
+    files = [checked_path(f) for f in observed_files]
     args = [COMPOSE,'--profile','*','-p',group]
     for f in files: args += ['-f',str(f)]
     # Resolve from the actual Compose project directory, including its .env file.
@@ -135,6 +146,8 @@ def restore_environment():
     restored=wait_runtime(record['container'],record['was_running'])
     if restored['Image']!=record['image_id'] or effective_environment(restored)!=record['environment']:
         raise ControlError('Restored runtime differs from the previous container.')
+    if 'previous_resources' in record and resource_limits(restored)!=record['previous_resources']:
+        raise ControlError('Previous resource limits were not restored.')
     JOURNAL.unlink()
 
 def details(project, name):
@@ -151,17 +164,78 @@ def details(project, name):
             'started_at':c['State'].get('StartedAt'),'restart_count':c.get('RestartCount',0),
             'environment':env,'revision':revision(files,c,config),'configuration_file':str(owner),
             'environment_scope':'Overrides apply to this Compose service only. Other services sharing an env file are unchanged.',
+            'resources':resource_limits(c),
             'ports':c.get('NetworkSettings',{}).get('Ports',{}),
             'mounts':[{'type':m['Type'],'destination':m['Destination'],'read_only':not m['RW']} for m in c.get('Mounts',[])]}
+
+def resource_limits(c):
+    host=c.get('HostConfig',{})
+    cpu=host.get('NanoCpus',0)/1e9
+    if not cpu and host.get('CpuQuota',0)>0:cpu=host['CpuQuota']/(host.get('CpuPeriod') or 100000)
+    return {'memory_mib':host.get('Memory',0)/1048576,'cpu':cpu,
+            'swap_mib':host.get('MemorySwap',0)/1048576}
+
+def mutate_resources(document,service,limits):
+    result=copy.deepcopy(document)
+    target=copy.deepcopy(result['services'][service]);result['services'][service]=target
+    target['mem_limit']=int(limits['memory_mib']*1048576)
+    target['memswap_limit']=target['mem_limit']
+    target['cpus']=limits['cpu']
+    # Use one CPU control mechanism; preserve unrelated deployment settings.
+    target.pop('cpu_quota',None);target.pop('cpu_period',None)
+    deploy=target.setdefault('deploy',{}).setdefault('resources',{}).setdefault('limits',{})
+    deploy.update(memory=str(target['mem_limit']),cpus=str(limits['cpu']))
+    return result
+
+def without_resource_limits(config,service):
+    result=copy.deepcopy(config);target=copy.deepcopy(result['services'][service]);result['services'][service]=target
+    for key in ('mem_limit','memswap_limit','cpus','cpu_quota','cpu_period'):target.pop(key,None)
+    limits=target.get('deploy',{}).get('resources',{}).get('limits',{})
+    limits.pop('memory',None);limits.pop('cpus',None)
+    if not limits:target.get('deploy',{}).get('resources',{}).pop('limits',None)
+    if not target.get('deploy',{}).get('resources',{}):target.get('deploy',{}).pop('resources',None)
+    if target.get('deploy',{}).get('placement') == {}:target['deploy'].pop('placement')
+    if not target.get('deploy',{}):target.pop('deploy',None)
+    return result
 
 def execute(body):
     if not isinstance(body,dict):raise ControlError('Invalid operation request.')
     action=body.get('action');project=body.get('project');name=body.get('container');actor=body.get('actor','admin')
+    if action in ('adoption-preview','adoption-save'):
+        import adoption
+        if not LOCK.acquire(blocking=False):raise ControlError('Another deployment or container operation is running. Retry after it completes.')
+        db=None
+        try:
+            db=connect(DATABASE)
+            effective_projects(db,CONFIG)
+            if JOURNAL.exists():raise ControlError('Container recovery is pending. Resolve it before adopting a workload.')
+            inventory=adoption.collect(DOCKER,command)
+            if action=='adoption-preview':return adoption.public(adoption.preview(db,project,body.get('environment'),inventory))
+            result=adoption.adopt(db,project,body.get('environment'),body.get('fingerprint'),inventory,actor)
+            audit(db,actor,action,project,'Existing workload adopted as '+body['environment']+'. No containers or data moved.')
+            return {'project':result,'message':'Existing workload linked to '+body['environment']+'. No containers or data were moved.'}
+        except ValueError as error:raise ControlError(str(error)) from None
+        finally:
+            if db is not None:db.close()
+            LOCK.release()
     if action in ('terminal-open','terminal-poll','terminal-close'):
         from terminal_control import execute as terminal_execute
         return terminal_execute(body)
+    if action=='container-logs':
+        from container_logs import read
+        try:return read(body)
+        except ValueError as error:raise ControlError(str(error)) from None
     if action=='container-details':return details(project,name)
-    if action not in ('container-start','container-stop','container-restart','environment-save'):
+    if action=='resource-details':
+        from direct_limits import context
+        result=details(project,name);result.pop('environment',None)
+        policy_db=connect(DATABASE)
+        try:
+            try:result['resource_policy']=context(policy_db,project,name)
+            except ValueError as error:result['resource_policy']={'editable':False,'reason':str(error),'configured':True,'limits_ceiling':None}
+        finally:policy_db.close()
+        return result
+    if action not in ('container-start','container-stop','container-restart','environment-save','resource-apply','container-limits-save'):
         raise ControlError('Unsupported container operation.')
     key=body.get('request_id','')
     if not re.fullmatch(r'[A-Za-z0-9-]{16,80}',key):raise ControlError('Invalid operation ID.')
@@ -169,6 +243,12 @@ def execute(body):
     db=None
     try:
         db=connect(DATABASE)
+        if action=='container-limits-save':
+            import direct_limits
+            try:
+                previous=direct_limits.replay(db,body)
+                if previous:return previous
+            except ValueError as error:raise ControlError(str(error))
         previous=db.execute('SELECT status,detail,project,container,operation FROM control_runs WHERE request_id=?',(key,)).fetchone()
         if previous:
             if (previous['project'],previous['container'],previous['operation'])!=(project,name,action):raise ControlError('Operation ID belongs to a different request.')
@@ -177,36 +257,60 @@ def execute(body):
         c,service,files,args=inspect_target(project,name)
         if c['Id']!=body.get('container_id'):raise ControlError('The container was replaced. Reopen its details before making a change.')
         was_running=c['State']['Running']
-        if action=='environment-save':
-            validate_changes(body.get('changes'))
+        if action in ('environment-save','resource-apply','container-limits-save'):
+            if action=='environment-save':validate_changes(body.get('changes'))
+            elif action=='container-limits-save':
+                try:
+                    limits=direct_limits.limits(body.get('limits'))
+                    direct_limits.check(db,project,name,limits)
+                except ValueError as error:raise ControlError(str(error))
+            else:
+                from resource_policy import allocation
+                try:limits=allocation(db,project,body.get('environment'),name,body.get('policy_revision'))
+                except ValueError as error:raise ControlError(str(error))
             assert_image(configuration(args),service,c['Image'])
             if revision(files,c,configuration(args))!=body.get('revision'):raise ControlError('Configuration changed. Reopen the editor before saving.')
         now=time.time()
-        db.execute('INSERT INTO control_runs(request_id,created,updated,actor,project,container,operation,status,detail) VALUES(?,?,?,?,?,?,?,?,?)',(key,now,now,actor,project,name,action,'running','Operation started.'))
+        if action=='container-limits-save':
+            try:direct_limits.admit(db,body)
+            except ValueError as error:raise ControlError(str(error))
+        else:
+            db.execute('INSERT INTO control_runs(request_id,created,updated,actor,project,container,operation,status,detail) VALUES(?,?,?,?,?,?,?,?,?)',(key,now,now,actor,project,name,action,'running','Operation started.'))
         audit(db,actor,action,project,json.dumps({'container':name,'keys':sorted(body.get('changes',{}))}))
         try:
-            if action=='environment-save':
+            if action=='resource-apply':
+                limits=allocation(db,project,body.get('environment'),name,body.get('policy_revision'))
+            if action in ('environment-save','resource-apply','container-limits-save'):
                 before_config=configuration(args)
                 owner=next((f for f in reversed(files) if service in (yaml.safe_load(f.read_text()) or {}).get('services',{})),None)
                 if owner is None:raise ControlError('Service configuration is incomplete.')
                 before=owner.read_text();mode=owner.stat().st_mode&0o777
-                document=mutate_service(yaml.safe_load(before),service,body['changes'])
+                document=mutate_service(yaml.safe_load(before),service,body['changes']) if action=='environment-save' else mutate_resources(yaml.safe_load(before),service,limits)
                 record={'path':str(owner),'before':before,'mode':mode,'compose':args,'service':service,'container':name,'was_running':was_running,'image_id':c['Image'],'environment':effective_environment(c),'activated':False,'request_id':key}
+                if action in ('resource-apply','container-limits-save'):record['previous_resources']=resource_limits(c)
                 atomic_write(JOURNAL,json.dumps(record),0o600)
                 # Compose now contains explicitly edited secrets: keep it owner-only.
                 atomic_write(owner,yaml.safe_dump(document,sort_keys=False),0o600)
                 after=configuration(args)
-                expected=copy.deepcopy(before_config)
-                expected['services'][service].setdefault('environment',{}).update({k:v.replace('$','$$') for k,v in body['changes'].items()})
-                if after!=expected:raise ControlError('The change would affect other configuration. It was rejected.')
+                if action=='environment-save':
+                    expected=copy.deepcopy(before_config)
+                    expected['services'][service].setdefault('environment',{}).update({k:v.replace('$','$$') for k,v in body['changes'].items()})
+                    if after!=expected:raise ControlError('The change would affect other configuration. It was rejected.')
+                elif without_resource_limits(after,service)!=without_resource_limits(before_config,service):
+                    raise ControlError('Resource changes would affect other configuration. They were rejected.')
                 record['activated']=True;atomic_write(JOURNAL,json.dumps(record),0o600)
                 recreate(args,service,was_running)
                 updated=wait_runtime(name,was_running)
                 actual=effective_environment(updated)
-                expected_env=effective_environment(c);expected_env.update(body['changes'])
+                expected_env=effective_environment(c)
+                if action=='environment-save':expected_env.update(body.get('changes',{}))
                 if updated['Image']!=c['Image'] or actual!=expected_env:raise ControlError('Runtime environment does not match the saved changes.')
+                if action in ('resource-apply','container-limits-save'):
+                    observed=resource_limits(updated)
+                    if abs(observed['memory_mib']-limits['memory_mib'])>.001 or abs(observed['cpu']-limits['cpu'])>.00001 or abs(observed['swap_mib']-limits['memory_mib'])>.001:
+                        raise ControlError('Runtime resource limits differ from the requested allocation.')
                 JOURNAL.unlink()
-                message='Environment saved and verified. The service was recreated; its previous running or stopped state was preserved.'
+                message=('RAM and CPU limits applied and verified.' if action in ('resource-apply','container-limits-save') else 'Environment saved and verified.')+' The service was recreated; its previous running or stopped state was preserved.'
             else:
                 operation=action.removeprefix('container-')
                 command([DOCKER,operation,*(['--time','20'] if operation in ('stop','restart') else []),name],timeout=60)

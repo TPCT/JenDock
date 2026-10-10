@@ -59,27 +59,74 @@ def projects(path):
     return data
 
 
-def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor='github', retry_of=None):
+def existing_delivery(db, delivery, project, sha, branch, mode, actor, retry_of=None):
+    old=db.execute('SELECT * FROM jobs WHERE delivery=?',(delivery,)).fetchone()
+    if old is None:return None
+    expected=(project,sha,branch,mode,actor,retry_of)
+    actual=tuple(old[key] for key in ('project','sha','branch','mode','actor','retry_of'))
+    if actual != expected:
+        raise ValueError('Request ID already belongs to a different operation. Start a new request.')
+    return old
+
+
+def assert_target_identity(db, job_id, expected):
+    if expected is None:
+        return
+    import job_target
+    try:
+        target = job_target.public(db, job_id)
+    except (ValueError, TypeError, KeyError):
+        if expected == {'environment': 'legacy-unclassified'}:
+            return
+        raise ValueError('This request has no matching reviewed environment target.') from None
+    if any(target.get(key) != value for key, value in expected.items()):
+        raise ValueError('Request ID already belongs to a different environment or reviewed revision.')
+
+
+def _job_environment(db, job_id):
+    import job_target
+    try:
+        return job_target.public(db, job_id)['environment']
+    except (ValueError, TypeError, KeyError):
+        return 'legacy-unclassified'
+
+
+def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor='github', retry_of=None, *, target_factory=None, target_identity=None):
+    import job_target
+    job_target.initialize(db)
     now = time.time()
     db.execute('BEGIN IMMEDIATE')
     try:
-        old = db.execute('SELECT id FROM jobs WHERE delivery=?', (delivery,)).fetchone()
+        old = existing_delivery(db,delivery,project,sha,branch,mode,actor,retry_of)
         if old:
+            assert_target_identity(db, old['id'], target_identity)
             db.execute('COMMIT')
             return old['id'], False
-        if actor != 'github' and db.execute("SELECT id FROM jobs WHERE project=? AND status IN ('queued','validation-queued','building','testing','deploying','recovering')",(project,)).fetchone():
-            raise ValueError('This project already has an active or queued run.')
+        target = target_factory(db) if target_factory is not None else None
+        environment = target['environment'] if target is not None else 'legacy-unclassified'
+        if actor != 'github':
+            active = db.execute("SELECT id FROM jobs WHERE project=? AND status IN ('queued','validation-queued','building','testing','deploying','recovering')",(project,)).fetchall()
+            if any(_job_environment(db, row['id']) == environment for row in active):
+                raise ValueError('This environment already has an active or queued run.')
         status = ('validation-queued' if mode == 'validate' else 'queued') if enabled else 'auto-deploy-disabled'
         cursor = db.execute('INSERT INTO jobs(delivery,project,sha,created,updated,status,branch,mode,actor,retry_of) VALUES(?,?,?,?,?,?,?,?,?,?)',
                             (delivery, project, sha, now, now, status, branch, mode, actor, retry_of))
+        job_id = cursor.lastrowid
+        if target is not None:
+            job_target.store(db, job_id, target)
+        assert_target_identity(db, job_id, target_identity)
         if actor == 'github':
-            db.execute("UPDATE jobs SET status='superseded',updated=? WHERE project=? AND branch=? AND actor='github' AND status='queued' AND id<>?", (now, project, branch, cursor.lastrowid))
+            candidates = db.execute("SELECT id FROM jobs WHERE project=? AND branch=? AND actor='github' AND status='queued' AND id<>?", (project, branch, job_id)).fetchall()
+            for row in candidates:
+                if _job_environment(db, row['id']) == environment:
+                    db.execute("UPDATE jobs SET status='superseded',updated=? WHERE id=?", (now, row['id']))
         # Bound metadata while preserving in-flight work and recent deduplication.
-        db.execute("DELETE FROM jobs WHERE updated<? AND status NOT IN ('queued','building','deploying','recovering')",
+        db.execute("DELETE FROM jobs WHERE updated<? AND status NOT IN ('queued','validation-queued','building','testing','deploying','recovering')",
                    (now - 30 * 86400,))
         db.execute('DELETE FROM events WHERE job_id NOT IN (SELECT id FROM jobs)')
+        db.execute('DELETE FROM job_targets WHERE job_id NOT IN (SELECT id FROM jobs)')
         db.execute('COMMIT')
-        return cursor.lastrowid, True
+        return job_id, True
     except BaseException:
         db.execute('ROLLBACK')
         raise
@@ -96,16 +143,16 @@ def snapshot(db, name, value):
                (name, time.time(), json.dumps(value)))
 
 
+def ensure_registry(db, path):
+    import registry
+    if not registry.imported(db):
+        registry.import_legacy(db, projects(path), [dict(row) for row in db.execute('SELECT * FROM settings')])
+
+
 def effective_projects(db, path):
-    data = projects(path)
-    for row in db.execute('SELECT * FROM settings'):
-        if row['project'] in data:
-            p = data[row['project']]
-            p['branch'] = row['branch']
-            p['automatic'] = bool(row['automatic'])
-    for p in data.values():
-        p.setdefault('automatic', True)
-    return data
+    import registry
+    ensure_registry(db, path)
+    return registry.legacy_projects(db)
 
 
 def audit(db, actor, action, project='', detail=''):
@@ -115,4 +162,4 @@ def audit(db, actor, action, project='', detail=''):
 
 
 def valid_branch(value):
-    return isinstance(value,str) and 0 < len(value) <= 200 and not value.startswith(('-', '/', '.')) and not value.endswith(('/', '.', '.lock')) and not any(x in value for x in ('..', '@{', '//', '\\')) and not re.search(r'[\x00-\x20\x7f~^:?*\[]',value)
+    return isinstance(value,str) and 0 < len(value) <= 200 and not value.startswith(('-', '/', '.')) and not value.endswith(('/', '.', '.lock')) and not any(x in value for x in ('..', '@{', '//', '\\')) and not any(part.startswith('.') or part.endswith('.lock') for part in value.split('/')) and not re.search(r'[\x00-\x20\x7f~^:?*\[]',value)

@@ -38,3 +38,19 @@ Automatic deployment is the default; a persisted owner opt-out is respected. Leg
 
 ## Required fields
 Do not display required asterisks. Preserve required semantics and server validation, and show field-specific errors after submission. Login uses external labels, focuses the first missing field, and retains its text-and-icon submit action.
+
+## Current environment model — supersedes earlier classification
+
+Every project has exactly two configurable environments: Development and Production.
+A project itself is never classified as one or the other. The former three-environment
+proposal and 15-production/5-staging classification are withdrawn. Git repositories
+use development and production branches; development is the default branch.
+
+Environment records are dynamic database-backed product settings. The legacy JSON
+file is an import source only. Environments provision and start on demand; creating
+records or branches does not start containers. Stopped environments retain data.
+A push does not automatically provision or wake an inactive environment unless an
+explicit per-environment policy enables it. Production forbids destructive database
+deployment operations; development uses its configured migration commands.
+
+Resource scope clarification (2026-10-10): configurable limits cover RAM and CPU only. Disk usage remains visible for monitoring; no disk quota setting or storage migration is required.

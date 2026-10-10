@@ -15,6 +15,7 @@ import {
   SyncIcon,
   RocketIcon,
   CheckCircleFillIcon,
+  CheckIcon,
   XCircleFillIcon,
   ClockIcon,
   SkipIcon,
@@ -66,6 +67,7 @@ export const Arrow = adapt(ArrowRightIcon);
 export const Refresh = adapt(SyncIcon);
 export const Rocket = adapt(RocketIcon);
 export const Check = adapt(CheckCircleFillIcon);
+export const SelectionCheck = adapt(CheckIcon);
 export const ErrorIcon = adapt(XCircleFillIcon);
 export const PendingIcon = adapt(ClockIcon);
 export const SkippedIcon = adapt(SkipIcon);

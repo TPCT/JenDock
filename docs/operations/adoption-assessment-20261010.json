@@ -1,0 +1,133 @@
+{
+  "observed": 1791664898.3327498,
+  "source": "SSH verified host root UID0 eth0 176.118.198.49; sanitized Docker plus read-only database engine directory/port queries",
+  "kind": "read-only assessment against local recipes, no adoption or data mutation performed; configured endpoint identity is not proof of database integrity",
+  "projects": [
+    {
+      "project": "30sv01",
+      "ready_at_capture": true,
+      "containers": 4,
+      "database_clients": 2,
+      "state": "active"
+    },
+    {
+      "project": "aic-academy",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "aic-ops",
+      "ready_at_capture": true,
+      "containers": 7,
+      "database_clients": 4,
+      "state": "active"
+    },
+    {
+      "project": "aic-sys",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "aic-website",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "captcha",
+      "ready_at_capture": true,
+      "containers": 1,
+      "database_clients": 0,
+      "state": "active"
+    },
+    {
+      "project": "crm",
+      "ready_at_capture": true,
+      "containers": 3,
+      "database_clients": 1,
+      "state": "active"
+    },
+    {
+      "project": "dsl01",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "dsl02",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "elfak-legacy",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "elfak01",
+      "ready_at_capture": true,
+      "containers": 8,
+      "database_clients": 5,
+      "state": "active"
+    },
+    {
+      "project": "elnahy",
+      "ready_at_capture": true,
+      "containers": 3,
+      "database_clients": 1,
+      "state": "active"
+    },
+    {
+      "project": "eo01",
+      "ready_at_capture": true,
+      "containers": 4,
+      "database_clients": 2,
+      "state": "active"
+    },
+    {
+      "project": "etsawaa",
+      "ready_at_capture": true,
+      "containers": 8,
+      "database_clients": 4,
+      "state": "active"
+    },
+    {
+      "project": "licence",
+      "ready_at_capture": false,
+      "reason": "Container ownership conflicts with its registered Compose configuration."
+    },
+    {
+      "project": "lms-v2",
+      "ready_at_capture": true,
+      "containers": 8,
+      "database_clients": 4,
+      "state": "active"
+    },
+    {
+      "project": "octa",
+      "ready_at_capture": true,
+      "containers": 4,
+      "database_clients": 2,
+      "state": "active"
+    },
+    {
+      "project": "smartconst",
+      "ready_at_capture": true,
+      "containers": 3,
+      "database_clients": 1,
+      "state": "active"
+    },
+    {
+      "project": "us01",
+      "ready_at_capture": true,
+      "containers": 2,
+      "database_clients": 1,
+      "state": "active"
+    },
+    {
+      "project": "website",
+      "ready_at_capture": true,
+      "containers": 3,
+      "database_clients": 1,
+      "state": "active"
+    }
+  ]
+}

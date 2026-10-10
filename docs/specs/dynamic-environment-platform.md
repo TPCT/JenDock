@@ -7,7 +7,7 @@ Date: 2026-10-10
 
 The monitoring application becomes a container delivery and operations product.
 An administrator can connect GitHub and Cloudflare, register a repository, configure
-three independent environments and inspect or operate their actual workloads from
+two independent environments and inspect or operate their actual workloads from
 the UI. Adding a project or changing its branch must not require editing Python,
 JSON files or rebuilding the monitoring application.
 
@@ -22,20 +22,29 @@ existing opt-outs, history, credentials references, volumes, networks and databa
 Existing run records stay associated with their original environment and commit.
 No global label or branch name can silently reclassify an existing database.
 
-Every project has development, staging and production environment records. Each
+Every project has development and production environment records. Each
 owns its branch, automatic-deploy switch, recipe revision, domains, secret references,
 container/service bindings, resource limits, database endpoint identity and runs.
 Creating an environment record does not provision containers, databases or DNS.
 Show Not provisioned as a legitimate state and expose a separate provisioning flow.
-Import the 20 live deployments only; leave the other 40 environment slots inactive.
+Import the 20 live deployments only; leave unprovisioned environment slots inactive.
 
-The owner classified fak01, aa01, 30sv01, eo01 and lms-v2 as staging. The other 15
-registered projects are production. Existing APP_ENV strings are observations,
-not authority to override that decision; show configuration mismatches explicitly.
+Projects are not classified as development or production. Every project exposes both
+environments. Import existing deployments without inferring environment ownership
+from the former 15/5 project classification, branch names or APP_ENV alone. Preserve
+runtime configuration until each existing deployment has an explicit environment
+binding. Do not provision a second copy or move a database as a side effect of import.
+
+An environment can be Not provisioned, Stopped or Running. Provision/start is an
+explicit operator action. A push must not provision or wake a stopped environment
+unless that environment's persisted policy explicitly enables that behavior. Stop
+preserves database/storage volumes. Optional idle shutdown excludes environments
+that have active builds or operations. Show per-environment resource limits and
+observed host capacity before activation.
 
 ## Git and delivery
 
-Repository branches use development, staging and production. Preserve existing
+Repository branches use development and production. Preserve existing
 branch contents and unrelated work. Missing branches start from the repository's
 currently tracked branch, with the source SHA recorded. Preserve legacy branches
 until unique commits and other consumers are assessed. Changing a default branch
@@ -63,8 +72,8 @@ cannot establish safety for arbitrary PHP/Python/SQL. Production migration adapt
 must either enforce a verified non-destructive execution boundary or fail closed.
 Application business operations are outside this deployment migration policy.
 
-Staging supports its configured migration command, normally pending migrations.
-The owner also permits fresh/refresh in staging when explicitly configured; these
+Development supports its configured migration command, normally pending migrations.
+The owner also permits fresh/refresh in development when explicitly configured; these
 must never be introduced as an automatic default or fallback after a failed migrate.
 Framework is discovered/configured per repository: Laravel, Alembic, other migration
 runners are separate adapters; FastAPI does not itself imply Alembic.
@@ -103,7 +112,7 @@ Environment Services groups actual containers by project and role. Bind operatio
 to immutable container identity and reject stale/replaced targets. Import the current
 Compose groups without silently splitting shared groups. New environments use
 separate networks, volumes and database credentials; never inherit live production
-database endpoints by copying staging configuration.
+database endpoints by copying development configuration.
 
 All roles: health/resources, actual image/revision, events, bounded live logs,
 start/stop/restart and an authenticated, session-owned terminal. Do not label a full
@@ -128,7 +137,7 @@ instrumentation is shown explicitly, not fabricated from container health alone.
 
 Retain the approved React/GitHub Actions visual system, responsive sidebar and
 breadcrumbs. Navigation: Projects, Runs, Services, Integrations and Settings.
-Project workspace has Development / Staging / Production environment navigation.
+Project workspace has Development / Production environment navigation.
 Each environment exposes Overview, Pipeline, Services, Database, Domains, Variables
 and Activity when supported. Integration secrets never appear in the global SSE
 state. Controls have loading, empty, failure and stale states; live updates preserve
@@ -144,10 +153,10 @@ form drafts, focus and scroll. Required inputs use validation without visible st
 6. End-to-end local acceptance, then adoption of the existing server deployment.
 
 Required evidence includes persistence after reload, webhook deduplication, environment
-isolation, forbidden production operations rejected before mutation, staging migration
+isolation, forbidden production operations rejected before mutation, development migration
 success/failure, stale identities, secret redaction, integration errors and uncertain
 write recovery, cleanup results, and desktop/mobile rendered flows. Passing mocks or
-builds alone is not operational acceptance. Do not provision all 60 environments as a
+builds alone is not operational acceptance. Do not provision all 40 environments as a
 side effect of migrating configuration; capacity and requested activation matter.
 
 ## Integration credential management — owner clarification
@@ -173,3 +182,31 @@ official API: account-token verification succeeded with status active, and zones
 listing returned four active zones. No DNS records or account configuration changed.
 The credential value is deliberately absent from this document and Git. Credential
 management UI, encrypted persistence and production integration remain unimplemented.
+
+Resource scope clarification (2026-10-10): configurable limits cover RAM and CPU only. Disk usage remains visible for monitoring; no disk quota setting or storage migration is required.
+
+## MCP and dashboard creation — owner requirement
+
+The product must support creating projects and services both from the dashboard and
+through an authenticated MCP interface. Both adapters call the same application
+operations, enforce the same validation/ownership/resource/environment constraints,
+and persist the same actor-attributed audit records. A metadata-only project record
+is a first step, not acceptance of a working provisioned service.
+
+Project creation selects a GitHub repository (or verified repository identity) and
+creates Development and Production records without automatically activating either.
+Service creation explicitly selects project/environment, service role, image or
+build source, command, ports/domain, secret references, persistence and RAM/CPU limits.
+Validate naming/port/domain collisions, available host capacity, environment isolation
+and database identity before provisioning. Never clone production credentials or
+volumes into Development by default. Show operation progress and recovery on failure.
+
+MCP discovery and tool schemas must describe real supported actions and return
+structured operation IDs/statuses. Provide project list/get/create and service
+list/get/create, plus operation status; reuse idempotency and optimistic revisions.
+Authenticate remote MCP separately with revocable scoped credentials; never bypass
+console authorization, expose an unauthenticated Docker interface, accept raw host
+shell commands as service definitions, or return integration/environment secrets.
+Test authenticated discovery, permission denial, invalid input, duplicate retries,
+creation persistence, actual provisioned service ownership, and dashboard visibility
+of MCP-created entities (and vice versa).

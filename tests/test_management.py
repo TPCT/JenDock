@@ -14,7 +14,7 @@ from store import connect,snapshot,set_status,valid_branch
 class ManagementTests(ReceiverTests):
     def setUp(self):
         super().setUp()
-        policy=json.loads(self.config.read_text());policy['test']['recipe']={'tests':[{}]};self.config.write_text(json.dumps(policy))
+        policy=json.loads(self.config.read_text());policy['test']['recipe']={'tests':[{}],'compose_project':'test','compose_files':['/managed/test/compose.yml'],'services':['app']};self.config.write_text(json.dumps(policy))
         db=connect(self.app.database)
         snapshot(db,'branches:test',{'branches':{'main':'a'*40,'feature/login':'b'*40},'error':False});db.close()
         code,response,token=self.app.login({'username':'admin','password':'local-test-only'},'fixture')

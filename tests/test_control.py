@@ -10,6 +10,48 @@ import control
 from store import connect
 
 class ControlTests(unittest.TestCase):
+    def test_resource_change_preserves_sibling_alias_and_unrelated_settings(self):
+        source=yaml.safe_load('services:\n  app: &base\n    image: app:v1\n    mem_limit: 64m\n    environment: {KEY: old}\n  queue: *base\n')
+        after=control.mutate_resources(source,'app',{'memory_mib':128,'cpu':0.5})
+        self.assertEqual(after['services']['queue'],source['services']['queue'])
+        self.assertEqual(after['services']['app']['mem_limit'],134217728)
+        self.assertEqual(after['services']['app']['memswap_limit'],134217728)
+        self.assertEqual(after['services']['app']['deploy']['resources']['limits']['memory'], '134217728')
+        self.assertEqual(control.without_resource_limits(after,'app'),control.without_resource_limits(source,'app'))
+
+    def test_resource_comparison_ignores_compose_empty_placement_only(self):
+        source = {'services': {'app': {'image': 'app:v1'}}}
+        normalized = copy.deepcopy(source)
+        normalized['services']['app']['deploy'] = {'placement': {}, 'resources': {'limits': {'memory': '134217728', 'cpus': '0.5'}}}
+        self.assertEqual(control.without_resource_limits(normalized, 'app'), source)
+        normalized['services']['app']['deploy']['placement'] = {'constraints': ['node.role==manager']}
+        self.assertNotEqual(control.without_resource_limits(normalized, 'app'), source)
+
+    def test_resource_limits_support_both_docker_cpu_encodings(self):
+        for host in ({'Memory':134217728,'NanoCpus':500000000},{'Memory':134217728,'CpuPeriod':100000,'CpuQuota':50000}):
+            self.assertEqual(control.resource_limits({'HostConfig':host})['cpu'],0.5)
+            self.assertEqual(control.resource_limits({'HostConfig':host})['memory_mib'],128)
+
+    def test_resource_apply_persists_verifies_and_restores_on_failure(self):
+        from resource_policy import read,save
+        for failure in ('none', 'runtime', 'swap-mismatch'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as d:
+                root=Path(d);file=root/'compose.yml';original='services:\n  app:\n    image: app:v1\n    mem_limit: 64m\n    cpus: 0.25\n'
+                file.write_text(original);database=str(root/'db');db=connect(database)
+                doc=read(db,'app')['document'];doc['budget']={'memory_mib':128,'cpu':0.5}
+                doc['environments']['production']={'budget':{'memory_mib':128,'cpu':0.5},'services':{'app-1':{'memory_mib':128,'cpu':0.5}}}
+                save(db,'app',0,doc);db.close()
+                c={'Id':'id','Image':'sha256:old','Config':{'Env':[]},'State':{'Running':False},'HostConfig':{'Memory':67108864,'NanoCpus':250000000}}
+                config=yaml.safe_load(original);after=control.mutate_resources(config,'app',{'memory_mib':128,'cpu':0.5})
+                body={'action':'resource-apply','project':'app','environment':'production','policy_revision':1,'container':'app-1','container_id':'id','request_id':'r'*20,'revision':control.revision([file],c,config)}
+                updated=copy.deepcopy(c);updated['HostConfig']={'Memory':134217728,'MemorySwap':268435456 if failure == 'swap-mismatch' else 134217728,'NanoCpus':500000000}
+                with patch.object(control,'DATABASE',database),patch.object(control,'ROOT',root),patch.object(control,'JOURNAL',root/'journal'),patch.object(control,'inspect_target',return_value=(c,'app',[file],['compose'])),patch.object(control,'assert_image'),patch.object(control,'configuration',side_effect=[config,config,config,after]+([config] if failure != 'none' else [])),patch.object(control,'recreate') as recreate,patch.object(control,'wait_runtime',side_effect=[control.ControlError('failed'),c] if failure == 'runtime' else [updated,c] if failure == 'swap-mismatch' else [updated]):
+                    result=control.execute(body)
+                self.assertEqual(result['status'],'rolled-back' if failure != 'none' else 'succeeded')
+                self.assertFalse((root/'journal').exists())
+                self.assertFalse(recreate.call_args.args[-1])
+                if failure != 'none':self.assertEqual(file.read_text(),original)
+                else:self.assertEqual(yaml.safe_load(file.read_text())['services']['app']['cpus'],0.5)
     def test_yaml_alias_and_literal_dollars_do_not_change_sibling(self):
         source=yaml.safe_load('services:\n  app: &base\n    environment: {TOKEN: old}\n  queue: *base\n')
         after=control.mutate_service(source,'app',{'TOKEN':'new$secret','EMPTY':''})
@@ -73,3 +115,52 @@ class ControlTests(unittest.TestCase):
                 for table in ('audit','control_runs'):
                     self.assertNotIn('private-value',str([tuple(r) for r in db.execute('SELECT * FROM '+table)]))
                 db.close()
+
+    def test_resource_policy_change_between_preflight_and_execution_does_not_mutate(self):
+        import resource_policy
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            file = root / 'compose.yml'
+            original = 'services:\n  app:\n    image: app:v1\n'
+            file.write_text(original)
+            database = root / 'db'
+            db = connect(database)
+            document = resource_policy.read(db, 'app')['document']
+            document['budget'] = {'memory_mib': 128, 'cpu': 0.5}
+            document['environments']['production'] = {
+                'budget': {'memory_mib': 128, 'cpu': 0.5},
+                'services': {'app-1': {'memory_mib': 128, 'cpu': 0.5}},
+            }
+            resource_policy.save(db, 'app', 0, document)
+            db.close()
+            container = {'Id': 'id', 'Image': 'image', 'State': {'Running': False}}
+            config = yaml.safe_load(original)
+            body = {'action': 'resource-apply', 'project': 'app', 'environment': 'production',
+                    'policy_revision': 1, 'container': 'app-1', 'container_id': 'id',
+                    'request_id': 'race-request-12345678', 'revision': control.revision([file], container, config)}
+            original_allocation = resource_policy.allocation
+            first_call = True
+            def concurrent_edit(*args):
+                nonlocal first_call
+                limits = original_allocation(*args)
+                if first_call:
+                    first_call = False
+                    other = connect(database)
+                    try:
+                        changed = copy.deepcopy(document)
+                        changed['environments']['production']['services']['app-1']['cpu'] = 0.25
+                        resource_policy.save(other, 'app', 1, changed)
+                    finally:
+                        other.close()
+                return limits
+            with patch.object(control, 'DATABASE', database), patch.object(control, 'ROOT', root), \
+                 patch.object(control, 'JOURNAL', root / 'journal'), \
+                 patch.object(control, 'inspect_target', return_value=(container, 'app', [file], ['compose'])), \
+                 patch.object(control, 'configuration', return_value=config), patch.object(control, 'assert_image'), \
+                 patch.object(resource_policy, 'allocation', side_effect=concurrent_edit), \
+                 patch.object(control, 'recreate') as recreate:
+                result = control.execute(body)
+            self.assertEqual(result['status'], 'failed')
+            self.assertEqual(file.read_text(), original)
+            self.assertFalse((root / 'journal').exists())
+            recreate.assert_not_called()

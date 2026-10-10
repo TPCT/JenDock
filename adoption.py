@@ -1,0 +1,224 @@
+"""Verified legacy workload adoption; input inventory must come from the worker.
+
+This binds existing objects only. It never provisions, starts, moves or deletes
+containers/data. Endpoint evidence identifies configuration, not database integrity.
+"""
+import hashlib
+import json
+import posixpath
+import re
+import time
+from urllib.parse import urlsplit
+
+import registry
+from compose_identity import ordered_files
+
+
+def initialize(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS workload_adoptions(
+        project TEXT PRIMARY KEY, environment TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        evidence TEXT NOT NULL, actor TEXT NOT NULL, created REAL NOT NULL)''')
+
+
+def _digest(value):
+    return hashlib.sha256(registry.canonical(value).encode()).hexdigest()
+
+
+def collect(docker, command):
+    """Bounded read-only inspection. Never emit raw environment or Docker labels."""
+    observed = time.time()
+    identifiers = command([docker, 'ps', '-aq', '--no-trunc']).split()
+    if len(identifiers) > 1000:
+        raise ValueError('Inventory exceeds the supported adoption review size.')
+    rows = json.loads(command([docker, 'inspect', *identifiers])) if identifiers else []
+    result = []
+    for row in rows:
+        labels = row['Config'].get('Labels') or {}
+        values = dict(value.split('=', 1) for value in row['Config'].get('Env', []) if '=' in value)
+        endpoint = {key: values[key] for key in ('DB_CONNECTION', 'DB_HOST', 'DB_PORT', 'DB_DATABASE', 'DB_NAME', 'DATABASE_HOST', 'DATABASE_PORT', 'DATABASE_NAME') if values.get(key)}
+        for key in ('DATABASE_URL', 'DB_URL'):
+            if values.get(key) and values[key].lower() not in ('null', '(null)', 'none'):
+                try:
+                    url = urlsplit(values[key])
+                    endpoint[key] = {'scheme': url.scheme, 'host': url.hostname, 'port': url.port, 'database': url.path.lstrip('/')}
+                except ValueError:
+                    endpoint[key] = {'unparseable': True}
+        engine = None
+        image_name = row['Config'].get('Image', '').rsplit('/', 1)[-1].split(':')[0]
+        if 'postgres' in image_name: engine = 'pgsql'
+        elif image_name in ('mysql', 'mariadb'): engine = 'mysql'
+        directory, port = None, None
+        if engine and row['State']['Running']:
+            script = ('exec psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" -Atc "SELECT current_setting(\'data_directory\'), current_setting(\'port\')"'
+                      if engine == 'pgsql' else 'MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-$MARIADB_ROOT_PASSWORD}" exec mariadb -uroot -Nse "SELECT @@datadir, @@port"')
+            try:
+                output = command([docker, 'exec', row['Id'], 'sh', '-c', script]).strip().replace('|', '\t').split('\t')
+                if len(output) == 2 and output[0].startswith('/'):
+                    directory, port = posixpath.normpath(output[0]), int(output[1])
+            except Exception:
+                # No stderr, command output or credential value becomes evidence.
+                directory, port = None, None
+        result.append({'id': row['Id'], 'name': row['Name'].lstrip('/'), 'image_id': row['Image'],
+                       'database_data_directory': directory, 'database_port': port,
+                       'running': bool(row['State']['Running']), 'compose_project': labels.get('com.docker.compose.project'),
+                       'compose_service': labels.get('com.docker.compose.service'),
+                       'compose_files': labels.get('com.docker.compose.project.config_files', '').split(','),
+                       'database_endpoint': endpoint,
+                       'networks': {name: {'id': net.get('NetworkID'), 'aliases': net.get('Aliases') or [], 'ip': net.get('IPAddress')}
+                                    for name, net in row.get('NetworkSettings', {}).get('Networks', {}).items()},
+                       'mounts': [{'type': m['Type'], 'source': m.get('Source'), 'destination': m['Destination']}
+                                  for m in row.get('Mounts', [])]})
+    return {'observed': observed, 'containers': result}
+
+
+def public(evidence):
+    # Host storage paths remain worker-private; browser gets verifiable identities.
+    return {key: evidence[key] for key in ('project', 'environment', 'project_revision', 'environment_revision',
+             'fingerprint', 'state', 'containers')} | {'databases': [{key: value for key, value in d.items() if key != 'storage'}
+                                                                  for d in evidence['databases']]}
+
+
+def _files(values):
+    return ordered_files(values)
+
+
+def _endpoint(row):
+    values = row.get('database_endpoint') or {}
+    for key in ('DATABASE_URL', 'DB_URL'):
+        url = values.get(key)
+        if url and url.get('scheme'):
+            engine = url.get('scheme')
+            return engine, url.get('host'), url.get('database'), url.get('port') or (5432 if engine.startswith('postgres') else 3306 if engine.startswith('mysql') else None)
+        if url and url.get('unparseable'):
+            raise ValueError('A database endpoint cannot be parsed.')
+    engine = values.get('DB_CONNECTION')
+    raw_port = values.get('DB_PORT') or values.get('DATABASE_PORT') or (5432 if engine in ('pgsql', 'postgresql') else 3306)
+    try: port = int(raw_port)
+    except (ValueError, TypeError): raise ValueError('Invalid database port.') from None
+    if not 0 < port < 65536: raise ValueError('Invalid database port.')
+    return (engine, values.get('DB_HOST') or values.get('DATABASE_HOST'),
+            values.get('DB_DATABASE') or values.get('DATABASE_NAME') or values.get('DB_NAME'), port)
+
+
+def _resolve(rows, client, host, port):
+    return [other for other in rows if other.get('database_port') == port and any(
+        name in other.get('networks', {}) and net.get('id') == other['networks'][name].get('id')
+        and host in (other['networks'][name].get('aliases') or []) + [other['name'], other['networks'][name].get('ip')]
+        for name, net in client.get('networks', {}).items())]
+
+
+def _storage(row, path=None):
+    mounts = [m for m in row.get('mounts', []) if m.get('type') in ('volume', 'bind') and m.get('source')]
+    if path:
+        if not path.startswith('/') or posixpath.normpath(path) != path:
+            raise ValueError('SQLite must have an absolute normalized persistent file path.')
+        mounts = [m for m in mounts if path == m.get('destination') or path.startswith(m.get('destination', '').rstrip('/') + '/')]
+    return sorted([{'type': m['type'], 'source': m['source'], 'destination': m['destination']} for m in mounts], key=lambda m: m['destination'])
+
+
+def preview(db, project, environment, inventory, *, now=None):
+    now = time.time() if now is None else now
+    registered = registry.get_project(db, project)
+    target = registry.get_environment(db, project, environment)
+    if registered['legacy_binding'] is not None:
+        raise ValueError('The existing workload is already adopted.')
+    if target['recipe_revision'] is not None or target['state'] != 'not-provisioned':
+        raise ValueError('This environment already owns a workload.')
+    observed = inventory.get('observed')
+    if not isinstance(observed, (float, int)) or not 0 <= now - observed <= 90:
+        raise ValueError('Refresh live Docker inventory before adopting a workload.')
+    projects = registry.legacy_projects(db)
+    legacy = projects[project]
+    recipe = legacy.get('recipe')
+    if not recipe:
+        raise ValueError('The existing workload has no deployment recipe.')
+    prefixes = legacy.get('container_prefixes', [])
+    rows = inventory.get('containers', [])
+    members = [r for r in rows if any(r.get('name', '').startswith(p) for p in prefixes)]
+    if not members:
+        raise ValueError('No existing containers match this registered workload.')
+    expected_files = _files(recipe.get('compose_files'))
+    for row in members:
+        if not re.fullmatch('[0-9a-f]{64}', row.get('id', '')) or not re.fullmatch('sha256:[0-9a-f]{64}', row.get('image_id', '')):
+            raise ValueError('Full immutable container and image identities are required.')
+        if row.get('compose_project') != recipe.get('compose_project') or _files(row.get('compose_files')) != expected_files:
+            raise ValueError('Container ownership conflicts with its registered Compose configuration.')
+        owners = [name for name, p in projects.items() if any(row['name'].startswith(prefix) for prefix in p.get('container_prefixes', []))]
+        if owners != [project]:
+            raise ValueError('A container has ambiguous project ownership.')
+    services = [r.get('compose_service') for r in members]
+    if len(services) != len(set(services)) or not all(isinstance(s, str) and s for s in services):
+        raise ValueError('Compose services must have unique container membership.')
+    if set(recipe.get('services', [])) - set(services):
+        raise ValueError('Some deployment services are missing from the actual workload.')
+    databases = []
+    member_ids = {r['id'] for r in members}
+    for row in members:
+        engine, host, database, port = _endpoint(row)
+        if not host and not database:
+            continue
+        if engine == 'sqlite':
+            storage = _storage(row, database or '')
+            if not storage:
+                raise ValueError('SQLite data is not mapped to persistent storage.')
+            databases.append({'client': row['id'], 'engine': engine, 'database': database, 'storage': storage})
+            continue
+        if not host or not database:
+            raise ValueError('A database endpoint has incomplete host/database identity.')
+        matches = _resolve(rows, row, host, port)
+        if len(matches) != 1 or matches[0]['id'] not in member_ids:
+            raise ValueError('Database endpoint is shared, external, ambiguous or outside this workload.')
+        database_row = matches[0]
+        directory = database_row.get('database_data_directory')
+        if not directory:
+            raise ValueError('The database engine data directory could not be read. Refresh its live identity before adoption.')
+        storage = _storage(database_row, directory)
+        if not storage:
+            raise ValueError('Database container has no verified persistent storage.')
+        databases.append({'client': row['id'], 'engine': engine, 'host': host, 'port': port, 'database': database,
+                          'container_id': database_row['id'], 'storage': storage})
+    identities = {(d.get('container_id'), d.get('port'), d['database']) for d in databases if d.get('container_id')}
+    for other in rows:
+        if other['id'] in member_ids: continue
+        engine, host, database, port = _endpoint(other)
+        if not host or not database: continue
+        if any((match['id'], port, database) in identities for match in _resolve(rows, other, host, port)):
+            raise ValueError('Another workload uses the same database identity.')
+    # A datastore shared with any other container may not be silently claimed.
+    sources = {m['source'] for d in databases for m in d['storage']}
+    if any(r['id'] not in member_ids and sources.intersection(m['source'] for m in _storage(r)) for r in rows):
+        raise ValueError('Persistent database storage is shared with another workload.')
+    selected = sorted([{'id': r['id'], 'name': r['name'], 'image_id': r['image_id'],
+                        'service': r['compose_service'], 'running': bool(r['running'])} for r in members], key=lambda r: r['name'])
+    result = {'project': project, 'environment': environment, 'project_revision': registered['revision'],
+              'environment_revision': target['revision'], 'recipe_digest': _digest(recipe),
+              'containers': selected, 'databases': sorted(databases, key=lambda d: d['client']),
+              'state': 'active' if all(r['running'] for r in selected) else 'stopped' if not any(r['running'] for r in selected) else 'degraded'}
+    result['fingerprint'] = _digest(result)
+    return result
+
+
+def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None):
+    initialize(db)
+    with registry.transaction(db):
+        previous = db.execute('SELECT environment,fingerprint,actor FROM workload_adoptions WHERE project=?', (project,)).fetchone()
+        if previous:
+            if (previous['environment'], previous['fingerprint'], previous['actor']) != (environment, fingerprint, actor):
+                raise ValueError('This workload was adopted with a different reviewed identity.')
+            return registry.get_project(db, project)
+        evidence = preview(db, project, environment, inventory, now=now)
+        if evidence['fingerprint'] != fingerprint:
+            raise ValueError('Workload identity or settings changed. Review the refreshed adoption preview.')
+        recipe = db.execute('SELECT id,document FROM registry_recipes WHERE project=? AND digest=?', (project, evidence['recipe_digest'])).fetchone()
+        if recipe is None:
+            raise ValueError('The verified recipe is unavailable.')
+        document = json.loads(recipe['document'])
+        document['owned_services'] = sorted(r['service'] for r in evidence['containers'])
+        digest = _digest(document)
+        db.execute('INSERT OR IGNORE INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
+                   (project, digest, registry.canonical(document), time.time()))
+        recipe_id = db.execute('SELECT id FROM registry_recipes WHERE project=? AND digest=?', (project, digest)).fetchone()['id']
+        db.execute('UPDATE registry_projects SET legacy_binding=?,revision=revision+1,updated=? WHERE id=?', (environment, time.time(), project))
+        db.execute('UPDATE registry_environments SET state=?,recipe_revision=?,revision=revision+1 WHERE project=? AND name=?', (evidence['state'], recipe_id, project, environment))
+        db.execute('INSERT INTO workload_adoptions VALUES(?,?,?,?,?,?)', (project, environment, fingerprint, registry.canonical(evidence), actor, time.time()))
+        return registry.get_project(db, project)

@@ -5,7 +5,7 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: {
       output: {
-        inlineDynamicImports: true,
+        chunkFileNames: "assets/[name]-[hash].js",
         entryFileNames: "app.js",
         assetFileNames: (asset) =>
           asset.names?.some((n) => n.endsWith(".css"))

@@ -58,7 +58,31 @@ export function branchState(data, id) {
     fresh: !!o && !o.value?.error && Date.now() / 1000 - o.updated <= 600,
   };
 }
-export function buildPayload({ project, branch, sha, mode, retry, requestId }) {
+export function buildPayload({
+  project,
+  branch,
+  sha,
+  mode,
+  retry,
+  requestId,
+  target,
+}) {
+  const scoped =
+    target && ["development", "production"].includes(target.environment);
+  if (target && !scoped && target.environment !== "legacy-unclassified")
+    throw Error("Choose an explicit build target.");
+  if (
+    scoped &&
+    ["project_revision", "environment_revision", "recipe_revision"].some(
+      (key) => !Number.isInteger(target[key]) || target[key] < 1,
+    )
+  )
+    throw Error("Refresh the environment target before building.");
+  if (
+    retry?.target?.environment &&
+    target?.environment !== retry.target.environment
+  )
+    throw Error("A retry must retain the original environment.");
   return {
     action: retry ? "retry" : "build",
     project,
@@ -67,5 +91,13 @@ export function buildPayload({ project, branch, sha, mode, retry, requestId }) {
     mode,
     job_id: retry?.id,
     request_id: requestId,
+    ...(scoped
+      ? {
+          environment: target.environment,
+          project_revision: target.project_revision,
+          environment_revision: target.environment_revision,
+          recipe_revision: target.recipe_revision,
+        }
+      : {}),
   };
 }

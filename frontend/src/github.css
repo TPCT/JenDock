@@ -281,3 +281,124 @@
     border-radius: 0;
   }
 }
+
+/* Portaled select menus need their own surface: application Paper is flat. */
+.MuiAutocomplete-popper {
+  --menu-border: #d1d9e0;
+  --menu-surface: #ffffff;
+  --menu-hover: #f6f8fa;
+  --menu-selected: #eff2f5;
+  --menu-focus: #0969da;
+}
+body:has(.premium.night) .MuiAutocomplete-popper {
+  --menu-border: #3d444d;
+  --menu-surface: #161b22;
+  --menu-hover: #212830;
+  --menu-selected: #2a313c;
+  --menu-focus: #4493f8;
+}
+.MuiAutocomplete-popper .MuiAutocomplete-paper {
+  margin-block: 6px;
+  border: 1px solid var(--menu-border);
+  border-radius: 8px;
+  background: var(--menu-surface);
+  box-shadow: 0 8px 24px #1f232824, 0 1px 3px #1f23281a;
+  max-width: 440px;
+  overflow: hidden;
+}
+.MuiAutocomplete-popper .MuiAutocomplete-listbox {
+  padding: 4px;
+  max-height: min(320px, 45dvh);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option {
+  min-height: 36px;
+  padding: 8px 10px;
+  margin: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  gap: 10px;
+  align-items: center;
+}
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option:hover,
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option.Mui-focused {
+  background-color: var(--menu-hover);
+}
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option[aria-selected="true"],
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option[aria-selected="true"].Mui-focused {
+  background-color: var(--menu-selected);
+  color: inherit;
+  font-weight: 600;
+}
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option.Mui-focusVisible {
+  outline: 2px solid var(--menu-focus);
+  outline-offset: -2px;
+}
+.MuiAutocomplete-popper .MuiAutocomplete-noOptions,
+.MuiAutocomplete-popper .MuiAutocomplete-loading {
+  padding: 14px;
+  font-size: 14px;
+}
+@media (max-width: 800px), (pointer: coarse) {
+  .MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .MuiAutocomplete-root .MuiAutocomplete-input {
+    font-size: 16px;
+  }
+}
+.select-option-check {
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.select-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.environment-workspace-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  border-bottom: 1px solid var(--line);
+  margin-top: 16px;
+}
+.environment-workspace-state {
+  display: flex;
+  align-items: center;
+}
+.environment-switch .MuiTab-root {
+  min-height: 48px;
+  padding: 12px 4px;
+  margin-right: 22px;
+  font-size: 14px;
+}
+.unassigned-workload {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.unassigned-workload-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .environment-workspace-state { width: 100%; }
+  .unassigned-workload-actions { width: 100%; }
+}

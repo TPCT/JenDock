@@ -31,6 +31,8 @@ import {
   Typography,
 } from "@mui/material";
 import TerminalPanel from "./TerminalPanel";
+import ContainerLimits from "./ContainerLimits";
+import ContainerLogs from "./ContainerLogs";
 
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const showDate = (value) =>
@@ -142,6 +144,8 @@ function ContainerWorkspace({
   const [keyError, setKeyError] = useState("");
   const [operation, setOperation] = useState(null);
   const [pending, setPending] = useState(false);
+  const [limitsDirty, setLimitsDirty] = useState(false);
+  const [limitsPending, setLimitsPending] = useState(false);
   const [operationError, setOperationError] = useState("");
   const [discardOpen, setDiscardOpen] = useState(false);
   const [needsInspection, setNeedsInspection] = useState(false);
@@ -189,6 +193,7 @@ function ContainerWorkspace({
         setNeedsInspection(false);
         setRefreshRequired(false);
       }
+      return result;
     } catch (failure) {
       if (mounted.current) setError(failure.message);
     } finally {
@@ -205,20 +210,23 @@ function ContainerWorkspace({
     };
   }, [project, name]);
   useEffect(() => {
-    dirtyRef.current?.(count > 0 || pending);
-  }, [count, pending]);
+    dirtyRef.current?.(count > 0 || pending || limitsDirty);
+  }, [count, pending, limitsDirty]);
+  useEffect(() => {
+    pendingRef.current?.(pending || limitsPending);
+  }, [pending, limitsPending]);
   useEffect(() => {
     const protect = (event) => {
-      if (count || pending) {
+      if (count || pending || limitsDirty || limitsPending) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", protect);
     return () => window.removeEventListener("beforeunload", protect);
-  }, [count, pending]);
+  }, [count, pending, limitsDirty, limitsPending]);
   const reload = async () => {
-    if (count || pending) return;
+    if (count || pending || limitsDirty || limitsPending) return;
     setOperation(null);
     await load();
     try {
@@ -257,7 +265,8 @@ function ContainerWorkspace({
     setSearch("");
   };
   const review = (kind) => {
-    if (unavailable || loading || pending) return;
+    if (unavailable || loading || pending || limitsDirty || limitsPending)
+      return;
     if (kind !== "environment-save" && count) {
       setTab(1);
       notify(
@@ -334,7 +343,13 @@ function ContainerWorkspace({
       }
     }
   };
-  const guard = loading || !!error || unavailable || pending;
+  const guard =
+    loading ||
+    !!error ||
+    unavailable ||
+    pending ||
+    limitsPending ||
+    limitsDirty;
   const environment = detail ? { ...detail.environment, ...changes } : {};
   const keys = Object.keys(environment)
     .sort()
@@ -386,13 +401,19 @@ function ContainerWorkspace({
             title={
               count
                 ? "Review or discard your draft before refreshing details"
-                : "Refresh service details"
+                : "Refresh container details"
             }
           >
             <span>
               <IconButton
-                aria-label="Refresh service details"
-                disabled={loading || pending || count > 0}
+                aria-label="Refresh container details"
+                disabled={
+                  loading ||
+                  pending ||
+                  limitsPending ||
+                  limitsDirty ||
+                  count > 0
+                }
                 onClick={reload}
               >
                 <Refresh />
@@ -480,9 +501,9 @@ function ContainerWorkspace({
             className="project-tabs"
             variant="scrollable"
             scrollButtons="auto"
-            aria-label="Service details"
+            aria-label="Container details"
           >
-            {["Details & version", "Environment", "Terminal"].map(
+            {["Details & version", "Variables", "Terminal", "Logs"].map(
               (label, index) => (
                 <Tab
                   key={label}
@@ -493,12 +514,55 @@ function ContainerWorkspace({
               ),
             )}
           </Tabs>
+          <Box sx={{ display: tab === 0 ? "block" : "none" }}>
+            <ContainerLimits
+              project={project}
+              name={name}
+              detail={detail}
+              api={api}
+              disabled={
+                loading ||
+                !!error ||
+                unavailable ||
+                pending ||
+                count > 0 ||
+                !!operation
+              }
+              disabledReason={
+                count
+                  ? "Apply or discard variable changes before editing limits."
+                  : ""
+              }
+              onDirty={setLimitsDirty}
+              onPending={setLimitsPending}
+              onNeedsInspection={() => setNeedsInspection(true)}
+              onApplied={async (message) => {
+                notify(message || "Container limits applied and verified.");
+                await load();
+                try {
+                  await refresh?.();
+                } catch {
+                  /* Parent presents observation failures. */
+                }
+              }}
+              onInspect={async () => {
+                const inspected = await load();
+                try {
+                  await refresh?.();
+                } catch {
+                  /* Parent presents observation failures. */
+                }
+                return inspected;
+              }}
+            />
+          </Box>
           <Box
             role="tabpanel"
             id={`service-panel-${tab}`}
             aria-labelledby={`service-tab-${tab}`}
             sx={{ py: 1 }}
           >
+            {tab === 3 && <ContainerLogs api={api} project={project} name={name} containerId={detail.container_id} enabled={!loading && !error && !unavailable && !pending && !operation}/>}
             {tab === 0 && (
               <>
                 <Typography variant="h6" sx={{ mb: 1 }}>
@@ -701,7 +765,7 @@ function ContainerWorkspace({
                             : "password"
                         }
                         autoComplete="off"
-                        disabled={pending}
+                        disabled={pending || limitsPending}
                         error={
                           has(changes, key) &&
                           (environment[key].includes("\x00") ||
@@ -763,7 +827,7 @@ function ContainerWorkspace({
                         <Button
                           size="small"
                           color="inherit"
-                          disabled={pending}
+                          disabled={pending || limitsPending}
                           aria-label={`Revert ${key}`}
                           onClick={() =>
                             setChanges((previous) => {
@@ -807,7 +871,7 @@ function ContainerWorkspace({
                     }}
                     error={!!keyError}
                     helperText={keyError}
-                    disabled={pending}
+                    disabled={pending || limitsPending}
                     sx={{ flex: 1 }}
                   />
                   <Button
@@ -953,7 +1017,7 @@ function ContainerWorkspace({
         <DialogActions sx={{ p: 3 }}>
           <Button
             color="inherit"
-            disabled={pending}
+            disabled={pending || limitsPending}
             onClick={() => setOperation(null)}
           >
             {operation?.submitted ? "Close" : "Cancel"}
