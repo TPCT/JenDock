@@ -68,7 +68,8 @@ def compose(recipe, *args):
 
 
 def replace_env(path, changes):
-    path = Path(path)
+    # Preserve existing configuration symlinks such as .env -> ports.env.
+    path = Path(path).resolve(strict=True)
     lines = path.read_text().splitlines()
     seen = set()
     for i, line in enumerate(lines):
@@ -140,7 +141,7 @@ def recover(db, journal):
     journal.unlink()
 
 
-def deploy(db, job, project):
+def deploy(db, job, project, validate_only=False):
     recipe = project['recipe']
     name, sha = job['project'], job['sha']
     if not re.fullmatch('[0-9a-f]{40}', sha):
@@ -169,7 +170,8 @@ def deploy(db, job, project):
                 raise StepFailure('لا يمكن تحديد معرّف Git للصورة الحالية؛ تحتاج مراجعة قبل النشر.')
             revisions.add(value)
         changed = '\n'.join(run(['git', 'diff', '--name-only', old, sha], cwd=source, capture=True) for old in revisions)
-        if any('/migrations/' in '/' + line for line in changed.splitlines()):
+        schema_changes = any('/migrations/' in '/' + line for line in changed.splitlines())
+        if schema_changes and not validate_only:
             set_status(db, job['id'], 'needs-review', 'تغييرات قاعدة البيانات تحتاج خطة ترحيل قبل النشر التلقائي.')
             return
         tracked = run(['git', 'ls-files'], cwd=source, capture=True).splitlines()
@@ -177,14 +179,19 @@ def deploy(db, job, project):
             raise StepFailure('يوجد ملف إعدادات حساس ضمن Git؛ أوقف البناء قبل نسخ السياق.')
         images = {}
         updates = {}
-        for spec in recipe['images']:
+        for index, spec in enumerate(recipe['images']):
             tag = spec['name'] + ':' + sha
-            args = [DOCKER, 'build', '--no-cache', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
+            set_status(db, job['id'], 'building', 'جارٍ بناء صورة ' + spec['name'] + ' من Git.')
+            args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
                     '--cpu-quota', '200000', '--network', 'deploy-build',
                     '--label', 'net.shiftcodes.deployer=deploy-monitor',
                     '--label', 'net.shiftcodes.job=' + str(job['id']),
                     '--label', 'org.opencontainers.image.revision=' + sha,
                     '-t', tag, '-f', str(source / spec['dockerfile'])]
+            if index == 0:
+                args += ['--no-cache']
+            for key, value in spec.get('build_args', {}).items():
+                args += ['--build-arg', key + '=' + value]
             if spec.get('target'):
                 args += ['--target', spec['target']]
             args += [str(source / spec.get('context', '.'))]
@@ -197,12 +204,19 @@ def deploy(db, job, project):
             test_name = 'deploy-test-%s-%d' % (job['id'], i)
             args = [DOCKER, 'run', '--rm', '--name', test_name, '--network', 'none', '--read-only',
                     '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=512m', '--cpus=1',
-                    '--pids-limit=128', '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
-                    '--entrypoint', test['command'][0], images[test['image']], *test['command'][1:]]
+                    '--pids-limit=128', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m']
+            for mount in test.get('tmpfs', []):
+                args += ['--tmpfs', mount]
+            for key, value in test.get('environment', {}).items():
+                args += ['-e', key + '=' + value]
+            args += ['--entrypoint', test['command'][0], images[test['image']], *test['command'][1:]]
             try:
                 run(args, timeout=180)
             finally:
                 subprocess.run([DOCKER, 'rm', '-f', test_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        if validate_only:
+            set_status(db, job['id'], 'validated', 'نجح البناء والاختبار الداخلي؛ لم تتغير خدمات الإنتاج.' + (' توجد تغييرات ترحيل تحتاج مراجعة.' if schema_changes else ''))
+            return
         previous_env = env_values(recipe['env_file'], updates)
         current_head = run(['git', 'ls-remote', '--refs', 'origin', 'refs/heads/' + project['branch']], cwd=source, capture=True).split()
         if not current_head or current_head[0] != sha:
@@ -271,14 +285,15 @@ def main():
         threading.Thread(target=collector, daemon=True).start()
         while True:
             try:
-                job = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
+                job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()
                 if job:
                     project = projects(CONFIG).get(job['project'])
-                    if not project or not project.get('enabled'):
+                    validation = job['status'] == 'validation-queued'
+                    if not project or (not project.get('enabled') and not validation):
                         set_status(db, job['id'], 'awaiting-validation', 'النشر التلقائي غير مفعّل لهذا المشروع.')
                     else:
                         try:
-                            deploy(db, job, project)
+                            deploy(db, job, project, validate_only=validation)
                         except Exception as error:
                             if journal.exists():
                                 snapshot(db, 'worker', {'state': 'recovery-failed'})

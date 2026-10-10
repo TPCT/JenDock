@@ -47,7 +47,7 @@
     "reason": "اختبار الصورة داخليًا: صحة الخدمة، تطابق الاستخراج، التزامن وحدود المدخلات. لا تُرسل طلبات لمزوّد الخدمة.",
     "recipe": {
       "compose_project": "dsl",
-      "env_file": "/opt/docker-engine/projects/dsl/.env",
+      "env_file": "/opt/docker-engine/projects/dsl/ports.env",
       "compose_files": [
         "/opt/docker-engine/projects/dsl/compose.yml"
       ],

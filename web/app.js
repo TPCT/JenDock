@@ -1,6 +1,7 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 const states = {'queued':'في انتظار البناء','building':'جارٍ البناء','testing':'جارٍ الاختبار','deploying':'جارٍ النشر','recovering':'جارٍ استعادة النسخة السابقة','rolled-back':'تم الرجوع للنسخة السابقة','succeeded':'اكتمل النشر','failed':'فشل','superseded':'استبدله تعديل أحدث','awaiting-validation':'بانتظار اعتماد البناء','needs-review':'تحتاج مراجعة الترحيل','interrupted':'توقفت المهمة'};
+states['validation-queued']='في انتظار اختبار البناء';states.validated='نجح اختبار البناء فقط';
 let containers = [];
 let busy = false;
 function node(tag, text, className) { const e = document.createElement(tag); e.textContent = text; if(className)e.className = className; return e; }

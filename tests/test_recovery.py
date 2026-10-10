@@ -41,6 +41,13 @@ class RecoveryTests(unittest.TestCase):
         verify.assert_called_once_with(recipe)
         db.close()
 
+    def test_version_update_preserves_configuration_symlink(self):
+        alias = self.root / '.env'
+        alias.symlink_to(self.env.name)
+        replace_env(alias, {'APP_IMAGE': 'new:789'})
+        self.assertTrue(alias.is_symlink())
+        self.assertEqual(env_values(self.env, ['APP_IMAGE']), {'APP_IMAGE': 'new:789'})
+
     def test_failed_rollback_keeps_journal_and_does_not_claim_success(self):
         db = connect(self.root / 'state.sqlite')
         job, _ = enqueue(db, 'delivery', 'test', 'a' * 40, True)
