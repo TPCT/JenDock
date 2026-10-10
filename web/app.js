@@ -484,7 +484,7 @@ function projectView(name) {
   );
   root.append(summary);
   const services=projectImages(p),running=services.filter(c=>c.State==='running').length;
-  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':running===services.length?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
+  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':!services.length?'No services observed':running===services.length&&!services.some(c=>c.Status.includes('unhealthy'))?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
   root.append(summaryLine);
   if(!p.build_ready)root.append(el('p','Build setup pending. Container management is available below.','build-availability'));
   const tabs = el("div", "", "project-tabs");
@@ -716,7 +716,7 @@ function jobView(id) {
   summary.append(info, actions);
   root.append(summary);
   const services=projectImages(p),running=services.filter(c=>c.State==='running').length;
-  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':running===services.length?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
+  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':!services.length?'No services observed':running===services.length&&!services.some(c=>c.Status.includes('unhealthy'))?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
   root.append(summaryLine);
   if(!p.build_ready)root.append(el('p','Build setup pending. Container management is available below.','build-availability'));
   const strip = el("div", "", "step-strip"),

@@ -63,6 +63,9 @@ The receiver forwards authenticated and CSRF-protected operations to the worker
 through a group-restricted Unix socket on their shared volume. It still has no
 Docker socket and the worker exposes no public control port.
 
+Service details and environment editing use dedicated pages, keeping runtime actions
+above technical metadata. Mobile tables become labeled, stacked rows.
+
 The English navigation uses a desktop sidebar and a mobile off-canvas sidebar
 with breadcrumbs. Searchable keyboard/touch listboxes replace visible native
 selects. SSE supplies project, operation and runtime updates; editing is preserved
@@ -88,9 +91,8 @@ API requests cannot supply Docker commands, paths, repositories or recipes.
 SQLite stores selected branches, sessions, jobs and sanitized evidence.
 
 The host-generated `credentials.json` contains a webhook secret and password
-hash; it is never committed. The owner retrieves the dashboard password through
-their terminal from the protected `admin-password` file. Never publish either
-file or log their contents. Existing project environment files, S3 settings and
+hash; it is never committed. The bootstrap plaintext `admin-password` file was removed after login verification.
+Only the salted password hash remains. Never publish credentials or log their contents. Existing project environment files, S3 settings and
 database volumes are preserved.
 
 Certificate issuance uses the existing pinned Certbot Docker image and shared
