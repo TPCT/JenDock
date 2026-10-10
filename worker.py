@@ -21,6 +21,7 @@ COMPOSE = os.environ.get('COMPOSE_BIN', '/usr/local/bin/docker-compose')
 STATE = Path(os.environ.get('STATE_DIR', '/worker-state'))
 DATABASE = os.environ.get('DATABASE', '/state/state.sqlite')
 CONFIG = os.environ.get('PROJECTS_FILE', '/config/projects.json')
+diagnostics = threading.local()
 
 
 class StepFailure(Exception):
@@ -38,7 +39,28 @@ def run(args, timeout=180, cwd=None, capture=False):
     except subprocess.TimeoutExpired as exc:
         raise StepFailure('انتهت مهلة الخطوة؛ لم يتم اعتبارها ناجحة.') from exc
     if result.returncode:
-        raise StepFailure('فشلت خطوة التنفيذ (exit %d). راجع تشخيص العامل محليًا.' % result.returncode)
+        job_id = getattr(diagnostics, 'job_id', None)
+        if job_id is not None:
+            folder = STATE / 'diagnostics'
+            folder.mkdir(mode=0o700, exist_ok=True)
+            path = folder / (str(int(job_id)) + '.log')
+            path.write_bytes(result.stdout[-65536:] + b'\n' + result.stderr[-65536:])
+            path.chmod(0o600)
+            for old in folder.glob('*.log'):
+                if old.stat().st_mtime < time.time() - 7 * 86400:
+                    old.unlink()
+        reason = 'فشلت خطوة التنفيذ'
+        output = (result.stdout[-65536:] + result.stderr[-65536:]).lower()
+        for needle, label in [(b'no space left', 'المساحة لا تكفي للبناء'),
+                              (b'could not resolve', 'تعذر حل اسم مضيف أثناء البناء'),
+                              (b'pull access denied', 'الصورة الأساسية غير متاحة'),
+                              (b'failures!', 'فشلت اختبارات المشروع'),
+                              (b'assertionerror', 'فشل تحقق داخل اختبارات المشروع'),
+                              (b'permission denied', 'صلاحيات خطوة التنفيذ غير كافية')]:
+            if needle in output:
+                reason = label
+                break
+        raise StepFailure(reason + ' (exit %d). التشخيص التفصيلي محفوظ محليًا للعامل.' % result.returncode)
     return result.stdout.decode() if capture else None
 
 
@@ -142,6 +164,7 @@ def recover(db, journal):
 
 
 def deploy(db, job, project, validate_only=False):
+    diagnostics.job_id = job['id']
     recipe = project['recipe']
     name, sha = job['project'], job['sha']
     if not re.fullmatch('[0-9a-f]{40}', sha):
@@ -179,8 +202,10 @@ def deploy(db, job, project, validate_only=False):
             raise StepFailure('يوجد ملف إعدادات حساس ضمن Git؛ أوقف البناء قبل نسخ السياق.')
         images = {}
         updates = {}
+        version = sha[:12] + '-' + str(job['id'])
         for index, spec in enumerate(recipe['images']):
-            tag = spec['name'] + ':' + sha
+            # Never overwrite a running tag during same-commit validation/retry.
+            tag = spec['name'] + ':' + version
             set_status(db, job['id'], 'building', 'جارٍ بناء صورة ' + spec['name'] + ' من Git.')
             args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
                     '--cpu-quota', '200000', '--network', 'deploy-build',
@@ -198,7 +223,7 @@ def deploy(db, job, project, validate_only=False):
             run(args, timeout=1800)
             images[spec['name']] = tag
             if spec.get('deploy', True):
-                updates[spec['env_key']] = tag if spec.get('env_mode', 'image') == 'image' else sha
+                updates[spec['env_key']] = tag if spec.get('env_mode', 'image') == 'image' else version
         set_status(db, job['id'], 'testing', 'جارٍ اختبار الصور دون أسرار أو قواعد بيانات الإنتاج.')
         for i, test in enumerate(recipe['tests']):
             test_name = 'deploy-test-%s-%d' % (job['id'], i)
@@ -241,7 +266,7 @@ def deploy(db, job, project, validate_only=False):
 
 
 def observe(db):
-    raw = run([DOCKER, 'ps', '-a', '--format', '{{json .}}'], capture=True)
+    raw = run([DOCKER, 'ps', '-a', '--filter', 'label=com.docker.compose.project', '--format', '{{json .}}'], capture=True)
     data = []
     for line in raw.splitlines():
         obj = json.loads(line)

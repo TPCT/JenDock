@@ -7,7 +7,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "aic-website-"
-    ]
+    ],
+    "label": "aicconsultation.com"
   },
   "aic-sys": {
     "repository": "TPCT/sys.aicconsultation.com",
@@ -17,7 +18,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "aic-sys-"
-    ]
+    ],
+    "label": "sys.aicconsultation.com"
   },
   "aic-ops": {
     "repository": "TPCT/daily.shiftcodes.net",
@@ -27,7 +29,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "aic-ops-"
-    ]
+    ],
+    "label": "ops.shiftcodes.net"
   },
   "aic-academy": {
     "repository": "TPCT/aa01sc2026.shiftcodes.net",
@@ -37,7 +40,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "aic-academy-"
-    ]
+    ],
+    "label": "aa01sc2026.shiftcodes.net"
   },
   "captcha": {
     "repository": "TPCT/captcha.shiftcodes.net",
@@ -88,7 +92,8 @@
     },
     "image_prefixes": [
       "dsl-captcha:"
-    ]
+    ],
+    "label": "captcha.shiftcodes.net"
   },
   "dsl01": {
     "repository": "TPCT/dsl01sc2025.shiftcodes.net",
@@ -99,7 +104,67 @@
     "image_prefixes": [
       "dsl01:",
       "dsl01-sahl-scheduler:"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "dsl",
+      "env_file": "/opt/docker-engine/projects/dsl/ports.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/dsl/compose.yml"
+      ],
+      "services": [
+        "dsl01",
+        "dsl01-sahl-scheduler"
+      ],
+      "images": [
+        {
+          "name": "dsl01",
+          "dockerfile": "Dockerfile",
+          "target": "runtime",
+          "env_key": "DSL01_IMAGE",
+          "env_mode": "image"
+        },
+        {
+          "name": "dsl01-sahl-scheduler",
+          "dockerfile": "Dockerfile",
+          "target": "runtime",
+          "env_key": "DSL01_SCHEDULER_IMAGE",
+          "env_mode": "image"
+        },
+        {
+          "name": "deploy-test-dsl01",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-dsl01",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-v"
+          ],
+          "tmpfs": [
+            "/app/logs:uid=65534,gid=65534,size=16m",
+            "/app/storage:uid=65534,gid=65534,size=16m"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://dsl01sc2025.shiftcodes.net/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "dsl01sc2025.shiftcodes.net"
   },
   "dsl02": {
     "repository": "TPCT/crm01sc2025.shiftcodes.net",
@@ -109,7 +174,63 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "dsl02"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "dsl",
+      "env_file": "/opt/docker-engine/projects/dsl/ports.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/dsl/compose.yml"
+      ],
+      "services": [
+        "dsl02",
+        "dsl02-web"
+      ],
+      "images": [
+        {
+          "name": "dsl02",
+          "dockerfile": "Dockerfile",
+          "target": "backend",
+          "env_key": "DSL02_IMAGE",
+          "env_mode": "image"
+        },
+        {
+          "name": "dsl02-web",
+          "dockerfile": "Dockerfile",
+          "target": "web",
+          "env_key": "DSL02_WEB_IMAGE",
+          "env_mode": "image"
+        },
+        {
+          "name": "deploy-test-dsl02",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-dsl02",
+          "command": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-v"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://dsl02sc2025.shiftcodes.net/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "dsl02sc2025.shiftcodes.net"
   },
   "elfak01": {
     "repository": "TPCT/fak01sc2025.shiftcodes.net",
@@ -119,7 +240,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "elfak01-"
-    ]
+    ],
+    "label": "elfak01sc2026.shiftcodes.net"
   },
   "elfak-legacy": {
     "repository": "TPCT/elfakharany.shiftcodes.net",
@@ -129,7 +251,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "elfak-legacy-"
-    ]
+    ],
+    "label": "elfakharany.shiftcodes.net"
   },
   "elnahy": {
     "repository": "TPCT/elnahy.shiftcodes.net",
@@ -139,7 +262,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "elnahy-"
-    ]
+    ],
+    "label": "elnahy.shiftcodes.net"
   },
   "licence": {
     "repository": "TPCT/licence",
@@ -149,7 +273,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "shiftcodes-licence-"
-    ]
+    ],
+    "label": "licence.shiftcodes.net"
   },
   "us01": {
     "repository": "TPCT/us01sc2025.shiftcodes.net",
@@ -159,7 +284,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "shiftcodes-us01-"
-    ]
+    ],
+    "label": "us01sc2025.shiftcodes.net"
   },
   "website": {
     "repository": "TPCT/shiftcodes.net",
@@ -169,7 +295,63 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "shiftcodes-website-"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "shiftcodes",
+      "env_file": "/opt/docker-engine/projects/shiftcodes/.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/shiftcodes/compose.yml"
+      ],
+      "services": [
+        "website-app",
+        "website-web"
+      ],
+      "images": [
+        {
+          "name": "shiftcodes-website-app",
+          "dockerfile": "Dockerfile",
+          "target": "app",
+          "env_key": "WEBSITE_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "shiftcodes-website-web",
+          "dockerfile": "Dockerfile",
+          "target": "web",
+          "env_key": "WEBSITE_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "deploy-test-website",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-website",
+          "command": [
+            "sh",
+            "-c",
+            "mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs storage/app bootstrap/cache && php artisan package:discover --no-interaction && php vendor/bin/pest"
+          ],
+          "tmpfs": [
+            "/app/storage:rw,nosuid,size=128m",
+            "/app/bootstrap/cache:rw,nosuid,size=16m"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://shiftcodes.net/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "shiftcodes.net"
   },
   "30sv01": {
     "repository": "TPCT/30sv01sc2026.shiftcodes.net",
@@ -179,7 +361,64 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "30sv-"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "30sv01",
+      "env_file": "/opt/docker-engine/projects/30sv01/.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/30sv01/compose.yml"
+      ],
+      "services": [
+        "app",
+        "web",
+        "queue"
+      ],
+      "images": [
+        {
+          "name": "30sv-app",
+          "dockerfile": "Dockerfile",
+          "target": "app",
+          "env_key": "VISION_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "30sv-web",
+          "dockerfile": "Dockerfile",
+          "target": "web",
+          "env_key": "VISION_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "deploy-test-30sv01",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-30sv01",
+          "command": [
+            "sh",
+            "-c",
+            "mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs storage/app bootstrap/cache && php artisan package:discover --no-interaction && php vendor/bin/phpunit"
+          ],
+          "tmpfs": [
+            "/app/storage:rw,nosuid,size=128m",
+            "/app/bootstrap/cache:rw,nosuid,size=16m"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://30sv01sc2026.shiftcodes.net/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "30sv01sc2026.shiftcodes.net"
   },
   "eo01": {
     "repository": "TPCT/eo01sc2026.shiftcodes.net",
@@ -189,7 +428,64 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "eo01-"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "eo01",
+      "env_file": "/opt/docker-engine/projects/eo01/.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/eo01/compose.yml"
+      ],
+      "services": [
+        "app",
+        "web",
+        "queue"
+      ],
+      "images": [
+        {
+          "name": "eo01-app",
+          "dockerfile": "Dockerfile",
+          "target": "app",
+          "env_key": "EAZY_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "eo01-web",
+          "dockerfile": "Dockerfile",
+          "target": "web",
+          "env_key": "EAZY_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "deploy-test-eo01",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-eo01",
+          "command": [
+            "sh",
+            "-c",
+            "mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs storage/app bootstrap/cache && php artisan package:discover --no-interaction && php vendor/bin/phpunit"
+          ],
+          "tmpfs": [
+            "/app/storage:rw,nosuid,size=128m",
+            "/app/bootstrap/cache:rw,nosuid,size=16m"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://eo01sc2026.shiftcodes.net/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "eo01sc2026.shiftcodes.net"
   },
   "octa": {
     "repository": "TPCT/octa-solutions.com",
@@ -199,7 +495,64 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "octa-"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "octa",
+      "env_file": "/opt/docker-engine/projects/octa/.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/octa/compose.yml"
+      ],
+      "services": [
+        "app",
+        "web",
+        "scheduler"
+      ],
+      "images": [
+        {
+          "name": "octa-app",
+          "dockerfile": "Dockerfile",
+          "target": "app",
+          "env_key": "OCTA_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "octa-web",
+          "dockerfile": "Dockerfile",
+          "target": "web",
+          "env_key": "OCTA_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "deploy-test-octa",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-octa",
+          "command": [
+            "sh",
+            "-c",
+            "mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs storage/app bootstrap/cache && php artisan package:discover --no-interaction && php vendor/bin/phpunit"
+          ],
+          "tmpfs": [
+            "/app/storage:rw,nosuid,size=128m",
+            "/app/bootstrap/cache:rw,nosuid,size=16m"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://octa-solutions.com/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "octa-solutions.com"
   },
   "etsawaa": {
     "repository": "TPCT/etsawaa.com",
@@ -209,7 +562,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "etsawaa-"
-    ]
+    ],
+    "label": "etsawaa.com"
   },
   "lms-v2": {
     "repository": "TPCT/monglish-lms",
@@ -219,7 +573,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "lms-v2-"
-    ]
+    ],
+    "label": "lms-v2.shiftcodes.net"
   },
   "smartconst": {
     "repository": "TPCT/smart-const.com",
@@ -229,7 +584,8 @@
     "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "smartconst-"
-    ]
+    ],
+    "label": "smart-const.com"
   },
   "crm": {
     "repository": "TPCT/crm.shiftcodes.net",
@@ -239,6 +595,60 @@
     "reason": "بانتظار اعتماد البناء واختبارات النشر.",
     "image_prefixes": [
       "crm-"
-    ]
+    ],
+    "recipe": {
+      "compose_project": "crm",
+      "env_file": "/opt/docker-engine/projects/crm/.env",
+      "compose_files": [
+        "/opt/docker-engine/projects/crm/compose.yml"
+      ],
+      "services": [
+        "app",
+        "web"
+      ],
+      "images": [
+        {
+          "name": "crm-app",
+          "dockerfile": "Dockerfile",
+          "target": "app",
+          "env_key": "CRM_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "crm-web",
+          "dockerfile": "Dockerfile",
+          "target": "web",
+          "env_key": "CRM_VERSION",
+          "env_mode": "version"
+        },
+        {
+          "name": "deploy-test-crm",
+          "dockerfile": "Dockerfile",
+          "target": "test",
+          "deploy": false
+        }
+      ],
+      "tests": [
+        {
+          "image": "deploy-test-crm",
+          "command": [
+            "python",
+            "-m",
+            "pytest",
+            "tests/unit",
+            "-q"
+          ]
+        }
+      ],
+      "http_checks": [
+        {
+          "url": "https://crm.shiftcodes.net/",
+          "statuses": [
+            200
+          ]
+        }
+      ]
+    },
+    "label": "crm.shiftcodes.net"
   }
 }
