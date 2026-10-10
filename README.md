@@ -108,3 +108,5 @@ Build committed source with `build_service.py`; install committed policy and
 images with `deploy_service.py` only while the worker is idle. New public routing
 is managed narrowly by `configure_domain.py` with a trusted Apache syntax check
 and graceful reload. The GitHub hook helper reuses existing matching hooks.
+
+GitHub SSH uses ssh.github.com:443 with HostKeyAlias=github.com, strict host-key checking and the existing pinned known_hosts. The VPS connection to GitHub port 22 timed out during production acceptance; port 443 passed authenticated repository access.

@@ -39,7 +39,7 @@ services:
     environment:
       DOCKER_HOST: unix:///run/docker-isolation.sock
       PROJECTS_FILE: /policy/projects.json
-      GIT_SSH_COMMAND: ssh -i /credentials/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/credentials/known_hosts
+      GIT_SSH_COMMAND: ssh -i /credentials/id_rsa -o Hostname=ssh.github.com -p 443 -o HostKeyAlias=github.com -o ConnectTimeout=10 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/credentials/known_hosts
     volumes:
       - ./policy:/policy:ro
       - ./git-credentials:/credentials:ro
