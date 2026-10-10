@@ -338,51 +338,28 @@ function uiIcon(name){
   const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',paths[name]||paths.projects);svg.append(path);return svg;
 }
 function projectsTable(items) {
-  const list=el('div','','project-catalog');
+  const list=el('div','','project-directory');
   for(const [name,p] of items){
     const services=projectImages(p),last=data.jobs.find(j=>j.project===name),running=services.filter(c=>c.State==='running'&&!c.Status.includes('unhealthy')).length;
-    const state=stale('containers')?'Unavailable':!services.length?'Not observed':running===services.length?'Running':'Needs attention';
-    const card=el('article','','catalog-project'),top=el('div','','catalog-top'),mark=el('span','','project-mark');mark.append(uiIcon('containers'));
-    top.append(mark,badge(state));
-    const title=el('h2');title.append(link(p.label||name,'#project/'+name));
-    card.append(top,title,el('p',p.repository,'catalog-repository'));
-    const source=el('div','','catalog-source');source.append(uiIcon('branch'),el('span',p.branch),el('span',p.automatic?'Auto-deploy':'Manual deploy','deployment-mode'));
-    card.append(source);
-    const serviceLine=el('div','','catalog-services');serviceLine.append(el('span','Services'),el('strong',services.length?running+' / '+services.length+' running':'No observation'));
-    card.append(serviceLine);
-    const activity=el('div','','catalog-activity');activity.append(el('span','Latest run','hint'));
-    if(last){const run=link('Run #'+last.id,'#job/'+last.id);activity.append(run,badge(last.status));}else activity.append(el('span','No runs yet','hint'));
-    card.append(activity);
-    const open=link('Open project','#project/'+name);open.className='catalog-open';open.append(uiIcon('arrow'));card.append(open);list.append(card);
-  }
-  return list;
+    const row=el('article','','directory-row'),identity=el('div','','directory-identity'),title=el('h2');title.append(link(p.label||name,'#project/'+name));
+    identity.append(title,el('p',p.repository,'hint'));
+    const source=el('div','','directory-source');source.append(el('span',p.branch,'branch-name'),el('small',p.automatic?'Automatic deployment':'Manual deployment'));
+    const runtime=el('div','','directory-runtime');runtime.append(badge(stale('containers')?'Unavailable':!services.length?'Not observed':running===services.length?'Running':'Needs attention'),el('small',services.length?running+' / '+services.length+' services':'No service observation'));
+    const activity=el('div','','directory-activity');if(last){activity.append(link('Run #'+last.id,'#job/'+last.id),badge(last.status));}else activity.append(el('span','No runs yet','hint'));
+    row.append(identity,source,runtime,activity);list.append(row);
+  }return list;
 }
 function overview() {
-  const root = $("content");
-  serverMonitoring(root);
-  const problematic = data.jobs.filter(
-    (j) =>
-      retryStates.includes(j.status) &&
-      data.jobs.find((x) => x.project === j.project)?.id === j.id,
-  );
-  const active = data.jobs.filter((j) => activeStates.includes(j.status));
-  root.append(
-    section("In progress", link("View all runs", "#jobs")),
-    jobTable(active),
-  );
-  if (problematic.length) {
-    root.append(section("Deployment issues"), deploymentIssues(problematic));
-  }
-  root.append(
-    section(
-      "Projects",
-      link(
-        "View " + Object.keys(data.projects).length + " projects",
-        "#projects",
-      ),
-    ),
-    projectsTable(Object.entries(data.projects).slice(0, 8)),
-  );
+  const root=$('content'),active=data.jobs.filter(j=>activeStates.includes(j.status));
+  const fleet=el('div','','fleet-summary');
+  const all=containers(),running=all.filter(c=>c.State==='running').length;
+  fleet.append(link(Object.keys(data.projects).length+' projects','#projects'),link(stale('containers')?'Service status unavailable':running+' / '+all.length+' services running','#containers'),link(active.length?active.length+' runs in progress':'No active deployments','#jobs'));
+  const unhealthy=all.filter(c=>c.Status.includes('unhealthy')).length;if(unhealthy&&!stale('containers'))fleet.append(link(unhealthy+' unhealthy services','#containers'));
+  root.append(fleet);serverMonitoring(root);
+  if(active.length)root.append(section('In progress',link('All runs','#jobs')),jobTable(active));
+  const problematic=data.jobs.filter(j=>retryStates.includes(j.status)&&data.jobs.find(x=>x.project===j.project)?.id===j.id);
+  root.append(section('Deployment issues',link('Run history','#jobs')));
+  if(problematic.length)root.append(deploymentIssues(problematic));else root.append(el('p','No unresolved deployment runs.','quiet-state'));
 }
 function projectsView() {
   const root = $("content"),
@@ -530,31 +507,7 @@ function projectView(name) {
   for(const t of tabs.children)t.tabIndex=t.getAttribute('aria-selected')==='true'?0:-1;
   root.append(tabs);
   if (current === "services") {
-    root.append(
-      observedText(
-        el("p", "", "hint"),
-        "containers",
-        "Live services · " + date(data.snapshots.containers?.updated),
-        "Stale service observations · " +
-          date(data.snapshots.containers?.updated),
-      ),
-      serviceGroup(projectImages(p), name),
-    );
-    const recent = data.jobs.filter((j) => j.project === name).slice(0, 3);
-    root.append(
-      section(
-        "Latest runs",
-        button(
-          "View all runs",
-          () => {
-            projectTabs[name] = "runs";
-            render(true);
-          },
-          "quiet",
-        ),
-      ),
-      jobTable(recent),
-    );
+    root.append(serviceGroup(projectImages(p), name));
   } else if (current === "runs") {
     root.append(jobTable(data.jobs.filter((j) => j.project === name)));
   } else {
@@ -840,7 +793,7 @@ function render(force = false) {
   if(page!=="container"){closeTerminal();containerContext=null;}
   currentRoute = route;
   const titles = {
-    overview: ["Overview", "Production health and deployment activity."],
+    overview: ["Overview", ""],
     projects: [
       "Projects",
       "Your production applications, each with one tracked branch.",
@@ -856,7 +809,7 @@ function render(force = false) {
     audit: ["Activity", "Configuration changes and operator actions."],
     project: [
       data.projects[key]?.label || key,
-      "Production services, build history and deployment settings.",
+      "",
     ],
     container: [containerName, "Manage this service"],
     job: ["Run #" + key, ""],
@@ -865,6 +818,7 @@ function render(force = false) {
   $("app").dataset.page=page;
   $("page-title").textContent = title;
   $("page-description").textContent = description;
+  $("page-description").hidden = !description;
   document.title = title + " | Shiftcodes";
   $("breadcrumb").replaceChildren(link("Console", "#overview"));
   if (["project", "job"].includes(page))
@@ -875,7 +829,7 @@ function render(force = false) {
       ),
     );
   if(page==="container")$("breadcrumb").append(link("Projects","#projects"),link(projectLabel(key),"#project/"+key));
-  $("breadcrumb").append(el("span", title));
+  $("breadcrumb").hidden = !["project","container","job"].includes(page);
   document.querySelectorAll("[data-nav]").forEach((a) => {
     if(!a.querySelector("svg"))a.prepend(uiIcon(a.dataset.nav));
     const active =

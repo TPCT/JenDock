@@ -215,3 +215,19 @@ Build dialogs show source and execution-mode choices before confirmation. Retry 
 - **Don't** treat visual documentation as deployment or production acceptance.
 
 Not canonized: very small legacy desktop metadata is a legibility concern, not a minimum for future monitoring surfaces. This document records the current design direction and does not establish production acceptance.
+
+## Operational consolidation — 2026-10-10
+
+Each measurement appears once: its current reading is attached to its historical
+chart. Sample inspection is an explicit inline action, with a keyboard slider and
+Resume live; idle inspection controls no longer dominate every graph. One host
+freshness warning applies to the entire chart surface. The global sidebar remains.
+
+Overview owns host telemetry, fleet links, active work and unresolved deployment
+runs. It no longer embeds a partial duplicate project catalog or an empty run table.
+Projects owns the complete searchable directory. Project names are the primary
+entry points; separate Open project links and decorative repeated icons are gone.
+Services uses a grouped directory, and project run history lives in its Runs tab.
+No build, settings, service management, history or recovery action was removed.
+Root screens use their title without repeating it in a breadcrumb. Detail routes
+retain ancestor breadcrumbs. Deployment summaries link to full diagnostic records.
