@@ -9,8 +9,8 @@ HEALTHCHECK --interval=20s --timeout=3s --retries=3 CMD python -c "import urllib
 CMD ["python", "server.py"]
 
 FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a AS worker
-RUN apk add --no-cache git openssh-client ca-certificates
+RUN apk add --no-cache git openssh-client ca-certificates && pip install --no-cache-dir PyYAML==6.0.3
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY worker.py store.py ./
+COPY worker.py store.py control.py ./
 CMD ["python", "worker.py"]

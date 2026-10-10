@@ -14,6 +14,8 @@ from worker import replace_env
 payload=json.loads(''' + repr(json.dumps(payload)) + ''')
 db=sqlite3.connect('/state/state.sqlite')
 assert db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','validation-queued','building','testing','deploying','recovering')").fetchone()[0]==0,'Worker busy; do not interrupt'
+if db.execute("SELECT 1 FROM sqlite_master WHERE name='control_runs'").fetchone():
+ assert db.execute("SELECT count(*) FROM control_runs WHERE status='running'").fetchone()[0]==0,'Container operation busy; do not interrupt'
 root=Path('/opt/docker-engine/projects/deploy-monitor');policy=root/'policy';policy.mkdir(exist_ok=True);policy.chmod(0o755)
 p=policy/'projects.json';t=policy/'projects.next.json';t.write_text(json.dumps(payload['policy'],ensure_ascii=False,indent=2));t.chmod(0o644);t.replace(p)
 p=root/'compose.yml';t=root/'compose.next.yml';t.write_text(payload['compose']);t.chmod(0o644);t.replace(p)

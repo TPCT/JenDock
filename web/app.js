@@ -63,9 +63,9 @@ const badge = (status) =>
     "badge " +
       (["succeeded", "validated", "Healthy", "Enabled"].includes(status)
         ? "good"
-        : ["failed", "interrupted", "Unavailable"].includes(status)
+        : ["failed", "interrupted", "Unavailable", "Unhealthy"].includes(status)
           ? "bad"
-          : "pending"),
+          : ["running", "exited", "created"].includes(status) ? "neutral" : "pending"),
   );
 const link = (text, href) => {
   const n = el("a", text);
@@ -138,6 +138,9 @@ async function api(path, body) {
   return value;
 }
 function showLogin() {
+  closeContainer();
+  $("operation-dialog").close();
+  setNavigation(false);
   liveConnection?.close();
   liveConnection = null;
   session = null;
@@ -421,7 +424,7 @@ function branchOptions(name, select, p) {
   select.disabled = !entries.length;
   return observation;
 }
-function serviceGroup(items) {
+function serviceGroup(items, project) {
   const group = el("div", "", "service-grid");
   if (!items.length)
     return empty(
@@ -449,6 +452,7 @@ function serviceGroup(items) {
       el("span", "Memory " + (c.MemUsage || "—")),
     );
     card.append(facts);
+    if(project)card.append(button("Manage container",()=>openContainer(project,c.Names),"secondary manage-container"));
     group.append(card);
   }
   return group;
@@ -506,7 +510,7 @@ function projectView(name) {
         "Stale service observations · " +
           date(data.snapshots.containers?.updated),
       ),
-      serviceGroup(projectImages(p)),
+      serviceGroup(projectImages(p), name),
     );
     const recent = data.jobs.filter((j) => j.project === name).slice(0, 3);
     root.append(
@@ -821,6 +825,7 @@ function auditView() {
     settings: "Update deployment settings",
     cancel: "Cancel queued run",
   };
+  if(data.control_runs?.length) $("content").append(section("Container operations"),table(["Time","Project / service","Operation","Result"],data.control_runs.map(r=>[date(r.created),subtitle(r.project,r.container),r.operation,subtitle(r.status,r.detail)])));
   $("content").append(
     el("p", "Administrative activity is retained for 90 days.", "hint"),
     table(
@@ -840,7 +845,7 @@ function render(force = false) {
   const route = location.hash.slice(1) || "overview",
     [page, key] = route.split("/");
   const editing =
-    document.activeElement?.matches("input,select") || $("build-dialog").open;
+    document.activeElement?.matches("input,select") || document.activeElement?.closest(".select-control") || $("build-dialog").open || $("container-dialog").open || $("operation-dialog").open;
   if (!force && route === currentRoute && editing) {
     updateStatus();
     return;
@@ -878,7 +883,7 @@ function render(force = false) {
   $("page-title").textContent = title;
   $("page-description").textContent = description;
   document.title = title + " | Shiftcodes";
-  $("breadcrumb").replaceChildren();
+  $("breadcrumb").replaceChildren(link("Console", "#overview"));
   if (["project", "job"].includes(page))
     $("breadcrumb").append(
       link(
@@ -886,6 +891,7 @@ function render(force = false) {
         page === "project" ? "#projects" : "#jobs",
       ),
     );
+  $("breadcrumb").append(el("span", title));
   document.querySelectorAll("[data-nav]").forEach((a) => {
     const active =
       a.dataset.nav ===
@@ -916,6 +922,7 @@ function render(force = false) {
     if (n.type === "checkbox") n.checked = old.checked;
     n.dispatchEvent(new Event(n.tagName === "SELECT" ? "change" : "input"));
   });
+  enhanceSelects($("content"));
   updateStatus();
 }
 function updateStatus() {
@@ -1007,6 +1014,7 @@ function openBuild(name, branch, retryOf = null) {
     : "Production deployment requires approval. Build validation is available.";
   $("build-error").hidden = true;
   $("build-submit").disabled = false;
+  enhanceSelects($("build-summary"));
   $("build-dialog").showModal();
 }
 $("build-form").addEventListener("submit", async (e) => {
@@ -1073,6 +1081,7 @@ $("logout").addEventListener("click", async () => {
 });
 $("refresh").addEventListener("click", () => refresh(true));
 window.addEventListener("hashchange", () => {
+  setNavigation(false);
   render(true);
   window.scrollTo(0, 0);
 });

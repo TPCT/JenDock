@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import socket
 from http.cookies import SimpleCookie
 from urllib.parse import urlsplit
 import threading
@@ -102,6 +103,17 @@ class Application:
             p=effective_projects(db,self.config).get(name)
             if not p:
                 return 404, {'error':'Project not found.'}
+            if action in ('container-details','container-start','container-stop','container-restart','environment-save'):
+                payload=dict(body,actor=session['username'])
+                try:
+                    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
+                        client.settimeout(240);client.connect('/state/control.sock')
+                        client.sendall(json.dumps(payload).encode()+b'\n')
+                        result=json.loads(client.makefile('rb').readline(1048576))
+                    if not result['ok']:return 409,{'error':result['error']}
+                    return 200,result['result']
+                except (OSError,ValueError):
+                    return 503,{'error':'Container management is temporarily unavailable. Refresh status before retrying.'}
             if action=='refresh-branches':
                 db.execute('INSERT OR REPLACE INTO requests VALUES(?,?)',(name,time.time()))
                 return 202, {'message':'Fetching branches from GitHub.'}
@@ -223,6 +235,7 @@ class Application:
             allowed = ('repository', 'branch', 'enabled', 'automatic', 'reason', 'label', 'image_prefixes', 'container_prefixes')
             return {'observed_at': time.time(), 'environment': os.environ.get('ENVIRONMENT','production'),
                     'projects': {k: dict({x: v[x] for x in allowed if x in v}, build_ready=bool(v.get('recipe'))) for k, v in effective_projects(db,self.config).items()},
+                    'control_runs': [dict(r) for r in db.execute('SELECT * FROM control_runs ORDER BY id DESC LIMIT 100')],
                     'audit': [dict(r) for r in db.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
                     'events': [dict(r) for r in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 500')],
                     'jobs': [dict(r) for r in db.execute('SELECT * FROM jobs ORDER BY id DESC LIMIT 100')],
@@ -297,7 +310,7 @@ def handler(app):
             if path=='/api/state':
                 return self.respond(200,app.state()) if session else self.respond(401,{'error':'Your session expired. Sign in again.'})
             files={'/':('index.html','text/html; charset=utf-8'), '/login':('index.html','text/html; charset=utf-8'),
-              '/legacy-messages.js':('legacy-messages.js','text/javascript; charset=utf-8'), '/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),
+              '/controls.js':('controls.js','text/javascript; charset=utf-8'), '/legacy-messages.js':('legacy-messages.js','text/javascript; charset=utf-8'), '/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),
               '/NotoSansArabic-Regular.ttf':('NotoSansArabic-Regular.ttf','font/ttf'),'/FONT-LICENSE.txt':('FONT-LICENSE.txt','text/plain')}
             if path not in files:
                 return self.respond(404,{'error':'Not found'})
@@ -310,7 +323,7 @@ def handler(app):
                 return self.respond(404,{'error':'Not found'})
             try:
                 length=int(self.headers.get('Content-Length','0'))
-                maximum=MAX_BODY if path=='/github' else 8192
+                maximum=MAX_BODY if path=='/github' else 262144
                 if length<=0 or length>maximum or self.headers.get('Transfer-Encoding'):
                     return self.respond(413,{'error':'Invalid body length'})
                 body=self.rfile.read(length)

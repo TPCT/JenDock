@@ -40,6 +40,7 @@ def connect(path):
       CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, csrf TEXT NOT NULL, username TEXT NOT NULL, created REAL, touched REAL);
       CREATE TABLE IF NOT EXISTS settings(project TEXT PRIMARY KEY, branch TEXT NOT NULL, automatic INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS requests(project TEXT PRIMARY KEY, created REAL NOT NULL);
+      CREATE TABLE IF NOT EXISTS control_runs(id INTEGER PRIMARY KEY, request_id TEXT UNIQUE, created REAL, updated REAL, actor TEXT, project TEXT, container TEXT, operation TEXT, status TEXT, detail TEXT);
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, created REAL, actor TEXT, action TEXT, project TEXT, detail TEXT);
     """)
     return db

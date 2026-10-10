@@ -7,6 +7,7 @@
     <title>Deployment console | Shiftcodes</title>
     <link rel="stylesheet" href="./style.css" />
     <script src="./legacy-messages.js" defer></script>
+    <script src="./controls.js" defer></script>
     <script src="./app.js" defer></script>
   </head>
   <body>
@@ -72,7 +73,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
       </div>
     </section>
     <div id="app" hidden>
-      <aside>
+      <button id="nav-backdrop" class="nav-backdrop" aria-label="Close navigation" hidden></button>
+      <aside id="sidebar">
+        <button id="nav-close" class="quiet mobile-nav" aria-label="Close navigation">Close</button>
         <a class="brand" href="#overview"
           >Shiftcodes<span>Deployment console</span></a
         >
@@ -90,9 +93,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         </div>
       </aside>
       <main>
+        <button id="nav-open" class="secondary mobile-nav" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>Menu</button>
         <header>
           <div>
-            <div id="breadcrumb" class="breadcrumb"></div>
+            <nav id="breadcrumb" class="breadcrumb" aria-label="Breadcrumb"></nav>
             <h1 id="page-title">Overview</h1>
             <p id="page-description"></p>
           </div>
@@ -168,6 +172,15 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
           </button>
         </div>
       </form>
+    </dialog>
+    <dialog id="container-dialog" aria-labelledby="container-title">
+      <div class="dialog-head"><h2 id="container-title">Container</h2><button id="container-close" class="quiet" type="button">Close</button></div>
+      <div id="container-detail"></div>
+    </dialog>
+    <dialog id="operation-dialog" aria-labelledby="operation-title">
+      <div class="dialog-head"><h2 id="operation-title">Confirm operation</h2></div>
+      <div id="operation-summary"></div><p id="operation-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="operation-confirm" class="primary">Apply</button><button id="operation-cancel" class="secondary">Cancel</button></div>
     </dialog>
   </body>
 </html>

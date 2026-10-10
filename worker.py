@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import control
 import time
 from pathlib import Path
 
@@ -334,6 +335,7 @@ def main():
                 except (OSError,ValueError,StepFailure):
                     pass
                 time.sleep(3)
+        control.start()
         threading.Thread(target=branch_collector,daemon=True).start()
         def collector():
             observations = connect(DATABASE)
@@ -357,7 +359,9 @@ def main():
                         set_status(db, job['id'], 'awaiting-validation', 'Automatic deployment is not enabled for this project.')
                     else:
                         try:
-                            deploy(db, job, project, validate_only=validation)
+                            with control.LOCK:
+                                if control.JOURNAL.exists():raise StepFailure('Environment recovery is pending. Deployment was not started.')
+                                deploy(db, job, project, validate_only=validation)
                         except Exception as error:
                             if journal.exists():
                                 snapshot(db, 'worker', {'state': 'recovery-failed'})
