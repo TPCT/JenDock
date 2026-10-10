@@ -2,125 +2,141 @@
   "aic-website": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:04.59Z"
     }
   ],
   "aic-sys": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:04.271Z"
     }
   ],
   "aic-ops": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:04.181Z"
     }
   ],
   "aic-academy": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:04.484Z"
     }
   ],
   "captcha": [
     {
-      "event": "push",
-      "status_code": 202
-    },
-    {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.14Z"
     }
   ],
   "dsl01": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:04.987Z"
     }
   ],
   "dsl02": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.184Z"
     }
   ],
   "elfak01": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.192Z"
     }
   ],
   "elfak-legacy": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.527Z"
     }
   ],
   "elnahy": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.47Z"
     }
   ],
   "licence": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.515Z"
     }
   ],
   "us01": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.573Z"
     }
   ],
   "website": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.868Z"
     }
   ],
   "30sv01": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.846Z"
     }
   ],
   "eo01": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.914Z"
     }
   ],
   "octa": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:05.9Z"
     }
   ],
   "etsawaa": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:06.861Z"
     }
   ],
   "lms-v2": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:06.788Z"
     }
   ],
   "smartconst": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:06.665Z"
     }
   ],
   "crm": [
     {
       "event": "ping",
-      "status_code": 200
+      "status_code": 200,
+      "delivered_at": "2026-10-10T16:22:07.001Z"
     }
   ]
 }
