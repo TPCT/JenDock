@@ -1,301 +1,400 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-10T15:56:34.938786+00:00",
-  "title": "Design System: Shiftcodes Operate",
+  "generatedAt": "2026-10-10T17:49:58.076581+00:00",
+  "title": "Design System: Shiftcodes Deployment Console",
   "extensions": {
     "colorMeta": {
-      "ink": {
-        "role": "neutral",
-        "displayName": "Ink",
+      "primary": {
+        "role": "primary",
+        "displayName": "Primary",
         "tonalRamp": [
-          "oklch(15.00% 0.03243 222.51)",
-          "oklch(26.43% 0.03243 222.51)",
-          "oklch(37.86% 0.03243 222.51)",
-          "oklch(49.29% 0.03243 222.51)",
-          "oklch(60.71% 0.03243 222.51)",
-          "oklch(72.14% 0.03243 222.51)",
-          "oklch(83.57% 0.03243 222.51)",
-          "oklch(95.00% 0.03243 222.51)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.2017 281.79)",
+          "oklch(26% 0.2017 281.79)",
+          "oklch(38% 0.2017 281.79)",
+          "oklch(49% 0.2017 281.79)",
+          "oklch(61% 0.2017 281.79)",
+          "oklch(72% 0.2017 281.79)",
+          "oklch(84% 0.2017 281.79)",
+          "oklch(95% 0.2017 281.79)"
+        ]
       },
-      "muted": {
-        "role": "neutral",
-        "displayName": "Muted",
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Primary Hover",
         "tonalRamp": [
-          "oklch(15.00% 0.02532 222.17)",
-          "oklch(26.43% 0.02532 222.17)",
-          "oklch(37.86% 0.02532 222.17)",
-          "oklch(49.29% 0.02532 222.17)",
-          "oklch(60.71% 0.02532 222.17)",
-          "oklch(72.14% 0.02532 222.17)",
-          "oklch(83.57% 0.02532 222.17)",
-          "oklch(95.00% 0.02532 222.17)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.1792 281.55)",
+          "oklch(26% 0.1792 281.55)",
+          "oklch(38% 0.1792 281.55)",
+          "oklch(49% 0.1792 281.55)",
+          "oklch(61% 0.1792 281.55)",
+          "oklch(72% 0.1792 281.55)",
+          "oklch(84% 0.1792 281.55)",
+          "oklch(95% 0.1792 281.55)"
+        ]
       },
-      "bg": {
-        "role": "neutral",
-        "displayName": "Bg",
+      "selected": {
+        "role": "primary",
+        "displayName": "Selected",
         "tonalRamp": [
-          "oklch(15.00% 0.00347 219.53)",
-          "oklch(26.43% 0.00347 219.53)",
-          "oklch(37.86% 0.00347 219.53)",
-          "oklch(49.29% 0.00347 219.53)",
-          "oklch(60.71% 0.00347 219.53)",
-          "oklch(72.14% 0.00347 219.53)",
-          "oklch(83.57% 0.00347 219.53)",
-          "oklch(95.00% 0.00347 219.53)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.0216 294.59)",
+          "oklch(26% 0.0216 294.59)",
+          "oklch(38% 0.0216 294.59)",
+          "oklch(49% 0.0216 294.59)",
+          "oklch(61% 0.0216 294.59)",
+          "oklch(72% 0.0216 294.59)",
+          "oklch(84% 0.0216 294.59)",
+          "oklch(95% 0.0216 294.59)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "tonalRamp": [
+          "oklch(15% 0.0029 264.54)",
+          "oklch(26% 0.0029 264.54)",
+          "oklch(38% 0.0029 264.54)",
+          "oklch(49% 0.0029 264.54)",
+          "oklch(61% 0.0029 264.54)",
+          "oklch(72% 0.0029 264.54)",
+          "oklch(84% 0.0029 264.54)",
+          "oklch(95% 0.0029 264.54)"
+        ]
       },
       "surface": {
         "role": "neutral",
         "displayName": "Surface",
         "tonalRamp": [
-          "oklch(15.00% 0.00000 89.88)",
-          "oklch(26.43% 0.00000 89.88)",
-          "oklch(37.86% 0.00000 89.88)",
-          "oklch(49.29% 0.00000 89.88)",
-          "oklch(60.71% 0.00000 89.88)",
-          "oklch(72.14% 0.00000 89.88)",
-          "oklch(83.57% 0.00000 89.88)",
-          "oklch(95.00% 0.00000 89.88)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.0000 89.88)",
+          "oklch(26% 0.0000 89.88)",
+          "oklch(38% 0.0000 89.88)",
+          "oklch(49% 0.0000 89.88)",
+          "oklch(61% 0.0000 89.88)",
+          "oklch(72% 0.0000 89.88)",
+          "oklch(84% 0.0000 89.88)",
+          "oklch(95% 0.0000 89.88)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15% 0.0219 269.17)",
+          "oklch(26% 0.0219 269.17)",
+          "oklch(38% 0.0219 269.17)",
+          "oklch(49% 0.0219 269.17)",
+          "oklch(61% 0.0219 269.17)",
+          "oklch(72% 0.0219 269.17)",
+          "oklch(84% 0.0219 269.17)",
+          "oklch(95% 0.0219 269.17)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15% 0.0251 265.60)",
+          "oklch(26% 0.0251 265.60)",
+          "oklch(38% 0.0251 265.60)",
+          "oklch(49% 0.0251 265.60)",
+          "oklch(61% 0.0251 265.60)",
+          "oklch(72% 0.0251 265.60)",
+          "oklch(84% 0.0251 265.60)",
+          "oklch(95% 0.0251 265.60)"
+        ]
       },
       "line": {
         "role": "neutral",
         "displayName": "Line",
         "tonalRamp": [
-          "oklch(15.00% 0.00955 222.06)",
-          "oklch(26.43% 0.00955 222.06)",
-          "oklch(37.86% 0.00955 222.06)",
-          "oklch(49.29% 0.00955 222.06)",
-          "oklch(60.71% 0.00955 222.06)",
-          "oklch(72.14% 0.00955 222.06)",
-          "oklch(83.57% 0.00955 222.06)",
-          "oklch(95.00% 0.00955 222.06)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.0084 271.32)",
+          "oklch(26% 0.0084 271.32)",
+          "oklch(38% 0.0084 271.32)",
+          "oklch(49% 0.0084 271.32)",
+          "oklch(61% 0.0084 271.32)",
+          "oklch(72% 0.0084 271.32)",
+          "oklch(84% 0.0084 271.32)",
+          "oklch(95% 0.0084 271.32)"
+        ]
       },
-      "nav": {
-        "role": "neutral",
-        "displayName": "Nav",
-        "tonalRamp": [
-          "oklch(15.00% 0.03077 220.54)",
-          "oklch(26.43% 0.03077 220.54)",
-          "oklch(37.86% 0.03077 220.54)",
-          "oklch(49.29% 0.03077 220.54)",
-          "oklch(60.71% 0.03077 220.54)",
-          "oklch(72.14% 0.03077 220.54)",
-          "oklch(83.57% 0.03077 220.54)",
-          "oklch(95.00% 0.03077 220.54)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
-      },
-      "accent": {
+      "focus": {
         "role": "primary",
-        "displayName": "Accent",
+        "displayName": "Focus",
         "tonalRamp": [
-          "oklch(15.00% 0.08527 185.03)",
-          "oklch(26.43% 0.08527 185.03)",
-          "oklch(37.86% 0.08527 185.03)",
-          "oklch(49.29% 0.08527 185.03)",
-          "oklch(60.71% 0.08527 185.03)",
-          "oklch(72.14% 0.08527 185.03)",
-          "oklch(83.57% 0.08527 185.03)",
-          "oklch(95.00% 0.08527 185.03)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
-      },
-      "accent-hover": {
-        "role": "primary",
-        "displayName": "Accent Hover",
-        "tonalRamp": [
-          "oklch(15.00% 0.07046 183.76)",
-          "oklch(26.43% 0.07046 183.76)",
-          "oklch(37.86% 0.07046 183.76)",
-          "oklch(49.29% 0.07046 183.76)",
-          "oklch(60.71% 0.07046 183.76)",
-          "oklch(72.14% 0.07046 183.76)",
-          "oklch(83.57% 0.07046 183.76)",
-          "oklch(95.00% 0.07046 183.76)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.1127 289.17)",
+          "oklch(26% 0.1127 289.17)",
+          "oklch(38% 0.1127 289.17)",
+          "oklch(49% 0.1127 289.17)",
+          "oklch(61% 0.1127 289.17)",
+          "oklch(72% 0.1127 289.17)",
+          "oklch(84% 0.1127 289.17)",
+          "oklch(95% 0.1127 289.17)"
+        ]
       },
       "good": {
         "role": "semantic",
         "displayName": "Good",
         "tonalRamp": [
-          "oklch(15.00% 0.08007 165.91)",
-          "oklch(26.43% 0.08007 165.91)",
-          "oklch(37.86% 0.08007 165.91)",
-          "oklch(49.29% 0.08007 165.91)",
-          "oklch(60.71% 0.08007 165.91)",
-          "oklch(72.14% 0.08007 165.91)",
-          "oklch(83.57% 0.08007 165.91)",
-          "oklch(95.00% 0.08007 165.91)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.0923 162.45)",
+          "oklch(26% 0.0923 162.45)",
+          "oklch(38% 0.0923 162.45)",
+          "oklch(49% 0.0923 162.45)",
+          "oklch(61% 0.0923 162.45)",
+          "oklch(72% 0.0923 162.45)",
+          "oklch(84% 0.0923 162.45)",
+          "oklch(95% 0.0923 162.45)"
+        ]
+      },
+      "good-surface": {
+        "role": "semantic",
+        "displayName": "Good Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0157 160.62)",
+          "oklch(26% 0.0157 160.62)",
+          "oklch(38% 0.0157 160.62)",
+          "oklch(49% 0.0157 160.62)",
+          "oklch(61% 0.0157 160.62)",
+          "oklch(72% 0.0157 160.62)",
+          "oklch(84% 0.0157 160.62)",
+          "oklch(95% 0.0157 160.62)"
+        ]
       },
       "bad": {
         "role": "semantic",
         "displayName": "Bad",
         "tonalRamp": [
-          "oklch(15.00% 0.15275 22.50)",
-          "oklch(26.43% 0.15275 22.50)",
-          "oklch(37.86% 0.15275 22.50)",
-          "oklch(49.29% 0.15275 22.50)",
-          "oklch(60.71% 0.15275 22.50)",
-          "oklch(72.14% 0.15275 22.50)",
-          "oklch(83.57% 0.15275 22.50)",
-          "oklch(95.00% 0.15275 22.50)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.1605 15.25)",
+          "oklch(26% 0.1605 15.25)",
+          "oklch(38% 0.1605 15.25)",
+          "oklch(49% 0.1605 15.25)",
+          "oklch(61% 0.1605 15.25)",
+          "oklch(72% 0.1605 15.25)",
+          "oklch(84% 0.1605 15.25)",
+          "oklch(95% 0.1605 15.25)"
+        ]
       },
-      "amber": {
+      "bad-surface": {
         "role": "semantic",
-        "displayName": "Amber",
+        "displayName": "Bad Surface",
         "tonalRamp": [
-          "oklch(15.00% 0.09278 76.82)",
-          "oklch(26.43% 0.09278 76.82)",
-          "oklch(37.86% 0.09278 76.82)",
-          "oklch(49.29% 0.09278 76.82)",
-          "oklch(60.71% 0.09278 76.82)",
-          "oklch(72.14% 0.09278 76.82)",
-          "oklch(83.57% 0.09278 76.82)",
-          "oklch(95.00% 0.09278 76.82)"
-        ],
-        "rampProvenance": "Synthesized OKLCH preview ramp; not additional application tokens."
+          "oklch(15% 0.0143 6.70)",
+          "oklch(26% 0.0143 6.70)",
+          "oklch(38% 0.0143 6.70)",
+          "oklch(49% 0.0143 6.70)",
+          "oklch(61% 0.0143 6.70)",
+          "oklch(72% 0.0143 6.70)",
+          "oklch(84% 0.0143 6.70)",
+          "oklch(95% 0.0143 6.70)"
+        ]
+      },
+      "pending": {
+        "role": "semantic",
+        "displayName": "Pending",
+        "tonalRamp": [
+          "oklch(15% 0.1050 77.74)",
+          "oklch(26% 0.1050 77.74)",
+          "oklch(38% 0.1050 77.74)",
+          "oklch(49% 0.1050 77.74)",
+          "oklch(61% 0.1050 77.74)",
+          "oklch(72% 0.1050 77.74)",
+          "oklch(84% 0.1050 77.74)",
+          "oklch(95% 0.1050 77.74)"
+        ]
+      },
+      "pending-surface": {
+        "role": "semantic",
+        "displayName": "Pending Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0212 85.94)",
+          "oklch(26% 0.0212 85.94)",
+          "oklch(38% 0.0212 85.94)",
+          "oklch(49% 0.0212 85.94)",
+          "oklch(61% 0.0212 85.94)",
+          "oklch(72% 0.0212 85.94)",
+          "oklch(84% 0.0212 85.94)",
+          "oklch(95% 0.0212 85.94)"
+        ]
+      },
+      "neutral": {
+        "role": "neutral",
+        "displayName": "Neutral",
+        "tonalRamp": [
+          "oklch(15% 0.0223 262.92)",
+          "oklch(26% 0.0223 262.92)",
+          "oklch(38% 0.0223 262.92)",
+          "oklch(49% 0.0223 262.92)",
+          "oklch(61% 0.0223 262.92)",
+          "oklch(72% 0.0223 262.92)",
+          "oklch(84% 0.0223 262.92)",
+          "oklch(95% 0.0223 262.92)"
+        ]
+      },
+      "neutral-surface": {
+        "role": "neutral",
+        "displayName": "Neutral Surface",
+        "tonalRamp": [
+          "oklch(15% 0.0040 286.32)",
+          "oklch(26% 0.0040 286.32)",
+          "oklch(38% 0.0040 286.32)",
+          "oklch(49% 0.0040 286.32)",
+          "oklch(61% 0.0040 286.32)",
+          "oklch(72% 0.0040 286.32)",
+          "oklch(84% 0.0040 286.32)",
+          "oklch(95% 0.0040 286.32)"
+        ]
       }
     },
     "typographyMeta": {
-      "display": {
-        "displayName": "Login story",
-        "purpose": "Desktop login statement; reduced to 39px at 1100px and hidden at 680px."
+      "headline": {
+        "displayName": "Page headline",
+        "purpose": "Screen and task identity."
+      },
+      "terminal": {
+        "displayName": "Terminal",
+        "purpose": "Interactive container session."
       }
     },
     "shadows": [
       {
+        "name": "popover",
+        "value": "0 12px 30px #2020301a",
+        "purpose": "Searchable option overlays."
+      },
+      {
+        "name": "dialog",
+        "value": "0 24px 80px #17152c35",
+        "purpose": "Modal confirmation layer."
+      },
+      {
         "name": "toast",
         "value": "0 6px 22px #152b3226",
-        "purpose": "Transient feedback only."
+        "purpose": "Brief outcome feedback above the workspace."
       }
     ],
     "motion": [
       {
         "name": "button-background",
         "value": "background 0.16s ease",
-        "purpose": "Button hover; removed for reduced motion."
+        "purpose": "Button state feedback; removed for reduced motion."
+      },
+      {
+        "name": "mobile-drawer",
+        "value": "transform 180ms ease-out, visibility 180ms",
+        "purpose": "Mobile navigation; removed for reduced motion."
       }
     ],
     "breakpoints": [
       {
-        "name": "mobile-max",
+        "name": "mobile",
         "value": "680px"
       },
       {
-        "name": "compact-max",
-        "value": "1100px"
+        "name": "compact-desktop",
+        "value": "1180px"
       },
       {
-        "name": "wide-min",
-        "value": "1600px"
+        "name": "wide",
+        "value": "1550px"
       }
     ]
   },
   "components": [
     {
-      "name": "Primary button",
+      "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Primary button from the implemented Arabic operator workspace.",
-      "html": "<button class=\"ds-primary\" dir=\"rtl\">بناء جديد</button>",
-      "css": ".ds-primary{font:14px/1.75 Noto,Arial,sans-serif;border:1px solid transparent;border-radius:6px;padding:8px 14px;background:var(--accent, #006e65);color:#fff;cursor:pointer;transition:background .16s ease}.ds-primary:hover:not(:disabled){background:var(--accent-hover, #00534b)}.ds-primary:disabled{opacity:.55;cursor:not-allowed}.ds-primary:focus-visible{outline:3px solid #258bde;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+      "description": "Explicit operation control with keyboard focus and disabled state.",
+      "html": "<button class=\"ds-primary\">Review changes</button>",
+      "css": ".ds-primary{background:var(--accent,#5746cf);color:#fff;border:1px solid transparent;border-radius:8px;padding:10px 16px;min-height:44px;font:550 14px Inter,system-ui,sans-serif;cursor:pointer;transition:background .16s ease}.ds-primary:hover:not(:disabled){background:var(--accent-hover,#4637ad)}.ds-primary:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}.ds-primary:disabled{opacity:.55;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
     },
     {
-      "name": "Secondary button",
+      "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Secondary button from the implemented Arabic operator workspace.",
-      "html": "<button class=\"ds-secondary\" dir=\"rtl\">تحديث الفروع</button>",
-      "css": ".ds-secondary{font:14px/1.75 Noto,Arial,sans-serif;border:1px solid #b6c5cb;border-radius:6px;padding:8px 14px;background:#fff;color:var(--ink, #172e36);cursor:pointer;transition:background .16s ease}.ds-secondary:hover:not(:disabled){background:#edf3f4}.ds-secondary:disabled{opacity:.55;cursor:not-allowed}.ds-secondary:focus-visible{outline:3px solid #258bde;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
+      "description": "Explicit operation control with keyboard focus and disabled state.",
+      "html": "<button class=\"ds-secondary\">Review changes</button>",
+      "css": ".ds-secondary{background:#fff;color:var(--ink,#1c202b);border:1px solid #b6c5cb;border-radius:8px;padding:10px 16px;min-height:44px;font:550 14px Inter,system-ui,sans-serif;cursor:pointer;transition:background .16s ease}.ds-secondary:hover:not(:disabled){background:#edf3f4}.ds-secondary:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}.ds-secondary:disabled{opacity:.55;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none}}"
     },
     {
-      "name": "Quiet button",
+      "name": "Quiet Button",
       "kind": "button",
       "refersTo": "button-quiet",
-      "description": "Quiet button from the implemented Arabic operator workspace.",
-      "html": "<button class=\"ds-quiet\" dir=\"rtl\">إغلاق</button>",
-      "css": ".ds-quiet{font:14px/1.75 Noto,Arial,sans-serif;border:1px solid transparent;border-radius:6px;padding:8px 14px;background:transparent;color:var(--ink, #172e36);cursor:pointer;transition:background .16s ease}.ds-quiet:hover:not(:disabled){background:#e4edef}.ds-quiet:disabled{opacity:.55;cursor:not-allowed}.ds-quiet:focus-visible{outline:3px solid #258bde;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-quiet{transition:none}}"
+      "description": "Explicit operation control with keyboard focus and disabled state.",
+      "html": "<button class=\"ds-quiet\">Review changes</button>",
+      "css": ".ds-quiet{background:transparent;color:var(--ink,#1c202b);border:1px solid transparent;border-radius:8px;padding:10px 16px;min-height:44px;font:550 14px Inter,system-ui,sans-serif;cursor:pointer;transition:background .16s ease}.ds-quiet:hover:not(:disabled){background:#e4edef}.ds-quiet:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}.ds-quiet:disabled{opacity:.55;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-quiet{transition:none}}"
     },
     {
-      "name": "Labeled login field",
+      "name": "Search Field",
       "kind": "input",
-      "refersTo": "input",
-      "description": "Externally labeled username input from session login.",
-      "html": "<label class=\"ds-label\" dir=\"rtl\" for=\"ds-username\">اسم المستخدم</label><input class=\"ds-input\" id=\"ds-username\" autocomplete=\"username\" required dir=\"ltr\"/>",
-      "css": ".ds-label{font:14px/1.75 Noto,Arial,sans-serif;display:block;font-size:13px;font-weight:600;margin-bottom:7px}.ds-input{font:14px/1.75 Noto,Arial,sans-serif;background:#fff;border:1px solid #a9bbc2;border-radius:6px;padding:9px 12px;min-height:44px;max-width:100%;color:var(--ink, #172e36);caret-color:var(--accent, #006e65)}.ds-input:focus-visible{outline:3px solid #258bde;outline-offset:3px}"
+      "refersTo": "search-input",
+      "description": "Labeled catalog search.",
+      "html": "<label class=\"ds-label\" for=\"ds-search\">Search projects</label><input id=\"ds-search\" class=\"ds-input\" placeholder=\"Project name or repository\">",
+      "css": ".ds-label{display:block;font:550 12px Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-input{margin-top:8px;min-height:44px;padding:9px 12px;border:1px solid var(--line,#e5e7ed);border-radius:8px;background:var(--surface,#fff);color:var(--ink,#1c202b);font:13px Inter,system-ui,sans-serif;max-width:100%}.ds-input:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}@media(max-width:680px){.ds-input{font-size:16px}.ds-label{font-size:13px}}"
     },
     {
-      "name": "Current navigation",
+      "name": "Current Navigation",
       "kind": "nav",
-      "description": "Current navigation from the implemented Arabic operator workspace.",
-      "html": "<nav class=\"ds-nav\" dir=\"rtl\"><a href=\"#overview\">نظرة عامة</a><a href=\"#projects\" aria-current=\"page\">المشاريع <span>20</span></a></nav>",
-      "css": ".ds-nav{font:14px/1.75 Noto,Arial,sans-serif;background:var(--nav, #152b32);padding:20px;display:grid;gap:6px}.ds-nav a{color:#c9d9de;text-decoration:none;padding:11px 14px;border-radius:6px;display:flex;justify-content:space-between;font-size:13px}.ds-nav a:hover{background:#203d47}.ds-nav a[aria-current]{background:#2a4c53;color:#fff}.ds-nav span{font-size:11px;color:#c4d8da}.ds-nav a:focus-visible{outline:3px solid #258bde;outline-offset:3px}"
+      "refersTo": "navigation-current",
+      "description": "Current sidebar destination.",
+      "html": "<a class=\"ds-nav\" href=\"#projects\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"4\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/><rect x=\"14\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/><rect x=\"4\" y=\"14\" width=\"6\" height=\"6\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"6\" height=\"6\" rx=\"1\"/></svg>Projects</a>",
+      "css": ".ds-nav{display:flex;align-items:center;gap:12px;min-height:46px;padding:12px 16px;border-radius:8px;background:#eeebfb;color:var(--accent,#5746cf);font:650 13px Inter,system-ui,sans-serif;text-decoration:none}.ds-nav svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6}.ds-nav:hover{background:#f6f5fa}.ds-nav:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}"
     },
     {
-      "name": "Pending status badge",
+      "name": "Verified Status",
       "kind": "chip",
-      "refersTo": "badge",
-      "description": "Pending status badge from the implemented Arabic operator workspace.",
-      "html": "<span class=\"ds-badge\" dir=\"rtl\">انتظار</span>",
-      "css": ".ds-badge{font:14px/1.75 Noto,Arial,sans-serif;display:inline-flex;font-size:11px;padding:3px 9px;border-radius:4px;white-space:nowrap;background:#fff2d8;color:var(--amber, #78530e)}"
+      "refersTo": "badge-good",
+      "description": "Text-bearing successful run state; not interchangeable with runtime state.",
+      "html": "<span class=\"ds-badge\">Build verified</span>",
+      "css": ".ds-badge{display:inline-block;background:#eaf6ef;color:var(--good,#237252);border-radius:5px;padding:4px 8px;font:550 10px/1.4 Inter,system-ui,sans-serif;white-space:nowrap}@media(max-width:680px){.ds-badge{font-size:13px}}"
     },
     {
-      "name": "Evidence panel",
+      "name": "Catalog Surface",
       "kind": "card",
-      "refersTo": "panel",
-      "description": "Evidence panel from the implemented Arabic operator workspace.",
-      "html": "<section class=\"ds-panel\" dir=\"rtl\"><h2>ما يعمل الآن</h2><p>قراءة قديمة · آخر رصد</p></section>",
-      "css": ".ds-panel{font:14px/1.75 Noto,Arial,sans-serif;background:#fff;border:1px solid var(--line, #dce4e7);border-radius:var(--radius, 8px);padding:22px;color:var(--ink, #172e36)}.ds-panel h2{font-size:19px;margin:0 0 15px}.ds-panel p{font-size:12px;color:var(--muted, #586b72);margin:0}"
-    },
-    {
-      "name": "Execution mode",
-      "kind": "custom",
-      "description": "Execution mode from the implemented Arabic operator workspace.",
-      "html": "<label class=\"ds-mode\" dir=\"rtl\"><input type=\"radio\" checked name=\"ds-mode\"/><span><strong>بناء واختبار فقط</strong><small>الموقع الحالي لا يتغير.</small></span></label>",
-      "css": ".ds-mode{font:14px/1.75 Noto,Arial,sans-serif;display:flex;align-items:start;gap:12px;padding:14px;border:1px solid var(--accent, #006e65);border-radius:6px;background:#f2faf7;color:var(--ink, #172e36)}.ds-mode input{accent-color:var(--accent, #006e65);margin-top:7px}.ds-mode strong,.ds-mode small{display:block}.ds-mode small{font-size:12px;color:var(--muted, #586b72);margin-top:5px}.ds-mode input:focus-visible{outline:3px solid #258bde;outline-offset:3px}"
+      "refersTo": "catalog-card",
+      "description": "A single project identity with an explicit destination.",
+      "html": "<article class=\"ds-card\"><h2>Project name</h2><p>Repository and runtime evidence</p><a href=\"#project\">Open project <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M5 12h14m-5-5 5 5-5 5\"/></svg></a></article>",
+      "css": ".ds-card{padding:22px;background:var(--surface,#fff);border:1px solid var(--line,#e5e7ed);border-radius:12px;font:14px/1.55 Inter,system-ui,sans-serif;color:var(--ink,#1c202b)}.ds-card h2{margin:0 0 6px;font-size:16px;font-weight:650;letter-spacing:-.025em}.ds-card p{color:var(--muted,#656c7b);font-size:12px}.ds-card a{display:flex;justify-content:space-between;align-items:center;min-height:44px;border-top:1px solid var(--line,#e5e7ed);padding-top:16px;color:var(--accent,#5746cf);font-size:12px;font-weight:600;text-decoration:none}.ds-card a:hover{text-decoration:underline}.ds-card a:focus-visible{outline:3px solid var(--focus,#aba1f0);outline-offset:3px}"
     }
   ],
   "narrative": {
-    "northStar": "The deployment workbench",
-    "overview": "An Arabic RTL deployment workbench for authenticated operators. Ink navigation anchors a pale mineral workspace; white bordered panels hold real branch choices, execution decisions and timestamped runtime evidence. Teal identifies primary actions, while restrained amber and red communicate pending work and failure.\n\nThis is a scan of the implemented Operate direction, recorded in the first body comment of web/index.html. The user requested advanced management controls and deployment to monitoring.shiftcodes.net; this document does not imply approval of a separate aesthetic composition. It replaces the obsolete read-only, warm-neutral description. PRODUCT.md remains the product authority.",
+    "northStar": "The Project Workspace",
+    "overview": "The console is a restrained English operational workspace. White navigation and white content surfaces sit on a cool neutral canvas; indigo identifies deliberate actions and the current location. Fine borders, compact typography and generous space between groups organize dense technical evidence without turning the console into a decorative dashboard.\n\nThis is a code-led system extracted from the local functional redesign, not an approved visual comp or proof of deployment. The cascade loads `web/style.css` before `web/product.css`; the latter owns the current world. `web/index.html`, `web/app.js`, `web/controls.js` and `web/terminal.js` supply the implemented component and interaction evidence. Direction provenance is FORM `710ac72e`, grounded direction 4. The prior Arabic/teal visual world is superseded by the authorized replacement.",
     "keyCharacteristics": [
-      "Arabic reading flow with isolated LTR repository names, branches, hashes and image references.",
-      "Compact operational tables and bounded forms, with evidence beside decisions.",
-      "Visible state labels and timestamps; stale observations remain visibly stale."
+      "English LTR interface with readable technical identifiers.",
+      "White sidebar, cool neutral canvas and flat bordered surfaces.",
+      "Indigo actions and selection; explicit text alongside status colors.",
+      "Responsive catalog, project workspace and contextual execution evidence.",
+      "SVG line icons and a distinct dark interactive terminal."
     ],
     "rules": [
       {
-        "name": "The Evidence Rule",
-        "body": "Every freshness claim belongs to its observed source; a successful page fetch alone does not prove that every observation is current.",
+        "name": "Evidence Color",
+        "body": "Every status color accompanies a readable state label; a running service and a verified deployment remain different claims.",
         "section": "colors"
+      },
+      {
+        "name": "Identity Before Metadata",
+        "body": "Project and task names carry the strongest type within their group; repository, branch, timestamps and hashes support that identity.",
+        "section": "typography"
+      },
+      {
+        "name": "Flat Workspace",
+        "body": "Keep routine content flat; reserve elevation for content temporarily layered above the workspace.",
+        "section": "elevation"
       }
     ],
     "dos": [
-      "Do preserve Arabic RTL layout and readable LTR technical identifiers.",
-      "Do keep manual branch selection distinct from the saved automatic deployment branch.",
-      "Do show the resolved commit and execution mode before queueing a build.",
-      "Do accompany color with explicit state text and observation timestamps.",
-      "Do keep errors, incomplete configuration and recovery actions visible."
+      "**Do** preserve the white sidebar, cool canvas and indigo action hierarchy.",
+      "**Do** pair status colors with state text and relevant observation timestamps.",
+      "**Do** retain project identity and source context through service and run views.",
+      "**Do** enlarge supporting evidence on mobile and keep forms within the viewport.",
+      "**Do** preserve visible labels, focus indicators and recoverable inline errors."
     ],
     "donts": [
-      "Don't describe a cached observation as current after its freshness check fails.",
-      "Don't turn a test-only result into a successful production deployment label.",
-      "Don't reset an in-progress form just to refresh observation labels.",
-      "Don't imply that screenshots establish production acceptance or aesthetic approval."
+      "**Don't** restore the superseded Arabic/teal identity as the default console world.",
+      "**Don't** use a healthy-looking color to imply a deployment or health check that the evidence does not establish.",
+      "**Don't** turn routine cards into floating layers or make the main navigation a content modal.",
+      "**Don't** replace SVG interface icons with decorative glyphs.",
+      "**Don't** present this local design preview as deployment or production acceptance."
     ]
   }
 }

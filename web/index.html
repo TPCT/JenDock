@@ -3,19 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#152b32" />
+    <meta name="theme-color" content="#5746cf" />
     <title>Deployment console | Shiftcodes</title>
+    <link rel="stylesheet" href="./vendor/xterm.css" />
     <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./product.css" />
+    <script src="./vendor/xterm.js" defer></script>
+    <script src="./vendor/addon-fit.js" defer></script>
+    <script src="./terminal.js" defer></script>
     <script src="./legacy-messages.js" defer></script>
     <script src="./controls.js" defer></script>
     <script src="./app.js" defer></script>
   </head>
   <body>
     <!-- THESIS: A deployment workbench; project decisions and execution evidence share one workflow.
-OWN-WORLD: Ink navigation, pale mineral workspace, white data surfaces, teal actions, restrained amber/red states.
+OWN-WORLD: A service catalog for an owner operating production. White navigation, neutral canvas, Inter typography, indigo primary actions, semantic status colors. Each project owns source, deployment and services.
 STORY: Authenticate, inspect a project, choose a real Git branch, test or deploy, follow persisted results and recovery.
 FIRST VIEWPORT: Mobile-first project list, readable service rows and a dedicated service workspace; desktop sidebar becomes a mobile drawer. Breadcrumbs retain context. Builds and destructive confirmations alone interrupt the page.
-FORM: Operator workbench, seed 66a0a1d4, original selection 3; code-led product expansion.
+FORM: Service catalog and project workspace; direction seed 710ac72e, grounded direction 4; code-led functional redesign.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
     <div id="boot" class="boot" role="status">Checking your session…</div>
     <section id="login" class="login-layout" hidden>
@@ -93,7 +98,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         </div>
       </aside>
       <main>
-        <button id="nav-open" class="secondary mobile-nav" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>Menu</button>
+        <div class="mobile-topbar"><a href="#projects" class="mobile-brand">Shiftcodes<span>Console</span></a><button id="nav-open" class="secondary mobile-nav" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>Menu</button></div>
         <header>
           <div>
             <nav id="breadcrumb" class="breadcrumb" aria-label="Breadcrumb"></nav>
@@ -118,8 +123,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         </p>
         <div id="content" aria-live="off"></div>
         <footer>
-          Live server observations · External uptime checks and outbound alerts
-          are not configured.
+          Runtime monitoring · <span>External uptime checks and outbound alerts are not configured.</span>
         </footer>
       </main>
     </div>

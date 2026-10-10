@@ -54,21 +54,24 @@ async function containerView(project,name) {
   const top=el('div','','service-workspace-head');
   top.append(link('Back to '+projectLabel(project),'#project/'+project));
   const body=el('div');body.id='container-detail';body.append(el('p','Loading container configuration…','hint'));root.append(top,body);
+  closeTerminal();
   containerContext=null;
   try {
     const detail=await api('action',{action:'container-details',project,container:name});
     if(!body.isConnected)return;
-    containerContext={project,name,detail};renderContainer('details');
+    containerContext={project,name,detail,changes:{}};renderContainer('details');
   } catch(error){if(body.isConnected)body.replaceChildren(el('p',error.message,'error'),button('Try again',()=>{root.replaceChildren();containerView(project,name);}));}
 }
 function renderContainer(tab) {
+  closeTerminal();
   const {project,name,detail:d}=containerContext,body=document.getElementById('container-detail');body.replaceChildren();
   body.dataset.tab=tab;
   const tabs=el('div','','project-tabs');
-  for(const [key,label] of [['details','Details & version'],['environment','Environment']]) {
+  for(const [key,label] of [['details','Details & version'],['environment','Environment'],['terminal','Terminal']]) {
     const t=button(label,()=>renderContainer(key),'project-tab');t.setAttribute('aria-pressed',String(tab===key));tabs.append(t);
   }
   body.append(tabs);
+  if(tab==='terminal'){renderTerminal(body,containerContext);return;}
   if(tab==='details') {
     const facts=el('dl','','container-facts');
     for(const [label,value] of [['Status',d.state],['Health',d.health],['Image / version',d.image],['Image ID',d.image_id],['Git commit',d.commit||'Not recorded in this image'],['Created',d.image_created],['Started',d.started_at],['Restart count',String(d.restart_count)]]) {const valueNode=el('dd',value,'identifier');valueNode.dataset.fact=label;facts.append(el('dt',label),valueNode);}
@@ -78,19 +81,21 @@ function renderContainer(tab) {
     if(d.mounts.length)body.append(section('Persistent mounts'),table(['Type','Container path','Access'],d.mounts.map(m=>[m.type,m.destination,m.read_only?'Read only':'Read / write'])));
   } else {
     body.append(el('p',d.environment_scope,'hint'),el('p','Values stay hidden by default. Changes persist in Compose and recreate this service. Changing a database password variable does not rotate existing database accounts; update connected services and database credentials together.','notice'));
-    const form=el('form'),list=el('div','','environment-list'),changes={};
+    const form=el('form'),list=el('div','','environment-list'),changes=containerContext.changes;
     const search=el('input');search.type='search';search.placeholder='Find an environment variable';search.setAttribute('aria-label','Find an environment variable');
     const addRow=(key,value)=>{
       const row=el('div','','environment-row'),label=el('label',key),input=el('input');input.type='password';input.autocomplete='off';input.value=value;input.id='env-'+crypto.randomUUID();label.htmlFor=input.id;row.dataset.key=key.toLowerCase();
       input.addEventListener('input',()=>{if(input.value===d.environment[key])delete changes[key];else changes[key]=input.value;});
       const show=button('Show',()=>{input.type=input.type==='password'?'text':'password';show.textContent=input.type==='password'?'Show':'Hide';},'quiet');show.setAttribute('aria-label','Show or hide '+key);row.append(label,input,show);list.append(row);
     };
-    Object.entries(d.environment).sort().forEach(([k,v])=>addRow(k,v));
+    Object.entries({...d.environment,...changes}).sort().forEach(([k,v])=>addRow(k,v));
     search.addEventListener('input',()=>{for(const row of list.children)row.hidden=!row.dataset.key.includes(search.value.toLowerCase());});
     const newKey=el('input');newKey.placeholder='NEW_VARIABLE';newKey.setAttribute('aria-label','New variable name');
     const add=button('Add variable',()=>{const key=newKey.value.trim();if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)||Object.hasOwn(d.environment,key)||[...list.children].some(r=>r.dataset.key===key.toLowerCase()))return toast('Enter a unique environment variable name.');changes[key]='';addRow(key,'');newKey.value='';search.value='';search.dispatchEvent(new Event('input'));},'secondary');
     const addWrap=el('div','','actions');addWrap.append(newKey,add);
-    const save=el('button','Review changes','primary');save.type='submit';form.append(search,list,addWrap,save);
+    const draft=el('p',Object.keys(changes).length+' unsaved changes','draft-status');form.addEventListener('input',()=>{draft.textContent=Object.keys(changes).length+' unsaved changes';});
+    const save=el('button','Review changes','primary');save.type='submit';const discard=button('Discard changes',()=>{containerContext.changes={};renderContainer('environment');},'secondary');
+    const formActions=el("div","","environment-actions");formActions.append(save,discard);form.append(draft,search,list,addWrap,formActions);
     form.addEventListener('submit',event=>{event.preventDefault();if(!Object.keys(changes).length)return toast('No environment changes to save.');confirmContainer('environment-save',changes);});body.append(form);
   }
 }
@@ -107,7 +112,7 @@ function confirmContainer(operation,changes) {
     try {
       const result=await api('action',{action:operation==='environment-save'?operation:'container-'+operation,project,container:name,container_id:d.container_id,revision:d.revision,changes,request_id:requestId});
       if(result.status!=='succeeded')throw new Error(result.message);
-      dialog.close();toast(result.message);await refresh(true);
+      dialog.close();containerContext.changes={};toast(result.message);await refresh(true);
     } catch(e){error.textContent=e.message;error.hidden=false;}finally{confirm.disabled=false;confirm.textContent='Apply';dialog.dataset.pending='false';document.getElementById('operation-cancel').disabled=false;}
   };dialog.showModal();
 }
@@ -142,13 +147,30 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 function updateContainerLive() {
   if(!containerContext)return;
-  const body=document.getElementById('container-detail');
-  const c=containers().find(c=>c.Names===containerContext.name);
-  if(!c||!body||body.dataset.tab!=='details')return;
-  const replaced=c.ID&&!containerContext.detail.container_id.startsWith(c.ID);
-  const state=body.querySelector('[data-fact="Status"]');
-  if(state)state.textContent=stale('containers')?'Observation unavailable':replaced?'Replaced — close and reopen to inspect the new version':c.State;
-  const health=body.querySelector('[data-fact="Health"]');
-  if(health)health.textContent=c.Status;
-  for(const b of body.querySelectorAll('[data-operation]'))b.disabled=replaced||stale('containers')||(b.dataset.operation==='start'?c.State==='running':c.State!=='running');
+  const body=document.getElementById('container-detail');if(!body)return;
+  const c=containers().find(c=>c.Names===containerContext.name),d=containerContext.detail;
+  const replaced=c?.ID&&!d.container_id.startsWith(c.ID),unavailable=!c||stale('containers')||replaced;
+  let warning=body.querySelector('.service-stale');
+  if(unavailable&&!warning){warning=el('div','','notice service-stale');warning.append(el('p',replaced?'This service was replaced. Reload to inspect its new version.':!c?'This service is no longer in the latest observation.':'Current service status is unavailable.'),button('Reload service details',()=>{if(Object.keys(containerContext.changes).length){toast('Your environment draft is still open. Save or discard it before reloading.');return;}render(true);}));body.prepend(warning);}
+  if(!unavailable&&warning)warning.remove();
+  if(c&&!replaced){d.state=c.State;d.health=c.Status;}
+  const state=body.querySelector('[data-fact="Status"]');if(state)state.textContent=unavailable?'Status unavailable':c.State;
+  const health=body.querySelector('[data-fact="Health"]');if(health)health.textContent=unavailable?'Check current service details':c.Status;
+  const summary=body.querySelector('.service-runtime .badge');if(summary)summary.replaceWith(badge(unavailable?'Unavailable':c.State));
+  for(const b of body.querySelectorAll('[data-operation]'))b.disabled=unavailable||(b.dataset.operation==='start'?c.State==='running':c.State!=='running');
 }
+
+let draftNavigationDialog=null;
+function confirmDraftNavigation(nextRoute){
+  if(draftNavigationDialog)return;
+  const dialog=el('dialog'),heading=el('h2','Leave without saving?');heading.id='draft-navigation-title';
+  dialog.setAttribute('aria-labelledby',heading.id);
+  const actions=el('div','','dialog-actions');
+  const stay=button('Keep editing',()=>dialog.close(),'primary');
+  const leave=button('Discard and leave',()=>{containerContext.changes={};dialog.close();location.hash=nextRoute;render(true);},'secondary');
+  actions.append(stay,leave);dialog.append(heading,el('p','Your environment changes have not been applied. Stay to review them, or discard this draft.'),actions);
+  history.replaceState(null,'','#'+currentRoute);
+  dialog.addEventListener('close',()=>{dialog.remove();draftNavigationDialog=null;});
+  document.body.append(dialog);draftNavigationDialog=dialog;dialog.showModal();stay.focus();
+}
+window.addEventListener('beforeunload',event=>{if(containerContext&&Object.keys(containerContext.changes).length){event.preventDefault();event.returnValue='';}});

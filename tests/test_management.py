@@ -35,10 +35,9 @@ class ManagementTests(ReceiverTests):
         self.deliver(dict(self.payload,ref='refs/heads/feature/login',after='b'*40))
         self.assertEqual(self.app.state()['jobs'][0]['branch'],'feature/login')
 
-    def test_unapproved_recipe_can_test_but_cannot_deploy(self):
+    def test_legacy_enabled_flag_does_not_gate_owner_deployment(self):
         policy=json.loads(self.config.read_text());policy['test']['enabled']=False;self.config.write_text(json.dumps(policy))
-        self.assertEqual(self.app.action(self.session,dict(self.body,mode='deploy'))[0],409)
-        self.assertEqual(self.app.action(self.session,self.body)[0],202)
+        self.assertEqual(self.app.action(self.session,dict(self.body,mode='deploy'))[0],202)
 
     def test_missing_branch_stale_observation_and_changed_sha_are_rejected(self):
         for change in ({'branch':'missing'},{'branch':'--upload-pack=bad'},{'sha':'c'*40}):
@@ -94,6 +93,25 @@ class ManagementTests(ReceiverTests):
             self.assertEqual(request('/api/action',self.body,Origin='https://evil.invalid',Cookie=cookie,**{'X-CSRF-Token':value['csrf']})[0],403)
             self.assertEqual(request('/api/action',self.body,Origin=self.app.origin,Cookie=cookie,**{'X-CSRF-Token':value['csrf']})[0],202)
         finally:http.shutdown();http.server_close();thread.join()
+
+    def test_manual_deploy_from_waiting_and_validated_run(self):
+        db=connect(self.app.database)
+        from store import enqueue
+        old,_=enqueue(db,'old-push','test','b'*40,False,'feature/login')
+        db.close()
+        code,result=self.app.action(self.session,dict(self.body,action='retry',mode='deploy',job_id=old))
+        self.assertEqual(code,202)
+        job=self.app.state()['jobs'][0]
+        self.assertEqual((job['status'],job['retry_of']),('queued',old))
+
+    def test_auto_default_and_persisted_opt_out(self):
+        policy=json.loads(self.config.read_text());policy['test']['enabled']=False;self.config.write_text(json.dumps(policy))
+        self.assertTrue(self.app.state()['projects']['test']['automatic'])
+        code,_=self.app.action(self.session,{'action':'settings','project':'test','branch':'main','automatic':False})
+        self.assertEqual(code,200)
+        self.deliver()
+        self.assertEqual(self.app.state()['jobs'][0]['status'],'auto-deploy-disabled')
+        self.assertFalse(Application(self.config,self.app.database,self.credentials).state()['projects']['test']['automatic'])
 
     def test_branch_validation(self):
         for value in ('main','feature/a','fix-123','release/2026'):

@@ -82,7 +82,7 @@ def atomic_json(path, value):
 
 
 def compose(recipe, *args):
-    command = [COMPOSE, '-p', recipe['compose_project']]
+    command = [COMPOSE, '--profile', '*', '-p', recipe['compose_project']]
     if recipe.get('env_file'):
         command += ['--env-file', recipe['env_file']]
     for filename in recipe['compose_files']:
@@ -174,7 +174,7 @@ def deploy(db, job, project, validate_only=False):
     if not re.fullmatch('[0-9a-f]{40}', sha):
         raise StepFailure('Invalid Git commit.')
     if not recipe.get('tests') or not recipe.get('http_checks'):
-        raise StepFailure('Deployment tests are not yet approved for this project.')
+        raise StepFailure('Build setup is incomplete: isolated tests and runtime checks must be configured.')
     journal = STATE / 'transaction.json'
     with tempfile.TemporaryDirectory(prefix=name + '-', dir='/work') as temp:
         source = Path(temp) / 'source'
@@ -355,8 +355,8 @@ def main():
                     claimed=db.execute("UPDATE jobs SET status='building',updated=? WHERE id=? AND status=?",(time.time(),job['id'],job['status'])).rowcount
                     if not claimed:
                         continue
-                    if not project or (not project.get('enabled') and not validation):
-                        set_status(db, job['id'], 'awaiting-validation', 'Automatic deployment is not enabled for this project.')
+                    if not project or not project.get('recipe'):
+                        set_status(db, job['id'], 'failed', 'Build setup is incomplete: this project needs image definitions, test commands and a deployment service mapping. No running services were changed.')
                     else:
                         try:
                             with control.LOCK:

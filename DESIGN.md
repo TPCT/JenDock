@@ -1,156 +1,202 @@
 ---
-name: Shiftcodes Operate
-description: Arabic deployment management workbench
+name: Shiftcodes Deployment Console
+description: An English project workspace for clear operational decisions and execution evidence.
 colors:
-  ink: "#172e36"
-  muted: "#586b72"
-  bg: "#f3f6f7"
-  surface: "#fff"
-  line: "#dce4e7"
-  nav: "#152b32"
-  accent: "#006e65"
-  accent-hover: "#00534b"
-  good: "#155d45"
-  bad: "#a12c32"
-  amber: "#78530e"
+  primary: "#5746cf"
+  primary-hover: "#4637ad"
+  selected: "#eeebfb"
+  canvas: "#f6f7f9"
+  surface: "#ffffff"
+  ink: "#1c202b"
+  muted: "#656c7b"
+  line: "#e5e7ed"
+  focus: "#aba1f0"
+  good: "#237252"
+  good-surface: "#eaf6ef"
+  bad: "#b13449"
+  bad-surface: "#fceff1"
+  pending: "#8b610d"
+  pending-surface: "#fbf4e5"
+  neutral: "#616875"
+  neutral-surface: "#f3f3f6"
 typography:
-  display:
-    fontFamily: "Noto, Arial, sans-serif"
-    fontSize: "48px"
-    fontWeight: 700
-    lineHeight: 1.7
   headline:
-    fontFamily: "Noto, Arial, sans-serif"
-    fontSize: "27px"
-    fontWeight: 700
-    lineHeight: 1.6
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "28px"
+    fontWeight: 670
+    lineHeight: 1.25
+    letterSpacing: "-0.04em"
   title:
-    fontFamily: "Noto, Arial, sans-serif"
-    fontSize: "19px"
-    fontWeight: 700
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "18px"
+    fontWeight: 650
+    letterSpacing: "-0.02em"
   body:
-    fontFamily: "Noto, Arial, sans-serif"
+    fontFamily: "Inter, system-ui, sans-serif"
     fontSize: "14px"
-    lineHeight: 1.75
+    lineHeight: 1.55
+    letterSpacing: "-0.01em"
   label:
-    fontFamily: "Noto, Arial, sans-serif"
+    fontFamily: "Inter, system-ui, sans-serif"
     fontSize: "13px"
     fontWeight: 600
+  terminal:
+    fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace"
+    fontSize: "14px"
 rounded:
-  badge: "4px"
-  control: "6px"
-  panel: "8px"
-  dialog: "12px"
+  badge: "5px"
+  input: "6px"
+  control: "8px"
+  inset: "10px"
+  panel: "12px"
+  dialog: "14px"
 spacing:
-  control-gap: "8px"
-  action-gap: "10px"
-  field-gap: "12px"
-  panel-inset: "22px"
-  dialog-inset: "26px"
+  tight: "8px"
+  compact: "12px"
+  standard: "16px"
+  roomy: "20px"
+  section: "24px"
+  broad: "28px"
 components:
   button-primary:
-    backgroundColor: "{colors.accent}"
+    backgroundColor: "{colors.primary}"
     textColor: "{colors.surface}"
     rounded: "{rounded.control}"
-    padding: "8px 14px"
+    padding: "10px 16px"
   button-primary-hover:
-    backgroundColor: "{colors.accent-hover}"
+    backgroundColor: "{colors.primary-hover}"
   button-secondary:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
     rounded: "{rounded.control}"
-    padding: "8px 14px"
+    padding: "10px 16px"
   button-quiet:
     backgroundColor: "transparent"
+    textColor: "{colors.ink}"
     rounded: "{rounded.control}"
-    padding: "8px 14px"
-  input:
+    padding: "10px 16px"
+  navigation-current:
+    backgroundColor: "{colors.selected}"
+    textColor: "{colors.primary}"
+    rounded: "{rounded.control}"
+    padding: "12px 16px"
+  badge-good:
+    backgroundColor: "{colors.good-surface}"
+    textColor: "{colors.good}"
+    rounded: "{rounded.badge}"
+    padding: "4px 8px"
+  catalog-card:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.panel}"
+    padding: "22px"
+  search-input:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
     rounded: "{rounded.control}"
     padding: "9px 12px"
-  panel:
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.panel}"
-  badge:
-    rounded: "{rounded.badge}"
-    padding: "3px 9px"
 ---
 
-# Design System: Shiftcodes Operate
+# Design System: Shiftcodes Deployment Console
 
 ## Overview
 
-**Creative North Star: "The deployment workbench"**
+**Creative North Star: "The Project Workspace"**
 
-An Arabic RTL deployment workbench for authenticated operators. Ink navigation anchors a pale mineral workspace; white bordered panels hold real branch choices, execution decisions and timestamped runtime evidence. Teal identifies primary actions, while restrained amber and red communicate pending work and failure.
+The console is a restrained English operational workspace. White navigation and white content surfaces sit on a cool neutral canvas; indigo identifies deliberate actions and the current location. Fine borders, compact typography and generous space between groups organize dense technical evidence without turning the console into a decorative dashboard.
 
-This is a scan of the implemented Operate direction, recorded in the first body comment of web/index.html. The user requested advanced management controls and deployment to monitoring.shiftcodes.net; this document does not imply approval of a separate aesthetic composition. It replaces the obsolete read-only, warm-neutral description. PRODUCT.md remains the product authority.
+This is a code-led system extracted from the local functional redesign, not an approved visual comp or proof of deployment. The cascade loads `web/style.css` before `web/product.css`; the latter owns the current world. `web/index.html`, `web/app.js`, `web/controls.js` and `web/terminal.js` supply the implemented component and interaction evidence. Direction provenance is FORM `710ac72e`, grounded direction 4. The prior Arabic/teal visual world is superseded by the authorized replacement.
 
 **Key Characteristics:**
-- Arabic reading flow with isolated LTR repository names, branches, hashes and image references.
-- Compact operational tables and bounded forms, with evidence beside decisions.
-- Visible state labels and timestamps; stale observations remain visibly stale.
-
-The source of exact values is web/style.css; workflow states come from web/app.js and web/index.html. Desktop project detail and mobile build confirmation captures in .impeccable/review were inspected for this scan. Other captures in that directory provide the review trail, not a blanket claim of functional or deployment acceptance.
+- English LTR interface with readable technical identifiers.
+- White sidebar, cool neutral canvas and flat bordered surfaces.
+- Indigo actions and selection; explicit text alongside status colors.
+- Responsive catalog, project workspace and contextual execution evidence.
+- SVG line icons and a distinct dark interactive terminal.
 
 ## Colors
 
-### Primary
+The palette pairs a restrained indigo accent with cool neutrals and small semantic status fills.
 
-Teal (`accent`) marks the build action, links, checked controls and completed progress segments. Its deeper hover value (`accent-hover`) makes the interaction legible without adding decoration.
+### Primary
+- **Action Indigo** (`primary`, `primary-hover`) marks primary actions, active tabs and linked actions.
+- **Selected Lavender** (`selected`) fills current navigation and selected listbox options; **Focus Lavender** (`focus`) identifies keyboard focus.
 
 ### Neutral
+- **Cool Canvas** (`canvas`) separates the workspace from **White Surface** (`surface`) navigation, panels and controls.
+- **Graphite Ink** (`ink`) carries titles and primary reading; **Slate Text** (`muted`) carries supporting evidence. **Fine Divider** (`line`) organizes surfaces without heavy framing.
+- **Neutral Status** (`neutral`, `neutral-surface`) is appropriate for descriptive runtime state that does not establish health.
 
-Ink (`ink`) is primary text; slate (`muted`) carries supporting copy. Pale mineral (`bg`) separates the workspace from white (`surface`) panels. Fine cool borders (`line`) structure dense information. Deep ink (`nav`) anchors navigation, the login story and transient toast feedback.
+Semantic pairs `good`, `bad` and `pending` with their respective surface tokens distinguish successful, failed and waiting states. They are evidence colors, not additional brand accents.
 
-### Semantic states
-
-Forest (`good`), red (`bad`) and amber (`amber`) are status foregrounds, paired with pale fills and explicit labels. They are not interchangeable brand accents. Neutral badges represent other states.
-
-**The Evidence Rule.** Every freshness claim belongs to its observed source; a successful page fetch alone does not prove that every observation is current.
+**The Evidence Color Rule.** Every status color accompanies a readable state label; a running service and a verified deployment remain different claims.
 
 ## Typography
 
-The application self-hosts Noto through NotoSansArabic-Regular.ttf, with Arial and sans-serif fallbacks. Only the regular font face is declared; heavier CSS weights use the browser's available weight behavior. Do not claim that separate bold font files are loaded.
+**Headline and Body Font:** Inter, locally loaded as a variable face, with system-ui and sans-serif fallbacks. **Terminal Font:** the platform monospace stack recorded in the frontmatter. Technical hashes also use monospace where the implementation distinguishes them from prose.
 
-The large display role belongs to the desktop login story. Page headings, section titles and body copy use the frontmatter hierarchy; supporting hints use 12px and table headers/status badges use 11px. Paragraphs are limited to 75ch; login story text to 38ch. Technical identifiers use LTR isolation, wrapping and tabular numerals. Code retains the browser's code font rather than an invented branded monospace family.
+The type ramp is compact and functional. The headline role leads each screen; section titles, medium-weight project identities, body copy and quieter metadata step down beneath it. There is no separate decorative display face. The larger login statement is a surface-specific composition, not a second global type system.
+
+On narrow screens the page headline becomes slightly smaller (27px), while body copy grows (15px), hints and notices grow (14px), and operational metadata and badges grow (13px). Search and environment inputs use 16px text on mobile. Desktop metadata remains compact; its smallest existing values are not a recommended minimum for future screens.
+
+**The Identity Before Metadata Rule.** Project and task names carry the strongest type within their group; repository, branch, timestamps and hashes support that identity.
 
 ## Layout
 
-At desktop size, a fixed right sidebar (226px) offsets the workspace, which has 30px top and 34px horizontal padding. Project detail uses a 1.6fr/1fr grid with a 280px minimum secondary column and 22px gap. Resource readings share a single four-column strip. White panels and tables organize evidence rather than decorative metric cards.
+The desktop shell has a fixed white sidebar (236px). Main content offsets by the same width, uses a maximum width of 1660px and starts with 34px vertical and 36px horizontal padding. Identity, observation state and the relevant action precede execution detail. Breadcrumbs retain project and service context.
 
-At 1100px and below the sidebar becomes 200px, the project grid stacks and resources become two columns. At 680px and below navigation becomes a static ink header with horizontally scrollable links; main padding is 22px 16px, tables retain a 680px minimum within their own scroll container, timeline rows stack and actions wrap. At 1600px and above workspace horizontal padding becomes 48px with a maximum width of 1800px.
+The project catalog uses three columns by default, four from 1550px, two through 1180px, and one through 680px. Catalog gaps are 18px on desktop and 14px on mobile. Service cards use two columns, reducing to one at the mobile breakpoint. Content groups typically use the frontmatter spacing rhythm with 20–24px internal padding; thin dividers separate supporting facts.
 
-Login uses equal story/form columns on desktop, a form capped at 360px, and a compact brand header plus single-column form on mobile. Build confirmation is a centered native dialog, bounded to 580px or viewport width minus 30px, with a 90svh maximum height and internal scrolling.
+At 680px and below, the sidebar becomes an off-canvas navigation drawer, with a mobile brand/menu bar and 16px content gutters. Project tabs stay horizontally accessible. Data tables become labeled vertical records. Run facts retain two columns while execution steps and major action groups stack. Dialogs scroll within the viewport; build confirmation actions remain visible in a sticky footer. The environment form's save action is in normal document flow.
 
 ## Elevation & Depth
 
-The workspace relies on surface contrast and one-pixel borders, not floating cards. The toast alone carries a small shadow (`0 6px 22px #152b3226`). Modal depth comes from a dark translucent backdrop (`#0c222c80`). Focus is a visible blue outline (3px, offset 3px); this is an interaction treatment rather than a brand accent. Buttons transition background over 0.16s ease; reduced-motion preferences remove transitions.
+Ordinary panels and catalog cards are flat white surfaces with one-pixel borders. Depth belongs to temporary overlays: searchable option popovers use `0 12px 30px #2020301a`, and dialogs use `0 24px 80px #17152c35` with a translucent backdrop (`#17203170`). The mobile navigation backdrop is a separate translucent veil (`#1a193b66`).
+
+**The Flat Workspace Rule.** Keep routine content flat; reserve elevation for content temporarily layered above the workspace.
+
+Focus uses a visible outline (3px, offset 3px). Buttons transition background over 0.16s ease, while the mobile drawer slides over 180ms ease-out. Reduced-motion rules remove transitions and smooth scrolling.
 
 ## Shapes
 
-Small rectangular badges, softly rounded controls, slightly broader panel corners and a larger dialog radius form the observed shape vocabulary in the frontmatter. Inputs have a 44px minimum height; the login submit has a 46px minimum. Panels clip their contents. Selected execution-mode rows use a teal border and pale green fill; disabled controls remain visibly disabled.
+Use softly rounded rectangular controls, broader panel corners and slightly larger dialog corners, as recorded in the frontmatter. Status chips are compact rounded rectangles rather than pills. Circular marks are native to observation dots and numbered execution steps; their shape communicates state or sequence. Inputs have a 44px minimum height. Most buttons inherit that minimum; compact mode controls are a contextual exception, not a new default touch target.
 
 ## Components
 
-- **Session login:** external labels, password visibility control, inline error and a full-width submit showing both icon and localized text. Session checking has an explicit loading state.
-- **Navigation:** the ink sidebar/header holds overview, projects, build/deploy operations, services and audit; current location has a lighter ink fill and white text. Account/logout controls remain distinct from content actions.
-- **Buttons and fields:** teal primary, white bordered secondary and transparent quiet variants; disabled buttons reduce opacity. External field labels and the common focus outline keep dense controls understandable.
-- **Source and settings panels:** show the real repository, branch selector, resolved hash and branch fetch time. Saving the automatic deployment branch is a separate explicit action; the currently saved branch remains visible. Missing build recipes or unapproved deployment tests appear as explanatory limitations.
-- **Build confirmation:** repeats project, branch and resolved commit, defaults to test-only and separately offers production deployment when available. Retry warns that the latest branch commit can differ from the failed attempt. Queue submission and cancellation have separate actions, and submission errors remain inside the dialog.
-- **Execution evidence:** chronological jobs, stage strips, retry/queued-cancel actions and audit history preserve operation outcomes. Status badges always contain words. Runtime images remain separate from the selected source commit.
-- **Observation status:** the global status line and source-specific labels expose timestamps and stale readings. The implementation marks observations stale when missing, older than 90 seconds, when the worker is not running, or when polling fails. Existing cached freshness labels are updated in place on failure without resetting forms; branch freshness has its own fetch timestamp and a separate 600-second launch guard. Historical job outcomes remain historical outcomes.
-- **Feedback:** inline errors and notices explain failed or unavailable actions; a bottom-left toast announces brief outcomes. External uptime checks and outbound alerts remain explicitly unconfigured in the footer.
+### Buttons
+Indigo filled primary buttons lead explicit operations. Secondary buttons are white with a fine border; quiet actions use transparent surfaces. Destructive actions use the failure color. Buttons retain readable text, SVG icons where present, visible keyboard focus and reduced opacity when disabled. The login submit includes both icon and text. Pending operation confirmations display their progress and block conflicting actions.
+
+### Chips
+Compact text badges pair semantic foreground and background colors. Runtime descriptions may remain neutral. Run outcomes retain their own status independently of the latest container observation. Mobile badge text is enlarged with the rest of the evidence.
+
+### Cards / Containers
+Catalog cards and service cards share flat white surfaces, fine borders and panel corners. Catalog cards group identity, source, service counts, latest run and an explicit open action; their bottom action aligns consistently through flexible card content. Technical strings wrap or truncate within their own group instead of stretching the grid.
+
+### Inputs / Fields
+Search inputs and searchable select triggers use control corners; basic text inputs retain the smaller input corners. External labels remain visible. Searchable listboxes have a separate query field, highlighted active option, selected state and an explicit no-results message. Environment values are masked until revealed, and edited values have a visible draft state. Mobile input text is enlarged without shrinking neighboring actions.
+
+### Navigation
+The white sidebar uses muted text and SVG line icons. The current destination has a lavender fill and indigo text. Hover adds a faint neutral-lavender fill. Mobile uses the same navigation in a drawer, with a close control and backdrop; breadcrumbs remain in the content. Project and service tabs use an indigo underline instead of a second navigation surface.
+
+### Execution evidence and terminal
+Run summaries place outcome, source facts and actions before an ordered progress sequence and chronological activity. Waiting, failed and completed states remain visible. The terminal is an intentionally dark surface containing a monospace interactive session, connection status and explicit connect/disconnect controls; mobile exposes a supplementary key row. This dark tool surface is compatible with the otherwise light console.
+
+### Dialogs and feedback
+Build dialogs show source and execution-mode choices before confirmation. Selected mode rows use a lavender-tinted surface and border. Guarded operations have contextual confirmations and inline errors. Notices use a subdued amber surface. Brief outcome toasts use a dark ink surface with white text and the existing low ambient shadow (`0 6px 22px #152b3226`), distinct from inline errors. Preview notices explicitly distinguish captured observations and proposed settings from production operations.
 
 ## Do's and Don'ts
 
-- Do preserve Arabic RTL layout and readable LTR technical identifiers.
-- Do keep manual branch selection distinct from the saved automatic deployment branch.
-- Do show the resolved commit and execution mode before queueing a build.
-- Do accompany color with explicit state text and observation timestamps.
-- Do keep errors, incomplete configuration and recovery actions visible.
-- Don't describe a cached observation as current after its freshness check fails.
-- Don't turn a test-only result into a successful production deployment label.
-- Don't reset an in-progress form just to refresh observation labels.
-- Don't imply that screenshots establish production acceptance or aesthetic approval.
+### Do:
+- **Do** preserve the white sidebar, cool canvas and indigo action hierarchy.
+- **Do** pair status colors with state text and relevant observation timestamps.
+- **Do** retain project identity and source context through service and run views.
+- **Do** enlarge supporting evidence on mobile and keep forms within the viewport.
+- **Do** preserve visible labels, focus indicators and recoverable inline errors.
+
+### Don't:
+- **Don't** restore the superseded Arabic/teal identity as the default console world.
+- **Don't** use a healthy-looking color to imply a deployment or health check that the evidence does not establish.
+- **Don't** turn routine cards into floating layers or make the main navigation a content modal.
+- **Don't** replace SVG interface icons with decorative glyphs.
+- **Don't** present this local design preview as deployment or production acceptance.
+
+Not canonized: inherited teal selection/secondary-hover remnants and very small desktop metadata are implementation inconsistencies or legibility concerns, not house-style rules. This document records the current design direction and does not establish production acceptance.

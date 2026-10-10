@@ -1,7 +1,7 @@
 # Shiftcodes deployment management
 
 English operator dashboard at **https://monitoring.shiftcodes.net/** with a real
-login page, GitHub branch selection, test-only builds, approved deployments,
+login page, GitHub branch selection, test-only builds, automatic and manual deployments,
 retry, pending-job cancellation, event history and an administration audit log.
 It uses neither GitHub Actions nor Jenkins.
 
@@ -25,8 +25,7 @@ journal is isolated from the receiver database and survives restarts.
 
 1. Log in, open a project, and refresh its real GitHub branches if needed.
 2. Choose a branch and start a build. The confirmation shows its full commit.
-3. Choose **build and test only**, or **build, test and deploy** when the recipe
-   has been approved. A build choice does not change the automatic branch.
+3. Choose **build and test only**, or **build, test and deploy** when the project has a complete recipe. A build choice does not change the automatic branch.
 4. Follow the job's recorded stages. Failed or cancelled jobs offer a new build
    of the selected branch's latest commit, explicitly shown before confirmation.
 5. To change automatic deployment, save the branch and automatic switch in the
@@ -59,6 +58,15 @@ Operators must coordinate real database account changes and dependent services.
 The editor does not claim to implement database administration, a host terminal,
 or full Webmin feature parity. Secrets never enter job/audit records or URLs.
 
+The Terminal tab opens an interactive `/bin/sh` inside the selected running
+container, with its configured user. Sessions are bound to the authenticated
+operator session and exact container identity. Input is sequenced, output is
+bounded, and sessions close after two disconnected minutes or thirty minutes
+absolute. Commands and terminal output are not stored in the audit database.
+Mobile shortcut keys expose Tab, Escape, interrupt, EOF, arrows and Enter.
+This does not expose a host shell. Terminal connection tests are separate from
+application deployment acceptance.
+
 The receiver forwards authenticated and CSRF-protected operations to the worker
 through a group-restricted Unix socket on their shared volume. It still has no
 Docker socket and the worker exposes no public control port.
@@ -74,7 +82,7 @@ while observations update, and lost connections are visibly marked stale.
 ## Pipeline rollout boundary
 
 This dashboard does not certify every application's test suite. The policy file
-is authoritative: only enabled recipes can deploy. Projects with recipes can
+is authoritative: a complete recipe is required for deployment. Automatic deployment defaults on; saved owner opt-outs remain off. Projects with recipes can
 run test-only validation; missing recipes are explicitly unavailable. At the
 start of this dashboard expansion, captcha had a successful real GitHub-push
 build/test/deployment, DSL01 had validated without cutover, and DSL02/CRM tests
@@ -144,3 +152,11 @@ is managed narrowly by `configure_domain.py` with a trusted Apache syntax check
 and graceful reload. The GitHub hook helper reuses existing matching hooks.
 
 GitHub SSH uses ssh.github.com:443 with HostKeyAlias=github.com, strict host-key checking and the existing pinned known_hosts. The VPS connection to GitHub port 22 timed out during production acceptance; port 443 passed authenticated repository access.
+
+## Design preview boundary
+The current redesign uses an English project catalog and shared service workspace.
+A local preview can use explicitly labeled captured service metadata and proposed
+deployment settings; it is not evidence that those settings are active on production.
+Preview operations are disconnected. Environment values are not copied.
+The design review covers rendered desktop/mobile workflows; production terminal
+and deployment acceptance require separate live checks after rollout.

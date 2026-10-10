@@ -63,10 +63,10 @@ class ReceiverTests(unittest.TestCase):
 
     def test_disabled_project_never_enters_deploy_queue(self):
         config = json.loads(self.config.read_text())
-        config['test']['enabled'] = False
+        config['test']['automatic'] = False
         self.config.write_text(json.dumps(config))
         self.deliver()
-        self.assertEqual(self.app.state()['jobs'][0]['status'], 'awaiting-validation')
+        self.assertEqual(self.app.state()['jobs'][0]['status'], 'auto-deploy-disabled')
 
     def test_newer_push_supersedes_only_pending_job(self):
         self.deliver()

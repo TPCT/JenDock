@@ -12,7 +12,8 @@ const stateNames = {
   validated: "Build verified",
   failed: "Failed",
   superseded: "Superseded",
-  "awaiting-validation": "Awaiting approval",
+  "awaiting-validation": "Not started",
+  "auto-deploy-disabled": "Auto-deploy off",
   "needs-review": "Migration review",
   interrupted: "Interrupted",
   cancelled: "Cancelled",
@@ -32,6 +33,8 @@ const retryStates = [
   "cancelled",
   "needs-review",
   "superseded",
+  "awaiting-validation",
+  "auto-deploy-disabled",
 ];
 const projectTabs = {};
 let liveConnection = null;
@@ -65,7 +68,7 @@ const badge = (status) =>
         ? "good"
         : ["failed", "interrupted", "Unavailable", "Unhealthy"].includes(status)
           ? "bad"
-          : ["running", "exited", "created"].includes(status) ? "neutral" : "pending"),
+          : ["running", "Running", "exited", "created"].includes(status) ? "neutral" : "pending"),
   );
 const link = (text, href) => {
   const n = el("a", text);
@@ -80,10 +83,10 @@ const button = (text, fn, cls = "secondary", disabled = false) => {
   return n;
 };
 const stale = (name) =>
-  observationFailed ||
+  !data?.preview && (observationFailed ||
   !data?.snapshots[name] ||
   Date.now() / 1000 - data.snapshots[name].updated > 90 ||
-  data.snapshots.worker?.value.state !== "running";
+  data.snapshots.worker?.value.state !== "running");
 const containers = () => data?.snapshots.containers?.value || [];
 const projectImages = (p) =>
   containers().filter(
@@ -96,6 +99,7 @@ const projectImages = (p) =>
 const projectLabel = (name) => data.projects[name]?.label || name;
 function observedText(node, key, liveText, staleText) {
   node.dataset.observation = key;
+  if(data?.preview)liveText=liveText.replace("Live", "Captured");
   node.dataset.liveText = liveText;
   node.dataset.staleText = staleText;
   node.textContent = stale(key) ? staleText : liveText;
@@ -138,6 +142,7 @@ async function api(path, body) {
   return value;
 }
 function showLogin() {
+  closeTerminal();
   closeContainer();
   $("operation-dialog").close();
   setNavigation(false);
@@ -319,31 +324,30 @@ function resources() {
   }
   return n;
 }
+function uiIcon(name){
+  const paths={projects:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',overview:'M3 12h4l3-8 4 16 3-8h4',jobs:'M8 4h12v16H8 M4 8h8 M4 16h8',containers:'M12 3 3 8v9l9 5 9-5V8L12 3 M3 8l9 5 9-5 M12 13v9',audit:'M12 8v4l3 2 M4 5v5h5 M4 10a8 8 0 1 1 1 8',branch:'M6 3v12a4 4 0 0 0 4 4h2 M18 7v3a4 4 0 0 1-4 4H6 M4 3a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M16 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0',arrow:'M5 12h14 M14 7l5 5-5 5',terminal:'M5 6l5 6-5 6 M13 18h6',github:'M8 20v-4 M16 20v-4 M8 16c-4-1-5-5-3-8V4l4 2h6l4-2v4c2 3 1 7-3 8H8'};
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('ui-icon');
+  const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',paths[name]||paths.projects);svg.append(path);return svg;
+}
 function projectsTable(items) {
-  const result=table(
-    ["Project", "Tracked branch", "Services", "Latest run", "Actions"],
-    items.map(([name, p]) => {
-      const services = projectImages(p),
-        last = data.jobs.find((j) => j.project === name);
-      const count = observedText(
-        el("span"),
-        "containers",
-        services.length
-          ? `${services.filter((c) => c.State === "running" && !c.Status.includes("unhealthy")).length} / ${services.length} running`
-          : "No services observed",
-        "Stale observation",
-      );
-      return [
-        subtitle(p.label || name, p.repository, "#project/" + name),
-        subtitle(p.branch, p.automatic ? "Auto-deploy on" : "Auto-deploy off"),
-        count,
-        last ? badge(last.status) : el("span", "No runs yet", "hint"),
-        link("Open project", "#project/" + name),
-      ];
-    }),
-  );
-  result.classList.add("project-list");
-  return result;
+  const list=el('div','','project-catalog');
+  for(const [name,p] of items){
+    const services=projectImages(p),last=data.jobs.find(j=>j.project===name),running=services.filter(c=>c.State==='running'&&!c.Status.includes('unhealthy')).length;
+    const state=stale('containers')?'Unavailable':!services.length?'Not observed':running===services.length?'Running':'Needs attention';
+    const card=el('article','','catalog-project'),top=el('div','','catalog-top'),mark=el('span','','project-mark');mark.append(uiIcon('containers'));
+    top.append(mark,badge(state));
+    const title=el('h2');title.append(link(p.label||name,'#project/'+name));
+    card.append(top,title,el('p',p.repository,'catalog-repository'));
+    const source=el('div','','catalog-source');source.append(uiIcon('branch'),el('span',p.branch),el('span',p.automatic?'Auto-deploy':'Manual deploy','deployment-mode'));
+    card.append(source);
+    const serviceLine=el('div','','catalog-services');serviceLine.append(el('span','Services'),el('strong',services.length?running+' / '+services.length+' running':'No observation'));
+    card.append(serviceLine);
+    const activity=el('div','','catalog-activity');activity.append(el('span','Latest run','hint'));
+    if(last){const run=link('Run #'+last.id,'#job/'+last.id);activity.append(run,badge(last.status));}else activity.append(el('span','No runs yet','hint'));
+    card.append(activity);
+    const open=link('Open project','#project/'+name);open.className='catalog-open';open.append(uiIcon('arrow'));card.append(open);list.append(card);
+  }
+  return list;
 }
 function overview() {
   const root = $("content");
@@ -383,7 +387,7 @@ function projectsView() {
   label.append(input);
   const summary = el(
     "p",
-    `${Object.values(data.projects).filter((p) => p.enabled).length} approved for deployment out of ${Object.keys(data.projects).length}`,
+    `${Object.keys(data.projects).length} projects · ${Object.values(data.projects).filter((p) => p.automatic).length} with ${data.preview ? "proposed auto-deploy" : "auto-deploy"} on`,
     "hint",
   );
   toolbar.append(label, summary);
@@ -438,7 +442,7 @@ function serviceGroup(items, project) {
     const card = el("article", "", "service-card");
     const head = el("div", "", "service-head");
     head.append(
-      el("strong", c.Names, "identifier"),
+      el("strong", c.Names.replace(/-1$/, ""), "identifier"),
       badge(
         c.Status.includes("unhealthy")
           ? "Unhealthy"
@@ -472,11 +476,12 @@ function projectView(name) {
   repo.target = "_blank";
   repo.rel = "noopener";
   const identity = el("div");
-  identity.append(repo, el("p", "Tracked branch: " + p.branch, "hint"));
+  identity.append(repo, el("p", "Production branch: " + p.branch, "hint"));
+  const mode=button(p.automatic?"Auto-deploy on":"Auto-deploy off",()=>{projectTabs[name]="settings";render(true);},"mode-control");identity.append(mode);
   summary.append(
     identity,
     button(
-      "New build",
+      "Build & deploy",
       () => openBuild(name, p.branch),
       "primary",
       !p.build_ready,
@@ -484,7 +489,7 @@ function projectView(name) {
   );
   root.append(summary);
   const services=projectImages(p),running=services.filter(c=>c.State==='running').length;
-  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':!services.length?'No services observed':running===services.length&&!services.some(c=>c.Status.includes('unhealthy'))?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
+  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':!services.length?'No services observed':running===services.length&&!services.some(c=>c.Status.includes('unhealthy'))?(services.every(c=>c.Status.includes('(healthy)'))?'Healthy':'Running'):'Needs attention'),el('span',running+' of '+services.length+' services running'));
   root.append(summaryLine);
   if(!p.build_ready)root.append(el('p','Build setup pending. Container management is available below.','build-availability'));
   const tabs = el("div", "", "project-tabs");
@@ -507,6 +512,13 @@ function projectView(name) {
     t.setAttribute("aria-selected", String(current === key));
     tabs.append(t);
   }
+  tabs.addEventListener('keydown',event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const options=[...tabs.children],index=options.indexOf(document.activeElement);if(index<0)return;
+    event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowRight'?1:-1)+options.length)%options.length;
+    options[next].click();document.querySelector('.project-tabs [aria-selected=true]')?.focus();
+  });
+  for(const t of tabs.children)t.tabIndex=t.getAttribute('aria-selected')==='true'?0:-1;
   root.append(tabs);
   if (current === "services") {
     root.append(
@@ -559,7 +571,7 @@ function projectView(name) {
     check.type = "checkbox";
     check.id = "auto-deploy";
     check.checked = !!p.automatic;
-    check.disabled = !p.enabled;
+    check.disabled = false;
     checkLabel.append(
       check,
       document.createTextNode(
@@ -567,7 +579,7 @@ function projectView(name) {
       ),
     );
     panel.append(checkLabel);
-    if (!p.enabled)
+    if (!p.build_ready)
       panel.append(
         el(
           "p",
@@ -664,113 +676,56 @@ function jobsView() {
   update();
 }
 function jobView(id) {
-  const j = data.jobs.find((j) => j.id === Number(id));
-  if (!j)
-    return $("content").append(
-      empty("Run not found", "Return to Runs to view recent activity."),
-    );
-  const root = $("content"),
-    summary = el("div", "", "job-summary"),
-    info = el("div");
-  info.append(
-    badge(j.status),
-    el(
-      "p",
-      `${projectLabel(j.project)} · ${j.branch || data.projects[j.project]?.branch} · ${j.actor || "github"}`,
-    ),
-    el("code", j.sha),
-  );
-  const actions = el("div", "", "actions");
-  if (retryStates.includes(j.status))
-    actions.append(
-      button(
-        "Rebuild",
-        () =>
-          openBuild(
-            j.project,
-            j.branch || data.projects[j.project].branch,
-            j.id,
-          ),
-        "primary",
-      ),
-    );
-  if (["queued", "validation-queued", "awaiting-validation"].includes(j.status))
-    actions.append(
-      button(
-        "Cancel queued run",
-        async () => {
-          try {
-            await action({
-              action: "cancel",
-              project: j.project,
-              job_id: j.id,
-            });
-          } catch (e) {
-            toast(e.message);
-          }
-        },
-        "secondary danger",
-      ),
-    );
-  actions.append(link("Open project", "#project/" + j.project));
-  summary.append(info, actions);
-  root.append(summary);
-  const services=projectImages(p),running=services.filter(c=>c.State==='running').length;
-  const summaryLine=el('div','','project-health');summaryLine.append(badge(stale('containers')?'Unavailable':!services.length?'No services observed':running===services.length&&!services.some(c=>c.Status.includes('unhealthy'))?'Healthy':'Needs attention'),el('span',running+' of '+services.length+' services running'));
-  root.append(summaryLine);
-  if(!p.build_ready)root.append(el('p','Build setup pending. Container management is available below.','build-availability'));
-  const strip = el("div", "", "step-strip"),
-    order =
-      j.mode === "validate"
-        ? ["queued", "building", "testing", "validated"]
-        : ["queued", "building", "testing", "deploying", "succeeded"],
-    idx = order.indexOf(j.status === "validation-queued" ? "queued" : j.status),
-    labels =
-      j.mode === "validate"
-        ? ["Queued", "Build", "Test", "Result"]
-        : ["Queued", "Build", "Test", "Deploy", "Verify"];
-  labels.forEach((label, i) =>
-    strip.append(
-      el(
-        "span",
-        label,
-        ["succeeded", "validated"].includes(j.status) || idx > i
-          ? "done"
-          : idx === i
-            ? "current"
-            : "",
-      ),
-    ),
-  );
-  root.append(strip);
-  if (j.detail)
-    root.append(
-      el(
-        "p",
-        j.detail,
-        ["failed", "interrupted"].includes(j.status) ? "error" : "notice",
-      ),
-    );
-  if (j.retry_of) root.append(el("p", "Retry of run #" + j.retry_of, "hint"));
-  root.append(section("Execution timeline"));
-  const events = data.events.filter((e) => e.job_id === j.id).reverse(),
-    timeline = el("ol", "", "timeline panel");
-  timeline.append(
-    eventRow({
-      created: j.created,
-      status: "queued",
-      detail: "Run created and commit recorded.",
-    }),
-  );
-  events.forEach((e) => timeline.append(eventRow(e)));
-  root.append(
-    timeline,
-    el(
-      "p",
-      "The timeline records execution stages. Raw output remains protected on the server because it may contain sensitive data.",
-      "hint",
-    ),
-  );
+  const j=data.jobs.find(j=>j.id===Number(id)),root=$('content');
+  if(!j){root.append(empty('Run not found','This run is not in the recent history.'),link('View recent runs','#jobs'));return;}
+  const p=data.projects[j.project],events=data.events.filter(e=>e.job_id===j.id).sort((a,b)=>a.created-b.created);
+  const waiting=['awaiting-validation','auto-deploy-disabled'].includes(j.status);
+  const hero=el('section','','run-overview');
+  const heading=el('div','','run-heading');heading.append(link(projectLabel(j.project),'#project/'+j.project),badge(j.status));
+  const descriptions={
+    'awaiting-validation':p.build_ready?'This push was recorded under the previous deployment policy. Start a deployment below.':'This push was received, but this project has no build recipe yet. No deployment has started.',
+    'auto-deploy-disabled':'Automatic deployment is turned off for this project. You can deploy manually or turn it on in project settings.',
+    queued:'Queued for the deployment worker. This run starts automatically when the worker is available.',
+    'validation-queued':'Waiting to build and test. This run will not change production.',
+    building:'Building Docker images from the recorded Git commit.',testing:'Checking the candidate images before deployment.',deploying:'Updating project services and checking their runtime health.',
+    succeeded:'The deployment finished and runtime checks passed.',validated:'Build and tests passed. Production has not changed.',
+    superseded:'A newer push replaced this queued run. Open the project for its latest deployment.',cancelled:'This run was cancelled before execution.',
+    'rolled-back':'Deployment checks failed. The previous images were restored.',recovering:'Restoring the previous deployment after a failed runtime check.'
+  };
+  hero.append(heading,el('h2',waiting?'Deployment has not started':stateNames[j.status]||j.status),el('p',descriptions[j.status]||j.detail||'Review the recorded result and retry when the cause is resolved.'));
+  const facts=el('dl','','run-facts');
+  for(const [label,value] of [['Branch',j.branch||p.branch],['Commit',j.sha.slice(0,12)],['Triggered by',j.actor||'GitHub'],['Created',date(j.created)]]){
+    const pair=el('div'),valueNode=el('dd',value);if(label==='Commit'){const commitLink=link(value,'https://github.com/'+p.repository+'/commit/'+j.sha);commitLink.target='_blank';commitLink.rel='noopener';valueNode.replaceChildren(commitLink);valueNode.title=j.sha;}
+    pair.append(el('dt',label),valueNode);facts.append(pair);
+  }
+  hero.append(facts);
+  const actions=el('div','','run-actions');
+  if(waiting||j.status==='validated'||retryStates.includes(j.status)){
+    if(p.build_ready)actions.append(button(waiting?'Build & deploy':j.status==='validated'?'Deploy from this branch':'Retry deployment',()=>openBuild(j.project,j.branch||p.branch,j.id),'primary'));
+    else actions.append(el('p','Build setup required: image definitions, test commands and service mapping are missing.','notice'));
+  }
+  if(['queued','validation-queued', 'awaiting-validation','auto-deploy-disabled'].includes(j.status))actions.append(button('Cancel run',async()=>{try{await action({action:'cancel',project:j.project,job_id:j.id});}catch(e){toast(e.message);}},'quiet danger'));
+  actions.append(button('Project settings',()=>{projectTabs[j.project]='settings';location.hash='project/'+j.project;},'secondary'));
+  hero.append(actions);root.append(hero);
+  const order=j.mode==='validate'?['queued','building','testing','validated']:['queued','building','testing','deploying','succeeded'];
+  const labels=j.mode==='validate'?['Queue','Build images','Run tests','Complete']:['Queue','Build images','Run tests','Deploy services','Verify'];
+  const normalized=j.status==='validation-queued'?'queued':j.status;
+  const idx=order.indexOf(normalized),passed=['succeeded','validated'].includes(j.status);
+  const pipeline=el('section','','run-pipeline');pipeline.append(el('h2','Deployment progress'));
+  const steps=el('ol','','execution-steps');
+  order.forEach((stage,i)=>{
+    const completed=passed||(idx>=0&&idx>i),current=idx===i&&!passed;
+    const recorded=events.some(e=>e.status===stage);
+    const row=el('li','','execution-step '+(completed?'complete':current?'current':''));
+    const marker=el('span',String(i+1),'step-number');marker.setAttribute('aria-hidden','true');
+    const text=el('div');text.append(el('strong',labels[i]),el('span',completed?'Completed':current?'In progress':recorded?'Recorded in activity':'Not started','hint'));row.append(marker,text);steps.append(row);
+  });pipeline.append(steps);root.append(pipeline);
+  if(j.detail)root.append(el('p',j.detail,['failed','interrupted','needs-review'].includes(j.status)?'error':'notice'));
+  if(j.retry_of)root.append(link('Based on run #'+j.retry_of,'#job/'+j.retry_of));
+  root.append(section('Run activity'));
+  const timeline=el('ol','','timeline panel');
+  timeline.append(eventRow({created:j.created,status:waiting?j.status:'queued',detail:'Run created for '+(j.branch||p.branch)+' at '+j.sha.slice(0,12)+'.'}));
+  events.forEach(e=>timeline.append(eventRow(e)));root.append(timeline);
 }
 function eventRow(e) {
   const li = el("li"),
@@ -802,11 +757,13 @@ function containersView() {
         .toLowerCase()
         .includes(query),
     );
-    list.replaceChildren(
-      entries.length
-        ? projectsTable(entries)
-        : empty("No matching projects", "Try a project or service name."),
-    );
+    list.replaceChildren();
+    if(!entries.length)list.append(empty("No matching projects", "Try a project or service name."));
+    for(const [name,p] of entries){
+      const projectMatch=(name+' '+p.label+' '+p.repository).toLowerCase().includes(query);
+      const matching=projectImages(p).filter(c=>projectMatch||(c.Names+' '+c.Image).toLowerCase().includes(query));
+      list.append(section(p.label||name,link('Open project','#project/'+name)),serviceGroup(matching,name));
+    }
     const owned = new Set(
       Object.values(data.projects).flatMap((p) =>
         projectImages(p).map((c) => c.Names),
@@ -855,6 +812,7 @@ function render(force = false) {
   if (!data || !session) return;
   const route = location.hash.slice(1) || "overview",
     [page, rawKey, rawName] = route.split("/"),key=decodeURIComponent(rawKey||""),containerName=decodeURIComponent(rawName||"");
+  if(route!==currentRoute && containerContext && Object.keys(containerContext.changes).length){confirmDraftNavigation(route);return;}
   const editing =
     document.activeElement?.matches("input,select") || document.activeElement?.closest(".select-control") || $("build-dialog").open || page==="container" || $("operation-dialog").open;
   if (!force && route === currentRoute && editing) {
@@ -868,7 +826,7 @@ function render(force = false) {
           checked: n.checked,
         }))
       : [];
-  if(page!=="container")containerContext=null;
+  if(page!=="container"){closeTerminal();containerContext=null;}
   currentRoute = route;
   const titles = {
     overview: ["Overview", "Production health and deployment activity."],
@@ -890,9 +848,10 @@ function render(force = false) {
       "Production services, build history and deployment settings.",
     ],
     container: [containerName, "Manage this service"],
-    job: ["Run #" + key, "Execution stages and recorded result."],
+    job: ["Deployment #" + key, ""],
   };
   const [title, description] = titles[page] || titles.overview;
+  $("app").dataset.page=page;
   $("page-title").textContent = title;
   $("page-description").textContent = description;
   document.title = title + " | Shiftcodes";
@@ -907,6 +866,7 @@ function render(force = false) {
   if(page==="container")$("breadcrumb").append(link("Projects","#projects"),link(projectLabel(key),"#project/"+key));
   $("breadcrumb").append(el("span", title));
   document.querySelectorAll("[data-nav]").forEach((a) => {
+    if(!a.querySelector("svg"))a.prepend(uiIcon(a.dataset.nav));
     const active =
       a.dataset.nav ===
       (["project","container"].includes(page) ? "projects" : page === "job" ? "jobs" : page);
@@ -942,14 +902,16 @@ function render(force = false) {
 }
 function updateStatus() {
   $("environment-note").hidden = data.environment !== "local";
+  $("environment-note").textContent=data.preview?"Design preview · Captured services with proposed deployment settings. Production actions are disconnected.":"Local preview — actions here do not change production.";
   updateObservationLabels();
   $("project-count").textContent = Object.keys(data.projects).length;
   const old = stale("containers");
-  $("connection").textContent = old
+  $("connection").textContent = data.preview?"Captured server state":old
     ? "Current status unavailable — showing stale observations"
-    : "Live · updates arrive automatically";
-  $("observed").textContent =
-    "Services observed: " + date(data.snapshots.containers?.updated);
+    : "Live updates";
+  $("observed").textContent = "Updated " + date(data.snapshots.containers?.updated);
+  $("refresh").hidden=!old;
+  $("connection").dataset.stale=String(old);
 }
 async function refresh(force = false) {
   if (busy || !session) return;
@@ -972,13 +934,25 @@ async function refresh(force = false) {
     $("refresh").disabled = false;
   }
 }
+async function refreshBuildBranches(name,branch,retryOf){
+  $('dialog-title').textContent='Choose a build';$('build-summary').replaceChildren(el('p','Fetching current branches from GitHub…','notice'));
+  $('build-submit').disabled=true;$('build-error').hidden=true;$('build-dialog').showModal();
+  try{
+    await api('action',{action:'refresh-branches',project:name});
+    for(let attempt=0;attempt<20;attempt++){
+      await new Promise(resolve=>setTimeout(resolve,1000));if(!$('build-dialog').open)return;
+      data=await api('state');const observed=data.snapshots['branches:'+name];
+      if(observed&&!observed.value.error&&Date.now()/1000-observed.updated<60){$('build-dialog').close();openBuild(name,branch,retryOf);return;}
+    }
+    throw new Error('GitHub branches are still unavailable. Close this window and try again.');
+  }catch(e){$('build-error').textContent=e.message;$('build-error').hidden=false;}
+}
 function openBuild(name, branch, retryOf = null) {
   const p = data.projects[name],
     observation = data.snapshots["branches:" + name],
     sha = observation?.value.branches?.[branch];
-  if (!sha || Date.now() / 1000 - observation.updated > 600) {
-    toast("Refresh GitHub branches in project settings, then try again.");
-    return;
+  if (!sha || (!data.preview && Date.now() / 1000 - observation.updated > 600)) {
+    refreshBuildBranches(name,branch,retryOf);return;
   }
   if (!p.build_ready) {
     toast("Build definitions and tests are not configured for this project.");
@@ -992,7 +966,7 @@ function openBuild(name, branch, retryOf = null) {
     request_id: crypto.randomUUID(),
   };
   $("dialog-title").textContent = retryOf
-    ? "Rebuild run #" + retryOf
+    ? "Deploy from run #" + retryOf
     : "New build";
   const branchLabel = el("label", "Build branch");
   branchLabel.htmlFor = "build-branch";
@@ -1018,20 +992,26 @@ function openBuild(name, branch, retryOf = null) {
     $("build-summary").append(
       el(
         "p",
-        "This builds the latest commit on the selected branch, which may differ from the failed run.",
+        "This builds the latest commit on the selected branch. It may differ from the source run; review the commit before starting.",
         "hint",
       ),
     );
-  $("deploy-mode").disabled = !p.enabled;
-  document.querySelector("[name=mode][value=validate]").checked = true;
-  $("build-limit").textContent = p.enabled
+  $("deploy-mode").disabled = !p.build_ready;
+  document.querySelector("[name=mode][value=deploy]").checked = !!p.build_ready;
+  document.querySelector("[name=mode][value=validate]").checked = !p.build_ready;
+  $("build-limit").textContent = p.build_ready
     ? "Deploy updates this project. This branch choice does not change the webhook settings."
-    : "Production deployment requires approval. Build validation is available.";
+    : "Deployment setup is incomplete. You can run build validation.";
   $("build-error").hidden = true;
   $("build-submit").disabled = false;
+  updateBuildActionLabel();
   enhanceSelects($("build-summary"));
   $("build-dialog").showModal();
 }
+function updateBuildActionLabel(){
+  $("build-submit").textContent=document.querySelector("[name=mode]:checked")?.value==='deploy'?'Queue deployment':'Queue build & tests';
+}
+document.querySelectorAll('[name=mode]').forEach(input=>input.addEventListener('change',updateBuildActionLabel));
 $("build-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("build-submit").disabled = true;

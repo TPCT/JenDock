@@ -103,8 +103,8 @@ class Application:
             p=effective_projects(db,self.config).get(name)
             if not p:
                 return 404, {'error':'Project not found.'}
-            if action in ('container-details','container-start','container-stop','container-restart','environment-save'):
-                payload=dict(body,actor=session['username'])
+            if action in ('container-details','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
+                payload=dict(body,actor=session['username'],terminal_owner=session['token'])
                 try:
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
                         client.settimeout(600);client.connect('/state/control.sock')
@@ -119,9 +119,9 @@ class Application:
                 return 202, {'message':'Fetching branches from GitHub.'}
             if action=='cancel':
                 job=db.execute('SELECT * FROM jobs WHERE id=? AND project=?',(body.get('job_id'),name)).fetchone()
-                if not job or job['status'] not in ('queued','validation-queued','awaiting-validation'):
+                if not job or job['status'] not in ('queued','validation-queued','awaiting-validation','auto-deploy-disabled'):
                     return 409, {'error':'Only queued runs can be cancelled. Active runs complete testing and recovery.'}
-                changed=db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=? AND status IN ('queued','validation-queued','awaiting-validation')",(time.time(),job['id'])).rowcount
+                changed=db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=? AND status IN ('queued','validation-queued','awaiting-validation','auto-deploy-disabled')",(time.time(),job['id'])).rowcount
                 if not changed:
                     return 409, {'error':'This run has started and can no longer be cancelled.'}
                 db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',(job['id'],time.time(),'cancelled','An administrator cancelled the run before execution.'))
@@ -144,8 +144,6 @@ class Application:
                 return 409, {'error':'The branch was not found in the latest GitHub observation.'}
             if action=='settings':
                 automatic=body.get('automatic') is True
-                if automatic and not p.get('enabled'):
-                    return 409, {'error':'Deployment tests have not been approved for this project.'}
                 db.execute('INSERT OR REPLACE INTO settings VALUES(?,?,?)',(name,branch,int(automatic)))
                 audit(db,session['username'],'settings',name,json.dumps({'branch':branch,'automatic':automatic}))
                 return 200, {'message':'Branch and automatic deployment settings saved. No deployment was started.'}
@@ -156,14 +154,12 @@ class Application:
                 return 400, {'error':'Choose build validation or deployment.'}
             if not p.get('recipe'):
                 return 409, {'error':'Build definitions and tests are not configured for this project.'}
-            if mode=='deploy' and not p.get('enabled'):
-                return 409, {'error':'Deployment is not approved. You can validate the build without changing production.'}
             if body.get('sha') != sha:
                 return 409, {'error':'The branch changed since this form opened. Close it, refresh branches and review the new commit.'}
             retry_of=None
             if action=='retry':
                 old=db.execute('SELECT * FROM jobs WHERE id=? AND project=?',(body.get('job_id'),name)).fetchone()
-                if not old or old['status'] not in ('failed','interrupted','rolled-back','cancelled','needs-review','superseded'):
+                if not old or old['status'] not in ('failed','interrupted','rolled-back','cancelled','needs-review','superseded','awaiting-validation','auto-deploy-disabled','validated'):
                     return 409, {'error':'This run cannot be retried.'}
                 retry_of=old['id']
             key=body.get('request_id','')
@@ -269,7 +265,7 @@ def handler(app):
             self.send_header('Cache-Control','no-store')
             self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Referrer-Policy','same-origin')
-            self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+            self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             if cookie is not None:
                 self.send_header('Set-Cookie',app.cookie_name+'='+cookie+'; Path=/; HttpOnly; SameSite=Strict; Max-Age='+('43200' if cookie else '0')+('; Secure' if app.secure else ''))
             self.end_headers()
@@ -312,6 +308,9 @@ def handler(app):
             files={'/':('index.html','text/html; charset=utf-8'), '/login':('index.html','text/html; charset=utf-8'),
               '/controls.js':('controls.js','text/javascript; charset=utf-8'), '/legacy-messages.js':('legacy-messages.js','text/javascript; charset=utf-8'), '/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),
               '/NotoSansArabic-Regular.ttf':('NotoSansArabic-Regular.ttf','font/ttf'),'/FONT-LICENSE.txt':('FONT-LICENSE.txt','text/plain')}
+            files.update({'/terminal.js':('terminal.js','text/javascript; charset=utf-8'),'/vendor/xterm.js':('vendor/xterm.js','text/javascript; charset=utf-8'),'/vendor/addon-fit.js':('vendor/addon-fit.js','text/javascript; charset=utf-8'),'/vendor/xterm.css':('vendor/xterm.css','text/css; charset=utf-8')})
+            files['/vendor/inter-latin.woff2']=('vendor/inter-latin.woff2','font/woff2')
+            files['/product.css']=('product.css','text/css; charset=utf-8')
             if path not in files:
                 return self.respond(404,{'error':'Not found'})
             name,mime=files[path]

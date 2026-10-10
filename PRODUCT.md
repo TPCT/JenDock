@@ -5,9 +5,9 @@ web
 ## Stack
 Python service and plain HTML/CSS/JavaScript, chosen to implement the user's approved lightweight deployment service with minimal VPS overhead.
 ## Users
-The owner of the TPCT production VPS, managing existing Docker Compose applications and approved Git branches.
+The owner of the TPCT production VPS, managing existing Docker Compose applications and configured Git branches.
 ## Product Purpose
-Operate deployment through an English management dashboard on monitoring.shiftcodes.net: session login, real GitHub branch selection, test-only builds, approved production deployment, retry, queued cancellation, persisted audit history, and timestamped runtime evidence.
+Operate deployment through an English management dashboard on monitoring.shiftcodes.net: session login, real GitHub branch selection, test-only builds, automatic production deployment with an owner-controlled opt-out, retry, queued cancellation, persisted audit history, and timestamped runtime evidence.
 ## Operating Context
 GitHub push webhooks, one build at a time, production VPS with 6 CPUs and 8 GB RAM, 88 existing containers. User approved proceeding with the previously described monitoring and deployment flow.
 ## Capabilities and Constraints
@@ -28,3 +28,8 @@ and a masked environment editor with persistent per-service overrides and recove
 Mobile navigation is a sidebar with breadcrumbs. Select components are searchable
 custom listboxes. Runtime changes arrive automatically; forms retain edits.
 Container management is not host, database account or filesystem administration.
+
+## Current redesign
+The English service catalog groups each project once, leading to services, runs and deployment settings. The owner explicitly rejected the prior presentation and requested a complete replacement, prioritizing desktop and mobile product design. Runtime evidence and proposed settings must be distinguished in design previews.
+
+Automatic deployment is the default; a persisted owner opt-out is respected. Legacy waiting records have an explicit manual deployment path rather than an unexplained approval state. Container terminals are session-owned interactive shells inside the selected running container, not host shells. Browser sessions and CSRF protect the control API. Preview mode disconnects production operations and never constitutes production acceptance.

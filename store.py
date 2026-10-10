@@ -68,7 +68,7 @@ def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor
             return old['id'], False
         if actor != 'github' and db.execute("SELECT id FROM jobs WHERE project=? AND status IN ('queued','validation-queued','building','testing','deploying','recovering')",(project,)).fetchone():
             raise ValueError('This project already has an active or queued run.')
-        status = ('validation-queued' if mode == 'validate' else 'queued') if enabled else 'awaiting-validation'
+        status = ('validation-queued' if mode == 'validate' else 'queued') if enabled else 'auto-deploy-disabled'
         cursor = db.execute('INSERT INTO jobs(delivery,project,sha,created,updated,status,branch,mode,actor,retry_of) VALUES(?,?,?,?,?,?,?,?,?,?)',
                             (delivery, project, sha, now, now, status, branch, mode, actor, retry_of))
         if actor == 'github':
@@ -101,9 +101,9 @@ def effective_projects(db, path):
         if row['project'] in data:
             p = data[row['project']]
             p['branch'] = row['branch']
-            p['automatic'] = bool(row['automatic']) and p.get('enabled', False)
+            p['automatic'] = bool(row['automatic'])
     for p in data.values():
-        p.setdefault('automatic', p.get('enabled', False))
+        p.setdefault('automatic', True)
     return data
 
 

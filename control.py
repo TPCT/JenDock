@@ -157,6 +157,9 @@ def details(project, name):
 def execute(body):
     if not isinstance(body,dict):raise ControlError('Invalid operation request.')
     action=body.get('action');project=body.get('project');name=body.get('container');actor=body.get('actor','admin')
+    if action in ('terminal-open','terminal-poll','terminal-close'):
+        from terminal_control import execute as terminal_execute
+        return terminal_execute(body)
     if action=='container-details':return details(project,name)
     if action not in ('container-start','container-stop','container-restart','environment-save'):
         raise ControlError('Unsupported container operation.')
