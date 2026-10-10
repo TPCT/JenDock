@@ -1,51 +1,50 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#152b32" />
-    <title>إدارة النشر | Shiftcodes</title>
+    <title>Deployment console | Shiftcodes</title>
     <link rel="stylesheet" href="./style.css" />
+    <script src="./legacy-messages.js" defer></script>
     <script src="./app.js" defer></script>
   </head>
   <body>
     <!-- THESIS: A deployment workbench; project decisions and execution evidence share one workflow.
 OWN-WORLD: Ink navigation, pale mineral workspace, white data surfaces, teal actions, restrained amber/red states.
 STORY: Authenticate, inspect a project, choose a real Git branch, test or deploy, follow persisted results and recovery.
-FIRST VIEWPORT: Persistent right navigation, compact health bar, project table and actionable failures; project detail contains branch controls and current images.
+FIRST VIEWPORT: Persistent left navigation, compact health bar, project table and actionable failures; project detail groups all services, with branches limited to build and settings.
 FORM: Operator workbench, seed 66a0a1d4, original selection 3; code-led product expansion.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
-    <div id="boot" class="boot" role="status">جارٍ التحقق من الجلسة…</div>
+    <div id="boot" class="boot" role="status">Checking your session…</div>
     <section id="login" class="login-layout" hidden>
       <div class="login-story">
-        <a class="brand" href="./"
-          >Shiftcodes<span>إدارة النشر والتشغيل</span></a
-        >
+        <a class="brand" href="./">Shiftcodes<span>Deployment console</span></a>
         <div>
-          <h1>من التعديل<br />إلى التشغيل.</h1>
+          <h1>From commit<br />to production.</h1>
           <p>
-            راقب مشاريعك، اختر فرع GitHub، وتابع البناء والاختبار والنشر من مكان
-            واحد.
+            Manage production projects, review changes and follow every
+            deployment.
           </p>
           <div class="pipeline-legend">
             <span>GitHub</span><i></i><span>Build</span><i></i><span>Test</span
             ><i></i><span>Deploy</span>
           </div>
         </div>
-        <p class="login-foot">وصول مخصص لمسؤول السيرفر</p>
+        <p class="login-foot">Private operator access</p>
       </div>
       <div class="login-form-wrap">
         <form id="login-form">
-          <h2>تسجيل الدخول</h2>
-          <p>استخدم حساب إدارة النشر للمتابعة.</p>
-          <label for="username">اسم المستخدم</label
+          <h2>Sign in</h2>
+          <p>Sign in to manage your production projects.</p>
+          <label for="username">Username</label
           ><input
             id="username"
             name="username"
             autocomplete="username"
             required
             dir="ltr"
-          /><label for="password">كلمة المرور</label>
+          /><label for="password">Password</label>
           <div class="password-field">
             <input
               id="password"
@@ -57,44 +56,44 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
               id="show-password"
               type="button"
               class="quiet"
-              aria-label="إظهار كلمة المرور"
+              aria-label="Show password"
             >
-              إظهار
+              Show
             </button>
           </div>
           <p id="login-error" class="error" role="alert" hidden></p>
           <button id="login-submit" class="primary" type="submit">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M14 4h6v16h-6M3 12h12m-4-4 4 4-4 4" /></svg
-            >تسجيل الدخول
+            >Sign in
           </button>
-          <p class="hint">تنتهي الجلسة بعد ساعة من عدم الاستخدام.</p>
+          <p class="hint">Sessions expire after one hour of inactivity.</p>
         </form>
       </div>
     </section>
     <div id="app" hidden>
       <aside>
         <a class="brand" href="#overview"
-          >Shiftcodes<span>إدارة النشر والتشغيل</span></a
+          >Shiftcodes<span>Deployment console</span></a
         >
-        <nav aria-label="التنقل الرئيسي">
-          <a href="#overview" data-nav="overview">نظرة عامة</a
+        <nav aria-label="Main navigation">
+          <a href="#overview" data-nav="overview">Overview</a
           ><a href="#projects" data-nav="projects"
-            >المشاريع <span id="project-count"></span></a
-          ><a href="#jobs" data-nav="jobs">عمليات البناء والنشر</a
-          ><a href="#containers" data-nav="containers">الخدمات</a
-          ><a href="#audit" data-nav="audit">سجل الإدارة</a>
+            >Projects <span id="project-count"></span></a
+          ><a href="#jobs" data-nav="jobs">Runs</a
+          ><a href="#containers" data-nav="containers">Services</a
+          ><a href="#audit" data-nav="audit">Activity</a>
         </nav>
         <div class="account">
           <span id="account-name"></span
-          ><button id="logout" class="quiet" type="button">تسجيل الخروج</button>
+          ><button id="logout" class="quiet" type="button">Sign out</button>
         </div>
       </aside>
       <main>
         <header>
           <div>
             <div id="breadcrumb" class="breadcrumb"></div>
-            <h1 id="page-title">نظرة عامة</h1>
+            <h1 id="page-title">Overview</h1>
             <p id="page-description"></p>
           </div>
           <button id="refresh" class="secondary" type="button">
@@ -102,19 +101,21 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
               <path
                 d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"
               /></svg
-            >تحديث
+            >Refresh
           </button>
         </header>
         <div class="statusline">
-          <span id="connection" role="status">جارٍ قراءة حالة السيرفر…</span
+          <span id="connection" role="status">Reading server status…</span
           ><time id="observed"></time>
         </div>
         <p id="error" class="error" role="alert" hidden></p>
-        <p id="environment-note" class="notice" hidden>بيئة اختبار محلية — العمليات هنا لا تغيّر خدمات الإنتاج.</p>
+        <p id="environment-note" class="notice" hidden>
+          Local preview — actions here do not change production.
+        </p>
         <div id="content" aria-live="off"></div>
         <footer>
-          المراقبة من داخل السيرفر · الفحص الخارجي والتنبيهات خارج اللوحة غير
-          مُعدّة.
+          Live server observations · External uptime checks and outbound alerts
+          are not configured.
         </footer>
       </main>
     </div>
@@ -122,25 +123,24 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <dialog id="build-dialog" aria-labelledby="dialog-title">
       <form id="build-form">
         <div class="dialog-head">
-          <h2 id="dialog-title">بدء عملية بناء</h2>
+          <h2 id="dialog-title">Start a build</h2>
           <button
             id="dialog-close"
             class="quiet"
             type="button"
-            aria-label="إغلاق"
+            aria-label="Close"
           >
-            إغلاق
+            Close
           </button>
         </div>
         <div id="build-summary"></div>
         <fieldset>
-          <legend>ماذا تريد تنفيذُه؟</legend>
+          <legend>Execution mode</legend>
           <label class="radio"
             ><input type="radio" name="mode" value="validate" checked /><span
-              ><strong>بناء واختبار فقط</strong
+              ><strong>Build and test only</strong
               ><small
-                >اختبار الصور بمعزل عن بيانات الإنتاج؛ الموقع الحالي لا
-                يتغير.</small
+                >Run isolated tests without changing production.</small
               ></span
             ></label
           ><label class="radio"
@@ -150,10 +150,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
               name="mode"
               value="deploy"
             /><span
-              ><strong>بناء واختبار ثم نشر</strong
+              ><strong>Build, test and deploy</strong
               ><small
-                >تحديث خدمات المشروع بعد نجاح الاختبارات، واستعادة النسخة
-                السابقة إذا فشل التشغيل.</small
+                >Update project services after tests pass. Restore the previous
+                images if runtime checks fail.</small
               ></span
             ></label
           >
@@ -162,9 +162,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
         <p id="build-error" class="error" role="alert" hidden></p>
         <div class="dialog-actions">
           <button id="build-submit" type="submit" class="primary">
-            إضافة إلى الانتظار</button
+            Queue build</button
           ><button id="dialog-cancel" type="button" class="secondary">
-            إلغاء
+            Cancel
           </button>
         </div>
       </form>

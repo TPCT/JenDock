@@ -9,8 +9,16 @@ from pathlib import Path
 def connect(path):
     db = sqlite3.connect(path, timeout=15, isolation_level=None)
     db.row_factory = sqlite3.Row
-    db.execute('PRAGMA journal_mode=WAL')
     db.execute('PRAGMA busy_timeout=15000')
+    for attempt in range(20):
+        try:
+            db.execute('PRAGMA journal_mode=WAL')
+            break
+        except sqlite3.OperationalError as error:
+            if 'locked' not in str(error).lower() or attempt == 19:
+                db.close()
+                raise
+            time.sleep(0.05)
     db.execute('''CREATE TABLE IF NOT EXISTS jobs (
         id INTEGER PRIMARY KEY, delivery TEXT UNIQUE NOT NULL,
         project TEXT NOT NULL, sha TEXT NOT NULL, created REAL NOT NULL,
@@ -58,7 +66,7 @@ def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor
             db.execute('COMMIT')
             return old['id'], False
         if actor != 'github' and db.execute("SELECT id FROM jobs WHERE project=? AND status IN ('queued','validation-queued','building','testing','deploying','recovering')",(project,)).fetchone():
-            raise ValueError('للمشروع عملية جارية أو منتظرة بالفعل.')
+            raise ValueError('This project already has an active or queued run.')
         status = ('validation-queued' if mode == 'validate' else 'queued') if enabled else 'awaiting-validation'
         cursor = db.execute('INSERT INTO jobs(delivery,project,sha,created,updated,status,branch,mode,actor,retry_of) VALUES(?,?,?,?,?,?,?,?,?,?)',
                             (delivery, project, sha, now, now, status, branch, mode, actor, retry_of))

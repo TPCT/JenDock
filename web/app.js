@@ -1,21 +1,21 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const stateNames = {
-  queued: "في الانتظار",
-  "validation-queued": "اختبار في الانتظار",
-  building: "جارٍ البناء",
-  testing: "جارٍ الاختبار",
-  deploying: "جارٍ النشر",
-  recovering: "جارٍ الاستعادة",
-  "rolled-back": "استُعيدت النسخة السابقة",
-  succeeded: "اكتمل النشر",
-  validated: "نجح اختبار البناء",
-  failed: "فشل",
-  superseded: "يوجد تعديل أحدث",
-  "awaiting-validation": "بانتظار اعتماد البناء",
-  "needs-review": "مراجعة ترحيل البيانات",
-  interrupted: "توقفت المهمة",
-  cancelled: "أُلغيت",
+  queued: "Queued",
+  "validation-queued": "Validation queued",
+  building: "Building",
+  testing: "Testing",
+  deploying: "Deploying",
+  recovering: "Recovering",
+  "rolled-back": "Rolled back",
+  succeeded: "Deployed",
+  validated: "Build verified",
+  failed: "Failed",
+  superseded: "Superseded",
+  "awaiting-validation": "Awaiting approval",
+  "needs-review": "Migration review",
+  interrupted: "Interrupted",
+  cancelled: "Cancelled",
 };
 const activeStates = [
   "queued",
@@ -33,6 +33,8 @@ const retryStates = [
   "needs-review",
   "superseded",
 ];
+const projectTabs = {};
+let liveConnection = null;
 let data = null,
   session = null,
   busy = false,
@@ -43,25 +45,25 @@ let data = null,
   toastTimer = null;
 const el = (tag, text = "", cls = "") => {
   const n = document.createElement(tag);
-  n.textContent = text;
+  n.textContent = englishMessage(text);
   if (cls) n.className = cls;
   return n;
 };
 const date = (v) =>
   v
-    ? new Intl.DateTimeFormat("ar-EG", {
+    ? new Intl.DateTimeFormat("en-GB", {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date(v * 1000))
-    : "لم تصل قراءة";
+    : "No observation yet";
 const badge = (status) =>
   el(
     "span",
     stateNames[status] || status,
     "badge " +
-      (["succeeded", "validated", "سليمة", "مفعّل"].includes(status)
+      (["succeeded", "validated", "Healthy", "Enabled"].includes(status)
         ? "good"
-        : ["failed", "interrupted", "تعذر الرصد"].includes(status)
+        : ["failed", "interrupted", "Unavailable"].includes(status)
           ? "bad"
           : "pending"),
   );
@@ -126,29 +128,31 @@ async function api(path, body) {
   try {
     r = await fetch("./api/" + path, options);
   } catch {
-    throw new Error("تعذر الاتصال باللوحة. راجع اتصالك وأعد المحاولة.");
+    throw new Error("Unable to connect. Check your connection and try again.");
   }
   const value = await r.json();
   if (!r.ok) {
     if (r.status === 401 && path !== "login") showLogin();
-    throw new Error(value.error || "تعذر تنفيذ الطلب. حاول مرة أخرى.");
+    throw new Error(value.error || "Request failed. Please try again.");
   }
   return value;
 }
 function showLogin() {
+  liveConnection?.close();
+  liveConnection = null;
   session = null;
   $("app").hidden = true;
   $("boot").hidden = true;
   $("login").hidden = false;
   if ($("build-dialog").open) $("build-dialog").close();
-  document.title = "تسجيل الدخول | Shiftcodes";
+  document.title = "Sign in | Shiftcodes";
 }
 async function action(body) {
-  if (actionBusy) throw new Error("انتظر اكتمال الطلب الحالي.");
+  if (actionBusy) throw new Error("Wait for the current request to finish.");
   actionBusy = true;
   try {
     const result = await api("action", body);
-    toast(result.message || "تم التنفيذ.");
+    toast(result.message || "Done.");
     await refresh(true);
     return result;
   } finally {
@@ -206,12 +210,12 @@ function jobRows(jobs) {
     link("#" + j.id, "#job/" + j.id),
     subtitle(
       projectLabel(j.project),
-      j.branch || "فرع السجل السابق",
+      j.branch || "Legacy branch record",
       "#project/" + j.project,
     ),
     el("code", j.sha.slice(0, 12)),
     badge(j.status),
-    j.mode === "validate" ? "بناء واختبار" : "نشر",
+    j.mode === "validate" ? "Build and test" : "Deploy",
     date(j.updated),
     j.actor || "github",
   ]);
@@ -220,19 +224,19 @@ function jobTable(jobs) {
   return jobs.length
     ? table(
         [
-          "العملية",
-          "المشروع / الفرع",
+          "Run",
+          "Project / branch",
           "Commit",
-          "الحالة",
-          "النوع",
-          "آخر تحديث",
-          "بواسطة",
+          "Status",
+          "Mode",
+          "Updated",
+          "Triggered by",
         ],
         jobRows(jobs),
       )
     : empty(
-        "لا توجد عمليات مطابقة",
-        "ابدأ من صفحة المشروع أو انتظر وصول تعديل من GitHub.",
+        "No matching runs",
+        "Start a build from a project, or push to its configured GitHub branch.",
       );
 }
 function resources() {
@@ -242,42 +246,44 @@ function resources() {
     worker = data.snapshots.worker;
   const values = [
     [
-      "عامل النشر",
+      "Deployment worker",
       worker?.value.state === "running" && !stale("worker")
-        ? "متاح"
-        : "يحتاج مراجعة",
+        ? "Available"
+        : "Needs attention",
       worker?.value.state === "unavailable"
-        ? "تعذر رصد Docker"
+        ? "Docker observation unavailable"
         : date(worker?.updated),
       null,
       "worker",
     ],
     [
-      "المساحة المتاحة",
+      "Free disk space",
       disk ? (disk.value.free / 1073741824).toFixed(1) + " GiB" : "—",
       disk
-        ? "من " + (disk.value.total / 1073741824).toFixed(1) + " GiB"
-        : "لم تصل بيانات",
+        ? "of " + (disk.value.total / 1073741824).toFixed(1) + " GiB"
+        : "No data yet",
       disk ? 100 * (1 - disk.value.free / disk.value.total) : null,
       "disk",
     ],
     [
-      "الذاكرة المتاحة",
+      "Available memory",
       res
         ? (res.value.memory.MemAvailable / 1073741824).toFixed(1) + " GiB"
         : "—",
       res
-        ? "من " + (res.value.memory.MemTotal / 1073741824).toFixed(1) + " GiB"
-        : "لم تصل بيانات",
+        ? "of " + (res.value.memory.MemTotal / 1073741824).toFixed(1) + " GiB"
+        : "No data yet",
       res
         ? 100 * (1 - res.value.memory.MemAvailable / res.value.memory.MemTotal)
         : null,
       "resources",
     ],
     [
-      "حمل السيرفر",
+      "System load",
       res ? res.value.load_1m.toFixed(2) : "—",
-      res ? "متوسط دقيقة / " + res.value.cpu_count + " CPU" : "لم تصل بيانات",
+      res
+        ? "1-minute average / " + res.value.cpu_count + " CPU"
+        : "No data yet",
       null,
       "resources",
     ],
@@ -285,7 +291,7 @@ function resources() {
   for (const [label, value, note, percent, key] of values) {
     const part = el("div", "", "resource");
     const metric = el("strong", value);
-    if (key === "worker") observedText(metric, key, value, "غير مؤكد");
+    if (key === "worker") observedText(metric, key, value, "Unconfirmed");
     part.append(
       el("span", label),
       metric,
@@ -293,7 +299,7 @@ function resources() {
         el("small"),
         key,
         note,
-        "قراءة قديمة أو غير متاحة · " + date(data.snapshots[key]?.updated),
+        "Stale or unavailable · " + date(data.snapshots[key]?.updated),
       ),
     );
     if (percent !== null) {
@@ -301,7 +307,7 @@ function resources() {
         progress = el("progress");
       progress.max = 100;
       progress.value = percent;
-      progress.setAttribute("aria-label", label + " — نسبة المستخدم");
+      progress.setAttribute("aria-label", label + " — usage percentage");
       bar.append(progress);
       part.append(bar);
     }
@@ -311,7 +317,7 @@ function resources() {
 }
 function projectsTable(items) {
   return table(
-    ["المشروع", "فرع النشر التلقائي", "الخدمات", "آخر عملية", "التحكم"],
+    ["Project", "Tracked branch", "Services", "Latest run", "Actions"],
     items.map(([name, p]) => {
       const services = projectImages(p),
         last = data.jobs.find((j) => j.project === name);
@@ -319,16 +325,16 @@ function projectsTable(items) {
         el("span"),
         "containers",
         services.length
-          ? `${services.filter((c) => c.State === "running" && !c.Status.includes("unhealthy")).length} / ${services.length} تعمل`
-          : "لم تصل خدمات",
-        "قراءة قديمة",
+          ? `${services.filter((c) => c.State === "running" && !c.Status.includes("unhealthy")).length} / ${services.length} running`
+          : "No services observed",
+        "Stale observation",
       );
       return [
         subtitle(p.label || name, p.repository, "#project/" + name),
-        subtitle(p.branch, p.automatic ? "تلقائي مفعّل" : "تلقائي متوقف"),
+        subtitle(p.branch, p.automatic ? "Auto-deploy on" : "Auto-deploy off"),
         count,
-        last ? badge(last.status) : el("span", "لا توجد عمليات", "hint"),
-        link("إدارة المشروع", "#project/" + name),
+        last ? badge(last.status) : el("span", "No runs yet", "hint"),
+        link("Open project", "#project/" + name),
       ];
     }),
   );
@@ -343,17 +349,17 @@ function overview() {
   );
   const active = data.jobs.filter((j) => activeStates.includes(j.status));
   root.append(
-    section("العمليات الجارية", link("كل العمليات", "#jobs")),
+    section("In progress", link("View all runs", "#jobs")),
     jobTable(active),
   );
   if (problematic.length) {
-    root.append(section("تحتاج متابعتك"), jobTable(problematic));
+    root.append(section("Needs attention"), jobTable(problematic));
   }
   root.append(
     section(
-      "مشاريع السيرفر",
+      "Projects",
       link(
-        "عرض " + Object.keys(data.projects).length + " مشروعًا",
+        "View " + Object.keys(data.projects).length + " projects",
         "#projects",
       ),
     ),
@@ -363,15 +369,15 @@ function overview() {
 function projectsView() {
   const root = $("content"),
     toolbar = el("div", "", "toolbar"),
-    label = el("label", "البحث عن مشروع"),
+    label = el("label", "Search projects"),
     input = el("input");
   input.type = "search";
-  input.placeholder = "الاسم أو مستودع GitHub";
-  input.setAttribute("aria-label", "البحث عن مشروع");
+  input.placeholder = "Project name or repository";
+  input.setAttribute("aria-label", "Search projects");
   label.append(input);
   const summary = el(
     "p",
-    `${Object.values(data.projects).filter((p) => p.enabled).length} مشروع معتمد للنشر من أصل ${Object.keys(data.projects).length}`,
+    `${Object.values(data.projects).filter((p) => p.enabled).length} approved for deployment out of ${Object.keys(data.projects).length}`,
     "hint",
   );
   toolbar.append(label, summary);
@@ -385,7 +391,10 @@ function projectsView() {
     list.replaceChildren(
       items.length
         ? projectsTable(items)
-        : empty("لا توجد مشاريع مطابقة", "جرّب اسم الموقع أو اسم المستودع."),
+        : empty(
+            "No projects found",
+            "Try a project name or GitHub repository.",
+          ),
     );
   };
   input.addEventListener("input", update);
@@ -399,7 +408,7 @@ function branchOptions(name, select, p) {
   select.replaceChildren();
   const entries = Object.keys(branches).sort();
   if (!entries.length) {
-    const option = el("option", "لم تُجلب الفروع بعد");
+    const option = el("option", "Branches not loaded");
     option.value = "";
     select.append(option);
   }
@@ -412,180 +421,194 @@ function branchOptions(name, select, p) {
   select.disabled = !entries.length;
   return observation;
 }
+function serviceGroup(items) {
+  const group = el("div", "", "service-grid");
+  if (!items.length)
+    return empty(
+      "No services observed",
+      "Check the project mapping or wait for the next observation.",
+    );
+  for (const c of items) {
+    const card = el("article", "", "service-card");
+    const head = el("div", "", "service-head");
+    head.append(
+      el("strong", c.Names, "identifier"),
+      badge(
+        c.Status.includes("unhealthy")
+          ? "Unhealthy"
+          : c.Status.includes("(healthy)")
+            ? "Healthy"
+            : c.State,
+      ),
+    );
+    const image = el("code", c.Image, "service-image");
+    card.append(head, image, el("p", c.Status, "hint"));
+    const facts = el("div", "", "service-facts");
+    facts.append(
+      el("span", "CPU " + (c.CPUPerc || "—")),
+      el("span", "Memory " + (c.MemUsage || "—")),
+    );
+    card.append(facts);
+    group.append(card);
+  }
+  return group;
+}
 function projectView(name) {
   const p = data.projects[name];
   if (!p)
     return $("content").append(
-      empty("المشروع غير موجود", "ارجع إلى قائمة المشاريع."),
+      empty("Project not found", "Return to Projects."),
     );
   const root = $("content"),
-    layout = el("div", "", "project-layout"),
-    main = el("div", "", "project-main"),
-    side = el("div", "", "project-side");
-  const panel = el("div", "", "panel panel-body");
-  panel.append(el("h2", "مصدر البناء"));
+    summary = el("div", "", "project-summary");
   const repo = link(p.repository, "https://github.com/" + p.repository);
   repo.target = "_blank";
   repo.rel = "noopener";
-  repo.className = "identifier";
-  panel.append(repo);
-  const row = el("div", "", "form-row"),
-    label = el("label", "فرع GitHub");
-  label.htmlFor = "branch-select";
-  const select = el("select");
-  select.id = "branch-select";
-  row.append(label, select);
-  panel.append(row);
-  const observation = branchOptions(name, select, p),
-    sha = el("p", "", "identifier"),
-    observed = el(
-      "p",
-      observation
-        ? observation.value.error
-          ? "تعذر جلب الفروع؛ اضغط تحديث الفروع."
-          : "آخر جلب: " + date(observation.updated)
-        : "جارٍ انتظار قراءة GitHub.",
-      "hint",
-    );
-  const updateSha = () => {
-    sha.textContent =
-      data.snapshots["branches:" + name]?.value.branches?.[select.value] || "";
-  };
-  select.addEventListener("change", updateSha);
-  updateSha();
-  row.append(sha, observed);
-  const refreshBranches = button("تحديث الفروع", async () => {
-    refreshBranches.disabled = true;
-    try {
-      await action({ action: "refresh-branches", project: name });
-    } catch (e) {
-      toast(e.message);
-    } finally {
-      refreshBranches.disabled = false;
-    }
-  });
-  const build = button(
-    "بناء جديد",
-    () => openBuild(name, select.value),
-    "primary",
-    !p.build_ready || !select.value,
-  );
-  const actions = el("div", "", "actions");
-  actions.append(build, refreshBranches);
-  panel.append(actions);
-  if (!p.build_ready)
-    panel.append(
-      el(
-        "p",
-        "إعداد الصور والاختبارات لهذا المشروع لم يكتمل بعد. سيظهر زر البناء متاحًا بعد تجهيزها.",
-        "notice",
-      ),
-    );
-  else if (!p.enabled)
-    panel.append(
-      el(
-        "p",
-        "يمكنك اختبار البناء. النشر على الإنتاج ينتظر اعتماد اختبارات المشروع.",
-        "notice",
-      ),
-    );
-  const settings = el("div", "", "panel panel-body");
-  settings.append(
-    el("h2", "النشر من GitHub"),
-    el(
-      "p",
-      "احفظ الفرع المحدد أعلاه ليكون مصدر الـWebhook. الحفظ لا يبدأ عملية نشر.",
-      "hint",
+  const identity = el("div");
+  identity.append(repo, el("p", "Tracked branch: " + p.branch, "hint"));
+  summary.append(
+    identity,
+    button(
+      "New build",
+      () => openBuild(name, p.branch),
+      "primary",
+      !p.build_ready,
     ),
   );
-  const checkLabel = el("label", "", "checkbox"),
-    check = el("input");
-  check.type = "checkbox";
-  check.id = "auto-deploy";
-  check.checked = !!p.automatic;
-  check.disabled = !p.enabled;
-  checkLabel.append(
-    check,
-    document.createTextNode("النشر تلقائيًا عند push على الفرع المحفوظ"),
-  );
-  settings.append(checkLabel);
-  const save = button("حفظ إعداد النشر", async () => {
-    save.disabled = true;
-    try {
-      await action({
-        action: "settings",
-        project: name,
-        branch: select.value,
-        automatic: check.checked,
-      });
-    } catch (e) {
-      toast(e.message);
-    } finally {
-      save.disabled = false;
-    }
-  });
-  settings.append(
-    el("p", "الفرع المحفوظ حاليًا: " + p.branch, "hint"),
-    el("div", "", "actions"),
-  );
-  settings.lastChild.append(save);
-  main.append(
-    panel,
-    section("إعداد النشر التلقائي"),
-    settings,
-    section("سجل المشروع"),
-    jobTable(data.jobs.filter((j) => j.project === name).slice(0, 15)),
-  );
-  const runtime = el("div", "", "panel panel-body");
-  runtime.append(
-    el("h2", "ما يعمل الآن"),
-    observedText(
-      el("p", "", "hint"),
-      "containers",
-      "آخر رصد · " + date(data.snapshots.containers?.updated),
-      "قراءة قديمة · " + date(data.snapshots.containers?.updated),
-    ),
-  );
-  const images = projectImages(p);
-  if (!images.length)
-    runtime.append(
-      empty(
-        "لم تُرصد خدمات",
-        "قد تكون الخدمات متوقفة أو إعداد الربط لم يكتمل.",
-      ),
+  root.append(summary);
+  const tabs = el("div", "", "project-tabs");
+  tabs.setAttribute("role", "tablist");
+  const current = projectTabs[name] || "services";
+  for (const [key, label] of [
+    ["services", "Services (" + projectImages(p).length + ")"],
+    ["runs", "Runs"],
+    ["settings", "Settings"],
+  ]) {
+    const t = button(
+      label,
+      () => {
+        projectTabs[name] = key;
+        render(true);
+      },
+      "project-tab",
     );
-  for (const c of images) {
-    const item = el("div", "", "image-row");
-    item.append(
-      el("strong", c.Names, "identifier"),
-      el("p", c.Image, "identifier"),
-      el("p", c.Status, "hint"),
-    );
-    runtime.append(item);
+    t.setAttribute("role", "tab");
+    t.setAttribute("aria-selected", String(current === key));
+    tabs.append(t);
   }
-  side.append(runtime);
-  const policy = el("div", "", "panel panel-body");
-  policy.append(
-    el("h2", "قواعد التنفيذ"),
-    el(
-      "p",
-      "بناء واحد على السيرفر في كل مرة. الاختبارات معزولة عن بيانات الإنتاج. الترحيلات الجديدة لقاعدة البيانات تتوقف للمراجعة.",
-      "hint",
-    ),
-  );
-  side.append(section("ضوابط المشروع"), policy);
-  layout.append(main, side);
-  root.append(layout);
+  root.append(tabs);
+  if (current === "services") {
+    root.append(
+      observedText(
+        el("p", "", "hint"),
+        "containers",
+        "Live services · " + date(data.snapshots.containers?.updated),
+        "Stale service observations · " +
+          date(data.snapshots.containers?.updated),
+      ),
+      serviceGroup(projectImages(p)),
+    );
+    const recent = data.jobs.filter((j) => j.project === name).slice(0, 3);
+    root.append(
+      section(
+        "Latest runs",
+        button(
+          "View all runs",
+          () => {
+            projectTabs[name] = "runs";
+            render(true);
+          },
+          "quiet",
+        ),
+      ),
+      jobTable(recent),
+    );
+  } else if (current === "runs") {
+    root.append(jobTable(data.jobs.filter((j) => j.project === name)));
+  } else {
+    const panel = el("div", "", "panel panel-body settings-panel");
+    panel.append(
+      el("h2", "Deployment settings"),
+      el(
+        "p",
+        "The tracked branch controls GitHub push deployments. A manual build can use another branch without changing this setting.",
+        "hint",
+      ),
+    );
+    const label = el("label", "Tracked branch");
+    label.htmlFor = "branch-select";
+    const select = el("select");
+    select.id = "branch-select";
+    branchOptions(name, select, p);
+    const row = el("div", "", "form-row");
+    row.append(label, select);
+    panel.append(row);
+    const checkLabel = el("label", "", "checkbox"),
+      check = el("input");
+    check.type = "checkbox";
+    check.id = "auto-deploy";
+    check.checked = !!p.automatic;
+    check.disabled = !p.enabled;
+    checkLabel.append(
+      check,
+      document.createTextNode(
+        "Deploy automatically when this branch receives a push",
+      ),
+    );
+    panel.append(checkLabel);
+    if (!p.enabled)
+      panel.append(
+        el(
+          "p",
+          p.build_ready
+            ? "Build validation is available. Production deployment still needs approval."
+            : "Build setup is incomplete. Image definitions and tests are required.",
+          "notice",
+        ),
+      );
+    const actions = el("div", "", "actions");
+    actions.append(
+      button(
+        "Save settings",
+        async () => {
+          try {
+            await action({
+              action: "settings",
+              project: name,
+              branch: select.value,
+              automatic: check.checked,
+            });
+          } catch (e) {
+            toast(e.message);
+          }
+        },
+        "primary",
+        !select.value,
+      ),
+      button("Refresh branches", async () => {
+        try {
+          await action({ action: "refresh-branches", project: name });
+        } catch (e) {
+          toast(e.message);
+        }
+      }),
+    );
+    panel.append(
+      actions,
+      el("p", "Saving settings does not start a deployment.", "hint"),
+    );
+    root.append(panel);
+  }
 }
 function jobsView() {
   const toolbar = el("div", "", "toolbar"),
     filters = el("div", "", "filters"),
     project = el("select"),
     status = el("select");
-  project.setAttribute("aria-label", "تصفية العمليات حسب المشروع");
-  status.setAttribute("aria-label", "تصفية العمليات حسب الحالة");
+  project.setAttribute("aria-label", "Filter runs by project");
+  status.setAttribute("aria-label", "Filter runs by status");
   for (const [value, text] of [
-    ["", "كل المشاريع"],
+    ["", "All projects"],
     ...Object.entries(data.projects).map(([n, p]) => [n, p.label || n]),
   ]) {
     const o = el("option", text);
@@ -593,11 +616,11 @@ function jobsView() {
     project.append(o);
   }
   for (const [value, text] of [
-    ["", "كل الحالات"],
-    ["active", "الجارية والمنتظرة"],
-    ["failed", "فشلت أو تحتاج إعادة محاولة"],
-    ["succeeded", "اكتمل النشر"],
-    ["validated", "نجح الاختبار فقط"],
+    ["", "All statuses"],
+    ["active", "Active and queued"],
+    ["failed", "Failed or needs retry"],
+    ["succeeded", "Deployed"],
+    ["validated", "Validated only"],
   ]) {
     const o = el("option", text);
     o.value = value;
@@ -606,7 +629,7 @@ function jobsView() {
   filters.append(project, status);
   toolbar.append(
     filters,
-    el("p", "آخر 100 عملية · حفظ السجل 30 يومًا", "hint"),
+    el("p", "Latest 100 runs · retained for 30 days", "hint"),
   );
   const list = el("div"),
     update = () =>
@@ -633,10 +656,7 @@ function jobView(id) {
   const j = data.jobs.find((j) => j.id === Number(id));
   if (!j)
     return $("content").append(
-      empty(
-        "العملية غير موجودة في السجل المتاح",
-        "ارجع إلى العمليات لعرض أحدث المهام.",
-      ),
+      empty("Run not found", "Return to Runs to view recent activity."),
     );
   const root = $("content"),
     summary = el("div", "", "job-summary"),
@@ -653,7 +673,7 @@ function jobView(id) {
   if (retryStates.includes(j.status))
     actions.append(
       button(
-        "إعادة البناء",
+        "Rebuild",
         () =>
           openBuild(
             j.project,
@@ -666,7 +686,7 @@ function jobView(id) {
   if (["queued", "validation-queued", "awaiting-validation"].includes(j.status))
     actions.append(
       button(
-        "إلغاء الانتظار",
+        "Cancel queued run",
         async () => {
           try {
             await action({
@@ -681,7 +701,7 @@ function jobView(id) {
         "secondary danger",
       ),
     );
-  actions.append(link("فتح المشروع", "#project/" + j.project));
+  actions.append(link("Open project", "#project/" + j.project));
   summary.append(info, actions);
   root.append(summary);
   const strip = el("div", "", "step-strip"),
@@ -692,8 +712,8 @@ function jobView(id) {
     idx = order.indexOf(j.status === "validation-queued" ? "queued" : j.status),
     labels =
       j.mode === "validate"
-        ? ["استلام", "بناء الصور", "اختبارات", "نتيجة الاختبار"]
-        : ["استلام", "بناء الصور", "اختبارات", "نشر", "تحقق"];
+        ? ["Queued", "Build", "Test", "Result"]
+        : ["Queued", "Build", "Test", "Deploy", "Verify"];
   labels.forEach((label, i) =>
     strip.append(
       el(
@@ -716,16 +736,15 @@ function jobView(id) {
         ["failed", "interrupted"].includes(j.status) ? "error" : "notice",
       ),
     );
-  if (j.retry_of)
-    root.append(el("p", "إعادة محاولة للعملية #" + j.retry_of, "hint"));
-  root.append(section("سجل خطوات التنفيذ"));
+  if (j.retry_of) root.append(el("p", "Retry of run #" + j.retry_of, "hint"));
+  root.append(section("Execution timeline"));
   const events = data.events.filter((e) => e.job_id === j.id).reverse(),
     timeline = el("ol", "", "timeline panel");
   timeline.append(
     eventRow({
       created: j.created,
       status: "queued",
-      detail: "سُجلت العملية وحُفظ معرّف Git.",
+      detail: "Run created and commit recorded.",
     }),
   );
   events.forEach((e) => timeline.append(eventRow(e)));
@@ -733,7 +752,7 @@ function jobView(id) {
     timeline,
     el(
       "p",
-      "يظهر هنا سجل مراحل التنفيذ. المخرجات الخام تبقى محمية على السيرفر لأنها قد تحتوي بيانات حساسة.",
+      "The timeline records execution stages. Raw output remains protected on the server because it may contain sensitive data.",
       "hint",
     ),
   );
@@ -746,62 +765,66 @@ function eventRow(e) {
   return li;
 }
 function containersView() {
-  const toolbar = el("div", "", "toolbar"),
-    label = el("label", "البحث في الخدمات"),
+  const root = $("content"),
+    toolbar = el("div", "", "toolbar"),
+    label = el("label", "Find a project or service"),
     input = el("input");
   input.type = "search";
-  input.placeholder = "اسم الخدمة أو الصورة";
-  input.setAttribute("aria-label", "البحث في الخدمات");
+  input.placeholder = "Project, service or image";
   label.append(input);
-  toolbar.append(
-    label,
-    observedText(
-      el("p", "", "hint"),
-      "containers",
-      "آخر رصد · " + date(data.snapshots.containers?.updated),
-      "قراءة قديمة · " + date(data.snapshots.containers?.updated),
-    ),
-  );
-  const list = el("div"),
-    update = () => {
-      const rows = containers().filter((c) =>
-        (c.Names + " " + c.Image)
-          .toLowerCase()
-          .includes(input.value.toLowerCase()),
+  toolbar.append(label);
+  const list = el("div");
+  const update = () => {
+    const query = input.value.toLowerCase();
+    const entries = Object.entries(data.projects).filter(([name, p]) =>
+      [
+        name,
+        p.label,
+        p.repository,
+        ...projectImages(p).map((c) => c.Names + " " + c.Image),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+    list.replaceChildren(
+      entries.length
+        ? projectsTable(entries)
+        : empty("No matching projects", "Try a project or service name."),
+    );
+    const owned = new Set(
+      Object.values(data.projects).flatMap((p) =>
+        projectImages(p).map((c) => c.Names),
+      ),
+    );
+    const infrastructure = containers().filter(
+      (c) =>
+        !owned.has(c.Names) &&
+        (c.Names + " " + c.Image).toLowerCase().includes(query),
+    );
+    if (infrastructure.length)
+      list.append(
+        section("Shared infrastructure"),
+        serviceGroup(infrastructure),
       );
-      list.replaceChildren(
-        rows.length
-          ? table(
-              ["الخدمة", "الصورة", "التشغيل", "فحص الخدمة", "CPU", "الذاكرة"],
-              rows.map((c) => [
-                el("span", c.Names, "identifier"),
-                el("code", c.Image),
-                c.State,
-                c.Status,
-                c.CPUPerc || "غير متاح",
-                c.MemUsage || "غير متاح",
-              ]),
-            )
-          : empty("لا توجد خدمات مطابقة", "غيّر عبارة البحث أو حدّث الحالة."),
-      );
-    };
+  };
   input.addEventListener("input", update);
-  $("content").append(toolbar, list);
+  root.append(toolbar, list);
   update();
 }
 function auditView() {
   const names = {
-    login: "تسجيل الدخول",
-    logout: "تسجيل الخروج",
-    build: "بدء بناء",
-    retry: "إعادة البناء",
-    settings: "تعديل إعداد النشر",
-    cancel: "إلغاء الانتظار",
+    login: "Sign in",
+    logout: "Sign out",
+    build: "Start build",
+    retry: "Rebuild",
+    settings: "Update deployment settings",
+    cancel: "Cancel queued run",
   };
   $("content").append(
-    el("p", "سجل تغييرات المسؤول محفوظ لمدة 90 يومًا.", "hint"),
+    el("p", "Administrative activity is retained for 90 days.", "hint"),
     table(
-      ["التوقيت", "المستخدم", "العملية", "المشروع", "التفاصيل"],
+      ["Time", "User", "Run", "Project", "Details"],
       data.audit.map((a) => [
         date(a.created),
         a.actor,
@@ -831,19 +854,25 @@ function render(force = false) {
       : [];
   currentRoute = route;
   const titles = {
-    overview: ["نظرة عامة", "حالة المشاريع وعمليات النشر التي تحتاج متابعتك."],
-    projects: ["المشاريع", "مصدر GitHub وإعداد النشر لكل موقع."],
-    jobs: [
-      "عمليات البناء والنشر",
-      "تتبّع كل عملية من الفرع المختار حتى النتيجة.",
+    overview: ["Overview", "Production health and deployment activity."],
+    projects: [
+      "Projects",
+      "Your production applications, each with one tracked branch.",
     ],
-    containers: ["الخدمات", "الصور الفعلية وحالة حاويات Docker على السيرفر."],
-    audit: ["سجل الإدارة", "تغييرات الإعداد وطلبات التشغيل المسجلة."],
+    jobs: [
+      "Runs",
+      "Follow builds, tests and deployments from source to result.",
+    ],
+    containers: [
+      "Services",
+      "All containers grouped by project. Open a project to inspect its services.",
+    ],
+    audit: ["Activity", "Configuration changes and operator actions."],
     project: [
       data.projects[key]?.label || key,
-      "اختيار المصدر، بدء البناء، ومراجعة ما يعمل الآن.",
+      "Production services, build history and deployment settings.",
     ],
-    job: ["العملية #" + key, "خطوات التنفيذ والنتيجة المسجلة."],
+    job: ["Run #" + key, "Execution stages and recorded result."],
   };
   const [title, description] = titles[page] || titles.overview;
   $("page-title").textContent = title;
@@ -853,7 +882,7 @@ function render(force = false) {
   if (["project", "job"].includes(page))
     $("breadcrumb").append(
       link(
-        page === "project" ? "المشاريع" : "العمليات",
+        page === "project" ? "Projects" : "Runs",
         page === "project" ? "#projects" : "#jobs",
       ),
     );
@@ -895,10 +924,10 @@ function updateStatus() {
   $("project-count").textContent = Object.keys(data.projects).length;
   const old = stale("containers");
   $("connection").textContent = old
-    ? "تعذر تأكيد الحالة الحالية — البيانات السابقة قديمة"
-    : "متصل · قراءة Docker حديثة";
+    ? "Current status unavailable — showing stale observations"
+    : "Live · updates arrive automatically";
   $("observed").textContent =
-    "آخر رصد للخدمات: " + date(data.snapshots.containers?.updated);
+    "Services observed: " + date(data.snapshots.containers?.updated);
 }
 async function refresh(force = false) {
   if (busy || !session) return;
@@ -914,7 +943,8 @@ async function refresh(force = false) {
     updateObservationLabels();
     $("error").textContent = e.message;
     $("error").hidden = false;
-    $("connection").textContent = "تعذر التحديث — البيانات المعروضة قديمة";
+    $("connection").textContent =
+      "Refresh failed — displayed observations are stale";
   } finally {
     busy = false;
     $("refresh").disabled = false;
@@ -925,11 +955,11 @@ function openBuild(name, branch, retryOf = null) {
     observation = data.snapshots["branches:" + name],
     sha = observation?.value.branches?.[branch];
   if (!sha || Date.now() / 1000 - observation.updated > 600) {
-    toast("حدّث فروع GitHub من صفحة المشروع ثم أعد المحاولة.");
+    toast("Refresh GitHub branches in project settings, then try again.");
     return;
   }
   if (!p.build_ready) {
-    toast("إعداد البناء والاختبارات غير مكتمل لهذا المشروع.");
+    toast("Build definitions and tests are not configured for this project.");
     return;
   }
   buildContext = {
@@ -940,26 +970,41 @@ function openBuild(name, branch, retryOf = null) {
     request_id: crypto.randomUUID(),
   };
   $("dialog-title").textContent = retryOf
-    ? "إعادة بناء العملية #" + retryOf
-    : "بناء جديد";
+    ? "Rebuild run #" + retryOf
+    : "New build";
+  const branchLabel = el("label", "Build branch");
+  branchLabel.htmlFor = "build-branch";
+  const branchSelect = el("select");
+  branchSelect.id = "build-branch";
+  branchOptions(name, branchSelect, p);
+  branchSelect.value = branch;
+  const commit = el("code", sha, "build-commit");
+  branchSelect.addEventListener("change", () => {
+    buildContext.branch = branchSelect.value;
+    buildContext.sha = observation.value.branches[branchSelect.value];
+    buildContext.request_id = crypto.randomUUID();
+    commit.textContent = buildContext.sha;
+  });
   $("build-summary").replaceChildren(
     el("strong", p.label || name),
-    el("p", "الفرع: " + branch, "identifier"),
-    el("code", sha),
+    branchLabel,
+    branchSelect,
+    el("span", "Commit to build", "hint"),
+    commit,
   );
   if (retryOf)
     $("build-summary").append(
       el(
         "p",
-        "ستُبنى أحدث نسخة في هذا الفرع، وقد تختلف عن النسخة التي فشلت.",
+        "This builds the latest commit on the selected branch, which may differ from the failed run.",
         "hint",
       ),
     );
   $("deploy-mode").disabled = !p.enabled;
   document.querySelector("[name=mode][value=validate]").checked = true;
   $("build-limit").textContent = p.enabled
-    ? "النشر يغيّر خدمات هذا المشروع. اختيار الفرع هنا لا يغيّر إعداد الـWebhook."
-    : "النشر على الإنتاج غير متاح حتى اعتماد الاختبارات. اختبار البناء متاح.";
+    ? "Deploy updates this project. This branch choice does not change the webhook settings."
+    : "Production deployment requires approval. Build validation is available.";
   $("build-error").hidden = true;
   $("build-submit").disabled = false;
   $("build-dialog").showModal();
@@ -1012,10 +1057,10 @@ $("login-form").addEventListener("submit", async (e) => {
 $("show-password").addEventListener("click", () => {
   const show = $("password").type === "password";
   $("password").type = show ? "text" : "password";
-  $("show-password").textContent = show ? "إخفاء" : "إظهار";
+  $("show-password").textContent = show ? "Hide" : "Show";
   $("show-password").setAttribute(
     "aria-label",
-    show ? "إخفاء كلمة المرور" : "إظهار كلمة المرور",
+    show ? "Hide password" : "Show password",
   );
 });
 $("logout").addEventListener("click", async () => {
@@ -1037,6 +1082,7 @@ async function enter() {
   $("app").hidden = false;
   $("account-name").textContent = session.username;
   await refresh(true);
+  startLiveUpdates();
 }
 (async () => {
   try {
@@ -1046,4 +1092,23 @@ async function enter() {
     showLogin();
   }
 })();
-setInterval(() => refresh(), 15000);
+function startLiveUpdates() {
+  liveConnection?.close();
+  liveConnection = new EventSource("./api/events");
+  liveConnection.addEventListener("state", (event) => {
+    data = JSON.parse(event.data);
+    observationFailed = false;
+    $("error").hidden = true;
+    render();
+  });
+  liveConnection.addEventListener("expired", () => showLogin());
+  liveConnection.onerror = () => {
+    observationFailed = true;
+    updateObservationLabels();
+    $("connection").textContent =
+      "Connection interrupted · reconnecting automatically";
+  };
+}
+setInterval(() => {
+  if (session) updateObservationLabels();
+}, 5000);

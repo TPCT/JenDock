@@ -100,3 +100,28 @@ class ManagementTests(ReceiverTests):
             self.assertTrue(valid_branch(value))
         for value in ('-main','a..b','a\nb','a\\b','a@{b','a b','x.lock','/main','a*'):
             self.assertFalse(valid_branch(value),value)
+
+    def test_live_stream_authentication_state_updates_and_logout(self):
+        from http.client import HTTPConnection
+        http=ThreadingHTTPServer(('127.0.0.1',0),handler(self.app))
+        thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+        client=HTTPConnection('127.0.0.1',http.server_port,timeout=8)
+        try:
+            client.request('GET','/api/events')
+            response=client.getresponse();self.assertEqual(response.status,401);response.read()
+            client.request('GET','/api/events',headers={'Cookie':self.app.cookie_name+'='+self.token})
+            response=client.getresponse();self.assertEqual(response.status,200)
+            self.assertEqual(response.getheader('Content-Type'),'text/event-stream')
+            self.assertEqual(response.fp.readline().strip(),b'event: state')
+            initial=json.loads(response.fp.readline().removeprefix(b'data: '));response.fp.readline()
+            self.assertIn('projects',initial)
+            code,result=self.app.action(self.session,self.body);self.assertEqual(code,202)
+            while True:
+                line=response.fp.readline().strip()
+                if line==b'event: state':
+                    updated=json.loads(response.fp.readline().removeprefix(b'data: '));response.fp.readline()
+                    if any(j['id']==result['job_id'] for j in updated['jobs']):break
+            self.app.action(self.session,{'action':'logout'})
+            while response.fp.readline().strip()!=b'event: expired':pass
+            response.close()
+        finally:client.close();http.shutdown();http.server_close();thread.join()

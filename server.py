@@ -75,10 +75,10 @@ class Application:
     def login(self, body, peer):
         user, password = body.get('username',''), body.get('password','')
         if not isinstance(user,str) or not isinstance(password,str) or len(password)>512:
-            return 400, {'error':'بيانات الدخول غير صالحة.'}, None
+            return 400, {'error':'Invalid login details.'}, None
         header = 'Basic ' + base64.b64encode((user+':'+password).encode()).decode()
         if not self.authorized(header,peer):
-            return 401, {'error':'تعذر تسجيل الدخول. راجع البيانات؛ بعد محاولات متكررة انتظر دقيقة.'}, None
+            return 401, {'error':'Sign-in failed. Check your credentials. After repeated attempts, wait one minute.'}, None
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         db = connect(self.database)
         try:
@@ -101,75 +101,75 @@ class Application:
             name=body.get('project','')
             p=effective_projects(db,self.config).get(name)
             if not p:
-                return 404, {'error':'المشروع غير موجود.'}
+                return 404, {'error':'Project not found.'}
             if action=='refresh-branches':
                 db.execute('INSERT OR REPLACE INTO requests VALUES(?,?)',(name,time.time()))
-                return 202, {'message':'جارٍ جلب الفروع من GitHub.'}
+                return 202, {'message':'Fetching branches from GitHub.'}
             if action=='cancel':
                 job=db.execute('SELECT * FROM jobs WHERE id=? AND project=?',(body.get('job_id'),name)).fetchone()
                 if not job or job['status'] not in ('queued','validation-queued','awaiting-validation'):
-                    return 409, {'error':'يمكن إلغاء المهام المنتظرة فقط. المهمة الجارية تُكمل الاختبارات والاستعادة الآمنة.'}
+                    return 409, {'error':'Only queued runs can be cancelled. Active runs complete testing and recovery.'}
                 changed=db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=? AND status IN ('queued','validation-queued','awaiting-validation')",(time.time(),job['id'])).rowcount
                 if not changed:
-                    return 409, {'error':'بدأت المهمة بالفعل؛ لا يمكن إلغاؤها من الانتظار.'}
-                db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',(job['id'],time.time(),'cancelled','ألغى المسؤول المهمة قبل بدء التنفيذ.'))
+                    return 409, {'error':'This run has started and can no longer be cancelled.'}
+                db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',(job['id'],time.time(),'cancelled','An administrator cancelled the run before execution.'))
                 audit(db,session['username'],'cancel',name,str(job['id']))
-                return 200, {'message':'أُلغيت المهمة المنتظرة.'}
+                return 200, {'message':'Queued run cancelled.'}
             if action in ('build','retry') and re.fullmatch(r'[a-zA-Z0-9-]{16,80}',body.get('request_id','')):
                 existing=db.execute('SELECT id FROM jobs WHERE delivery=? AND project=?',('manual-'+body['request_id'],name)).fetchone()
                 if existing:
-                    return 200, {'job_id':existing['id'],'message':'هذه العملية مسجلة بالفعل.'}
+                    return 200, {'job_id':existing['id'],'message':'This request has already been recorded.'}
             branch=body.get('branch','')
             if not valid_branch(branch):
-                return 400, {'error':'اسم الفرع غير صالح.'}
+                return 400, {'error':'Invalid branch name.'}
             row=db.execute('SELECT * FROM snapshots WHERE name=?',('branches:'+name,)).fetchone()
             branches=json.loads(row['value']) if row else {}
             if not row or time.time()-row['updated']>600 or branches.get('error'):
                 db.execute('INSERT OR REPLACE INTO requests VALUES(?,?)',(name,time.time()))
-                return 409, {'error':'حدّث فروع GitHub وانتظر اكتمال الجلب ثم أعد المحاولة.'}
+                return 409, {'error':'Refresh GitHub branches and wait for completion before retrying.'}
             sha=branches.get('branches',{}).get(branch)
             if not sha:
-                return 409, {'error':'الفرع غير موجود في آخر قراءة من GitHub.'}
+                return 409, {'error':'The branch was not found in the latest GitHub observation.'}
             if action=='settings':
                 automatic=body.get('automatic') is True
                 if automatic and not p.get('enabled'):
-                    return 409, {'error':'اختبارات النشر لهذا المشروع لم تُعتمد بعد.'}
+                    return 409, {'error':'Deployment tests have not been approved for this project.'}
                 db.execute('INSERT OR REPLACE INTO settings VALUES(?,?,?)',(name,branch,int(automatic)))
                 audit(db,session['username'],'settings',name,json.dumps({'branch':branch,'automatic':automatic}))
-                return 200, {'message':'حُفظ الفرع وإعداد النشر التلقائي. لم يبدأ نشر بهذه الخطوة.'}
+                return 200, {'message':'Branch and automatic deployment settings saved. No deployment was started.'}
             if action not in ('build','retry'):
-                return 400, {'error':'العملية غير معروفة.'}
+                return 400, {'error':'Unknown action.'}
             mode=body.get('mode')
             if mode not in ('validate','deploy'):
-                return 400, {'error':'حدد اختبار البناء أو النشر.'}
+                return 400, {'error':'Choose build validation or deployment.'}
             if not p.get('recipe'):
-                return 409, {'error':'إعداد البناء والاختبارات غير مكتمل لهذا المشروع.'}
+                return 409, {'error':'Build definitions and tests are not configured for this project.'}
             if mode=='deploy' and not p.get('enabled'):
-                return 409, {'error':'النشر لم يُعتمد بعد؛ يمكنك اختبار البناء دون تغيير الإنتاج.'}
+                return 409, {'error':'Deployment is not approved. You can validate the build without changing production.'}
             if body.get('sha') != sha:
-                return 409, {'error':'تغيّرت نسخة الفرع منذ فتح النموذج. أغلقه وحدّث الفروع ثم راجع النسخة الجديدة.'}
+                return 409, {'error':'The branch changed since this form opened. Close it, refresh branches and review the new commit.'}
             retry_of=None
             if action=='retry':
                 old=db.execute('SELECT * FROM jobs WHERE id=? AND project=?',(body.get('job_id'),name)).fetchone()
                 if not old or old['status'] not in ('failed','interrupted','rolled-back','cancelled','needs-review','superseded'):
-                    return 409, {'error':'هذه المهمة غير قابلة لإعادة المحاولة.'}
+                    return 409, {'error':'This run cannot be retried.'}
                 retry_of=old['id']
             key=body.get('request_id','')
             if not re.fullmatch(r'[a-zA-Z0-9-]{16,80}',key):
-                return 400, {'error':'معرّف العملية غير صالح. حدّث الصفحة.'}
+                return 400, {'error':'Invalid request ID. Refresh the page.'}
             # Durable idempotency: a lost HTTP response cannot enqueue a second deployment.
             existing=db.execute('SELECT id FROM jobs WHERE delivery=?',('manual-'+key,)).fetchone()
             if existing:
-                return 200, {'job_id':existing['id'],'message':'هذه العملية مسجلة بالفعل.'}
+                return 200, {'job_id':existing['id'],'message':'This request has already been recorded.'}
             active=db.execute("SELECT id FROM jobs WHERE project=? AND status IN ('queued','validation-queued','building','testing','deploying','recovering')",(name,)).fetchone()
             if active:
-                return 409, {'error':'للمشروع مهمة جارية أو منتظرة بالفعل: #'+str(active['id'])}
+                return 409, {'error':'This project already has an active or queued run: #'+str(active['id'])}
             try:
                 job_id,_=enqueue(db,'manual-'+key,name,sha,True,branch,mode,session['username'],retry_of)
             except ValueError as error:
                 return 409, {'error':str(error)}
             audit(db,session['username'],action,name,json.dumps({'job_id':job_id,'branch':branch,'sha':sha,'mode':mode,'retry_of':retry_of}))
-            return 202, {'job_id':job_id,'message':'أُضيفت المهمة إلى الانتظار؛ ستبدأ بالتتابع.'}
+            return 202, {'job_id':job_id,'message':'Build queued. Runs execute one at a time.'}
         finally:
             db.close()
 
@@ -267,12 +267,37 @@ def handler(app):
             if path=='/healthz':
                 return self.respond(200,{'status':'ok'})
             session=app.session(self.headers.get('Cookie',''),touch=path=='/api/session')
+            if path=='/api/events':
+                if not session:
+                    return self.respond(401,{'error':'Sign in to continue.'})
+                self.send_response(200)
+                self.send_header('Content-Type','text/event-stream')
+                self.send_header('Cache-Control','no-cache, no-store')
+                self.send_header('X-Accel-Buffering','no')
+                self.end_headers()
+                previous=None
+                try:
+                    for _ in range(100):
+                        if not app.session(self.headers.get('Cookie','')):
+                            self.wfile.write(b'event: expired\ndata: {}\n\n');self.wfile.flush();break
+                        state=app.state()
+                        state.pop('observed_at',None)
+                        payload=json.dumps(state,separators=(',',':'))
+                        if payload!=previous:
+                            self.wfile.write(('event: state\ndata: '+payload+'\n\n').encode());previous=payload
+                        else:
+                            self.wfile.write(b': heartbeat\n\n')
+                        self.wfile.flush()
+                        time.sleep(2)
+                except (BrokenPipeError,ConnectionResetError,TimeoutError):
+                    pass
+                return
             if path=='/api/session':
-                return self.respond(200 if session else 401,{'username':session['username'],'csrf':session['csrf']} if session else {'error':'سجّل الدخول للمتابعة.'})
+                return self.respond(200 if session else 401,{'username':session['username'],'csrf':session['csrf']} if session else {'error':'Sign in to continue.'})
             if path=='/api/state':
-                return self.respond(200,app.state()) if session else self.respond(401,{'error':'انتهت الجلسة. سجّل الدخول مجددًا.'})
+                return self.respond(200,app.state()) if session else self.respond(401,{'error':'Your session expired. Sign in again.'})
             files={'/':('index.html','text/html; charset=utf-8'), '/login':('index.html','text/html; charset=utf-8'),
-              '/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),
+              '/legacy-messages.js':('legacy-messages.js','text/javascript; charset=utf-8'), '/app.js':('app.js','text/javascript; charset=utf-8'),'/style.css':('style.css','text/css; charset=utf-8'),
               '/NotoSansArabic-Regular.ttf':('NotoSansArabic-Regular.ttf','font/ttf'),'/FONT-LICENSE.txt':('FONT-LICENSE.txt','text/plain')}
             if path not in files:
                 return self.respond(404,{'error':'Not found'})
@@ -295,7 +320,7 @@ def handler(app):
                     code,response=app.webhook(self.headers,body)
                     return self.respond(code,response)
                 if self.headers.get('Origin')!=app.origin:
-                    return self.respond(403,{'error':'مصدر الطلب غير معتمد.'})
+                    return self.respond(403,{'error':'Request origin is not allowed.'})
                 if self.headers.get('Content-Type','').split(';')[0]!='application/json':
                     return self.respond(415,{'error':'Expected JSON'})
                 value=json.loads(body)
@@ -308,9 +333,9 @@ def handler(app):
                     return self.respond(code,response,cookie=token)
                 session=app.session(self.headers.get('Cookie',''),touch=True)
                 if not session:
-                    return self.respond(401,{'error':'انتهت الجلسة. سجّل الدخول مجددًا.'})
+                    return self.respond(401,{'error':'Your session expired. Sign in again.'})
                 if not hmac.compare_digest(self.headers.get('X-CSRF-Token',''),session['csrf']):
-                    return self.respond(403,{'error':'تعذر التحقق من الجلسة. حدّث الصفحة.'})
+                    return self.respond(403,{'error':'Session verification failed. Refresh the page.'})
                 code,response=app.action(session,value)
                 return self.respond(code,response,cookie='' if value.get('action')=='logout' and code==200 else None)
             except (ValueError,TimeoutError,TypeError):

@@ -27,7 +27,7 @@
 body {
   margin: 0;
   font:
-    14px/1.75 Noto,
+    14px/1.5 system-ui,
     Arial,
     sans-serif;
   background: var(--bg);
@@ -176,7 +176,7 @@ code {
   line-height: 1.4;
   font-weight: 700;
   direction: ltr;
-  text-align: right;
+  text-align: left;
 }
 .brand span {
   display: block;
@@ -273,7 +273,7 @@ code {
 }
 aside {
   position: fixed;
-  inset: 0 0 0 auto;
+  inset: 0 auto 0 0;
   width: 226px;
   background: var(--nav);
   color: #dce6e9;
@@ -411,7 +411,7 @@ header p {
 table {
   border-collapse: collapse;
   width: 100%;
-  text-align: right;
+  text-align: left;
   font-size: 13px;
 }
 th {
@@ -799,7 +799,7 @@ legend {
   }
   .brand {
     font-size: 22px;
-    text-align: right;
+    text-align: left;
   }
   .brand span {
     display: block;
@@ -823,7 +823,8 @@ legend {
   .account {
     position: absolute;
     top: 12px;
-    left: 12px;
+    right: 12px;
+    left: auto;
     border: 0;
     padding: 0;
   }
@@ -929,5 +930,138 @@ legend {
   * {
     scroll-behavior: auto !important;
     transition: none !important;
+  }
+}
+
+/* Project-first English console: one application, one operational workspace. */
+:root {
+  --bg: #f6f7f9;
+  --ink: #202b38;
+  --muted: #627083;
+  --line: #e1e6ec;
+  --nav: #16242f;
+  --radius: 7px;
+}
+h1 {
+  letter-spacing: -0.025em;
+  font-weight: 650;
+}
+main {
+  max-width: 1700px;
+}
+nav a {
+  font-size: 14px;
+}
+.statusline {
+  font-size: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.project-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 0;
+}
+.project-summary p {
+  margin: 7px 0 0;
+}
+.project-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 22px;
+}
+.project-tab {
+  background: transparent;
+  border-radius: 0;
+  padding: 13px 2px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.project-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+  font-weight: 650;
+}
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.service-card {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  padding: 18px;
+  min-width: 0;
+}
+.service-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+.service-head strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.service-image {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 12px;
+}
+.service-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding-top: 12px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.settings-panel {
+  max-width: 720px;
+}
+#build-summary label {
+  display: block;
+  margin-top: 20px;
+}
+#build-branch {
+  width: 100%;
+  margin: 8px 0 16px;
+}
+#build-summary .hint {
+  display: block;
+}
+.build-commit {
+  display: block;
+  overflow-wrap: anywhere;
+  margin: 5px 0 20px;
+}
+.login-story h1 {
+  font-size: clamp(36px, 4vw, 54px);
+  line-height: 1.12;
+}
+@media (max-width: 680px) {
+  .service-grid {
+    grid-template-columns: 1fr;
+  }
+  .project-summary {
+    align-items: start;
+  }
+  .project-summary > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .project-summary > button {
+    flex: none;
+  }
+  .project-tabs {
+    gap: 20px;
   }
 }

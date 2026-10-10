@@ -37,7 +37,7 @@ def run(args, timeout=180, cwd=None, capture=False):
         result = subprocess.run(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        raise StepFailure('انتهت مهلة الخطوة؛ لم يتم اعتبارها ناجحة.') from exc
+        raise StepFailure('The step timed out and was not marked successful.') from exc
     if result.returncode:
         job_id = getattr(diagnostics, 'job_id', None)
         if job_id is not None:
@@ -49,18 +49,18 @@ def run(args, timeout=180, cwd=None, capture=False):
             for old in folder.glob('*.log'):
                 if old.stat().st_mtime < time.time() - 7 * 86400:
                     old.unlink()
-        reason = 'فشلت خطوة التنفيذ'
+        reason = 'Execution step failed'
         output = (result.stdout[-65536:] + result.stderr[-65536:]).lower()
-        for needle, label in [(b'no space left', 'المساحة لا تكفي للبناء'),
-                              (b'could not resolve', 'تعذر حل اسم مضيف أثناء البناء'),
-                              (b'pull access denied', 'الصورة الأساسية غير متاحة'),
-                              (b'failures!', 'فشلت اختبارات المشروع'),
-                              (b'assertionerror', 'فشل تحقق داخل اختبارات المشروع'),
-                              (b'permission denied', 'صلاحيات خطوة التنفيذ غير كافية')]:
+        for needle, label in [(b'no space left', 'Not enough disk space for the build'),
+                              (b'could not resolve', 'Host name resolution failed during the build'),
+                              (b'pull access denied', 'Base image unavailable'),
+                              (b'failures!', 'Project tests failed'),
+                              (b'assertionerror', 'An assertion failed in the project tests'),
+                              (b'permission denied', 'Insufficient permissions for this step')]:
             if needle in output:
                 reason = label
                 break
-        raise StepFailure(reason + ' (exit %d). التشخيص التفصيلي محفوظ محليًا للعامل.' % result.returncode)
+        raise StepFailure(reason + ' (exit %d). Detailed diagnostics are stored privately by the worker.' % result.returncode)
     return result.stdout.decode() if capture else None
 
 
@@ -116,7 +116,7 @@ def env_values(path, keys):
         if sep and key in keys:
             values[key] = value.strip().strip('"').strip("'")
     if set(keys) != set(values):
-        raise StepFailure('إعداد نسخة التشغيل غير مكتمل؛ لم يتغير الإنتاج.')
+        raise StepFailure('Runtime configuration is incomplete. Production was not changed.')
     return values
 
 
@@ -130,12 +130,12 @@ def containers(recipe):
 def verify_runtime(recipe, expected_images=None):
     entries = containers(recipe)
     if {e['Service'] for e in entries} != set(recipe['services']):
-        raise StepFailure('خدمة مطلوبة غير موجودة بعد النشر.')
+        raise StepFailure('A required service is missing after deployment.')
     for entry in entries:
         if entry.get('State') != 'running' or entry.get('Health') == 'unhealthy':
-            raise StepFailure('خدمة غير سليمة بعد النشر.')
+            raise StepFailure('A service is unhealthy after deployment.')
     if expected_images is not None and {e['Image'] for e in entries} != set(expected_images):
-        raise StepFailure('الصور التي تعمل لا تطابق الصور التي تم بناؤها.')
+        raise StepFailure('Running images do not match the built images.')
     # An authenticated application flow belongs in project tests; HTTP is a
     # deployment availability gate, not an assertion of business acceptance.
     import urllib.request
@@ -147,19 +147,19 @@ def verify_runtime(recipe, expected_images=None):
         except urllib.error.HTTPError as error:
             code = error.code
         except OSError as error:
-            raise StepFailure('تعذر الوصول إلى الموقع بعد النشر.') from error
+            raise StepFailure('The site could not be reached after deployment.') from error
         if code not in check['statuses']:
-            raise StepFailure('فشل فحص HTTP بعد النشر: %d' % code)
+            raise StepFailure('HTTP check failed after deployment: %d' % code)
 
 
 def recover(db, journal):
     record = json.loads(journal.read_text())
     recipe = record['recipe']
-    set_status(db, record['job_id'], 'recovering', 'جارٍ استعادة الصور السابقة والتحقق منها.')
+    set_status(db, record['job_id'], 'recovering', 'Restoring and verifying the previous images.')
     replace_env(recipe['env_file'], record['previous_env'])
     run(compose(recipe, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', *recipe['services']), timeout=240)
     verify_runtime(recipe)
-    set_status(db, record['job_id'], 'rolled-back', 'فشل النشر؛ عادت الصور السابقة واجتازت فحص التشغيل. لم تتغير قاعدة البيانات.')
+    set_status(db, record['job_id'], 'rolled-back', 'Deployment failed. Previous images were restored and passed runtime checks. The database was unchanged.')
     journal.unlink()
 
 
@@ -169,20 +169,20 @@ def deploy(db, job, project, validate_only=False):
     name, sha = job['project'], job['sha']
     branch = job['branch'] or project['branch']
     if not valid_branch(branch):
-        raise StepFailure('اسم الفرع غير صالح.')
+        raise StepFailure('Invalid branch name.')
     if not re.fullmatch('[0-9a-f]{40}', sha):
-        raise StepFailure('معرّف Git غير صالح.')
+        raise StepFailure('Invalid Git commit.')
     if not recipe.get('tests') or not recipe.get('http_checks'):
-        raise StepFailure('اختبارات النشر لم تُعتمد لهذا المشروع بعد.')
+        raise StepFailure('Deployment tests are not yet approved for this project.')
     journal = STATE / 'transaction.json'
     with tempfile.TemporaryDirectory(prefix=name + '-', dir='/work') as temp:
         source = Path(temp) / 'source'
-        set_status(db, job['id'], 'building', 'جارٍ التحقق من Git وتحضير بناء معزول.')
+        set_status(db, job['id'], 'building', 'Verifying Git and preparing an isolated build.')
         remote = 'git@github.com:' + project['repository'] + '.git'
         run(['git', 'clone', '--branch', branch, '--', remote, str(source)], timeout=300)
         head = run(['git', 'rev-parse', 'HEAD'], cwd=source, capture=True).strip()
         if head != sha:
-            set_status(db, job['id'], 'superseded', 'الفرع يحتوي إصدارًا أحدث؛ لن ننشر الإصدار القديم.')
+            set_status(db, job['id'], 'superseded', 'The branch has a newer commit. The older commit will not be deployed.')
             return
         # Disallow automatic schema changes until a project-specific migration
         # and backwards compatibility policy is explicitly configured.
@@ -193,23 +193,23 @@ def deploy(db, job, project, validate_only=False):
             if not re.fullmatch('[0-9a-f]{7,40}', value):
                 value = previous.rsplit(':', 1)[-1]
             if not re.fullmatch('[0-9a-f]{7,40}', value):
-                raise StepFailure('لا يمكن تحديد معرّف Git للصورة الحالية؛ تحتاج مراجعة قبل النشر.')
+                raise StepFailure('The current image commit could not be identified. Review is required before deployment.')
             revisions.add(value)
         changed = '\n'.join(run(['git', 'diff', '--name-only', old, sha], cwd=source, capture=True) for old in revisions)
         schema_changes = any(any(part in '/' + line for part in ('/migrations/', '/alembic/versions/')) for line in changed.splitlines())
         if schema_changes and not validate_only:
-            set_status(db, job['id'], 'needs-review', 'تغييرات قاعدة البيانات تحتاج خطة ترحيل قبل النشر التلقائي.')
+            set_status(db, job['id'], 'needs-review', 'Database changes require a migration plan before automatic deployment.')
             return
         tracked = run(['git', 'ls-files'], cwd=source, capture=True).splitlines()
         if any(Path(f).name in ('.env', 'id_rsa', 'id_ed25519') for f in tracked):
-            raise StepFailure('يوجد ملف إعدادات حساس ضمن Git؛ أوقف البناء قبل نسخ السياق.')
+            raise StepFailure('A sensitive configuration file was found in Git. Build stopped before copying the context.')
         images = {}
         updates = {}
         version = sha[:12] + '-' + str(job['id'])
         for index, spec in enumerate(recipe['images']):
             # Never overwrite a running tag during same-commit validation/retry.
             tag = spec['name'] + ':' + version
-            set_status(db, job['id'], 'building', 'جارٍ بناء صورة ' + spec['name'] + ' من Git.')
+            set_status(db, job['id'], 'building', 'Building image ' + spec['name'] + ' from Git.')
             args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
                     '--cpu-quota', '200000', '--network', 'deploy-build',
                     '--label', 'net.shiftcodes.deployer=deploy-monitor',
@@ -227,7 +227,7 @@ def deploy(db, job, project, validate_only=False):
             images[spec['name']] = tag
             if spec.get('deploy', True):
                 updates[spec['env_key']] = tag if spec.get('env_mode', 'image') == 'image' else version
-        set_status(db, job['id'], 'testing', 'جارٍ اختبار الصور دون أسرار أو قواعد بيانات الإنتاج.')
+        set_status(db, job['id'], 'testing', 'Testing images without production secrets or databases.')
         for i, test in enumerate(recipe['tests']):
             test_name = 'deploy-test-%s-%d' % (job['id'], i)
             args = [DOCKER, 'run', '--rm', '--name', test_name, '--network', 'none', '--read-only',
@@ -243,16 +243,16 @@ def deploy(db, job, project, validate_only=False):
             finally:
                 subprocess.run([DOCKER, 'rm', '-f', test_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         if validate_only:
-            set_status(db, job['id'], 'validated', 'نجح البناء والاختبار الداخلي؛ لم تتغير خدمات الإنتاج.' + (' توجد تغييرات ترحيل تحتاج مراجعة.' if schema_changes else ''))
+            set_status(db, job['id'], 'validated', 'Build and internal tests passed. Production services were not changed.' + (' Migration changes require review.' if schema_changes else ''))
             return
         previous_env = env_values(recipe['env_file'], updates)
         current_head = run(['git', 'ls-remote', '--refs', 'origin', 'refs/heads/' + branch], cwd=source, capture=True).split()
         if not current_head or current_head[0] != sha:
-            set_status(db, job['id'], 'superseded', 'وصل تعديل أحدث أثناء البناء؛ لم تتغير خدمات الإنتاج.')
+            set_status(db, job['id'], 'superseded', 'A newer commit arrived during the build. Production services were not changed.')
             return
         # Persist recovery instructions before the first production mutation.
         atomic_json(journal, {'job_id': job['id'], 'recipe': recipe, 'previous_env': previous_env})
-        set_status(db, job['id'], 'deploying', 'اكتمل البناء والاختبار؛ جارٍ تحديث الخدمات المحددة.')
+        set_status(db, job['id'], 'deploying', 'Build and tests passed. Updating the selected services.')
         try:
             replace_env(recipe['env_file'], updates)
             run(compose(recipe, 'up', '-d', '--no-deps', '--wait', '--wait-timeout', '180', *recipe['services']), timeout=240)
@@ -260,7 +260,7 @@ def deploy(db, job, project, validate_only=False):
         except Exception:
             recover(db, journal)
             return
-        set_status(db, job['id'], 'succeeded', 'اكتمل النشر وفحص التشغيل. لم تُنفّذ ترحيلات قاعدة بيانات تلقائية.')
+        set_status(db, job['id'], 'succeeded', 'Deployment and runtime checks passed. No database migrations were run automatically.')
         journal.unlink()
         # No force, no volume pruning. Docker refuses images still referenced.
         for old in previous_images:
@@ -304,7 +304,7 @@ def observe_branches(db, name, project):
                 branches[branch]=sha
         snapshot(db,'branches:'+name,{'branches':branches,'error':False})
     except (StepFailure,ValueError):
-        snapshot(db,'branches:'+name,{'branches':{},'error':True,'detail':'تعذر جلب فروع GitHub. أعد المحاولة.'})
+        snapshot(db,'branches:'+name,{'branches':{},'error':True,'detail':'Could not fetch GitHub branches. Try again.'})
     db.execute('DELETE FROM requests WHERE project=?',(name,))
 
 
@@ -319,9 +319,9 @@ def main():
             try:
                 recover(db, journal)
             except Exception:
-                snapshot(db, 'worker', {'state': 'recovery-failed', 'detail': 'تحتاج استعادة التشغيل مراجعة؛ توقفت عمليات النشر.'})
+                snapshot(db, 'worker', {'state': 'recovery-failed', 'detail': 'Recovery requires review. Deployments have stopped.'})
                 raise SystemExit(1)
-        db.execute("UPDATE jobs SET status='interrupted',detail='توقف العامل قبل بدء التحديث؛ لم تعتبر المهمة ناجحة.' WHERE status IN ('building','testing','deploying')")
+        db.execute("UPDATE jobs SET status='interrupted',detail='The worker stopped before the update completed. The run was not marked successful.' WHERE status IN ('building','testing','deploying')")
         def branch_collector():
             branch_db=connect(DATABASE)
             while True:
@@ -341,8 +341,8 @@ def main():
                 try:
                     observe(observations)
                 except (StepFailure, OSError):
-                    snapshot(observations, 'worker', {'state': 'unavailable', 'detail': 'تعذر قراءة Docker؛ البيانات السابقة قديمة.'})
-                time.sleep(15)
+                    snapshot(observations, 'worker', {'state': 'unavailable', 'detail': 'Docker could not be observed. Previous observations are stale.'})
+                time.sleep(5)
         threading.Thread(target=collector, daemon=True).start()
         while True:
             try:
@@ -354,7 +354,7 @@ def main():
                     if not claimed:
                         continue
                     if not project or (not project.get('enabled') and not validation):
-                        set_status(db, job['id'], 'awaiting-validation', 'النشر التلقائي غير مفعّل لهذا المشروع.')
+                        set_status(db, job['id'], 'awaiting-validation', 'Automatic deployment is not enabled for this project.')
                     else:
                         try:
                             deploy(db, job, project, validate_only=validation)
@@ -363,7 +363,7 @@ def main():
                                 snapshot(db, 'worker', {'state': 'recovery-failed'})
                                 raise SystemExit(1)
                             phase = db.execute('SELECT detail FROM jobs WHERE id=?', (job['id'],)).fetchone()['detail']
-                            detail = str(error) if isinstance(error, StepFailure) else 'فشل داخلي؛ لم يُعتبر النشر ناجحًا.'
+                            detail = str(error) if isinstance(error, StepFailure) else 'Internal failure. Deployment was not marked successful.'
                             set_status(db, job['id'], 'failed', phase + ' — ' + detail)
                         finally:
                             # Only this job's unreferenced images; never force
@@ -373,8 +373,8 @@ def main():
                             subprocess.run([DOCKER, 'builder', 'prune', '-af'],
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
             except (StepFailure, OSError):
-                snapshot(db, 'worker', {'state': 'unavailable', 'detail': 'تعذر قراءة Docker؛ البيانات السابقة قديمة.'})
-            time.sleep(15)
+                snapshot(db, 'worker', {'state': 'unavailable', 'detail': 'Docker could not be observed. Previous observations are stale.'})
+            time.sleep(5)
 
 
 if __name__ == '__main__':

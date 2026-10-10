@@ -4,7 +4,7 @@
     "repository_id": 1217712774,
     "branch": "development",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "aic-website-"
     ],
@@ -18,7 +18,7 @@
     "repository_id": 1217712535,
     "branch": "main",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "aic-sys-"
     ],
@@ -32,7 +32,7 @@
     "repository_id": 1367287794,
     "branch": "main",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "aic-ops-"
     ],
@@ -46,7 +46,7 @@
     "repository_id": 1303111288,
     "branch": "development",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "aic-academy-"
     ],
@@ -60,7 +60,7 @@
     "repository_id": 1411719795,
     "branch": "main",
     "enabled": true,
-    "reason": "اختبار الصورة داخليًا: صحة الخدمة، تطابق الاستخراج، التزامن وحدود المدخلات. لا تُرسل طلبات لمزوّد الخدمة.",
+    "reason": "Internal checks cover service health, extraction results, concurrency and input limits. No provider requests are sent.",
     "recipe": {
       "compose_project": "dsl",
       "env_file": "/opt/docker-engine/projects/dsl/ports.env",
@@ -115,7 +115,7 @@
     "repository_id": 1062878648,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "dsl01:",
       "dsl01-sahl-scheduler:"
@@ -189,7 +189,7 @@
     "repository_id": 1124009541,
     "branch": "main",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "dsl02"
     ],
@@ -258,7 +258,7 @@
     "repository_id": 1376157514,
     "branch": "developement",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "elfak01-"
     ],
@@ -272,7 +272,7 @@
     "repository_id": 1369885095,
     "branch": "developement",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "elfak-legacy-"
     ],
@@ -286,7 +286,7 @@
     "repository_id": 1129116696,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "elnahy-"
     ],
@@ -300,7 +300,7 @@
     "repository_id": 878709028,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "shiftcodes-licence-"
     ],
@@ -314,7 +314,7 @@
     "repository_id": 1005235674,
     "branch": "main",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "shiftcodes-us01-"
     ],
@@ -328,7 +328,7 @@
     "repository_id": 1311068352,
     "branch": "main",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "shiftcodes-website-"
     ],
@@ -397,7 +397,7 @@
     "repository_id": 1310001074,
     "branch": "developement",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "30sv-"
     ],
@@ -467,7 +467,7 @@
     "repository_id": 1343051852,
     "branch": "main",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "eo01-"
     ],
@@ -537,7 +537,7 @@
     "repository_id": 1053687038,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "octa-"
     ],
@@ -607,7 +607,7 @@
     "repository_id": 1142625950,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "etsawaa-"
     ],
@@ -621,7 +621,7 @@
     "repository_id": 1323919457,
     "branch": "development",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "lms-v2-"
     ],
@@ -635,7 +635,7 @@
     "repository_id": 1152830480,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار التحقق من تطابق الفرع المنشور واعتماد البناء واختبارات النشر.",
+    "reason": "Branch alignment, build verification and deployment approval are pending.",
     "image_prefixes": [
       "smartconst-"
     ],
@@ -649,7 +649,7 @@
     "repository_id": 1148536167,
     "branch": "master",
     "enabled": false,
-    "reason": "بانتظار اعتماد البناء واختبارات النشر.",
+    "reason": "Build verification and deployment approval are pending.",
     "image_prefixes": [
       "crm-"
     ],
