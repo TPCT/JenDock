@@ -113,7 +113,7 @@ def wait_runtime(name, expected_running, timeout=60):
     raise ControlError('The container did not reach the expected runtime state.')
 
 def recreate(args, service, running):
-    options=['up','-d'] if running else ['create']
+    options=['up','-d'] if running else ['up','--no-start']
     command(args+options+['--no-deps','--no-build','--pull','never','--force-recreate',service],timeout=180)
 
 def assert_image(config,service,image_id):
@@ -194,7 +194,7 @@ def execute(body):
                 atomic_write(owner,yaml.safe_dump(document,sort_keys=False),0o600)
                 after=configuration(args)
                 expected=copy.deepcopy(before_config)
-                expected['services'][service].setdefault('environment',{}).update(body['changes'])
+                expected['services'][service].setdefault('environment',{}).update({k:v.replace('$','$$') for k,v in body['changes'].items()})
                 if after!=expected:raise ControlError('The change would affect other configuration. It was rejected.')
                 record['activated']=True;atomic_write(JOURNAL,json.dumps(record),0o600)
                 recreate(args,service,was_running)

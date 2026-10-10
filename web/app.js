@@ -1108,6 +1108,7 @@ function startLiveUpdates() {
     data = JSON.parse(event.data);
     observationFailed = false;
     $("error").hidden = true;
+    updateContainerLive();
     render();
   });
   liveConnection.addEventListener("expired", () => showLogin());

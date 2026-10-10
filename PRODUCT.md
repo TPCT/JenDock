@@ -21,3 +21,10 @@ English LTR, keyboard navigation, responsive desktop and mobile layouts; readabl
 The user rejected a read-only monitor and asked for a complete control surface. Manual branch selection is distinct from the saved automatic deployment branch. Every launch previews the resolved commit and distinguishes test-only from production changes. Sessions use secure HTTP-only cookies and CSRF protection. Projects without a validated deployment recipe must state that limitation rather than expose a misleading deploy control.
 
 Projects appear once with their tracked branch. Additional branches are available only in the build dialog or project settings. Every project owns one workspace grouping all its containers. Live server events update observations without manual refresh.
+
+## Container management expansion
+Each project exposes guarded start/stop/restart, real image versions and commits,
+and a masked environment editor with persistent per-service overrides and recovery.
+Mobile navigation is a sidebar with breadcrumbs. Select components are searchable
+custom listboxes. Runtime changes arrive automatically; forms retain edits.
+Container management is not host, database account or filesystem administration.

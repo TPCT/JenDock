@@ -24,6 +24,7 @@ https='''<VirtualHost 176.118.198.49:443>
     RequestHeader set X-Forwarded-Proto "https"
     RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
     ProxyPass /.well-known/acme-challenge/ !
+    ProxyPass /api/action http://127.0.0.1:19190/api/action timeout=600
     ProxyPass / http://127.0.0.1:19190/ timeout=30
     ProxyPassReverse / http://127.0.0.1:19190/
     Header always set Strict-Transport-Security "max-age=31536000"

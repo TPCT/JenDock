@@ -29,7 +29,7 @@ class ControlTests(unittest.TestCase):
         with patch.object(control,'command') as command:
             control.recreate(['compose'],'app',False)
             args=command.call_args.args[0]
-            self.assertEqual(args[1],'create');self.assertIn('--no-deps',args);self.assertIn('--no-build',args)
+            self.assertIn('--no-start',args);self.assertIn('--no-deps',args);self.assertIn('--no-build',args)
     def test_image_drift_rejected(self):
         with patch.object(control,'command',return_value='[{"Id":"new"}]'):
             with self.assertRaises(control.ControlError):control.assert_image({'services':{'app':{'image':'tag'}}},'app','old')

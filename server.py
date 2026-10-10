@@ -107,7 +107,7 @@ class Application:
                 payload=dict(body,actor=session['username'])
                 try:
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
-                        client.settimeout(240);client.connect('/state/control.sock')
+                        client.settimeout(600);client.connect('/state/control.sock')
                         client.sendall(json.dumps(payload).encode()+b'\n')
                         result=json.loads(client.makefile('rb').readline(1048576))
                     if not result['ok']:return 409,{'error':result['error']}

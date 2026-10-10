@@ -276,7 +276,7 @@ def observe(db):
         obj = json.loads(line)
         if obj.get('Names', '').startswith(('tanialab-', 'deploy-monitor-recovery-check-', 'deploy-test-')):
             continue
-        data.append({k: obj.get(k) for k in ('Names', 'Image', 'State', 'Status')})
+        data.append({k: obj.get(k) for k in ('ID', 'Names', 'Image', 'State', 'Status')})
     stats_raw = run([DOCKER, 'stats', '--no-stream', '--format', '{{json .}}'], timeout=30, capture=True)
     stats = {row['Name']: row for row in (json.loads(line) for line in stats_raw.splitlines() if line.strip())}
     for entry in data:

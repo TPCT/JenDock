@@ -54,6 +54,7 @@ async function openContainer(project,name) {
 }
 function renderContainer(tab) {
   const {project,name,detail:d}=containerContext,body=document.getElementById('container-detail');body.replaceChildren();
+  body.dataset.tab=tab;
   const tabs=el('div','','project-tabs');
   for(const [key,label] of [['details','Details & version'],['environment','Environment']]) {
     const t=button(label,()=>renderContainer(key),'project-tab');t.setAttribute('aria-pressed',String(tab===key));tabs.append(t);
@@ -61,10 +62,10 @@ function renderContainer(tab) {
   body.append(tabs);
   if(tab==='details') {
     const facts=el('dl','','container-facts');
-    for(const [label,value] of [['Status',d.state],['Health',d.health],['Image / version',d.image],['Image ID',d.image_id],['Git commit',d.commit||'Not recorded in this image'],['Created',d.image_created],['Started',d.started_at],['Restart count',String(d.restart_count)]]) facts.append(el('dt',label),el('dd',value,'identifier'));
+    for(const [label,value] of [['Status',d.state],['Health',d.health],['Image / version',d.image],['Image ID',d.image_id],['Git commit',d.commit||'Not recorded in this image'],['Created',d.image_created],['Started',d.started_at],['Restart count',String(d.restart_count)]]) {const valueNode=el('dd',value,'identifier');valueNode.dataset.fact=label;facts.append(el('dt',label),valueNode);}
     const actions=el('div','','actions');
-    for(const [operation,label] of [['start','Start'],['stop','Stop'],['restart','Restart']])actions.append(button(label,()=>confirmContainer(operation),'secondary',operation==='start'?d.state==='running':d.state!=='running'));
-    body.append(facts,actions,el('p','Actions apply only to this container. Stopping a database or cache can affect other services in this project.','hint'));
+    for(const [operation,label] of [['start','Start'],['stop','Stop'],['restart','Restart']]){const b=button(label,()=>confirmContainer(operation),'secondary',operation==='start'?d.state==='running':d.state!=='running');b.dataset.operation=operation;actions.append(b);}
+    body.append(facts,actions,el('p', 'Live runtime status. Image and environment are checked again before applying a change.', 'hint'),el('p','Actions apply only to this container. Stopping a database or cache can affect other services in this project.','hint'));
     if(d.mounts.length)body.append(section('Persistent mounts'),table(['Type','Container path','Access'],d.mounts.map(m=>[m.type,m.destination,m.read_only?'Read only':'Read / write'])));
   } else {
     body.append(el('p',d.environment_scope,'hint'),el('p','Values stay hidden by default. Changes persist in Compose and recreate this service. Changing a database password variable does not rotate existing database accounts; update connected services and database credentials together.','notice'));
@@ -92,12 +93,12 @@ function confirmContainer(operation,changes) {
   if(changes)body.append(el('p','Changed keys: '+Object.keys(changes).join(', '),'identifier'));
   const confirm=document.getElementById('operation-confirm');confirm.disabled=false;document.getElementById('operation-error').hidden=true;
   confirm.onclick=async()=>{
-    confirm.disabled=true;dialog.dataset.pending='true';document.getElementById('operation-cancel').disabled=true;const error=document.getElementById('operation-error');error.hidden=true;
+    confirm.disabled=true;confirm.textContent='Applying…';dialog.dataset.pending='true';document.getElementById('operation-cancel').disabled=true;const error=document.getElementById('operation-error');error.hidden=true;
     try {
       const result=await api('action',{action:operation==='environment-save'?operation:'container-'+operation,project,container:name,container_id:d.container_id,revision:d.revision,changes,request_id:requestId});
       if(result.status!=='succeeded')throw new Error(result.message);
       dialog.close();closeContainer();toast(result.message);await refresh(true);
-    } catch(e){error.textContent=e.message;error.hidden=false;}finally{confirm.disabled=false;dialog.dataset.pending='false';document.getElementById('operation-cancel').disabled=false;}
+    } catch(e){error.textContent=e.message;error.hidden=false;}finally{confirm.disabled=false;confirm.textContent='Apply';dialog.dataset.pending='false';document.getElementById('operation-cancel').disabled=false;}
   };dialog.showModal();
 }
 
@@ -130,3 +131,16 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('operation-dialog').addEventListener('cancel',event=>{if(event.currentTarget.dataset.pending==='true')event.preventDefault();});
   document.getElementById('operation-dialog').addEventListener('close',()=>{document.getElementById('operation-confirm').onclick=null;});
 });
+
+function updateContainerLive() {
+  if(!containerContext)return;
+  const body=document.getElementById('container-detail');
+  const c=containers().find(c=>c.Names===containerContext.name);
+  if(!c||body.dataset.tab!=='details')return;
+  const replaced=c.ID&&!containerContext.detail.container_id.startsWith(c.ID);
+  const state=body.querySelector('[data-fact="Status"]');
+  if(state)state.textContent=stale('containers')?'Observation unavailable':replaced?'Replaced — close and reopen to inspect the new version':c.State;
+  const health=body.querySelector('[data-fact="Health"]');
+  if(health)health.textContent=c.Status;
+  for(const b of body.querySelectorAll('[data-operation]'))b.disabled=replaced||stale('containers')||(b.dataset.operation==='start'?c.State==='running':c.State!=='running');
+}

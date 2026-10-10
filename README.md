@@ -1,6 +1,6 @@
 # Shiftcodes deployment management
 
-Arabic operator dashboard at **https://monitoring.shiftcodes.net/** with a real
+English operator dashboard at **https://monitoring.shiftcodes.net/** with a real
 login page, GitHub branch selection, test-only builds, approved deployments,
 retry, pending-job cancellation, event history and an administration audit log.
 It uses neither GitHub Actions nor Jenkins.
@@ -12,7 +12,7 @@ PBKDF2 password hash and issues a random, hashed-at-rest session token. Producti
 cookies use the `__Host-` prefix, Secure, HttpOnly and SameSite=Strict. Mutations
 require an exact configured Origin plus the session CSRF token. Login attempts
 are rate limited. Sessions expire after one hour without an authenticated user
-request and at twelve hours absolute; background state polling does not extend
+request and at twelve hours absolute; background event streaming does not extend
 an idle session. A reload or management action does.
 
 The worker has Docker authority and no public listener. It serializes builds,
@@ -35,6 +35,38 @@ journal is isolated from the receiver database and survives restarts.
 Manual requests are durably idempotent, and concurrent manual requests for a
 project cannot enqueue duplicate active work. Pending jobs can be cancelled;
 an in-progress deployment is allowed to complete or recover safely.
+
+## Container operations
+
+Open a project's Services tab, then **Manage container**. Details expose the
+actual image tag and ID, OCI commit when recorded, runtime health, restart count
+and persistent mounts. Start, stop and restart require an explicit confirmation.
+Operations serialize against deployments and have durable request IDs and
+secret-free audit history. Unmapped shared infrastructure is observational only.
+
+The Environment tab masks values until individually revealed. Editing or adding
+variables stores per-service Compose overrides, preserving shared env files and
+unedited services. Save previews changed key names, verifies the container and
+configuration revision, checks that the configured image matches the current
+image, and recreates only the service without pulling or building. A stopped
+service remains stopped. Runtime environment and image identity are checked;
+failed activation restores the original configuration and prior runtime state.
+A private temporary journal supports crash recovery and is removed after success.
+An unresolved recovery blocks further mutations and deployments.
+
+Database password environment changes do not rotate an existing database account.
+Operators must coordinate real database account changes and dependent services.
+The editor does not claim to implement database administration, a host terminal,
+or full Webmin feature parity. Secrets never enter job/audit records or URLs.
+
+The receiver forwards authenticated and CSRF-protected operations to the worker
+through a group-restricted Unix socket on their shared volume. It still has no
+Docker socket and the worker exposes no public control port.
+
+The English navigation uses a desktop sidebar and a mobile off-canvas sidebar
+with breadcrumbs. Searchable keyboard/touch listboxes replace visible native
+selects. SSE supplies project, operation and runtime updates; editing is preserved
+while observations update, and lost connections are visibly marked stale.
 
 ## Pipeline rollout boundary
 
