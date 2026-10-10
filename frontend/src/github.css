@@ -24,6 +24,11 @@
 :focus-visible {
   outline-color: #0969da !important;
 }
+/* The outlined field owns the keyboard focus border; avoid a second inset ring. */
+.MuiOutlinedInput-root .MuiOutlinedInput-input:focus-visible {
+  outline: none !important;
+}
+
 .nav,
 .mobile-nav {
   background: var(--nav-surface);
@@ -401,4 +406,19 @@ body:has(.premium.night) .MuiAutocomplete-popper {
 @media (max-width: 600px) {
   .environment-workspace-state { width: 100%; }
   .unassigned-workload-actions { width: 100%; }
+}
+
+.directory-row > span.directory-environments {
+  display: flex;
+  gap: 24px;
+  flex: 1;
+  min-width: 0;
+}
+.directory-environments > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.directory-environments b { color: var(--ink); font-weight: 500; }
+.directory-environments small { display: block; margin-top: 4px; }
+@media (max-width: 800px) {
+  .directory-row { position: relative; padding-right: 24px; }
+  .directory-row > svg:last-child { position: absolute; right: 0; top: 22px; }
+  .directory-row > span.directory-environments { display: flex; flex-basis: 100%; padding-left: 30px; gap: 16px; }
 }

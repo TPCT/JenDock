@@ -84,6 +84,10 @@ import AdoptWorkload from "./AdoptWorkload.jsx";
 import ProjectCreateDialog from "./ProjectCreateDialog.jsx";
 import Hint from "./Hint.jsx";
 import {
+  workspaceEnvironment,
+  containerRoute,
+  projectReturnRoute,
+  projectTabIndex,
   activeStates,
   statusLabel,
   date,
@@ -645,10 +649,10 @@ function App() {
                       color="text.secondary"
                       underline="hover"
                       onClick={() =>
-                        navigate("project/" + encodeURIComponent(id))
+                        navigate(projectReturnRoute(id, new URLSearchParams(query || "").get("environment")))
                       }
                     >
-                      {label(data, id)}
+                      {label(data, id)}{workspaceEnvironment(new URLSearchParams(query || "").get("environment")) && " · " + (new URLSearchParams(query).get("environment") === "production" ? "Production" : "Development")}
                     </Link>
                   )}
                   <Typography noWrap fontSize={12}>
@@ -719,6 +723,13 @@ function App() {
                   <ProjectPage key={id} id={id}
                     environment={new URLSearchParams(query || "").get("environment") || "development"}
                     initialTab={new URLSearchParams(query || "").get("tab")}
+                    onTabChange={tab => {
+                      const params = new URLSearchParams(location.hash.split("?")[1] || "");
+                      params.set("tab", tab);
+                      const next = "project/" + encodeURIComponent(id) + "?" + params.toString();
+                      history.replaceState(null, "", "#" + next);
+                      setRoute(next);
+                    }}
                     onEnvironmentChange={environment => {
                       const params = new URLSearchParams(location.hash.split("?")[1] || "");
                       params.set("environment", environment);
@@ -1088,7 +1099,7 @@ function Login({ api, onLogin }) {
     </Box>
   );
 }
-function Services({ id, items }) {
+function Services({ id, items, environment, accessBlockedReason = "" }) {
   const { navigate, observationFailed, data } = useApp();
   const old = stale(data, observationFailed);
   if (!items.length)
@@ -1106,10 +1117,10 @@ function Services({ id, items }) {
         <span>Access</span>
       </div>
       {items.map((c) => {
-        const unavailable = old || c.capabilities?.manage === false;
-        const reason = old
+        const unavailable = old || !!accessBlockedReason || c.capabilities?.manage === false;
+        const reason = accessBlockedReason || (old
           ? "Container observations are stale. Wait for a fresh observation before opening a terminal. You can still inspect container details."
-          : c.capabilities?.reason || "Container management is unavailable until ownership is verified. You can still inspect container details.";
+          : c.capabilities?.reason || "Container management is unavailable until ownership is verified. You can still inspect container details.");
         return (
         <div className="service-line" key={c.Names}>
           <div className="service-name">
@@ -1124,10 +1135,7 @@ function Services({ id, items }) {
                 onClick={() =>
                   id &&
                   navigate(
-                    "container/" +
-                      encodeURIComponent(id) +
-                      "/" +
-                      encodeURIComponent(c.Names),
+                    containerRoute(id, c.Names, environment),
                   )
                 }
               >
@@ -1159,11 +1167,7 @@ function Services({ id, items }) {
                   disabled={unavailable}
                   onClick={() =>
                     navigate(
-                      "container/" +
-                        encodeURIComponent(id) +
-                        "/" +
-                        encodeURIComponent(c.Names) +
-                        "?tab=terminal",
+                      containerRoute(id, c.Names, environment, "terminal"),
                     )
                   }
                 />
@@ -1172,10 +1176,7 @@ function Services({ id, items }) {
                   icon={Settings}
                   onClick={() =>
                     navigate(
-                      "container/" +
-                        encodeURIComponent(id) +
-                        "/" +
-                        encodeURIComponent(c.Names),
+                      containerRoute(id, c.Names, environment),
                     )
                   }
                 />
@@ -1191,13 +1192,15 @@ function Services({ id, items }) {
     </div>
   );
 }
-function ProjectPage({ id, environment: requestedEnvironment = "development", initialTab, onEnvironmentChange }) {
+function ProjectPage({ id, environment: requestedEnvironment = "development", initialTab, onEnvironmentChange, onTabChange }) {
   const { data, navigate, openBuild, api, refresh, setDirty, setOperationPending } = useApp();
   const environment = requestedEnvironment === "production" ? "production" : "development";
   const environmentLabel = environment === "production" ? "Production" : "Development";
-  const [tab, setTab] = useState(Math.max(0, ["overview", "containers", "deployments", "settings"].indexOf(initialTab))), [workspace, setWorkspace] = useState(null), [workspaceError, setWorkspaceError] = useState(""), [loading, setLoading] = useState(true), [reload, setReload] = useState(0), [legacyView, setLegacyView] = useState(null), [budgetsOpen, setBudgetsOpen] = useState(false), [budgetsViewed, setBudgetsViewed] = useState(false), [settingsDirty, setSettingsDirty] = useState(false), [resourcesDirty, setResourcesDirty] = useState(false), [environmentsDirty, setEnvironmentsDirty] = useState(false), [settingsPending, setSettingsPending] = useState(false), [resourcesPending, setResourcesPending] = useState(false), [environmentsPending, setEnvironmentsPending] = useState(false);
+  const [tab, setTab] = useState(projectTabIndex(initialTab)), [workspace, setWorkspace] = useState(null), [workspaceError, setWorkspaceError] = useState(""), [loading, setLoading] = useState(true), [reload, setReload] = useState(0), [legacyView, setLegacyView] = useState(null), [budgetsOpen, setBudgetsOpen] = useState(false), [budgetsViewed, setBudgetsViewed] = useState(false), [settingsDirty, setSettingsDirty] = useState(false), [resourcesDirty, setResourcesDirty] = useState(false), [environmentsDirty, setEnvironmentsDirty] = useState(false), [settingsPending, setSettingsPending] = useState(false), [resourcesPending, setResourcesPending] = useState(false), [environmentsPending, setEnvironmentsPending] = useState(false);
+  useEffect(() => { setTab(projectTabIndex(initialTab)); }, [initialTab]);
   const p = data.projects[id];
   const [linkedProject,setLinkedProject]=useState(null);
+  const [resourceFooter,setResourceFooter]=useState(null);
   const [workloadMenu, setWorkloadMenu] = useState(null);
   const [adoptionOpen,setAdoptionOpen]=useState(false), [adoptionDirty,setAdoptionDirty]=useState(false), [adoptionPending,setAdoptionPending]=useState(false), [adoptionEnvironment,setAdoptionEnvironment]=useState(environment);
   const pending = settingsPending || resourcesPending || environmentsPending || adoptionPending;
@@ -1220,7 +1223,7 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
   const existing = current?.legacy?.inventory_available === false && unassigned ? servicesFor(data,p) : current?.unassigned_services || [], legacyRuns = current?.unassigned_runs || [];
   const status = current?.environment?.state || "Status unavailable";
   const openBudgets = () => { setBudgetsViewed(true); setBudgetsOpen(true); };
-  const containerList = containers.length ? <Services id={id} items={containers}/> : <Empty title={current?.environment?.state === "not-provisioned" ? "No containers provisioned" : "No verified containers"}>{current?.binding?.reason || "No containers are verified for this environment."}</Empty>;
+  const containerList = containers.length ? <Services id={id} items={containers} environment={environment} accessBlockedReason={workspaceError ? "Environment membership is unavailable. Retry the environment status before opening a terminal. Container details remain available." : ""}/> : <Empty title={current?.environment?.state === "not-provisioned" ? "No containers provisioned" : "No verified containers"}>{current?.binding?.reason || "No containers are verified for this environment."}</Empty>;
   return <>
     <header className="project-heading">
       <div><div className="project-identity"><Folder sx={{fontSize:24,color:"text.secondary"}}/><Typography variant="h4" className="wrap-anywhere">{p.label || id}</Typography></div><div className="project-subtitle"><Link href={"https://github.com/"+p.repository} target="_blank" rel="noopener" color="text.secondary">{p.repository}</Link></div></div>
@@ -1231,17 +1234,17 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
       <div className="environment-workspace-state"><Typography fontSize={13} color="text.secondary">{loading && !current ? "Loading…" : status.replaceAll("-"," ").replace(/^./, letter => letter.toUpperCase())}</Typography><Hint label="About this environment">All workspace tabs apply to the selected environment. Existing containers are included only after their ownership is verified.</Hint></div>
     </div>
     {workspaceError && <Alert severity="error" sx={{mt:2}} action={<Button onClick={()=>setReload(value=>value+1)}>Retry</Button>}>{workspaceError}</Alert>}
-    <Tabs value={tab} onChange={(_,value)=>{setTab(value); const params = new URLSearchParams(location.hash.split("?")[1] || ""); params.set("tab", ["overview", "containers", "deployments", "settings"][value]); params.set("environment", environment); history.replaceState(null, "", "#project/"+encodeURIComponent(id)+"?"+params.toString());}} className="project-tabs" aria-label={`${environmentLabel} workspace`}><Tab label="Overview"/><Tab label="Containers"/><Tab label="Deployments"/><Tab label="Settings"/></Tabs>
+    <Tabs value={tab} onChange={(_,value)=>{setTab(value); onTabChange?.(["overview", "containers", "deployments", "settings"][value]);}} className="project-tabs" aria-label={`${environmentLabel} workspace`}><Tab label="Overview"/><Tab label="Containers"/><Tab label="Deployments"/><Tab label="Settings"/></Tabs>
     <Box sx={{display:tab===3?"block":"none"}}><EnvironmentSettings key={id} id={id} linkedProject={linkedProject} environment={environment} api={api} branches={Object.keys(branchState(data,id).branches || {})} BranchControl={BranchPicker} onDirty={setEnvironmentsDirty} onPending={setEnvironmentsPending} onSaved={()=>setReload(value=>value+1)}/><Box sx={{borderTop:1,borderColor:'divider',pt:2}}><Button color="inherit" onClick={openBudgets}>Project budgets</Button><Hint label="About project budgets">These budgets cover both environments. Saved allocations are policy settings, not proof of container ownership or applied runtime limits.</Hint></Box></Box>
     {tab!==3 && loading && !current ? <Typography role="status" sx={{py:3}}>Loading {environmentLabel.toLowerCase()} workspace…</Typography> : tab===0 ? <>
       <div className="release-band"><div><span>Last verified deployment</span><strong><code>{deployed?.sha?.slice(0,9)||"Not recorded"}</code><small>{deployed?date(deployed.updated):environmentLabel}</small></strong></div><div><span>Deployment branch</span><strong><Branch sx={{fontSize:14}}/>{current?.environment?.branch || "Unavailable"}<small>{current?.environment?.automatic?"Automatic preference on":"Automatic preference off"}</small></strong></div><div><span>Latest run</span><strong>{latest?<><Status value={latest.status}/><Button size="small" onClick={()=>navigate("job/"+latest.id)}>View run<Arrow sx={{fontSize:13,ml:.5}}/></Button></>:"No runs recorded"}</strong></div></div>
-      <div className="section-heading"><Typography variant="h6">Containers <span className="count">{containers.length}</span></Typography><Button onClick={()=>setTab(1)}>View containers</Button></div>{containerList}
+      <div className="section-heading"><Typography variant="h6">Containers <span className="count">{containers.length}</span></Typography><Button onClick={()=>{setTab(1);onTabChange?.("containers");}}>View containers</Button></div>{containerList}
       <Box sx={{mt:3,display:'flex',alignItems:'center',gap:1}}><Button variant="outlined" disabled={loading || pending || !!workspaceError || !(current?.capabilities?.build?.enabled || current?.capabilities?.deploy?.enabled)} onClick={()=>openBuild(id,null,{environment,branch:current.environment.branch,project_revision:current.project.revision,environment_revision:current.environment.revision,recipe_revision:current.environment.recipe_revision})}>{`Build ${environmentLabel.toLowerCase()}`}</Button><Typography color="text.secondary" fontSize={13}>{current?.capabilities?.build?.reason || (!current?.capabilities?.build?.enabled ? "Environment deployment is not configured." : "")}</Typography></Box>
     </> : tab===1 ? containerList : tab===2 ? runs.length?<RunList jobs={runs}/>:<Empty title={`No ${environmentLabel.toLowerCase()} runs`}>Runs appear here when their recorded target belongs to this environment.</Empty> : null}
     {(unassigned || existing.length || legacyRuns.length) && <section className="unassigned-workload"><div><Typography variant="h6">Existing workload</Typography><Typography color="text.secondary" fontSize={13}>Environment unassigned <Hint label="About the existing workload">These containers and historical runs have not been verified as Development or Production. Their existing management remains available separately.</Hint></Typography></div><div className="unassigned-workload-actions">{unassigned&&<Button variant="outlined" disabled={pending} onClick={()=>{if(!adoptionDirty)setAdoptionEnvironment(environment);setAdoptionOpen(true);}}>{adoptionDirty?'Check linking request':'Link to '+environmentLabel}</Button>}<Button variant="outlined" onClick={()=>setLegacyView("containers")}>Containers{existing.length?` (${existing.length})`:""}</Button><Button color="inherit" aria-haspopup="menu" aria-controls={workloadMenu ? "workload-actions" : undefined} aria-expanded={!!workloadMenu} onClick={event=>setWorkloadMenu(event.currentTarget)}>More actions</Button><ActionMenu id="workload-actions" anchorEl={workloadMenu} open={!!workloadMenu} onClose={()=>setWorkloadMenu(null)}><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("history");}}><ListItemIcon><History fontSize="small"/></ListItemIcon>Deployment history</MenuItem><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("settings");}}><ListItemIcon><Settings fontSize="small"/></ListItemIcon>Deployment settings</MenuItem>{p.build_ready&&<MenuItem disabled={pending} onClick={()=>{setWorkloadMenu(null);openBuild(id,null,{environment:"legacy-unclassified"});}}><ListItemIcon><PlayArrow fontSize="small"/></ListItemIcon>Build existing workload</MenuItem>}</ActionMenu></div></section>}
     <AdoptWorkload open={adoptionOpen} project={id} environment={adoptionEnvironment} api={api} onDirty={setAdoptionDirty} onPending={setAdoptionPending} onClose={()=>setAdoptionOpen(false)} onLinked={async(project)=>{setLinkedProject(project);await refresh();setReload(value=>value+1);setAdoptionOpen(false);}}/>
     <Dialog open={!!legacyView} onClose={()=>!settingsPending&&setLegacyView(null)} keepMounted fullWidth maxWidth="lg" aria-labelledby="legacy-workload-title"><DialogTitle id="legacy-workload-title">Existing workload · Environment unassigned</DialogTitle><DialogContent dividers><Box sx={{display:legacyView==="containers"?"block":"none"}}>{existing.length?<Services id={id} items={existing}/>:<Empty title="Container inventory unavailable">{workspaceError || "Reload the workspace to inspect the unassigned container inventory."}<Button onClick={()=>setReload(value=>value+1)}>Reload</Button></Empty>}</Box><Box sx={{display:legacyView==="history"?"block":"none"}}>{legacyRuns.length?<RunList jobs={legacyRuns}/>:<Empty title="No unassigned runs recorded"/>}</Box><Box sx={{display:legacyView==="settings"?"block":"none"}}><ProjectSettings id={id} setDirty={setSettingsDirty} setOperationPending={setSettingsPending} onEnvironments={()=>{setLegacyView(null);setTab(3);}}/></Box></DialogContent><DialogActions><Button disabled={settingsPending} onClick={()=>setLegacyView(null)}>Close</Button></DialogActions></Dialog>
-    <Dialog open={budgetsOpen} onClose={()=>!resourcesPending&&setBudgetsOpen(false)} keepMounted fullWidth maxWidth="md" aria-labelledby="project-budgets-title"><DialogTitle id="project-budgets-title">Project budgets · Both environments</DialogTitle><DialogContent dividers>{budgetsViewed&&<Resources key={id} id={id} services={servicesFor(data,p)} api={api} setDirty={setResourcesDirty} setOperationPending={setResourcesPending}/>}</DialogContent><DialogActions><Button disabled={resourcesPending} onClick={()=>setBudgetsOpen(false)}>Close</Button></DialogActions></Dialog>
+    <Dialog open={budgetsOpen} onClose={()=>!resourcesPending&&setBudgetsOpen(false)} keepMounted fullWidth maxWidth="md" aria-labelledby="project-budgets-title"><DialogTitle id="project-budgets-title">Project budgets · Both environments</DialogTitle><DialogContent dividers>{budgetsViewed&&<Resources key={id} id={id} services={servicesFor(data,p)} verifiedServices={workspaceError ? [] : containers} verifiedEnvironment={environment} footerContainer={resourceFooter} navigate={route=>{setBudgetsOpen(false);navigate(route);}} api={api} setDirty={setResourcesDirty} setOperationPending={setResourcesPending}/>}</DialogContent><DialogActions><Box component="span" ref={setResourceFooter} sx={{display:"contents"}}/><Button disabled={resourcesPending} onClick={()=>setBudgetsOpen(false)}>Close</Button></DialogActions></Dialog>
   </>;
 }
 function ProjectSettings({ id, setDirty, setOperationPending, onEnvironments }) {
@@ -1358,6 +1361,17 @@ function ProjectsPage() {
   const { data, navigate, api, refresh, notify } = useApp();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
+  const [registry, setRegistry] = useState(null), [registryError, setRegistryError] = useState(''), [registryReload, setRegistryReload] = useState(0), [registryLoading, setRegistryLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    setRegistryError('');
+    setRegistryLoading(true);
+    api('action', {action:'registry-list'}).then(result => {
+      if (!result.projects || typeof result.projects !== 'object' || Array.isArray(result.projects)) throw Error('Environment settings are unavailable.');
+      if (active) setRegistry(result.projects);
+    }).catch(error => active && setRegistryError(error.message || 'Environment settings could not be loaded.')).finally(()=>active && setRegistryLoading(false));
+    return () => { active = false; };
+  }, [api, registryReload]);
   const entries = Object.entries(data.projects).filter(([id, p]) =>
     (id + " " + p.label + " " + p.repository)
       .toLowerCase()
@@ -1367,14 +1381,13 @@ function ProjectsPage() {
     <>
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
         <Typography variant="h4">Projects</Typography>
-        <Button variant="contained" onClick={() => setCreating(true)}>New project</Button>
+        <Stack direction="row" alignItems="center" spacing={1}><IconAction label="Refresh project settings" icon={Refresh} disabled={registryLoading} onClick={()=>setRegistryReload(value=>value+1)}/><Button variant="contained" onClick={() => setCreating(true)}>New project</Button></Stack>
       </Stack>
       <ProjectCreateDialog open={creating} onClose={() => setCreating(false)} api={api} onCreated={async (projectId) => { try { await refresh(); navigate("project/" + projectId); } catch { notify("Project created. Reload the project list to open it."); } }} />
       <Typography color="text.secondary" sx={{ mt: 1 }}>
-        {Object.keys(data.projects).length} projects ·{" "}
-        {Object.values(data.projects).filter((p) => p.automatic).length} with
-        automatic deployment on
+        {Object.keys(data.projects).length} projects
       </Typography>
+      {registryError && <Alert severity="error" sx={{mt:2}} action={<Button color="inherit" onClick={()=>setRegistryReload(value=>value+1)}>Retry</Button>}>{registryError}</Alert>}
       <TextField
         fullWidth
         size="small"
@@ -1394,24 +1407,28 @@ function ProjectsPage() {
       />
       {entries.length ? (
         entries.map(([id, p]) => {
-          const services = servicesFor(data, p),
-            j = data.jobs.find((j) => j.project === id);
+          const environments = registry?.[id]?.environments;
           return (
+            <Tooltip key={id} describeChild enterTouchDelay={0} leaveTouchDelay={10000} title="Environment states are saved settings. Auto is the automatic-deploy preference; it does not indicate running containers.">
             <button
               className="directory-row"
-              key={id}
               onClick={() => navigate("project/" + encodeURIComponent(id))}
             >
               <Folder sx={{ fontSize: 20, color: "text.secondary" }} />
               <strong>
                 {p.label || id}
                 <small>{p.repository}</small>
+                {p.has_legacy_workload && !p.legacy_binding && <small>Existing workload unassigned</small>}
               </strong>
-              <span>{p.branch}</span>
-              <span>{services.length} services</span>
-              {j && <Status value={j.status} />}
+              <span className="directory-environments">
+                {['development', 'production'].map(environment => {
+                  const saved = environments?.[environment];
+                  return <span key={environment}><b>{environment === 'production' ? 'Production' : 'Development'}</b><small>{registryError ? 'Settings unavailable' : !registry ? 'Loading settings…' : saved ? `${typeof saved.state === 'string' ? saved.state.replaceAll('-', ' ').replace(/^./, letter=>letter.toUpperCase()) : 'State unavailable'} · Auto: ${saved.automatic ? 'on' : 'off'}` : 'Settings unavailable'}</small></span>;
+                })}
+              </span>
               <Chevron sx={{ fontSize: 18 }} />
             </button>
+            </Tooltip>
           );
         })
       ) : (

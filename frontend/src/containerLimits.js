@@ -33,8 +33,17 @@ export function limitRequest(
   if (previous) return previous;
   if (Object.values(limitProblems(draft)).some(Boolean))
     throw new Error("Invalid container limits.");
+  const policy = reviewed.resource_policy;
+  if (
+    policy?.configured &&
+    (!Number.isInteger(policy.revision) || policy.revision < 0)
+  )
+    throw new Error(
+      "The resource budget revision is unavailable. Inspect the current limits before applying.",
+    );
   return {
     action: "container-limits-save",
+    ...(policy?.configured ? { policy_revision: policy.revision } : {}),
     project,
     container: name,
     container_id: reviewed.container_id,

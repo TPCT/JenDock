@@ -101,3 +101,20 @@ export function buildPayload({
       : {}),
   };
 }
+
+export function workspaceEnvironment(value) {
+  return value === 'development' || value === 'production' ? value : null;
+}
+export function containerRoute(project, name, environment, tab) {
+  const query = new URLSearchParams();
+  if (workspaceEnvironment(environment)) query.set('environment', environment);
+  if (['details', 'variables', 'terminal', 'logs'].includes(tab)) query.set('tab', tab);
+  return `container/${encodeURIComponent(project)}/${encodeURIComponent(name)}${query.size ? '?' + query : ''}`;
+}
+export function projectReturnRoute(project, environment) {
+  return `project/${encodeURIComponent(project)}${workspaceEnvironment(environment) ? '?environment=' + environment + '&tab=containers' : ''}`;
+}
+
+export function projectTabIndex(tab) {
+  return Math.max(0, ['overview', 'containers', 'deployments', 'settings'].indexOf(tab));
+}

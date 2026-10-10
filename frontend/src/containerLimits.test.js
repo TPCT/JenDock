@@ -77,3 +77,53 @@ test("fresh reviewed request uses newly inspected identity while invalid draft c
     /Invalid container limits/,
   );
 });
+
+test("configured budgets capture reviewed revision and ambiguous retry cannot switch it", () => {
+  const target = {
+    project: "app",
+    name: "web",
+    draft: { memory_mib: "128", cpu: "0.5" },
+    reviewed: {
+      container_id: "id",
+      revision: "compose-revision",
+      resource_policy: { configured: true, revision: 4 },
+    },
+  };
+  const payload = limitRequest(null, target, "request");
+  assert.equal(payload.policy_revision, 4);
+  target.reviewed.resource_policy.revision = 5;
+  assert.strictEqual(limitRequest(payload, target, "other"), payload);
+  assert.equal(payload.policy_revision, 4);
+  assert.equal(
+    limitRequest(null, target, "new-reviewed-request").policy_revision,
+    5,
+  );
+  target.reviewed.resource_policy = { configured: false, revision: 0 };
+  assert.equal(
+    "policy_revision" in limitRequest(null, target, "no-policy"),
+    false,
+  );
+});
+
+test("configured budget with missing or invalid revision never creates a request", () => {
+  for (const revision of [undefined, null, -1, 1.5, true, "2"]) {
+    assert.throws(
+      () =>
+        limitRequest(
+          null,
+          {
+            project: "app",
+            name: "web",
+            draft: { memory_mib: "128", cpu: "0.5" },
+            reviewed: {
+              container_id: "id",
+              revision: "compose",
+              resource_policy: { configured: true, revision },
+            },
+          },
+          "request",
+        ),
+      /budget revision/,
+    );
+  }
+});

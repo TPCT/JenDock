@@ -131,3 +131,25 @@ test("unreviewed environment revisions are rejected and explicit legacy carries 
   assert.equal("environment" in legacy, false);
   assert.equal("environment_revision" in legacy, false);
 });
+
+test('container navigation preserves explicit environment and terminal tab without inferring ownership', async () => {
+  const {containerRoute, projectReturnRoute, workspaceEnvironment} = await import('./model.js');
+  assert.equal(containerRoute('app', 'app-web-1', 'production', 'terminal'), 'container/app/app-web-1?environment=production&tab=terminal');
+  assert.equal(containerRoute('a/b', 'web #1', 'development'), 'container/a%2Fb/web%20%231?environment=development');
+  assert.equal(projectReturnRoute('app', 'production'), 'project/app?environment=production&tab=containers');
+  assert.equal(containerRoute('app', 'web', 'staging'), 'container/app/web');
+  assert.equal(projectReturnRoute('app', null), 'project/app');
+  assert.equal(workspaceEnvironment('staging'), null);
+});
+
+test('same-project route changes resolve the requested workspace tab', async () => {
+  const {projectReturnRoute, projectTabIndex} = await import('./model.js');
+  assert.equal(projectTabIndex('settings'), 3);
+  const next = projectReturnRoute('aic-website', 'development');
+  const query = new URLSearchParams(next.split('?')[1]);
+  assert.equal(query.get('environment'), 'development');
+  assert.equal(projectTabIndex(query.get('tab')), 1);
+  assert.equal(projectTabIndex('deployments'), 2);
+  assert.equal(projectTabIndex(null), 0);
+  assert.equal(projectTabIndex('invalid'), 0);
+});

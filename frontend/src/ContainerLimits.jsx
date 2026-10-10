@@ -96,6 +96,14 @@ export default function ContainerLimits({
       throw Error(
         "Current RAM and CPU limits are unavailable. Retry inspection.",
       );
+    if (
+      current.resource_policy?.configured &&
+      (!Number.isInteger(current.resource_policy.revision) ||
+        current.resource_policy.revision < 0)
+    )
+      throw Error(
+        "The resource budget revision is unavailable. Retry inspection before applying limits.",
+      );
     return current;
   };
   const edit = async () => {
@@ -148,11 +156,19 @@ export default function ContainerLimits({
       inputs.current[invalid[0]]?.focus();
       return;
     }
-    const payload = limitRequest(
-      request,
-      { project, name, reviewed, draft },
-      request?.request_id || crypto.randomUUID(),
-    );
+    let payload;
+    try {
+      payload = limitRequest(
+        request,
+        { project, name, reviewed, draft },
+        request?.request_id || crypto.randomUUID(),
+      );
+    } catch (failure) {
+      setResolved(true);
+      setError(failure.message || "The reviewed limits are unavailable. Inspect the container again.");
+      onNeedsInspection();
+      return;
+    }
     setRequest(payload);
     setAttempted(true);
     lock.current = true;
@@ -324,6 +340,20 @@ export default function ContainerLimits({
                 briefly unavailable; a stopped container stays stopped. Swap is
                 disabled. A RAM limit that is too low can stop the application.
               </Alert>
+              {reviewed.resource_policy?.configured &&
+                reviewed.resource_policy.limits_ceiling && (
+                  <Typography color="text.secondary" fontSize={13}>
+                    Budget available for this container: RAM{" "}
+                    {`${reviewed.resource_policy.limits_ceiling.memory_mib} MiB`}{" "}
+                    · CPU{" "}
+                    {`${reviewed.resource_policy.limits_ceiling.cpu} cores`}
+                    <Hint label="About available container budget">
+                      This includes the container’s current reservation. Saving
+                      limits updates its reservation using verified environment
+                      ownership.
+                    </Hint>
+                  </Typography>
+                )}
               {reviewed.resource_policy?.configured && (
                 <Typography color="text.secondary" fontSize={13}>
                   {reviewed.resource_policy.reason ||
