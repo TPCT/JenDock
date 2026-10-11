@@ -79,8 +79,19 @@ Frontend helper tests cover serialization, scope and corrupt storage rejection;
 123 frontend tests and the production frontend build pass. Browser acceptance of
 the selectors, dropped responses and full reload recovery remains unverified.
 Editable, not-yet-submitted selection drafts still do not survive a full reload.
-Accepted request replay still depends on Docker inventory availability in control.py;
-a read-only exact receipt recovery path remains needed. A public recipe
+Accepted request replay now checks the exact historical receipt before global
+workload projection, the recovery journal or Docker collection. It verifies actor,
+project/environment, fingerprint, recipe/service selection and the canonical
+stored evidence digest. Replay makes no adoption/ownership/revision changes and
+does not claim current runtime health. New requests retain the live verification
+and journal gates. Focused tests exercise Docker outage, a pending journal,
+invalid identities/selections and corrupted evidence. A public recipe
 registration/editor workflow also remains unimplemented; an explicit revision
 must already exist through trusted configuration. Do not invent recipe records
 or bypass adoption to make a workflow appear complete.
+
+Verification checkpoint: the configured local Python environment completed all
+1,335 backend tests. A separate reviewer independently ran 25 adoption/recovery
+checks and found no blocking regression. The initial system-Python run failed
+because psycopg, MCP and httpx2 were absent; the existing project environment
+required no installation. Browser dropped-response/reload acceptance remains open.

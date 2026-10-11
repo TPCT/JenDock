@@ -339,16 +339,41 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None, ser
     return result
 
 
+def recover(db, project, environment, fingerprint, actor, *, services=None, recipe_revision=None):
+    """Read an exact accepted request without Docker access or new adoption writes."""
+    registry.identifier(project)
+    if not isinstance(actor, str) or not actor.strip():
+        raise ValueError('An authenticated actor is required.')
+    if recipe_revision is not None:
+        registry.revision_number(recipe_revision)
+    if services is not None and (not isinstance(services, list) or not services or len(services) > 100 or any(not isinstance(v, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', v) for v in services) or len(set(services)) != len(services)):
+        raise ValueError('Select unique valid services for recovery.')
+    if environment not in registry.ENVIRONMENTS or not isinstance(fingerprint, str) or not re.fullmatch(r'[a-f0-9]{64}', fingerprint):
+        raise ValueError('A valid environment and reviewed fingerprint are required.')
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workload_adoptions'").fetchone():
+        return None
+    previous = db.execute('SELECT environment,fingerprint,actor,evidence FROM workload_adoptions WHERE project=? AND environment=?', (project, environment)).fetchone()
+    if previous is None:
+        return None
+    if (previous['environment'], previous['fingerprint'], previous['actor']) != (environment, fingerprint, actor):
+        raise ValueError('This workload was adopted with a different reviewed identity.')
+    try:
+        prior = json.loads(previous['evidence'])
+        if prior['project'] != project or prior['environment'] != environment or prior['fingerprint'] != fingerprint or _digest({k:v for k,v in prior.items() if k != 'fingerprint'}) != fingerprint:
+            raise ValueError()
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ValueError('The accepted adoption evidence could not be verified.') from None
+    if prior.get('selected_services') != (sorted(services) if isinstance(services,list) else services) or prior.get('selected_recipe_revision') != recipe_revision:
+        raise ValueError('Adoption replay selection differs from the accepted request.')
+    return registry.get_project(db, project)
+
+
 def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None, resolver=None, services=None, recipe_revision=None):
     initialize(db)
     with registry.transaction(db):
-        previous = db.execute('SELECT environment,fingerprint,actor,evidence FROM workload_adoptions WHERE project=? AND environment=?', (project,environment)).fetchone()
-        if previous:
-            if (previous['environment'], previous['fingerprint'], previous['actor']) != (environment, fingerprint, actor):
-                raise ValueError('This workload was adopted with a different reviewed identity.')
-            prior=json.loads(previous['evidence'])
-            if prior.get('selected_services') != (sorted(services) if isinstance(services,list) else services) or prior.get('selected_recipe_revision')!=recipe_revision:raise ValueError('Adoption replay selection differs from the accepted request.')
-            return registry.get_project(db, project)
+        accepted = recover(db, project, environment, fingerprint, actor, services=services, recipe_revision=recipe_revision)
+        if accepted is not None:
+            return accepted
         evidence = preview(db, project, environment, inventory, now=now, resolver=resolver, services=services, recipe_revision=recipe_revision)
         if evidence['fingerprint'] != fingerprint:
             raise ValueError('Workload identity or settings changed. Review the refreshed adoption preview.')
