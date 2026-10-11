@@ -20,3 +20,9 @@ Screenshots:
 - `/tmp/monitor-spacing-dialog-mobile-20261011.png`
 
 Validation: 414 backend tests, 52 frontend tests passed; Vite build passed. Existing SQLite ResourceWarnings and the main JS bundle size warning remain. These results do not close broader platform requirements or constitute production acceptance.
+
+## Container detail follow-up
+
+An actual authenticated Docker fixture exposed a mobile header issue: lifecycle actions squeezed a long container name into a narrow column. The shared container heading now stacks its action row beneath the identity on mobile, and breadcrumb links truncate within their own cells rather than overlapping the separator/current page. Desktop layout remains unchanged.
+
+Verified in the browser at 390x844: application file listing, text preview with visible Close footer, and directory navigation. Preview dialog client/scroll width: 358/358px; page client/scroll width: 383/383px. Screenshots: `/tmp/monitor-files-mobile-20261011.png` and `/tmp/monitor-files-preview-mobile-20261011.png`. This fixture uses synthetic data. The file browser implementation is a separate ongoing slice; this spacing check does not establish its production release. Frontend production build passed, with the existing bundle-size warning. No production deployment was performed.

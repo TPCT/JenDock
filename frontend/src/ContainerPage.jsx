@@ -359,7 +359,7 @@ function ContainerWorkspace({
   );
   return (
     <Box>
-      <header className="project-heading">
+      <header className="project-heading container-heading">
         <Box sx={{ minWidth: 0 }}>
           <div className="project-identity">
             <Avatar

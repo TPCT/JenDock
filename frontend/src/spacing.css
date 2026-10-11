@@ -35,6 +35,11 @@
   .project-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-inline); }
   .project-heading > div:first-child, .project-identity { min-width: 0; }
   .project-heading-actions { margin: 0; align-self: start; }
+  .container-heading { grid-template-columns: minmax(0, 1fr); gap: var(--space-group); }
+  .container-heading > .MuiStack-root { justify-content: flex-start; }
+  .workspace-top .MuiBreadcrumbs-li { overflow: hidden; }
+  .workspace-top .MuiBreadcrumbs-li > .MuiLink-root { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-top .MuiBreadcrumbs-separator { flex-shrink: 0; }
   .project-subtitle { margin-left: 0; }
   .project-tabs .MuiTab-root { margin-right: var(--space-panel); }
   .service-line { padding: var(--space-group); gap: var(--space-inline); }
