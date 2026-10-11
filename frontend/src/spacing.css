@@ -160,3 +160,9 @@
   }
   .section-heading { row-gap: var(--space-inline); }
 }
+
+/* Tables follow the same mobile inset as directory and version rows. */
+@media (max-width: 800px) {
+  .workspace-main .MuiTableCell-root,
+  .MuiDialog-root .MuiTableCell-root { padding-inline: var(--space-group); }
+}

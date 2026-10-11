@@ -126,3 +126,7 @@ Project tabs scroll with visible navigation controls at narrow widths.
 Shared MUI Stacks use flex gap, so wrapping does not retain a leading sibling margin. Environment save/discard actions use an 8px wrapping row. Navigation uses 16px shell insets, 12px row insets, 40px desktop rows and at least 44px mobile rows.
 
 Shared feedback uses 12px vertical and 16px horizontal insets, with a 12px icon gap. Form choice labels do not use negative outer margins. Alert actions wrap on mobile while preserving their content alignment. Deployment metadata uses the shared 4px tight interval.
+
+Version lists respond to their own available width: three columns on wide workspaces,
+two below 760px with recorded services on a separate row, and one below 480px.
+Mobile table cells share the 12px horizontal inset used by directory/version rows.

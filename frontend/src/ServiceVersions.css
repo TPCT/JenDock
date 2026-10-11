@@ -1,4 +1,4 @@
-.service-versions { margin-top: var(--space-section); min-width: 0; }
+.service-versions { margin-top: var(--space-section); min-width: 0; container-type: inline-size; }
 .service-versions .section-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: var(--space-group); align-items: flex-start; }
 .versions-heading-copy { min-width: 0; }
 .service-versions .versions-description { display: block; margin: var(--space-tight) 0 0; }
@@ -24,4 +24,14 @@
   .service-versions { margin-top: var(--space-panel); }
   .version-row { padding: var(--space-group); }
   .version-source .MuiButton-root { min-height: 40px; }
+}
+
+/* Follow the workspace width, including the desktop sidebar, not the viewport. */
+@container (max-width: 760px) {
+  .version-row { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .version-associations { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: var(--space-tight) var(--space-inline); }
+}
+@container (max-width: 480px) {
+  .version-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-group); }
+  .version-associations { grid-column: auto; }
 }
