@@ -25,7 +25,7 @@ export default function Field({
     );
   return (
     <Box
-      className={className}
+      className={["form-field", className].filter(Boolean).join(" ")}
       sx={{ width: fullWidth ? "100%" : undefined, ...sx }}
     >
       <Typography

@@ -1352,9 +1352,10 @@ function ProjectSettings({ id, setDirty, setOperationPending, onEnvironments }) 
       <Divider />
       <Stack
         direction="row"
-        spacing={2}
+        spacing={1}
+        useFlexGap
         alignItems="center"
-        sx={{ mt: 3, flexWrap: "wrap", gap: 1 }}
+        sx={{ mt: 3, flexWrap: "wrap" }}
       >
         <Button
           variant="contained"

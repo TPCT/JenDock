@@ -93,3 +93,11 @@ Tabs separate their content by 16px without an extra top gap. Dialog titles and
 content use 16px vertical padding; action footers use 12px and the same responsive
 horizontal gutter. Shared field labels remain 6px above inputs. Preserve 40px
 icon-button touch targets while making the surrounding layout more compact.
+
+Shared spacing exceptions: environment tabs use the same 24px desktop / 16px
+mobile separation as workspace tabs, with no trailing tab margin. Dialog consumers
+inherit title/content/footer gutters from the theme. Wrapping action Stacks use
+flex gap instead of combining sibling margins with gap. Field/action rows align
+the action with the input after the shared 20px label line and 6px label gap;
+helper errors remain below the input. Mobile directory details align to the
+20px icon plus the shared 8px row gap.

@@ -649,7 +649,7 @@ export default function RunDetail({
             </Alert>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions>
           <Button
             color="inherit"
             disabled={busy}

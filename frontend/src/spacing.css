@@ -47,3 +47,21 @@
   .directory-row { padding-right: var(--space-section); }
   .release-band { padding: var(--space-panel); }
 }
+
+/* Shared navigation and form alignment, including wrapped action rows. */
+.environment-switch .MuiTab-root { margin-right: var(--space-section); }
+.environment-switch .MuiTab-root:last-child,
+.project-tabs .MuiTab-root:last-child { margin-right: 0; }
+.nav-divider { margin: var(--space-panel) 10px; }
+.versions-pagination { gap: var(--space-group); padding-top: var(--space-group); flex-wrap: wrap; }
+.field-action-row { --field-label-line: 20px; --field-label-gap: 6px; }
+.field-action-row .form-field > label { line-height: var(--field-label-line); margin-bottom: var(--field-label-gap); }
+@media (min-width: 600px) {
+  .field-action-row > .MuiButton-root { margin-top: calc(var(--field-label-line) + var(--field-label-gap)); }
+}
+@media (max-width: 800px) {
+  .environment-switch .MuiTab-root { margin-right: var(--space-panel); }
+  .directory-row { --directory-icon: 20px; --directory-indent: calc(var(--directory-icon) + var(--space-inline)); }
+  .directory-row > span.directory-environments { padding-left: var(--directory-indent); gap: var(--space-panel); }
+  .directory-row > svg:last-child { right: var(--space-inline); }
+}

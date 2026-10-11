@@ -880,6 +880,8 @@ function ContainerWorkspace({
                 </Stack>
                 <Stack
                   component="form"
+                  className="field-action-row"
+                  useFlexGap
                   direction={{ xs: "column", sm: "row" }}
                   spacing={2}
                   alignItems={{ sm: "flex-start" }}
@@ -907,7 +909,6 @@ function ContainerWorkspace({
                     variant="outlined"
                     startIcon={<Add />}
                     disabled={pending || !newKey.trim()}
-                    sx={{ mt: { sm: "9px !important" } }}
                   >
                     Add variable
                   </Button>
@@ -1042,7 +1043,7 @@ function ContainerWorkspace({
             </Stack>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 3 }}>
+        <DialogActions>
           <Button
             color="inherit"
             disabled={pending || limitsPending}
