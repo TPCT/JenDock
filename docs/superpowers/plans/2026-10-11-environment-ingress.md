@@ -146,3 +146,20 @@ Acceptance must prove actual managed transitions, not direct fixture updates of 
 Durable backend transitions now pass real managed normal completion, interrupted recovery and failed-health rollback with strong gateway verification/replay and unchanged sibling routes/environments. Per-service generations advance atomically with application bindings; malformed/missing/stale evidence rejects before mutation. 542 backend tests and all three image builds/import checks passed. Exact final fixture cleanup verified; see `docs/operations/ingress-route-transitions-20261011.md`. Domain intent, host-edge/TLS and provider orchestration remain open.
 
 Domain intent foundation implemented: scoped preview/accept with trusted type-specific origin config, exact Cloudflare zone/account constraints, immutable definitions, global hostname reservation, preview pins and idempotent requests. Preview metadata is explicit about pending runtime verification, unchecked DNS ownership, absent executor and unverified DNS/origin/TLS. A stored service binding is not a fresh-health claim. Independent regressions cover source-grant revocation on replay, same-revision provider metadata changes, global environment collision and transactional credential revocation. Public API/MCP permissions issuance, provider preview/adoption and actual worker orchestration are still open; the metadata-only layer is not a delivered domain workflow.
+
+DNS/host effects checkpoint: owned Cloudflare adapter and restricted Apache HTTP
+core now implemented with authenticated Unix peer transport. Independent review
+identified unsafe writable ancestors and missing post-restoration observation;
+both fixed with red/green regressions. Real Apache over the Unix transport proves
+syntax-failure preservation, uncertain activation/restore reconciliation without
+repeat reload, sentinel preservation and cleanup. Full backend suite605 passes;
+receiver/worker/MCP images build/import and contain matching provider source.
+See docs/operations/domain-effects-20261011.md. No live provider/production
+mutation or TLS readiness claim. Next: dynamic verified grant issuance,
+production executor/daemon packaging, certificate lifecycle, shared worker phases
+and dashboard/MCP flow. Scope remains complete environment domain delivery.
+
+Ruling: authenticated host helper tests use private temporary directories below
+root-owned sticky /tmp rather than the repository's writable ancestors. This
+preserves filesystem trust checks; product Compose labels remain deploy-monitor.
+An unknown restoration outcome stays restoring and never reloads blindly.

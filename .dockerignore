@@ -49,3 +49,5 @@ frontend/dist
 !ingress_ports.py
 !ingress_bindings.py
 !ingress.py
+
+!cloudflare_dns.py
