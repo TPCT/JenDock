@@ -192,7 +192,8 @@ def apply(db,operation_id,*,docker,authorize,health_timeout=35):
     _authority(db,row,authorize);_write(db,operation_id,'applying')
     try:
         action=row['captured']['action'];service=next(p for p in row['captured']['peers'] if p['id']==row['service_id'])
-        provision.command([docker,action,*(['--time','20'] if action in ('stop','restart') else []),service['binding']['container_id']],timeout=60)
+        grace=provision.stop_timeout(service['definition']) if service['definition']['artifact'].get('workload') else 20
+        provision.command([docker,action,*(['--time',str(grace)] if action in ('stop','restart') else []),service['binding']['container_id']],timeout=max(60,grace+30))
         deadline=time.monotonic()+health_timeout
         while True:
             actual=observe(db,row,docker=docker,authorize=authorize)

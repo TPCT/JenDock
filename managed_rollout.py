@@ -56,6 +56,7 @@ def rollout(db, operation_id, item, *, docker, compose, authorize, health_timeou
         raise RolloutError('Recorded rollout requires reconciliation; mutations are never repeated automatically.')
     old, binding = item['definition'], item['binding']
     new, resources = item['next_definition'], item['resources']
+    managed_services.require_role_capability(db,new['artifact'])
     next_resources=item.get('next_resources',resources)
     if item.get('runtime_change') and old['artifact']!=new['artifact']:
         raise RolloutError('Runtime settings transitions cannot change the application image.')
@@ -175,7 +176,7 @@ def rollout(db, operation_id, item, *, docker, compose, authorize, health_timeou
             raise RolloutError('Selected service stopped before replacement; it was not restarted.')
         persist(phase + '-create-intent')
         definitions=[p['definition'] for p in peers if p['id']!=old['service_id']]+[definition]
-        provision.command([compose, '-p', old['project'], '-f', str(path), 'create', '--no-build', '--pull', 'never', '--force-recreate', service], **({'environment':runtime_context.substitutions(definitions)} if any(d.get('runtime') for d in definitions) else {}))
+        provision.command([compose, '-p', old['project'], '-f', str(path), 'create', '--no-build', '--pull', 'never', '--force-recreate', service], timeout=max(90,provision.stop_timeout(previous_definition)+60), **({'environment':runtime_context.substitutions(definitions)} if any(d.get('runtime') for d in definitions) else {}))
         row = provision._lookup(docker, 'container', binding['container_name'])
         if row is None: raise RolloutError('Replacement outcome is uncertain; reconciliation is required.')
         owned = dict(binding, container_id=row['Id'], image_id=definition['artifact']['image'],

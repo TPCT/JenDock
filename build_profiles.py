@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import registry
 
@@ -46,8 +47,62 @@ def validate_http_endpoint(value):
     return copy.deepcopy(value)
 
 
+ROLE_TEMPLATES = {'laravel-database-queue-v1':'queue', 'laravel-scheduler-v1':'scheduler'}
+
+
+def role_profile(template, values, image_name, user):
+    """Resolve closed role settings to immutable argv; declarations are not runtime proof."""
+    role = ROLE_TEMPLATES.get(template)
+    if role is None or not isinstance(values,dict) or set(values)!={'framework_version','instrumentation','configuration'}:
+        raise ValueError('Choose a supported versioned workload role profile.')
+    if not isinstance(values['framework_version'],str) or not re.fullmatch(r'12\.[0-9]{1,3}\.[0-9]{1,3}',values['framework_version']):
+        raise ValueError('The workload adapter requires an exact Laravel 12 version.')
+    instrument=values['instrumentation']
+    if (not isinstance(instrument,dict) or set(instrument)!={'version','digest'} or instrument['version']!='1.0.0'
+            or not isinstance(instrument['digest'],str) or not re.fullmatch('[a-f0-9]{64}',instrument['digest'])):
+        raise ValueError('The workload instrumentation package must have a pinned supported version and digest.')
+    config=values['configuration']
+    if not isinstance(config,dict):raise ValueError('Workload settings must be a typed object.')
+    if role=='queue':
+        required={'connection','queues','timeout_seconds','retry_after_seconds','max_attempts','sleep_seconds','shutdown_grace_seconds'}
+        if set(config)!=required:raise ValueError('Provide exactly the supported database queue settings.')
+        def name(value):return isinstance(value,str) and re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}',value)
+        if not (isinstance(config['connection'],str) and re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,62}',config['connection'])) or not isinstance(config['queues'],list) or not 1<=len(config['queues'])<=16 or not all(name(v) for v in config['queues']) or len(set(config['queues']))!=len(config['queues']):
+            raise ValueError('Choose a connection and unique bounded queue names.')
+        for key,low,high in [('timeout_seconds',1,600),('retry_after_seconds',2,3600),('max_attempts',1,100),('sleep_seconds',1,60),('shutdown_grace_seconds',1,900)]:
+            if type(config[key]) is not int or not low<=config[key]<=high:raise ValueError('Queue timing and attempts must be bounded integers.')
+        if config['timeout_seconds']+5>config['retry_after_seconds'] or config['shutdown_grace_seconds']<config['timeout_seconds']+5:
+            raise ValueError('Queue retry and shutdown grace must exceed the worker timeout by at least five seconds.')
+        command=['php','artisan','queue:work',config['connection'],'--queue='+','.join(config['queues']),
+                 '--timeout='+str(config['timeout_seconds']),'--tries='+str(config['max_attempts']),
+                 '--sleep='+str(config['sleep_seconds']),'--no-interaction']
+    else:
+        if set(config)!={'timezone','scope','connection'} or config['scope']!='default' or not isinstance(config['timezone'],str) or len(config['timezone'])>64:
+            raise ValueError('Scheduler requires a timezone and the environment default schedule scope.')
+        if not isinstance(config['connection'],str) or not re.fullmatch('[A-Za-z_][A-Za-z0-9_]{0,62}',config['connection']):raise ValueError('Scheduler requires an explicit instrumentation database connection.')
+        try:ZoneInfo(config['timezone'])
+        except (ZoneInfoNotFoundError,ValueError):raise ValueError('Scheduler timezone is unavailable.') from None
+        command=['php','artisan','deploy-monitor:scheduler']
+    workload={'role':role,'adapter':'laravel-database-v1' if role=='queue' else 'laravel-scheduler-v1',
+              'adapter_revision':1,**copy.deepcopy(values)}
+    return {'revision':1,'image_name':image_name,'command':command,
+            'healthcheck':['php','artisan','deploy-monitor:health','--no-interaction'],'user':user,'workload':workload}
+
+
+def validate_role_profile(template, profile):
+    if not isinstance(profile,dict) or set(profile)!={'revision','image_name','command','healthcheck','user','workload'}:
+        raise ValueError('Invalid immutable workload role profile.')
+    workload=profile['workload']
+    if not isinstance(workload,dict) or set(workload)!={'role','adapter','adapter_revision','framework_version','instrumentation','configuration'}:
+        raise ValueError('Invalid workload metadata.')
+    expected=role_profile(template,{k:workload[k] for k in ('framework_version','instrumentation','configuration')},profile['image_name'],profile['user'])
+    if type(profile['revision']) is not int or type(workload['adapter_revision']) is not int or profile!=expected:
+        raise ValueError('Workload role metadata or command differs from its trusted template.')
+    return copy.deepcopy(profile)
+
+
 def validate_values(values):
-    if not isinstance(values, dict) or set(values) not in (FIELDS, FIELDS | {'http_endpoint'}):
+    if not isinstance(values, dict) or (not FIELDS<=set(values) or set(values)-FIELDS-{'http_endpoint','role_profiles'}):
         raise ValueError('Provide exactly Dockerfile, context, target, test/application/health arguments and runtime user.')
     _path(values['dockerfile'], 'Dockerfile'); _path(values['context'], 'Build context', True)
     target = values['target']
@@ -61,6 +116,11 @@ def validate_values(values):
         result['http_endpoint'] = validate_http_endpoint(result['http_endpoint'])
     else:
         result.pop('http_endpoint', None)
+    if 'role_profiles' in values:
+        roles=values['role_profiles']
+        if not isinstance(roles,dict) or not 1<=len(roles)<=2 or set(roles)-set(ROLE_TEMPLATES):
+            raise ValueError('Choose one or two supported workload role profiles.')
+        for template,role in roles.items():role_profile(template,role,'validation-image',values['user'])
     return result
 
 
@@ -73,14 +133,31 @@ def _recipe(project, environment, values):
     profile = {'revision': revision, 'image_name': name, 'command': values['command'],
                'healthcheck': values['healthcheck'], 'user': values['user']}
     if endpoint is not None: profile['http_endpoint'] = copy.deepcopy(endpoint)
-    return {'schema_kind': 'artifact-build', 'schema_version': revision, 'images': [image],
+    profiles={'application-v1':profile}
+    for template,role in values.get('role_profiles',{}).items():profiles[template]=role_profile(template,role,name,values['user'])
+    return {'schema_kind': 'artifact-build', 'schema_version': 3 if values.get('role_profiles') else revision, 'images': [image],
             'tests': [{'image': name, 'command': values['test_command']}],
-            'service_profiles': {'application-v1': profile}}
+            'service_profiles': profiles}
 
 
 def validate_recipe(recipe):
     """Fail closed before workers use persisted build instructions."""
     try:
+        if isinstance(recipe,dict) and type(recipe.get('schema_version')) is int and recipe['schema_version']==3:
+            if set(recipe)!={'schema_kind','schema_version','images','tests','service_profiles'} or recipe['schema_kind']!='artifact-build':
+                raise ValueError('Invalid role build recipe.')
+            profiles=recipe['service_profiles']
+            if not isinstance(profiles,dict) or 'application-v1' not in profiles or not 2<=len(profiles)<=3 or set(profiles)-{'application-v1'}-set(ROLE_TEMPLATES):
+                raise ValueError('Invalid role profile catalog.')
+            legacy=copy.deepcopy(recipe);legacy['schema_version']=profiles['application-v1']['revision'];legacy['service_profiles']={'application-v1':profiles['application-v1']}
+            if legacy['schema_version'] not in (1,2):raise ValueError('Invalid application profile version.')
+            validate_recipe(legacy)
+            for template,profile in profiles.items():
+                if template=='application-v1':continue
+                validate_role_profile(template,profile)
+                if profile['image_name']!=recipe['images'][0]['name'] or profile['user']!=profiles['application-v1']['user']:
+                    raise ValueError('Role image and runtime user must match the verified build.')
+            return copy.deepcopy(recipe)
         if (not isinstance(recipe, dict) or set(recipe) != {'schema_kind','schema_version','images','tests','service_profiles'}
                 or recipe['schema_kind'] != 'artifact-build' or type(recipe['schema_version']) is not int or recipe['schema_version'] not in (1, 2)
                 or not isinstance(recipe['images'], list) or len(recipe['images']) != 1
@@ -129,6 +206,8 @@ def get(db, project, environment):
         values = {'dockerfile':image['dockerfile'], 'context':image['context'], 'target':image.get('target'),
                   'test_command':recipe['tests'][0]['command'], 'command':profile['command'], 'healthcheck':profile['healthcheck'], 'user':profile['user']}
         if 'http_endpoint' in profile: values['http_endpoint'] = copy.deepcopy(profile['http_endpoint'])
+        if recipe['schema_version']==3:
+            values['role_profiles']={template:{k:copy.deepcopy(value['workload'][k]) for k in ('framework_version','instrumentation','configuration')} for template,value in recipe['service_profiles'].items() if template!='application-v1'}
     return {'project':project, 'environment':environment, 'project_revision':project_row['revision'],
             'environment_revision':env['revision'], 'profile_revision':source['profile_revision'] if source else 0,
             'source_revision':source['source_revision'] if source else None, 'values':values,

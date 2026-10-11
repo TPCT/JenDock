@@ -26,10 +26,18 @@ def initialize(db):
         '''CREATE TABLE IF NOT EXISTS service_definitions(id TEXT PRIMARY KEY,document TEXT NOT NULL,digest TEXT NOT NULL,created REAL NOT NULL)''',
         '''CREATE TABLE IF NOT EXISTS managed_services(id TEXT PRIMARY KEY,project TEXT NOT NULL,environment TEXT NOT NULL,name TEXT NOT NULL,definition_id TEXT NOT NULL,operation_id TEXT NOT NULL,state TEXT NOT NULL,created REAL NOT NULL,updated REAL NOT NULL,UNIQUE(project,environment,name))''',
         '''CREATE TABLE IF NOT EXISTS service_reservations(service_id TEXT PRIMARY KEY,project TEXT NOT NULL,environment TEXT NOT NULL,memory_mib REAL NOT NULL,cpu REAL NOT NULL,state TEXT NOT NULL)''',
+        '''CREATE TABLE IF NOT EXISTS service_role_verifications(artifact_id TEXT PRIMARY KEY,artifact_digest TEXT NOT NULL,document TEXT NOT NULL,created REAL NOT NULL)''',
+        '''CREATE TABLE IF NOT EXISTS service_scheduler_scopes(project TEXT NOT NULL,environment TEXT NOT NULL,scope TEXT NOT NULL,service_id TEXT NOT NULL UNIQUE,PRIMARY KEY(project,environment,scope))''',
         '''CREATE TABLE IF NOT EXISTS service_bindings(service_id TEXT PRIMARY KEY,document TEXT NOT NULL,updated REAL NOT NULL)''',
         '''CREATE TABLE IF NOT EXISTS service_operation_leases(operation_id TEXT PRIMARY KEY,worker TEXT NOT NULL,expires REAL NOT NULL)''',
     ):
         db.execute(sql)
+    for action in ('UPDATE','DELETE'):
+        db.execute(f"CREATE TRIGGER IF NOT EXISTS scheduler_scope_{action.lower()} BEFORE {action} ON service_scheduler_scopes BEGIN SELECT RAISE(ABORT,'Scheduler scope is retained'); END")
+    db.execute("CREATE TRIGGER IF NOT EXISTS scheduler_scope_replace BEFORE INSERT ON service_scheduler_scopes WHEN EXISTS(SELECT 1 FROM service_scheduler_scopes WHERE (project=NEW.project AND environment=NEW.environment AND scope=NEW.scope) OR service_id=NEW.service_id) BEGIN SELECT RAISE(ABORT,'Scheduler scope is retained'); END")
+    for action in ('UPDATE','DELETE'):
+        db.execute(f"CREATE TRIGGER IF NOT EXISTS role_verification_{action.lower()} BEFORE {action} ON service_role_verifications BEGIN SELECT RAISE(ABORT,'Role verification is immutable'); END")
+    db.execute("CREATE TRIGGER IF NOT EXISTS role_verification_replace BEFORE INSERT ON service_role_verifications WHEN EXISTS(SELECT 1 FROM service_role_verifications WHERE artifact_id=NEW.artifact_id) BEGIN SELECT RAISE(ABORT,'Role verification is immutable'); END")
     for table in ('service_artifacts', 'service_definitions'):
         for action in ('UPDATE', 'DELETE'):
             db.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_immutable_{action.lower()} BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'Service evidence is immutable'); END")
@@ -40,6 +48,14 @@ def _profile(target, template_id):
     profiles=target['recipe'].get('service_profiles', {})
     if not isinstance(profiles,dict): raise ValueError('Service profile catalog is invalid.')
     profile = profiles.get(template_id)
+    if isinstance(profile,dict) and 'workload' in profile:
+        from build_profiles import validate_role_profile
+        validate_role_profile(template_id,profile)
+        if profile['image_name'] not in [image.get('name') for image in target['recipe'].get('images',[])]:
+            raise ValueError('The role image is not part of this build recipe.')
+        if not isinstance(profile['user'],str) or not re.fullmatch('[1-9][0-9]{0,8}:[0-9]{1,9}',profile['user']):
+            raise ValueError('Role profiles require a non-root runtime user.')
+        return copy.deepcopy(profile)
     if (not isinstance(template_id, str) or not re.fullmatch('[a-z0-9][a-z0-9-]{0,63}', template_id)
             or not isinstance(profile, dict) or set(profile) not in ({'revision', 'image_name', 'command', 'healthcheck', 'user'},
                 {'revision', 'image_name', 'command', 'healthcheck', 'user', 'http_endpoint'})
@@ -90,6 +106,7 @@ def publish_artifact(db, job_id, template_id, image_id):
                     'template_revision': profile['revision'], 'image_name': profile['image_name'], 'image': image_id,
                     'command': profile['command'], 'healthcheck': profile['healthcheck'], 'user': profile['user']}
         if 'http_endpoint' in profile: document['http_endpoint'] = copy.deepcopy(profile['http_endpoint'])
+        if 'workload' in profile: document['workload'] = copy.deepcopy(profile['workload'])
         fingerprint = digest(document)
         old = db.execute('SELECT id FROM service_artifacts WHERE project=? AND digest=?', (target['project'], fingerprint)).fetchone()
         if old: return artifact_for_service(db, target['project'], old['id'])
@@ -109,9 +126,47 @@ def artifact_for_service(db, project, artifact_id):
             or any(document[key] != profile[key] for key in ('image_name', 'command', 'healthcheck', 'user'))
             or document['template_revision'] != profile['revision']
             or ('http_endpoint' in document) != ('http_endpoint' in profile)
-            or document.get('http_endpoint') != profile.get('http_endpoint')):
+            or document.get('http_endpoint') != profile.get('http_endpoint')
+            or ('workload' in document)!=('workload' in profile) or document.get('workload')!=profile.get('workload')):
         raise ValueError('Service artifact no longer matches its verified source.')
     return dict(document, id=row['id'], digest=row['digest'])
+
+
+def _role_evidence(artifact):
+    workload=artifact['workload']
+    return {'protocol_version':1,'image':artifact['image'],'workload_digest':digest(workload),
+            'package_digest':workload['instrumentation']['digest'],'package_version':workload['instrumentation']['version'],
+            'framework_version':workload['framework_version'],'adapter_revision':workload['adapter_revision'],'role':workload['role']}
+
+
+def verify_role_artifact(db,project,artifact_id,*,verify):
+    """Worker-only seam: trusted isolated verifier, never a request-provided assertion."""
+    artifact=artifact_for_service(db,project,artifact_id)
+    if 'workload' not in artifact:raise ValueError('The selected artifact has no workload role.')
+    if not callable(verify):raise ValueError('Trusted role capability verification is required.')
+    evidence=verify(copy.deepcopy(artifact))
+    expected=_role_evidence(artifact)
+    if not isinstance(evidence,dict) or registry.canonical(evidence)!=registry.canonical(expected):
+        raise ValueError('Role capability evidence does not match the immutable artifact.')
+    with registry.transaction(db):
+        if artifact_for_service(db,project,artifact_id)!=artifact:raise ValueError('Role artifact changed during verification.')
+        old=db.execute('SELECT * FROM service_role_verifications WHERE artifact_id=?',(artifact_id,)).fetchone()
+        document=registry.canonical(expected)
+        if old:
+            if old['artifact_digest']!=artifact['digest'] or old['document']!=document:raise ValueError('Stored role capability evidence is inconsistent.')
+        else:db.execute('INSERT INTO service_role_verifications VALUES(?,?,?,?)',(artifact_id,artifact['digest'],document,time.time()))
+    return role_capability(db,artifact)
+
+
+def role_capability(db,artifact):
+    row=db.execute('SELECT * FROM service_role_verifications WHERE artifact_id=?',(artifact['id'],)).fetchone()
+    verified=bool(row and row['artifact_digest']==artifact['digest'] and row['document']==registry.canonical(_role_evidence(artifact)))
+    return {'state':'artifact-verified' if verified else 'unverified','artifact_verified':verified,'operational':False}
+
+
+def require_role_capability(db,artifact):
+    if 'workload' in artifact and not role_capability(db,artifact)['artifact_verified']:
+        raise ValueError('Workload instrumentation requires trusted artifact capability verification before service acceptance.')
 
 
 def protected_images(db):
@@ -143,7 +198,8 @@ def catalog(db, project):
                        'source_job': artifact['source_job'], 'source_sha': artifact['source_sha'],
                        'source_environment': artifact['source_environment'], 'command': artifact['command'],
                        'healthcheck': artifact['healthcheck'], 'desired_states': ['stopped', 'running'],
-                       **({'http_endpoint': copy.deepcopy(artifact['http_endpoint'])} if 'http_endpoint' in artifact else {})})
+                       **({'http_endpoint': copy.deepcopy(artifact['http_endpoint'])} if 'http_endpoint' in artifact else {}),
+                       **({'workload':copy.deepcopy(artifact['workload']), 'role_capability':role_capability(db,artifact)} if 'workload' in artifact else {})})
     return result
 
 
@@ -244,6 +300,7 @@ def validate_definition(db, project, environment, values):
         raise ValueError('Service creation requires explicit RAM and CPU limits.')
     resource_policy.budget(resources)
     artifact = artifact_for_service(db, project, values['artifact_id'])
+    require_role_capability(db,artifact)
     if artifact['id'] not in {entry['artifact_id'] for entry in catalog(db, project)}:
         raise ValueError('A newer verified artifact is available. Reload the service catalog.')
     if (artifact['template_id'], artifact['template_revision']) != (values['template_id'], values['template_revision']):
@@ -271,6 +328,7 @@ def ensure_environment_eligible(db, project, environment):
 def accept(db, project, environment, definition, operation_id):
     """Caller owns BEGIN IMMEDIATE and authorization; returns queued record."""
     if not db.in_transaction: raise ValueError('Service acceptance requires an atomic application transaction.')
+    require_role_capability(db,definition['artifact'])
     env = ensure_environment_eligible(db, project, environment)
     import adopted_workloads
     if env['recipe_revision'] is not None:
@@ -292,6 +350,13 @@ def accept(db, project, environment, definition, operation_id):
     if db.execute('SELECT 1 FROM managed_services WHERE project=? AND environment=? AND name=?', (project, environment, definition['name'])).fetchone():
         raise ValueError('This service name is already reserved in the selected environment.')
     identifier = str(uuid.uuid4()); definition = dict(definition, service_id=identifier)
+    workload=definition['artifact'].get('workload')
+    if workload and workload['role']=='scheduler':
+        # Retain scope across stopped/failed/uncertain operations. Releasing it
+        # requires explicit proven deletion, not a transient process observation.
+        if db.execute('SELECT 1 FROM service_scheduler_scopes WHERE project=? AND environment=?',(project,environment)).fetchone():
+            raise ValueError('This environment already has an accepted scheduler scope.')
+        db.execute('INSERT INTO service_scheduler_scopes VALUES(?,?,?,?)',(project,environment,'default',identifier))
     now = time.time(); document = registry.canonical(definition)
     db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)', (identifier, document, digest(definition), now))
     db.execute('INSERT INTO managed_services VALUES(?,?,?,?,?,?,?,?,?)', (identifier, project, environment, definition['name'], identifier, operation_id, 'queued', now, now))
@@ -305,6 +370,10 @@ def get(db, service_id):
     definition = db.execute('SELECT document,digest FROM service_definitions WHERE id=?', (row['definition_id'],)).fetchone()
     document = json.loads(definition['document'])
     if digest(document) != definition['digest']: raise ValueError('Service definition identity is inconsistent.')
+    if not isinstance(document.get('artifact'),dict):raise ValueError('Managed service artifact evidence is unavailable.')
+    if document['artifact'].get('workload',{}).get('role')=='scheduler':
+        scope=db.execute('SELECT service_id FROM service_scheduler_scopes WHERE project=? AND environment=? AND scope=?',(row['project'],row['environment'],'default')).fetchone()
+        if scope is None or scope['service_id']!=service_id:raise ValueError('Scheduler scope ownership is inconsistent.')
     bound = db.execute('SELECT document FROM service_bindings WHERE service_id=?', (service_id,)).fetchone()
     binding = json.loads(bound['document']) if bound else None
     import managed_lifecycle
@@ -387,6 +456,7 @@ def authorize_claim(db, operation_id, worker):
     ensure_environment_eligible(db, definition['project'], definition['environment'])
     artifact = artifact_for_service(db, row['project'], definition['artifact_id'])
     if artifact != definition['artifact']: raise ValueError('Pinned service artifact changed.')
+    require_role_capability(db,artifact)
     return definition
 
 

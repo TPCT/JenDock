@@ -22,6 +22,14 @@ PREFIX = '/_deploy'
 MAX_BODY = 1024 * 1024
 
 
+def control_message(status):
+    return {'succeeded':'Operation completed. Reload the container to inspect its current state.',
+        'rolled-back':'Operation was rolled back. Inspect the current container before making another change.',
+        'failed':'Operation failed. Inspect the container before making another change.',
+        'recovery-required':'The original operation needs reconciliation.',
+        'interrupted':'Operation was interrupted. Its outcome requires inspection.'}.get(status,'The original operation is still pending.')
+
+
 class Application:
     def __init__(self, config, database, credentials):
         self.integration_key = os.environ.get("INTEGRATION_KEY_FILE", "/config/integrations.key")
@@ -262,6 +270,21 @@ class Application:
             p=effective_projects(db,self.config).get(name)
             if not p:
                 return 404, {'error':'Project not found.'}
+            if action=='container-operation-status':
+                fields={'action','project','container','request_id','operation'}
+                allowed={'container-start','container-stop','container-restart','environment-save','resource-apply','container-limits-save'}
+                if (set(body)!=fields or body.get('operation') not in allowed
+                        or not isinstance(body.get('request_id'),str)
+                        or not re.fullmatch('[A-Za-z0-9-]{16,80}',body['request_id'])
+                        or not isinstance(body.get('container'),str) or len(body['container'])>255):
+                    return 400,{'error':'An exact original container operation is required.','code':'invalid_input'}
+                row=db.execute('SELECT request_id,project,container,operation,status,updated FROM control_runs WHERE request_id=? AND actor=? AND project=? AND container=? AND operation=?',
+                    (body['request_id'],session['username'],name,body['container'],body['operation'])).fetchone()
+                if row is None:
+                    return 404,{'error':'The original operation is not recorded. Its outcome is unknown; do not repeat it automatically.','code':'operation_not_found'}
+                result=dict(row);result['action']=result.pop('operation')
+                result['message']=control_message(row['status'])
+                return 200,{'operation':result}
             if action in ('resource-policy','resource-policy-save'):
                 from resource_policy import read, save
                 try:
@@ -435,7 +458,7 @@ class Application:
         finally:
             db.close()
 
-    def state(self):
+    def state(self, actor=None):
         db = connect(self.database)
         try:
             import registry
@@ -445,7 +468,7 @@ class Application:
             return {'observed_at': time.time(), 'environment': os.environ.get('ENVIRONMENT','production'),
                     'projects': {k: dict({x: v[x] for x in allowed if x in v}, build_ready=bool(v.get('recipe')), has_legacy_workload=registered[k]['legacy_settings'] is not None, legacy_binding=registered[k]['legacy_binding']) for k, v in effective.items()},
                     'metric_history':metric_history(db),
-                    'control_runs': [dict(r) for r in db.execute('SELECT * FROM control_runs ORDER BY id DESC LIMIT 100')],
+                    'control_runs': [dict(r,detail=control_message(r['status'])) for r in db.execute('SELECT id,request_id,created,updated,actor,project,container,operation,status FROM control_runs WHERE actor=? ORDER BY id DESC LIMIT 100',(actor,))] if actor else [],
                     'audit': [dict(r) for r in db.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
                     'events': [dict(r) for r in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT 500')],
                     'jobs': [public_job(db,r) for r in db.execute('SELECT * FROM jobs ORDER BY id DESC LIMIT 100')],
@@ -503,7 +526,7 @@ def handler(app):
                     for _ in range(100):
                         if not app.session(self.headers.get('Cookie','')):
                             self.wfile.write(b'event: expired\ndata: {}\n\n');self.wfile.flush();break
-                        state=app.state()
+                        state=app.state(actor=session['username'])
                         state.pop('observed_at',None)
                         payload=json.dumps(state,separators=(',',':'))
                         if payload!=previous:
@@ -518,7 +541,7 @@ def handler(app):
             if path=='/api/session':
                 return self.respond(200 if session else 401,{'username':session['username'],'csrf':session['csrf']} if session else {'error':'Sign in to continue.'})
             if path=='/api/state':
-                return self.respond(200,app.state()) if session else self.respond(401,{'error':'Your session expired. Sign in again.'})
+                return self.respond(200,app.state(actor=session['username'])) if session else self.respond(401,{'error':'Your session expired. Sign in again.'})
             files={
                 '/':('index.html','text/html; charset=utf-8'),
                 '/login':('index.html','text/html; charset=utf-8'),

@@ -114,3 +114,4 @@ frontend/dist
 !application_database_networks.py
 
 !managed_lifecycle.py
+!workload_environment.py

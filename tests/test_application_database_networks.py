@@ -96,7 +96,8 @@ class DatabaseNetworkTests(unittest.TestCase):
         import uuid
         import managed_services
         self.ensure();first_metadata=self.metadata;first_row=copy.deepcopy(self.row)
-        sid=str(uuid.uuid4());definition={'service_id':sid,'project':'example','environment':'development','desired_state':'running'}
+        from test_application_database_bindings import managed_definition
+        sid=str(uuid.uuid4());definition=managed_definition(sid,'queue')
         self.db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)',(sid,registry.canonical(definition),managed_services.digest(definition),0))
         self.db.execute('INSERT INTO managed_services VALUES(?,?,?,?,?,?,?,?,?)',(sid,'example','development','queue',sid,'operation2','running',0,0))
         value=bindings.save_binding(self.db,self.f.principal,'example','development',dict(self.f.values,service_id=sid),expected_revision=0)

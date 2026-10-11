@@ -56,6 +56,12 @@ def _escaped(value):
     return value.replace('$', '$$')
 
 
+def stop_timeout(definition):
+    workload=definition['artifact'].get('workload')
+    if workload and workload['role']=='queue':return workload['configuration']['shutdown_grace_seconds']
+    return 5
+
+
 def service_config(definition, operation_id, resources=None, *, runtime_context=None, database_network=None):
     artifact = definition['artifact']
     argv = artifact['command']
@@ -67,7 +73,7 @@ def service_config(definition, operation_id, resources=None, *, runtime_context=
             'mem_limit': int(resources['memory_mib'] * 1024 * 1024),
             'memswap_limit': int(resources['memory_mib'] * 1024 * 1024),
             'deploy': {'resources': {'limits': {'memory': str(int(resources['memory_mib'] * 1024 * 1024)), 'cpus': str(resources['cpu']), 'pids': 128}}},
-            'cpus': resources['cpu'], 'restart': 'no', 'stop_grace_period': '5s',
+            'cpus': resources['cpu'], 'restart': 'no', 'stop_grace_period': str(stop_timeout(definition))+'s',
             'tmpfs': ['/tmp:rw,noexec,nosuid,size=16m'], 'networks': ['environment'],
             'labels': _labels(definition, operation_id),
             'healthcheck': {'test': ['CMD', *[_escaped(value) for value in artifact['healthcheck']]],
@@ -75,6 +81,10 @@ def service_config(definition, operation_id, resources=None, *, runtime_context=
     if definition.get('runtime'):
         if runtime_context is None:raise ProvisioningError('Accepted runtime values require a private worker context.')
         result['environment']=runtime_context.environment(definition)[0]
+    if artifact.get('workload'):
+        from workload_environment import metadata, reserved
+        if any(reserved(key) for key in result.get('environment',{})):raise ProvisioningError('Runtime settings cannot override workload identity.')
+        result.setdefault('environment',{}).update(metadata(definition))
     if (definition.get('runtime') or {}).get('database_attachment'):
         if not database_network:raise ProvisioningError('A verified database bridge is required.')
         result['networks']={'environment':{'priority':1000},database_network['name']:{'priority':0}}
@@ -150,7 +160,7 @@ def _network(row, definition, expected_id=None):
 
 
 def _verify(row, definition, operation_id, image_id, network_id, name, path, resources=None, *, runtime_context=None, docker=None, database_network=None):
-    if definition.get('runtime'):
+    if definition.get('runtime') or definition['artifact'].get('workload'):
         if runtime_context is None or docker is None:raise ProvisioningError('Runtime verification requires current private authority.')
         image = _json([docker, 'image', 'inspect', image_id])[0]
         if image.get('Id') != image_id:raise ProvisioningError('Runtime image identity changed.')
@@ -173,6 +183,7 @@ def _verify(row, definition, operation_id, image_id, network_id, name, path, res
     if (row.get('Name', '').lstrip('/') != name or row.get('Image') != image_id
             or any(labels.get(key) != value for key, value in expected.items())
             or config.get('Entrypoint') != [argv[0]] or (config.get('Cmd') or []) != argv[1:]
+            or (artifact.get('workload') and (type(config.get('StopTimeout')) is not int or config['StopTimeout']!=stop_timeout(definition)))
             or config.get('User') != artifact['user'] or config.get('Healthcheck', {}).get('Test') != ['CMD', *artifact['healthcheck']]
             or host.get('Privileged') or host.get('ReadonlyRootfs') is not True
             or host.get('CapAdd') or host.get('CapDrop') != ['ALL']
@@ -208,6 +219,7 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
     if definition['environment'] not in registry.ENVIRONMENTS or definition['desired_state'] not in ('stopped', 'running'):
         raise ProvisioningError('Explicit environment and desired state are required.')
     artifact = managed_services.artifact_for_service(db, definition['project'], definition['artifact_id'])
+    managed_services.require_role_capability(db,artifact)
     if artifact != definition['artifact']:
         raise ProvisioningError('Accepted application artifact changed. No service was provisioned.')
     digest = _digest(definition)

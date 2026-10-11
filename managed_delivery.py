@@ -174,6 +174,13 @@ def prepare(db, job_id):
             if len(found) != 1 or found[0]['source_environment'] != plan['environment']:
                 raise ValueError('This source job needs exactly one verified artifact for each selected service template.')
             artifact = found[0]
+            services.require_role_capability(db,artifact)
+            previous_workload=entry['definition']['artifact'].get('workload')
+            next_workload=artifact.get('workload')
+            if bool(previous_workload)!=bool(next_workload):
+                raise ValueError('Delivery cannot change an accepted service role.')
+            if previous_workload and any(previous_workload[key]!=next_workload[key] for key in ('role','adapter','adapter_revision','configuration')):
+                raise ValueError('Delivery cannot silently change accepted workload settings or adapter protocol.')
             definition = dict(copy.deepcopy(entry['definition']), artifact=artifact, artifact_id=artifact['id'],
                               template_revision=artifact['template_revision'], resources=copy.deepcopy(entry['resources']), desired_state='running')
             ingress_bindings.preflight(entry['ingress_snapshot'], alias=entry['binding']['compose_service'],

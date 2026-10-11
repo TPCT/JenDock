@@ -1,6 +1,6 @@
 # Queue and scheduler workload roles
 
-Status: implementation contract, not implemented or runtime acceptance evidence.
+Status: role foundations and instrumentation are in progress; not complete runtime acceptance evidence.
 Date: 2026-10-11.
 
 This extends [Dynamic projects, environments and delivery](dynamic-environment-platform.md)
@@ -77,11 +77,16 @@ adapter revision fails before cutover rather than substituting application argv.
 
 Ship a reviewed, versioned Laravel package with a closed protocol. It registers
 queue and scheduler event listeners, a heartbeat, and a bounded read/action endpoint
-inside the application's own trust boundary. Use a pinned helper/client to reach
-that protocol on the exact registered container's loopback network namespace; no
-public instrumentation endpoint, host shell or request-selected command. Authenticate
-requests with a separate environment/service-scoped secret reference and nonce.
-Peer container identity, image and accepted adapter digest are verified independently.
+inside the application's own trust boundary. The worker invokes the fixed argv
+`php artisan deploy-monitor:protocol --no-ansi --no-interaction` on the exact
+registered container under its accepted runtime user. Requests use bounded JSON on
+stdin and responses use bounded JSON on stdout; there is no public listener, host
+shell or request-selected command. Authenticated console/MCP authority is checked
+by the worker independently of the adapter. Project, environment, service and the
+accepted definition digest come from trusted process environment injected at
+provisioning, not caller scope or cached Laravel configuration. Image and accepted
+adapter digest are verified independently. App-owned HMAC purposes use the app's
+existing key; they do not replace worker authentication.
 
 Persist instrumentation in an explicit environment-owned schema using application
 credentials restricted to required objects. Install additive instrumentation tables

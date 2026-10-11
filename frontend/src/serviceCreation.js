@@ -129,7 +129,7 @@ export function saveServiceDraft(
   draft,
   request,
 ) {
-  if (!owner) return;
+  if (!owner) return false;
   try {
     storage.setItem(
       cacheKey(owner, project, environment),
@@ -148,7 +148,10 @@ export function saveServiceDraft(
         request: safeRequest(request, project, environment),
       }),
     );
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 export function restoreServiceDraft(storage, owner, project, environment) {
   try {

@@ -57,6 +57,21 @@ class DatabaseControlFlowTests(unittest.TestCase):
     def save(self):return self.action('database-credential-save',values={'username':'inspect_user','password':'private-db-password'},expected_revision=0)['credential']
     def payload(self):return {'action':'database-credential-save','request_id':uuid.uuid4().hex,'project':'app','environment':'development','authentication':{'kind':'console','session_digest':self.digest},'values':{'username':'inspect_user','password':'private-db-password'},'expected_revision':0}
 
+    def test_container_recovery_lookup_is_authenticated_read_only_http(self):
+        request_id=uuid.uuid4().hex
+        self.f.db.execute('INSERT INTO control_runs(request_id,created,updated,actor,project,container,operation,status,detail) VALUES(?,?,?,?,?,?,?,?,?)',
+            (request_id,1,2,'owner','app','old-container','environment-save','recovery-required','private diagnostic'))
+        body={'action':'container-operation-status','project':'app','container':'old-container','operation':'environment-save','request_id':request_id}
+        with patch.object(control,'execute',side_effect=AssertionError('Read-only recovery must not dispatch')):
+            result,_=self.post('/_deploy/api/action',body)
+            self.assertEqual(result['operation']['status'],'recovery-required')
+            self.assertNotIn('private diagnostic',json.dumps(result))
+            for authenticated,csrf in ((False,None),(True,'wrong')):
+                with self.assertRaises(HTTPError) as denied:
+                    self.post('/_deploy/api/action',body,authenticated=authenticated,csrf=csrf)
+                self.assertIn(denied.exception.code,(401,403))
+                denied.exception.close()
+
     def test_application_binding_over_real_http_unix_and_retained_ownership(self):
         import test_application_database_bindings as application_fixtures
         fixture=application_fixtures.AttachmentTests();fixture.setUp()

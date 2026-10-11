@@ -58,6 +58,8 @@ def _values(values):
             or not isinstance(v,str) or len(v)>32768 or '\x00' in v for k,v in values.items())
         or len(registry.canonical(values).encode())>1024*1024):
         raise RuntimeError('Bounded environment variable names and string values are required.')
+    import workload_environment
+    workload_environment.validate_user_values(values)
 
 
 def status(db,project,environment,service_id):
@@ -203,12 +205,15 @@ class Context:
         return result
 
     def verify(self,definition,actual,image_environment):
-        if not definition.get('runtime'):return
+        if not definition.get('runtime') and not definition['artifact'].get('workload'):return
         expected={}
         for entry in image_environment or []:
             if not isinstance(entry,str) or '=' not in entry:raise RuntimeError('Image environment is malformed.')
             key,value=entry.split('=',1);expected[key]=value
         expected.update(self.values(definition))
+        if definition['artifact'].get('workload'):
+            from workload_environment import metadata as workload_metadata
+            expected.update(workload_metadata(definition))
         entries=actual.get('Config',{}).get('Env') or []
         observed={}
         for entry in entries:
@@ -269,13 +274,16 @@ class StoppingContext(Context):
         return networks.verify_stopping_attachment(self.db,metadata,docker=docker,authorize=self.authorize)
 
     def verify(self,definition,actual,image_environment):
-        if not definition.get('runtime'):return
+        if not definition.get('runtime') and not definition['artifact'].get('workload'):return
         values,metadata=self._stopping(definition)
         expected={}
         for entry in image_environment or []:
             if not isinstance(entry,str) or '=' not in entry:raise RuntimeError('Image environment is malformed.')
             key,value=entry.split('=',1);expected[key]=value
         expected.update(values)
+        if definition['artifact'].get('workload'):
+            from workload_environment import metadata as workload_metadata
+            expected.update(workload_metadata(definition))
         entries=actual.get('Config',{}).get('Env') or []
         observed={}
         for entry in entries:

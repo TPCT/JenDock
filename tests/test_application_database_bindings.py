@@ -9,6 +9,20 @@ import managed_services
 import registry
 import test_adopted_workloads as fixtures
 
+def managed_definition(service_id,name='web'):
+    # Binding tests do not execute build/provisioning, but retain the same artifact
+    # shape as accepted managed services instead of an impossible artifact-less row.
+    artifact={'id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','digest':'a'*64,
+              'project':'example','source_job':1,'recipe_revision':1,'source_sha':'b'*40,
+              'source_environment':'development','target_fingerprint':'c'*64,
+              'template_id':'application-v1','template_revision':1,'image_name':'example-development',
+              'image':'sha256:'+'d'*64,'command':['app','serve'],'healthcheck':['app','health'],'user':'65534:65534'}
+    return {'service_id':service_id,'project':'example','environment':'development','name':name,
+            'desired_state':'running','artifact':artifact,'artifact_id':artifact['id'],
+            'template_id':'application-v1','template_revision':1,'environment_revision':1,
+            'policy_revision':1,'resources':{'memory_mib':64,'cpu':0.25}}
+
+
 class AttachmentTests(unittest.TestCase):
     def setUp(self):
         self.f=fixtures.AdoptedWorkloadTests();self.f.setUp();self.addCleanup(self.f.doCleanups);self.db=self.f.db
@@ -17,11 +31,18 @@ class AttachmentTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.key=Path(self.temp.name)/'key';self.key.write_bytes(Fernet.generate_key());self.key.chmod(0o600)
         managed_services.initialize(self.db);self.service=str(uuid.uuid4())
-        definition={'service_id':self.service,'project':'example','environment':'development','desired_state':'running'}
+        definition=managed_definition(self.service)
         self.db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)',(self.service,registry.canonical(definition),managed_services.digest(definition),0))
         self.db.execute('INSERT INTO managed_services VALUES(?,?,?,?,?,?,?,?,?)',(self.service,'example','development','web',self.service,'operation','running',0,0))
         self.secret=credentials.save_credential(self.db,self.principal,'example','development',{'username':'app','password':'private/@:value'},expected_revision=0,key_path=self.key)
         self.values={'service_id':self.service,'ownership':{'kind':'adopted-compose','reference':'db','revision':self.f.recipe_id},'engine':'postgresql','database_name':'app','database_port':5432,'secret_id':self.secret['id'],'secret_revision':1,'environment_mapping':{'url':'DATABASE_URL'}}
+    def test_missing_artifact_is_invalid_managed_definition_not_legacy_fallback(self):
+        definition=managed_definition(self.service);definition.pop('artifact')
+        identifier=str(uuid.uuid4())
+        self.db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)',(identifier,registry.canonical(definition),managed_services.digest(definition),0))
+        self.db.execute('UPDATE managed_services SET definition_id=? WHERE id=?',(identifier,self.service))
+        with self.assertRaisesRegex(ValueError,'artifact'):managed_services.get(self.db,self.service)
+
     def save(self,values=None,**kwargs):
         return bindings.save_binding(self.db,self.principal,'example','development',values or self.values,**({'expected_revision':0}|kwargs))
     def pin(self,value):return {'binding_id':value['id'],'revision':value['revision'],'digest':value['definition_digest']}

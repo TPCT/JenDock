@@ -226,3 +226,58 @@ in application-runtime-acceptance-20261011.md. The prior failed run remains an
 unclassified intermittent outcome. Workload queue/scheduler capabilities are the
 next implementation contract in ../specs/workload-roles.md; that document is not
 an implementation claim. The full platform and production acceptance remain open.
+
+## Role foundation and recovery review checkpoint
+
+The next local checkpoint adds schema-3 typed queue/scheduler profiles while
+preserving application artifact versions. Workload metadata is immutable; a
+worker-only capability verifier seam gates role acceptance and delivery. A
+user-declared package name/digest cannot make a role operational. The isolated
+verifier still needs to be wired to the build pipeline and runtime control panels;
+those features remain open. Trusted process metadata is derived from the accepted
+definition and cannot be written through runtime variables. Queue grace is carried
+through Compose and lifecycle commands; real workload-container acceptance remains
+required.
+
+Independent product review found and repaired browser recovery gaps: generic
+container actions now persist a safe original identity before dispatch, creation
+stops if recovery storage fails, and direct container navigation resolves the
+managed environment from server evidence. An explicit conflicting URL environment
+is blocked. The read-only operation lookup checks actor/project/container/action
+and is independent of the 100-record activity window. A second review found the
+state feed bypassed actor filtering; both HTTP state and SSE now expose only the
+session actor's operation records with sanitized messages. Actual authenticated
+HTTP tests prove recovery lookup does not dispatch to the worker and rejects
+missing sessions/incorrect CSRF.
+
+Current checkpoint evidence: 1,233 backend tests passed in 44.028 seconds
+(`/tmp/platform-role-recovery-final-suite.log`), and 113 frontend tests plus Vite
+build passed. Earlier 22 suite errors came from impossible artifact-less managed
+service test fixtures; fixtures now model accepted artifacts, and malformed
+production evidence fails closed with a clear error. Browser recovery acceptance,
+fresh five-image packaging, actual framework instrumentation acceptance and
+production deployment are tracked separately and are not implied by these tests.
+
+Fresh five-image build completed after adding workload_environment.py to the
+Docker context allowlist. A new packaging regression checks every copied Python
+module against that allowlist. All 3 packaging tests pass. Build input hashes
+remained unchanged; network-disabled read-only import checks and source hashes
+matched every packaged Python file (plus migration parser).
+
+- receiver: `sha256:8534f6e0245954f6a235178339df00fa6066a11d87cfec48b89a94aa2eae7780`; 44 files checked.
+- worker: `sha256:0c67efccfa50ee7de0d924ec52f9ebf30d14d6c7d4b9232a7b115e5fc9525c97`; 71 files checked.
+- mcp: `sha256:fe6cb9587a9389e25b7ec4c65ba6c583a0138874b9ad1bb107d6c0ba9caa81c9`; 45 files checked.
+- database: `sha256:4107c8d38e02e61b98a4682a5ed348ebd88e7c616bab63d8d915c7f43b61a660`; 3 files checked.
+- migration: `sha256:11c8ca46e010909fe7020296686ef2adf2d3e358e7b5d3711f580f47dc132987`; 7 files checked.
+
+Three exact superseded, untagged, unused receiver/worker/MCP images were removed
+without force after inspecting container references. Volumes and older helper
+images pinned by acceptance fixtures were retained.
+
+Desktop browser recovery acceptance passed with real authenticated HTTP, Unix
+transport and SQLite, using explicitly synthetic container observations/outcomes:
+original receipt restored after reload, older-than-100 receipt recovered, later
+terminal result displayed without redispatch, missing environment query resolved,
+conflicting environment blocked, platform variables protected. Evidence is under
+/tmp/container-recovery-ui-evidence/. Fixture exit 0 and exact cleanup confirmed.
+This is browser workflow acceptance, not proof of actual Docker mutation.

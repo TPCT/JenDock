@@ -205,3 +205,30 @@ test("creation accepts only the matching durable operation and environment, neve
     false,
   );
 });
+
+test("creation recovery reports storage failures before a request can dispatch", () => {
+  const storage = {
+    setItem() {
+      throw Error("quota exceeded");
+    },
+  };
+  assert.equal(
+    saveServiceDraft(storage, "admin", "app", "development", draft(), null),
+    false,
+  );
+  assert.equal(
+    saveServiceDraft({ setItem() {} }, "", "app", "development", draft(), null),
+    false,
+  );
+  assert.equal(
+    saveServiceDraft(
+      { setItem() {} },
+      "admin",
+      "app",
+      "development",
+      draft(),
+      null,
+    ),
+    true,
+  );
+});

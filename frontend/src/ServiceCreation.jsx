@@ -214,18 +214,25 @@ export default function ServiceCreation({
       setError(failure.message);
       return;
     }
+    if (
+      !saveServiceDraft(
+        creationSessionStorage(),
+        username,
+        project,
+        environment,
+        draft,
+        payload,
+      )
+    ) {
+      setError(
+        "The browser could not retain the creation request. No request was sent. Enable session storage and retry.",
+      );
+      return;
+    }
     lock.current = true;
     setBusy(true);
     setError("");
     setRequest(payload);
-    saveServiceDraft(
-      creationSessionStorage(),
-      username,
-      project,
-      environment,
-      draft,
-      payload,
-    );
     try {
       const result = await apiRef.current("action", payload);
       if (!serviceResultMatches(result, payload))
@@ -320,7 +327,11 @@ export default function ServiceCreation({
         direction="row"
         justifyContent="space-between"
         alignItems="center"
-        sx={{ mb: "var(--space-group)", gap: "var(--space-group)", flexWrap: "wrap" }}
+        sx={{
+          mb: "var(--space-group)",
+          gap: "var(--space-group)",
+          flexWrap: "wrap",
+        }}
       >
         <Typography variant="h6">{label} containers</Typography>
         <Button

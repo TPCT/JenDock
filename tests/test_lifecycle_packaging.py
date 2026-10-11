@@ -22,6 +22,19 @@ def copied_files(stage):
 
 
 class LifecyclePackagingTests(unittest.TestCase):
+    def test_every_copied_python_module_is_in_build_context(self):
+        patterns=(ROOT/'.dockerignore').read_text().splitlines()
+        for name in set(copied_files('receiver')+copied_files('worker')):
+            with self.subTest(module=name):
+                self.assertTrue((ROOT/name).is_file())
+                ignored=False
+                for line in patterns:
+                    pattern=line.strip()
+                    if not pattern or pattern.startswith('#'):continue
+                    include=pattern.startswith('!');pattern=pattern.removeprefix('!')
+                    if fnmatch.fnmatchcase(name,pattern):ignored=not include
+                self.assertFalse(ignored,'Copied module is excluded from Docker context')
+
     def test_lifecycle_in_receiver_worker_and_mcp_inherits_receiver(self):
         for stage in ('receiver','worker'):
             self.assertIn('managed_lifecycle.py',copied_files(stage),stage)

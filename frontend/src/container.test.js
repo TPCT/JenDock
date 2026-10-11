@@ -198,10 +198,130 @@ test("terminal polling preserves Unicode characters across the input boundary", 
   );
 });
 
-test('application attachment apply sends exact pin and empty generic changes with stable retry identity', () => {
- const op={kind:'environment-save',containerId:'original',revision:'original-revision',requestId:'original-request',changes:{},databaseAttachment:{binding_id:'saved-binding',revision:3,digest:'saved-digest'}};
- const payload=containerOperationBody(op,'example','web');
- assert.deepEqual(payload.database_attachment,op.databaseAttachment);
- assert.deepEqual(payload.changes,{});
- assert.deepEqual(containerOperationBody({...op,submitted:true},'example','web'),payload);
+test("application attachment apply sends exact pin and empty generic changes with stable retry identity", () => {
+  const op = {
+    kind: "environment-save",
+    containerId: "original",
+    revision: "original-revision",
+    requestId: "original-request",
+    changes: {},
+    databaseAttachment: {
+      binding_id: "saved-binding",
+      revision: 3,
+      digest: "saved-digest",
+    },
+  };
+  const payload = containerOperationBody(op, "example", "web");
+  assert.deepEqual(payload.database_attachment, op.databaseAttachment);
+  assert.deepEqual(payload.changes, {});
+  assert.deepEqual(
+    containerOperationBody({ ...op, submitted: true }, "example", "web"),
+    payload,
+  );
+});
+
+test("runtime recovery persists exact identity without environment secrets or a replay body", () => {
+  const {
+    persistContainerOperation,
+    savedContainerOperation,
+    containerOperationRecord,
+  } = module.exports;
+  let raw;
+  const op = {
+    kind: "environment-save",
+    requestId: "request-original",
+    containerId: "container-old",
+    revision: "revision-old",
+    changes: { PASSWORD: "secret" },
+    databaseAttachment: { binding_id: "b", revision: 1, digest: "d" },
+  };
+  persistContainerOperation(
+    { setItem: (_, value) => (raw = value) },
+    "key",
+    op,
+    "app",
+    "web",
+  );
+  assert.ok(!raw.includes("secret"));
+  assert.ok(!raw.includes("PASSWORD"));
+  const restored = savedContainerOperation(raw, "app", "web");
+  assert.equal(restored.containerId, "container-old");
+  assert.equal(restored.revision, "revision-old");
+  assert.equal(restored.requestId, "request-original");
+  assert.equal(restored.changes, undefined);
+  assert.equal(restored.submitted, true);
+  assert.equal(savedContainerOperation(raw, "other", "web"), null);
+  assert.equal(
+    containerOperationRecord(
+      [
+        {
+          request_id: "request-original",
+          project: "app",
+          container: "web",
+          operation: "container-start",
+        },
+      ],
+      restored,
+      "app",
+      "web",
+    ),
+    null,
+  );
+  assert.throws(
+    () =>
+      persistContainerOperation(
+        {
+          setItem: () => {
+            throw Error("full");
+          },
+        },
+        "key",
+        op,
+        "app",
+        "web",
+      ),
+    /full/,
+  );
+});
+test("container scope resolves authoritative environment and surfaces explicit mismatch", () => {
+  const { containerEnvironment, managedVariableLabel } = module.exports;
+  assert.deepEqual(containerEnvironment(null, "production"), {
+    environment: "production",
+    mismatch: false,
+  });
+  assert.deepEqual(containerEnvironment("development", "production"), {
+    environment: "production",
+    mismatch: true,
+  });
+  assert.equal(containerEnvironment("staging", "production").mismatch, true);
+  assert.equal(
+    managedVariableLabel(
+      { platform_managed_variables: ["WORKLOAD_ROLE"] },
+      "WORKLOAD_ROLE",
+    ),
+    "Managed by workload definition",
+  );
+});
+
+test("newer realtime receipt supersedes earlier explicit recovery lookup", () => {
+  const { containerOperationRecord } = module.exports;
+  const op = { kind: "stop", requestId: "request" };
+  const base = {
+    request_id: "request",
+    project: "app",
+    container: "web",
+    operation: "container-stop",
+  };
+  assert.equal(
+    containerOperationRecord(
+      [
+        { ...base, status: "applying", updated: 1 },
+        { ...base, status: "succeeded", updated: 2 },
+      ],
+      op,
+      "app",
+      "web",
+    ).status,
+    "succeeded",
+  );
 });

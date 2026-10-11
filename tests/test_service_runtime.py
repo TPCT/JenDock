@@ -45,6 +45,12 @@ class ServiceRuntimeTests(unittest.TestCase):
         ref=self.save()
         with self.assertRaises(ValueError):self.resolve({**ref,'digest':'0'*64})
         with self.assertRaises(ValueError):self.resolve({**ref,'revision':True})
+    def test_platform_identity_cannot_be_written_to_runtime_vault(self):
+        for key in ('DEPLOY_MONITOR_PROJECT','DEPLOY_MONITOR_WORKLOAD','DEPLOY_MONITOR_FUTURE'):
+            with self.subTest(key=key),self.assertRaisesRegex(ValueError,'workload definition'):
+                self.save({key:'spoofed'})
+        runtime.initialize(self.db)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM service_runtime_revisions').fetchone()[0],0)
     def test_manifest_placeholders_contain_no_values_and_are_service_specific(self):
         ref=self.save()
         manifest,private=runtime.compose_environment(self.db,*self.scope,ref,key_path=self.key,authorize=lambda:None)

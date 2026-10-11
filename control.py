@@ -216,6 +216,8 @@ def target_configuration(container,files,args):
 def save_managed_environment(db,body,container,service):
     import service_runtime
     import service_runtime_operations
+    import workload_environment
+    workload_environment.validate_user_values(body['changes'])
     p,e=service['project'],service['environment']
     def authorize():
         if p not in effective_projects(db,CONFIG):raise ControlError('Project authority is unavailable.')
@@ -230,7 +232,7 @@ def save_managed_environment(db,body,container,service):
         reserved=application_database_bindings.recorded_environment_keys(db,p,e,service['id'],pin)
         if set(body['changes']) & set(reserved):
             raise ControlError('Database-managed variables must be edited through Application database settings.')
-    values=effective_environment(container);values.update(body['changes'])
+    values=workload_environment.user_values(effective_environment(container));values.update(body['changes'])
     service_runtime_operations.accept(db,body['request_id'],service['id'],values,
         expected_container_id=container['Id'],key_path=key_path,authorize=authorize,request=body,
         **({'database_attachment':body['database_attachment']} if 'database_attachment' in body else {}))
@@ -250,12 +252,13 @@ def managed_lifecycle_action(db,body,container,service):
 
 def save_managed_resources(db,body,container,service,limits,transition):
     import service_runtime_operations
+    import workload_environment
     p,e=service['project'],service['environment']
     def authorize():
         if p not in effective_projects(db,CONFIG):raise ControlError('Project authority is unavailable.')
         current=__import__('managed_services').get(db,service['id'])
         if current['project']!=p or current['environment']!=e:raise ControlError('Service authority changed.')
-    service_runtime_operations.accept(db,body['request_id'],service['id'],effective_environment(container),
+    service_runtime_operations.accept(db,body['request_id'],service['id'],workload_environment.user_values(effective_environment(container)),
         expected_container_id=container['Id'],key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE',''),
         authorize=authorize,resources=limits,resource_transition=transition)
     return service_runtime_operations.apply(db,body['request_id'],docker=DOCKER,compose=COMPOSE,authorize=authorize)
@@ -283,7 +286,9 @@ def details(project, name, _with_identity=False):
         if managed:
             import service_runtime
             result['managed_service_id']=managed['id']
+            result['managed_environment']=managed['environment']
             result['runtime']=service_runtime.status(metadata_db,project,managed['environment'],managed['id'])
+            result['runtime']['platform_managed_variables']=sorted(key for key in env if __import__('workload_environment').reserved(key))
             pin=(managed['definition'].get('runtime') or {}).get('database_attachment')
             result['runtime']['database_attachment']=copy.deepcopy(pin)
             result['runtime']['database_managed_variables']=[]
