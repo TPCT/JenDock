@@ -1,0 +1,39 @@
+{
+  "source_commit": "1715609",
+  "backend_tests": 1330,
+  "frontend_tests": 119,
+  "images": {
+    "receiver": {
+      "image": "sha256:8dcbcc18d10412ccaf62742359e65c64db4b58a48984d0bfc9c14bfe25487263",
+      "source_files_verified": 45,
+      "imports": 45,
+      "frontend": true
+    },
+    "worker": {
+      "image": "sha256:420b0e2b055f4c24db565680ae582a8e9e6d1a5e12bd5b2ed247feb4efea52ca",
+      "source_files_verified": 79,
+      "imports": 79,
+      "frontend": false
+    },
+    "mcp": {
+      "image": "sha256:83a48e03c4b8c480ad2d8d5b344bdaacd772e1d0c36e583c871c0efb32e90079",
+      "source_files_verified": 46,
+      "imports": 46,
+      "frontend": false
+    },
+    "database": {
+      "image": "sha256:4107c8d38e02e61b98a4682a5ed348ebd88e7c616bab63d8d915c7f43b61a660",
+      "source_files_verified": 3,
+      "imports": 3,
+      "frontend": false
+    },
+    "migration": {
+      "image": "sha256:11c8ca46e010909fe7020296686ef2adf2d3e358e7b5d3711f580f47dc132987",
+      "source_files_verified": 7,
+      "imports": 6,
+      "frontend": false
+    }
+  },
+  "production_deployed": false,
+  "superseded_unreferenced_images_removed": 3
+}
