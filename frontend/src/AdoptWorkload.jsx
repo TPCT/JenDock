@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Dialog,
@@ -11,6 +12,8 @@ import {
   Typography,
 } from "@mui/material";
 import Hint from "./Hint";
+import Field from "./Field";
+import { selectionPayload, reviewedSelection, matchesReview, linkedEnvironment } from "./adoption.js";
 
 export default function AdoptWorkload({
   open,
@@ -22,6 +25,11 @@ export default function AdoptWorkload({
   onDirty,
   onPending,
 }) {
+  const scope = `${project}:${environment}`;
+  const [draft, setDraft] = useState({ scope, recipe_revision: null, services: null });
+  const selection = draft.scope === scope ? draft : { recipe_revision: null, services: null };
+  const selectionKey = JSON.stringify(selectionPayload(selection));
+  const [options, setOptions] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -38,10 +46,22 @@ export default function AdoptWorkload({
     setLoading(true);
     setPreview(null);
     setError("");
-    api("action", { action: "adoption-preview", project, environment })
+    const captured = JSON.parse(selectionKey);
+    api("action", { action: "adoption-options", project, environment })
+      .then((catalog) => {
+        if (!active) return null;
+        if (catalog.project !== project || catalog.environment !== environment || !Array.isArray(catalog.recipes))
+          throw new Error("The registered recipe choices could not be verified.");
+        setOptions(catalog);
+        const chosen = captured.recipe_revision == null ? catalog.default : catalog.recipes.find((item) => item.recipe_revision === captured.recipe_revision);
+        if (!chosen) throw new Error("Select a registered recipe to inspect its existing workload.");
+        if (captured.services && !captured.services.length) throw new Error("Select at least one service to inspect.");
+        return api("action", { action: "adoption-preview", project, environment, ...captured });
+      })
       .then((result) => {
-        if (!active) return;
+        if (!active || !result) return;
         if (
+          !matchesReview(result, project, environment, captured) ||
           result.project !== project ||
           result.environment !== environment ||
           !/^[a-f0-9]{64}$/.test(result.fingerprint || "") ||
@@ -68,11 +88,11 @@ export default function AdoptWorkload({
     return () => {
       active = false;
     };
-  }, [open, project, environment, api, reload]);
+  }, [open, project, environment, api, reload, selectionKey]);
   useEffect(() => {
-    onDirty(uncertain);
+    onDirty(!linked && (uncertain || (draft.scope === scope && (draft.recipe_revision != null || draft.services != null))));
     return () => onDirty(false);
-  }, [uncertain, onDirty]);
+  }, [uncertain, linked, onDirty, draft, scope]);
   useEffect(() => {
     onPending(loading || saving);
     return () => onPending(false);
@@ -87,7 +107,7 @@ export default function AdoptWorkload({
     }
   };
   const save = async () => {
-    if (lock.current || !preview || linked) return;
+    if (lock.current || !preview || linked || !matchesReview(preview, project, environment, selection)) return;
     lock.current = true;
     setSaving(true);
     setError("");
@@ -97,20 +117,21 @@ export default function AdoptWorkload({
         project: preview.project,
         environment: preview.environment,
         fingerprint: preview.fingerprint,
+        ...reviewedSelection(preview),
       });
       if (
-        result.project?.id !== project ||
-        result.project.legacy_binding !== environment
+        !linkedEnvironment(result, project, environment, preview.fingerprint)
       )
         throw new Error(
           "The saved result could not be verified. Check the original request before starting another review.",
         );
       setUncertain(false);
+      setDraft({ scope, recipe_revision: null, services: null });
       setLinked(true);
       linkedRecord.current = result.project;
       await finish();
     } catch (error) {
-      setUncertain(!error.status || error.status >= 500);
+      setUncertain(uncertain || !error.status || error.status >= 500);
       setError(error.message || "The linking result could not be confirmed.");
     } finally {
       lock.current = false;
@@ -138,6 +159,30 @@ export default function AdoptWorkload({
           <Typography fontWeight={600} sx={{ overflowWrap: "anywhere" }}>
             {project} · {title}
           </Typography>
+          {options?.project === project && options?.environment === environment && !linked && (
+            <>
+              <Autocomplete
+                options={[...(options.default ? [options.default] : []), ...options.recipes]}
+                value={(selection.recipe_revision == null ? options.default : options.recipes.find((item) => item.recipe_revision === selection.recipe_revision)) || null}
+                getOptionLabel={(item) => item.recipe_revision == null ? `Default workload · ${item.compose_project}` : `Recipe ${item.recipe_revision} · ${item.compose_project}`}
+                isOptionEqualToValue={(a, b) => a.recipe_revision === b.recipe_revision}
+                disableClearable
+                disabled={loading || saving || uncertain}
+                onChange={(_, value) => { if (value) { setPreview(null); setDraft({ scope, recipe_revision: value.recipe_revision, services: null }); } }}
+                renderInput={(params) => <Field {...params} label="Registered recipe" />}
+              />
+              <Autocomplete
+                multiple
+                options={(selection.recipe_revision == null ? options.default : options.recipes.find((item) => item.recipe_revision === selection.recipe_revision))?.services || []}
+                value={selection.services ?? (selection.recipe_revision == null ? options.default : options.recipes.find((item) => item.recipe_revision === selection.recipe_revision))?.services ?? []}
+                disabled={loading || saving || uncertain}
+                onChange={(_, services) => { setPreview(null); setDraft({ scope, recipe_revision: selection.recipe_revision, services }); }}
+                renderInput={(params) => <Field {...params} label="Services to link" />}
+              />
+              <Hint label="About service selection">Choose only the services owned by this environment. Registered recipes are managed by trusted project configuration. Linking does not create or start containers.</Hint>
+              {!options.default && options.recipes.length === 0 && <Alert severity="info">No eligible registered Compose recipes are available. Register a project recipe before linking existing containers.</Alert>}
+            </>
+          )}
           {loading && (
             <Typography role="status">
               Inspecting existing containers and database identities…

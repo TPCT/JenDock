@@ -59,11 +59,16 @@ rejection, and byte-preserving legacy-schema migration with outer-transaction
 rollback. Existing adoption, retained-owner, candidate and ownership suites remain
 passing. These tests do not establish live Docker or browser acceptance.
 
-The dashboard does not yet expose service or registered-recipe selection. Its
-existing default adoption flow remains functional. The next UI change must carry
-the exact preview selection through confirmation, request replay and reload, and
-provide a real authorized registered-recipe/service catalog. A public recipe
-registration/editor workflow is also not supplied by this migration; an explicit
-revision must already exist through trusted configuration. These are remaining
-product workflows, not permission to invent recipe records or bypass adoption in
-a fixture.
+The dashboard now loads an authenticated `adoption-options` catalog containing
+registered recipe revisions, digests, Compose group names and service names only.
+Executable recipes and host paths stay private. Selection is bound to the preview
+fingerprint and reused for confirmation and in-session uncertain-response replay.
+The success response includes the exact environment and fingerprint receipt; the
+first legacy compatibility anchor is not evidence that a second environment failed.
+The linking action stays available for another unprovisioned environment.
+
+Browser acceptance of these selectors and recovery after a full page reload remain
+unverified. In-memory drafts do not survive a full reload. A public recipe
+registration/editor workflow also remains unimplemented; an explicit revision
+must already exist through trusted configuration. Do not invent recipe records
+or bypass adoption to make a workflow appear complete.

@@ -58,6 +58,44 @@ def _digest(value):
     return hashlib.sha256(registry.canonical(value).encode()).hexdigest()
 
 
+def options(db, project, environment):
+    """Public catalog of registered choices; never return executable recipes or paths."""
+    current = registry.get_project(db, project)
+    target = registry.get_environment(db, project, environment)
+    rows = db.execute('SELECT id,digest,document FROM registry_recipes WHERE project=? ORDER BY id DESC LIMIT 201', (project,)).fetchall()
+    if len(rows) > 200:
+        raise ValueError('Registered recipe catalog exceeds the supported review size.')
+
+    def summary(document, revision, digest):
+        services = document.get('services')
+        group = document.get('compose_project')
+        if not isinstance(group, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}', group):
+            return None
+        if not isinstance(services, list) or not services or len(services) > 100 or any(not isinstance(value, str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}', value) for value in services) or len(set(services)) != len(services):
+            return None
+        return {'recipe_revision': revision, 'digest': digest, 'compose_project': group, 'services': sorted(services)}
+
+    recipes = []
+    for row in rows:
+        try:
+            document = json.loads(row['document'])
+            if not isinstance(document, dict) or _digest(document) != row['digest']:
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise ValueError('Registered recipe integrity could not be verified.') from None
+        item = summary(document, row['id'], row['digest'])
+        if item is not None:
+            recipes.append(item)
+    try:
+        legacy = json.loads(db.execute('SELECT legacy_document FROM registry_projects WHERE id=?', (project,)).fetchone()[0] or '{}')
+        document = legacy.get('recipe')
+        default = summary(document, None, _digest(document)) if isinstance(document, dict) else None
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError('Default registered recipe could not be verified.') from None
+    return {'project': project, 'environment': environment, 'project_revision': current['revision'],
+            'environment_revision': target['revision'], 'default': default, 'recipes': recipes}
+
+
 def collect(docker, command):
     """Bounded read-only inspection. Never emit raw environment or Docker labels."""
     observed = time.time()

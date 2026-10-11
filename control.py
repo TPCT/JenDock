@@ -400,7 +400,7 @@ def execute(body, *, peer_uid=None):
             if db is not None:db.close()
             LOCK.release()
     action=body.get('action');project=body.get('project');name=body.get('container');actor=body.get('actor','admin')
-    if action in ('adoption-preview','adoption-save'):
+    if action in ('adoption-options','adoption-preview','adoption-save'):
         import adoption
         if not LOCK.acquire(blocking=False):raise ControlError('Another deployment or container operation is running. Retry after it completes.')
         db=None
@@ -408,12 +408,14 @@ def execute(body, *, peer_uid=None):
             db=connect(DATABASE)
             effective_projects(db,CONFIG)
             if JOURNAL.exists():raise ControlError('Container recovery is pending. Resolve it before adopting a workload.')
+            if action=='adoption-options':return adoption.options(db,project,body.get('environment'))
             inventory=adoption.collect(DOCKER,command)
             selection={key:body[key] for key in ('services','recipe_revision') if key in body}
             if action=='adoption-preview':return adoption.public(adoption.preview(db,project,body.get('environment'),inventory,resolver=review_compose,**selection))
             result=adoption.adopt(db,project,body.get('environment'),body.get('fingerprint'),inventory,actor,resolver=review_compose,**selection)
             audit(db,actor,action,project,'Existing workload adopted as '+body['environment']+'. No containers or data moved.')
-            return {'project':result,'message':'Existing workload linked to '+body['environment']+'. No containers or data were moved.'}
+            receipt=db.execute('SELECT fingerprint FROM workload_adoptions WHERE project=? AND environment=?',(project,body['environment'])).fetchone()
+            return {'project':result,'receipt':{'project':project,'environment':body['environment'],'fingerprint':receipt['fingerprint']},'message':'Existing workload linked to '+body['environment']+'. No containers or data were moved.'}
         except ValueError as error:raise ControlError(str(error)) from None
         finally:
             if db is not None:db.close()

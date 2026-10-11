@@ -313,7 +313,7 @@ class Application:
                     return 409,{'error':str(error)}
                 except (TypeError,AttributeError):
                     return 409,{'error':'Invalid or stale resource policy. Check allocation totals and reload if another session changed settings.'}
-            if action in ('adoption-preview','adoption-save','container-files-list','container-files-preview','container-logs','container-details','resource-details','resource-apply','container-limits-save','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
+            if action in ('adoption-options','adoption-preview','adoption-save','container-files-list','container-files-preview','container-logs','container-details','resource-details','resource-apply','container-limits-save','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
                 payload=dict(body,actor=session['username'],terminal_owner=session['token'])
                 try:
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
