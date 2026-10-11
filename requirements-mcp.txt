@@ -1,0 +1,3 @@
+# Official MCP SDK: native 2026-07-28 sessionless transport, tested in test_mcp_server.py.
+mcp==2.3.0
+uvicorn==0.41.0

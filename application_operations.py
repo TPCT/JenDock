@@ -67,6 +67,55 @@ def _authorize(principal, scope, project, repository_id=None):
         raise OperationError('forbidden', 'This operation is not permitted for this principal.', 403)
 
 
+def recheck_credential(db, principal):
+    """Fence accepted writes against a credential revoked after authentication."""
+    if principal.credential_id is None:
+        return
+    import mcp_credentials
+    try:
+        current = mcp_credentials.principal_for_credential(db, principal.credential_id)
+    except ValueError:
+        raise OperationError('credential_unavailable', 'Access credential is expired, revoked or unavailable.', 403) from None
+    if current != principal:
+        raise OperationError('credential_changed', 'Access permissions changed. Authenticate again.', 403)
+
+
+def get_project(db, principal, project):
+    _authorize(principal, 'projects:read', project)
+    try:
+        record = registry.get_project(db, project)
+    except ValueError:
+        raise OperationError('project_unavailable', 'Project is unavailable.', 404) from None
+    _authorize(principal, 'projects:read', project, record['repository_id'])
+    result = {key: record[key] for key in ('id', 'revision', 'repository', 'repository_id', 'label')}
+    result['environments'] = {name: {key: value[key] for key in
+        ('name', 'revision', 'branch', 'automatic', 'state', 'recipe_revision')}
+        for name, value in record['environments'].items()
+        if principal.allowed_environments is None or (project, name) in principal.allowed_environments}
+    return result
+
+
+def list_projects(db, principal, *, limit=25, cursor=None):
+    if not isinstance(principal, Principal) or 'projects:read' not in principal.scopes:
+        raise OperationError('forbidden', 'Project access is not permitted.', 403)
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise OperationError('invalid_input', 'Choose a page size between 1 and 100.', 400)
+    if cursor is not None:
+        try: registry.identifier(cursor)
+        except (ValueError, TypeError):
+            raise OperationError('invalid_input', 'Project cursor is invalid.', 400) from None
+    registry.initialize(db)
+    result = []
+    for row in db.execute('SELECT id FROM registry_projects WHERE id>? ORDER BY id', (cursor or '',)):
+        try: value = get_project(db, principal, row['id'])
+        except OperationError as error:
+            if error.status == 403: continue
+            raise
+        result.append(value)
+        if len(result) > limit: break
+    return {'projects': result[:limit], 'next_cursor': result[limit-1]['id'] if len(result) > limit else None}
+
+
 def project_input(project, values, integration_ref='github'):
     if not isinstance(values, dict) or set(values) - {'repository', 'repository_id', 'label'}:
         raise OperationError('invalid_input', 'Only project name and repository identity may be supplied.')
@@ -98,6 +147,7 @@ def create_project(db, principal, input, idempotency_key, key_path, *, get=None)
     if input.repository_id is not None: values['repository_id'] = input.repository_id
     project_input(input.project, values, input.integration_ref)
     _authorize(principal, 'projects:create', input.project, input.repository_id)
+    recheck_credential(db, principal)
     if principal.allowed_repository_ids is not None and input.repository_id is None:
         raise OperationError('forbidden', 'A permitted repository ID is required for this principal.', 403)
     if not isinstance(idempotency_key, str) or not re.fullmatch('[A-Za-z0-9-]{16,100}', idempotency_key):
@@ -127,6 +177,7 @@ def create_project(db, principal, input, idempotency_key, key_path, *, get=None)
         token = None
     _authorize(principal, 'projects:create', input.project, identifier)
     with registry.transaction(db):
+        recheck_credential(db, principal)
         existing = _replay(db, principal, idempotency_key, fingerprint)
         if existing is not None: return existing
         current = db.execute("SELECT revision,enabled FROM integration_connections WHERE provider='github'").fetchone()
@@ -196,8 +247,7 @@ def create_service(db, principal, input, idempotency_key):
     import managed_services as services
     if not isinstance(input, ServiceInput): raise OperationError('invalid_input', 'Typed service input is required.')
     _service_authorize(db, principal, 'services:create', input.project, input.environment)
-    if principal.credential_id is not None:
-        raise OperationError('unsupported_credential', 'Credential-scoped provisioning is not enabled yet.', 403)
+    recheck_credential(db, principal)
     if not isinstance(idempotency_key, str) or not re.fullmatch('[A-Za-z0-9-]{16,80}', idempotency_key):
         raise OperationError('invalid_request_id', 'A stable service creation request ID is required.')
     initialize(db); services.initialize(db)
@@ -209,16 +259,25 @@ def create_service(db, principal, input, idempotency_key):
     scope_key = 'service-create:' + input.project + ':' + input.environment
     fingerprint = services.digest({'project': input.project, 'environment': input.environment, 'values': values})
     with registry.transaction(db):
+        recheck_credential(db, principal)
         record = _service_authorize(db, principal, 'services:create', input.project, input.environment)
         existing = db.execute('SELECT fingerprint,result FROM application_operations WHERE subject=? AND operation=? AND request_key=?',
                               (principal.subject_id, scope_key, idempotency_key)).fetchone()
         if existing:
             if existing['fingerprint'] != fingerprint: raise OperationError('idempotency_conflict', 'This request ID belongs to different service details.')
-            return json.loads(existing['result'])
+            result = json.loads(existing['result'])
+            if principal.credential_id is not None:
+                _service_authorize(db, principal, 'services:create', input.project,
+                                   result['service']['definition']['artifact']['source_environment'])
+            return result
         try:
             definition = services.validate_definition(db, input.project, input.environment, values)
+            if principal.credential_id is not None:
+                _service_authorize(db, principal, 'services:create', input.project, definition['artifact']['source_environment'])
             operation_id = str(uuid.uuid4())
             service = services.accept(db, input.project, input.environment, definition, operation_id)
+        except OperationError:
+            raise
         except ValueError as error:
             raise OperationError('service_unavailable', str(error)) from None
         operation = {'operation_id': operation_id, 'status': 'queued', 'resource_id': service['id'], 'revision': 1,
@@ -280,8 +339,9 @@ def resume_service(db, principal, operation_id):
         _service_authorize(db, principal, 'services:create', definition['project'], definition['environment'])
         if definition['desired_state'] == 'running':
             _service_authorize(db, principal, 'services:start', definition['project'], definition['environment'])
+        recheck_credential(db, principal)
         if principal.credential_id is not None:
-            raise OperationError('unsupported_credential', 'Credential-scoped provisioning is not enabled yet.', 403)
+            _service_authorize(db, principal, 'services:create', definition['project'], definition['artifact']['source_environment'])
         if result['operation']['status'] in ('queued', 'provisioning'): return result
         if result['operation']['status'] != 'recovery-required':
             raise OperationError('not_recoverable', 'Only an operation awaiting recovery can be resumed.')
@@ -289,5 +349,13 @@ def resume_service(db, principal, operation_id):
             services.artifact_for_service(db, definition['project'], definition['artifact_id'])
             services.validate_capacity(db, definition['project'], __import__('resource_policy').read(db, definition['project'])['document'])
         except ValueError as error: raise OperationError('service_unavailable', str(error)) from None
+        if row['credential_id'] != principal.credential_id:
+            # The same owner explicitly resumes under currently verified grants.
+            # Retain both credential identities in audit without retaining secrets.
+            db.execute('INSERT INTO application_operation_events(operation_id,actor,event,created) VALUES(?,?,?,?)',
+                (operation_id, principal.subject_id, 'recovery-authority:' + str(row['credential_id'] or 'console')
+                 + '->' + str(principal.credential_id or 'console'), time.time()))
+            db.execute('UPDATE application_operations SET credential_id=? WHERE id=? AND subject=?',
+                (principal.credential_id, operation_id, principal.subject_id))
         services._update(db, operation_id, 'queued', 'Recovery queued against the original definition and recorded resource journal.')
         return json.loads(db.execute('SELECT result FROM application_operations WHERE id=?', (operation_id,)).fetchone()['result'])

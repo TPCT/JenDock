@@ -68,3 +68,7 @@ Checkpoint 8de260a implements local managed build-to-deploy. Read-only runtime r
 ## Artifact history and shared spacing — 2026-10-11
 
 Added scoped immutable artifact history with stable pagination and explicit integrity failures; recorded service associations are distinguished from live runtime proof. Real local HTTP/SQLite browser pagination and environment separation passed on synthetic test records. Owner's global padding/margin correction is implemented through shared tokens, Empty, forms, dialogs, page gutters, lists and run styles; representative desktop/mobile rendered evidence recorded in `docs/operations/versions-spacing-acceptance-20261011.md`. Whole-product and production acceptance remain open.
+
+## Authenticated MCP checkpoint — 2026-10-11
+
+Official SDK adapter and dashboard credential management implemented; scoped creation reuses durable application operations. Independent reviews fixed forbidden source-artifact replay, blocking async transport and stale console-owner authority. Local Docker SDK read/revoke acceptance and 456 backend/58 frontend tests pass. `docs/operations/mcp-access-acceptance-20261011.md` records exact evidence and remaining work. Next required slice: real worker-backed cross-surface creation, sanitized operation progress/recovery, then deployment packaging/TLS/client acceptance. Do not count preview queue acceptance as container provisioning or mark the full MCP/whole-product items complete.

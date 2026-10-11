@@ -30,19 +30,39 @@ class OperationTests(unittest.TestCase):
                                   kwargs.pop('key', 'create-request-12345'), self.key, get=kwargs.pop('get', self.get), **kwargs)
 
     def test_create_atomic_reopen_replay_cross_adapter_and_no_secret_or_runtime(self):
+        self.input = dataclasses.replace(self.input, repository_id=12)
         result = self.create()
         self.assertEqual(set(result['project']['environments']), {'development', 'production'})
         for environment in result['project']['environments'].values():
             self.assertEqual(environment['state'], 'not-provisioned'); self.assertIsNone(environment['recipe_revision']); self.assertTrue(environment['automatic'])
         self.db.close(); self.db = connect(self.path)
         integrations.disable_connection(self.db, 'github', 1)
-        principal = dataclasses.replace(self.principal, actor_kind='mcp', credential_id='connection-1')
+        import mcp_credentials, time
+        issued = mcp_credentials.create(self.db, self.principal, {
+            'label':'Cross adapter test','scopes':list(self.principal.scopes),
+            'allowed_projects':['new-app'],'allowed_repository_ids':[12],
+            'allowed_environments':[], 'expires_at':time.time()+3600})
+        principal = mcp_credentials.authenticate(self.db, issued['token'])
         self.assertEqual(self.create(principal=principal), result); self.assertEqual(self.get.call_count, 1)
         self.assertEqual(ops.get_operation(self.db, principal, result['operation']['operation_id']), result['operation'])
         self.assertEqual(self.db.execute('SELECT count(*) FROM registry_projects').fetchone()[0], 1)
         self.assertEqual(self.db.execute('SELECT count(*) FROM application_operation_events').fetchone()[0], 1)
         self.assertEqual(self.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 0)
         self.assertNotIn('fixture-secret-token', json.dumps(result))
+
+    def test_revocation_during_repository_verification_prevents_project_insert(self):
+        import mcp_credentials, time
+        issued = mcp_credentials.create(self.db, self.principal, {
+            'label':'Verification race','scopes':list(self.principal.scopes),
+            'allowed_projects':['new-app'],'allowed_repository_ids':[12],
+            'allowed_environments':[], 'expires_at':time.time()+3600})
+        principal = mcp_credentials.authenticate(self.db, issued['token'])
+        def provider(*args):
+            mcp_credentials.revoke(self.db, self.principal, issued['credential']['id'])
+            return {'id':12,'full_name':'TPCT/new-app'}
+        with self.assertRaises(ops.OperationError):
+            self.create(principal=principal,input=dataclasses.replace(self.input,repository_id=12),get=provider)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM registry_projects').fetchone()[0],0)
 
     def test_authorization_scope_target_repository_and_operation_isolation(self):
         result = self.create()

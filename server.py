@@ -102,6 +102,22 @@ class Application:
                 db.execute('DELETE FROM sessions WHERE token=?',(session['token'],))
                 audit(db,session['username'],'logout')
                 return 200, {'ok':True}
+            if action in ('mcp-access-list', 'mcp-access-create', 'mcp-access-revoke'):
+                import application_operations as operations
+                import mcp_credentials
+                owner = operations.Principal(session['username'], 'console', frozenset({
+                    'projects:read', 'projects:create', 'services:read', 'services:create',
+                    'services:start', 'operations:read'}))
+                try:
+                    if action == 'mcp-access-list':
+                        return 200, {'credentials': mcp_credentials.list_credentials(db, owner),
+                                     'endpoint': os.environ.get('MCP_PUBLIC_URL', self.origin + '/_deploy/mcp')}
+                    if action == 'mcp-access-create':
+                        result = mcp_credentials.create(db, owner, body.get('values'))
+                        return 201, result
+                    return 200, {'credential': mcp_credentials.revoke(db, owner, body.get('credential_id'))}
+                except operations.OperationError as error:
+                    return error.status, {'error': str(error), 'code': error.code}
             if action in ('integrations-list','integrations-save','integrations-test','integrations-disable'):
                 import integrations
                 provider=body.get('provider')

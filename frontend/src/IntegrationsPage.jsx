@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import Field from "./Field";
+import McpAccess from "./McpAccess";
 import Hint from "./Hint";
 import { Refresh } from "./icons";
 
@@ -29,6 +30,8 @@ export default function IntegrationsPage({
   setDirty,
   setOperationPending,
 }) {
+  const [mcpDirty, setMcpDirty] = useState(false);
+  const [mcpPending, setMcpPending] = useState(false);
   const [connections, setConnections] = useState(null);
   const [drafts, setDrafts] = useState(emptyDrafts);
   const [selected, setSelected] = useState(null);
@@ -74,13 +77,13 @@ export default function IntegrationsPage({
     };
   }, [reload]);
   useEffect(() => {
-    setDirty(dirty);
+    setDirty(dirty || mcpDirty);
     return () => setDirty(false);
-  }, [dirty, setDirty]);
+  }, [dirty, mcpDirty, setDirty]);
   useEffect(() => {
-    setOperationPending(!!busy);
+    setOperationPending(!!busy || mcpPending);
     return () => setOperationPending(false);
-  }, [busy, setOperationPending]);
+  }, [busy, mcpPending, setOperationPending]);
   const act = async (key, callback) => {
     if (lock.current) return;
     lock.current = true;
@@ -332,6 +335,7 @@ export default function IntegrationsPage({
           </Box>
         );
       })}
+      <McpAccess api={api} onDirty={setMcpDirty} onPending={setMcpPending} />
       <Dialog
         open={!!selected}
         onClose={() => !busy && setSelected(null)}

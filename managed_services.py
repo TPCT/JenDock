@@ -361,12 +361,20 @@ def authorize_claim(db, operation_id, worker):
     lease = db.execute('SELECT * FROM service_operation_leases WHERE operation_id=?', (operation_id,)).fetchone()
     if lease is None or lease['worker'] != worker or lease['expires'] < time.time():
         raise ValueError('Service provisioning lease is unavailable or expired.')
-    if row['credential_id'] is not None:
-        raise ValueError('Credential-scoped provisioning requires an implemented revocation verifier.')
     service_id = json.loads(row['result'])['operation']['resource_id']
     service = get(db, service_id)
     if service['state'] != 'provisioning': raise ValueError('Service operation is not provisioning.')
     definition = service['definition']
+    if row['credential_id'] is not None:
+        import mcp_credentials
+        import application_operations as operations
+        principal = mcp_credentials.principal_for_credential(db, row['credential_id'])
+        if principal.subject_id != row['subject']:
+            raise ValueError('Service operation owner no longer matches the credential.')
+        operations._service_authorize(db, principal, 'services:create', definition['project'], definition['environment'])
+        operations._service_authorize(db, principal, 'services:create', definition['project'], definition['artifact']['source_environment'])
+        if definition['desired_state'] == 'running':
+            operations._service_authorize(db, principal, 'services:start', definition['project'], definition['environment'])
     ensure_environment_eligible(db, definition['project'], definition['environment'])
     artifact = artifact_for_service(db, row['project'], definition['artifact_id'])
     if artifact != definition['artifact']: raise ValueError('Pinned service artifact changed.')

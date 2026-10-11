@@ -12,6 +12,7 @@ services:
     environment:
       PUBLIC_ORIGIN: https://monitoring.shiftcodes.net
       PROJECTS_FILE: /policy/projects.json
+      CREDENTIALS_FILE: /config/credentials.json
     volumes:
       - ./policy:/policy:ro
       - ./credentials.json:/config/credentials.json:ro
@@ -39,10 +40,12 @@ services:
     environment:
       DOCKER_HOST: unix:///run/docker-isolation.sock
       PROJECTS_FILE: /policy/projects.json
+      CREDENTIALS_FILE: /config/credentials.json
       GIT_SSH_COMMAND: ssh -i /credentials/id_rsa -o Hostname=ssh.github.com -p 443 -o HostKeyAlias=github.com -o ConnectTimeout=10 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/credentials/known_hosts
     volumes:
       - ./policy:/policy:ro
       - ./git-credentials:/credentials:ro
+      - ./credentials.json:/config/credentials.json:ro
       - /opt/docker-engine/29.8.2/docker/docker:/usr/local/bin/docker:ro
       - /opt/docker-engine/tools/docker-compose:/usr/local/bin/docker-compose:ro
       - /run/docker-isolation.sock:/run/docker-isolation.sock

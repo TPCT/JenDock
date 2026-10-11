@@ -38,3 +38,6 @@ frontend/dist
 
 !managed_delivery.py
 !managed_rollout.py
+!mcp_credentials.py
+!mcp_server.py
+!requirements-mcp.txt
