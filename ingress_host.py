@@ -40,11 +40,13 @@ class HostAdapter:
     Static route grants are bootstrap capabilities, not the final domain UX;
     their dynamic issuer must verify gateway and reserved-port ownership.
     """
-    def __init__(self, policy_path, executor, *, owner_uid=0, authorize_route=None):
+    def __init__(self, policy_path, executor, *, owner_uid=0, authorize_route=None, challenge_root=None):
         self.policy_path = Path(policy_path)
         self.executor = executor
         self.owner_uid = owner_uid
         self.authorize_route = authorize_route
+        self.challenge_root = Path(challenge_root) if challenge_root is not None else None
+        self.related_configs = None
 
     def _authorize_route(self, route, grant):
         # Called only under the host lock; the trusted issuer revalidates authority.
@@ -164,7 +166,10 @@ class HostAdapter:
         self._write(path, json.dumps(s, sort_keys=True))
 
     def _collision(self, hostname, own, *, owned=False):
+        related = self.related_configs(own) if callable(self.related_configs) else set()
         for vhost in self.executor.inventory():
+            if vhost['path'] in related:
+                continue
             if owned and vhost['path'] == str(own):
                 continue
             for name in vhost['names']:
@@ -174,6 +179,21 @@ class HostAdapter:
     def _config(self, g, listener):
         h, port = g['hostname'], g['port']
         token = _digest(json.dumps({'grant':g, 'listener':listener}, sort_keys=True))
+        challenge = ''
+        if self.challenge_root is not None:
+            self._safe(self.challenge_root, directory=True)
+            if any(c in str(self.challenge_root) for c in '\r\n"\\'):
+                raise ValueError('Unsafe challenge root')
+            challenge = f'''    ProxyPass /.well-known/acme-challenge/ !
+    Alias /.well-known/acme-challenge/ "{self.challenge_root}/.well-known/acme-challenge/"
+    <Directory "{self.challenge_root}/.well-known/acme-challenge">
+        Options None
+        AllowOverride None
+        Require all granted
+        ForceType text/plain
+        SetHandler none
+    </Directory>
+'''
         return f'''# deploy-monitor managed HTTP route
 <VirtualHost {listener['address']}:{listener['port']}>
     ServerName {h}
@@ -186,7 +206,7 @@ class HostAdapter:
     RequestHeader unset X-Forwarded-Host
     RequestHeader unset X-Forwarded-Proto
     RequestHeader set X-Forwarded-Proto "http"
-    ProxyPass / http://127.0.0.1:{port}/ connectiontimeout=5 timeout=30
+{challenge}    ProxyPass / http://127.0.0.1:{port}/ connectiontimeout=5 timeout=30
     ProxyPassReverse / http://127.0.0.1:{port}/
 </VirtualHost>
 '''

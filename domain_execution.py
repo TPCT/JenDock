@@ -13,8 +13,8 @@ import application_operations as ops
 import cloudflare_dns
 import registry
 
-PHASES=('dns-preview','gateway','grant','stage','activate','dns','awaiting-tls')
-STATES=('queued','running','failed','reconciliation-required','awaiting-adoption','awaiting-tls')
+PHASES=('dns-preview','gateway','grant','stage','activate','dns','awaiting-tls','certificate','stage-tls','activate-tls','origin-verified')
+STATES=('queued','running','failed','reconciliation-required','awaiting-adoption','awaiting-tls','awaiting-external')
 
 @dataclass(frozen=True)
 class Claim:
@@ -147,7 +147,7 @@ def resume(db,principal,project,environment,operation_id):
     with registry.transaction(db):
         operation,_=_resume_authority(db,principal,project,environment,operation_id,'domains:create')
         row=_row(db,operation_id)
-        if row['state'] not in ('failed','reconciliation-required'):raise ValueError('Domain operation is not awaiting recovery.')
+        if row['state'] not in ('failed','reconciliation-required','awaiting-tls'):raise ValueError('Domain operation is not awaiting recovery.')
         journal=json.loads(row['journal']);journal['recovery_requested']=True
         db.execute('INSERT INTO domain_execution_events(operation_id,event,subject,previous_credential_id,credential_id,created) VALUES(?,?,?,?,?,?)',(operation_id,'resume',principal.subject_id,operation['credential_id'],principal.credential_id,time.time()))
         # Same owner may explicitly replace revoked execution authority; no old grant is reused.
@@ -169,6 +169,18 @@ def approve_adoption(db,principal,project,environment,operation_id,record_id,pre
     return public_status(db,operation_id)
 
 
+def _certificate_evidence(value,route,operation,hostname):
+    if (not isinstance(value,dict) or value.get('route_id')!=route or value.get('operation_id')!=operation or value.get('status')!='verified'
+            or value.get('sans')!=[hostname] or any(not re.fullmatch('[a-f0-9]{64}',str(value.get(k,''))) for k in ('generation','fingerprint'))
+            or type(value.get('not_after')) not in (int,float) or not value['not_after']>time.time()):raise ValueError('Verified current certificate identity is required.')
+
+
+def _tls_evidence(value,route,operation,certificate,statuses):
+    if (not isinstance(value,dict) or value.get('route_id')!=route or value.get('operation_id')!=operation or value.get('status') not in statuses
+            or value.get('generation')!=certificate['generation'] or value.get('fingerprint')!=certificate['fingerprint']
+            or not re.fullmatch('[a-f0-9]{64}',str(value.get('digest','')))):raise ValueError('Verified TLS transition identity is required.')
+
+
 def public_status(db,operation_id):
     row=_row(db,operation_id);operation=_operation(db,operation_id);_,definition=_definition(db,operation);journal=json.loads(row['journal'])
     dns=journal.get('dns_verified');origin=journal.get('http_verified')
@@ -184,11 +196,23 @@ def public_status(db,operation_id):
         stage=journal.get('stage')
         if not isinstance(origin,dict) or set(origin)!={'digest','observed'} or not re.fullmatch('[a-f0-9]{64}',str(origin['digest'])) or not timestamp(origin['observed']) or not isinstance(stage,dict) or stage.get('digest')!=origin['digest'] or stage.get('route_id')!=operation['route_id'] or stage.get('operation_id')!=operation_id:raise ValueError('Recorded HTTP verification is invalid.')
         origin_evidence={'status':'http-verified','evidence':'recorded','observed_at':origin['observed'],'live_checked':False}
+    tls_evidence={'status':'unverified','evidence':'none','observed_at':None,'live_checked':False}
+    tls=journal.get('tls_verified')
+    if tls is not None:
+        cert=journal.get('certificate');stage=journal.get('tls_stage')
+        if (not isinstance(tls,dict) or set(tls)!={'digest','generation','fingerprint','not_after','observed'} or not timestamp(tls['observed'])
+                or not isinstance(cert,dict) or not isinstance(stage,dict)
+                or any(tls[k]!=cert.get(k) for k in ('generation','fingerprint','not_after')) or tls['digest']!=stage.get('digest')
+                or type(tls['not_after']) not in (int,float)
+                or cert.get('route_id')!=operation['route_id'] or cert.get('operation_id')!=operation_id or cert.get('sans')!=[definition['hostname']]
+                or any(not re.fullmatch('[a-f0-9]{64}',str(tls[k])) for k in ('generation','fingerprint','digest'))):raise ValueError('Recorded TLS verification is invalid.')
+        _tls_evidence(stage,operation['route_id'],operation_id,cert,('staged','active'))
+        tls_evidence={'status':'origin-verified' if tls['not_after']>time.time() else 'expired','evidence':'recorded','observed_at':tls['observed'],'live_checked':False,'fingerprint':tls['fingerprint'],'not_after':tls['not_after']}
     return {'id':operation_id,'route_id':operation['route_id'],'project':definition['project'],'environment':definition['environment'],
             'status':row['state'],'phase':row['phase'],'updated_at':row['updated'],'error_code':row['error_code'],
             'dns':dns_evidence,'origin':origin_evidence,
-            'tls':{'status':'unverified','evidence':'none'},'ready':False,**ingress.executor_status(db),
-            'next_action':{'awaiting-adoption':'review-dns-adoption','reconciliation-required':'resume','failed':'review-and-resume','awaiting-tls':'configure-tls'}.get(row['state']),
+            'tls':tls_evidence,'ready':False,**ingress.executor_status(db),
+            'next_action':{'awaiting-adoption':'review-dns-adoption','reconciliation-required':'resume','failed':'review-and-resume','awaiting-tls':'resume','awaiting-external':'verify-external'}.get(row['state']),
             'adoption_preview':journal.get('dns_preview') if row['state']=='awaiting-adoption' else None}
 
 
@@ -202,7 +226,7 @@ def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=N
     claim=claim_next(db,worker_id,lease_seconds)
     if claim is None:return False
     journal=json.loads(_row(db,claim.operation_id)['journal']);phase=_row(db,claim.operation_id)['phase']
-    def authorize(action='write'):return renew_claim(db,claim,lease_seconds=lease_seconds,resolve_principal=resolve_principal,action=action)
+    def authorize(action='write'):return renew_claim(db,claim,lease_seconds=max(lease_seconds,900) if phase=='certificate' else lease_seconds,resolve_principal=resolve_principal,action=action)
     try:
         definition=authorize();operation=_operation(db,claim.operation_id);route_id=operation['route_id']
         reconcile=bool(journal.get('pending_effect'))
@@ -211,7 +235,18 @@ def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=N
             journal['dns_preview']=evidence
             _commit(db,claim,journal,phase='gateway' if not evidence['adoption_required'] else phase,state='queued' if not evidence['adoption_required'] else 'awaiting-adoption',resolve_principal=resolve_principal)
             return True
-        if phase=='awaiting-tls':raise ValueError('TLS provisioning is not implemented.')
+        if phase=='awaiting-tls':
+            capabilities=host_client.call('capabilities',{})
+            if not isinstance(capabilities,dict) or capabilities.get('schema')!=1 or capabilities.get('http') is not True or type(capabilities.get('tls')) is not bool:raise ValueError('Host capabilities are invalid.')
+            _commit(db,claim,journal,phase='certificate' if capabilities['tls'] else 'awaiting-tls',state='queued' if capabilities['tls'] else 'awaiting-tls',resolve_principal=resolve_principal)
+            return True
+        if phase=='certificate':
+            # Existing exact intent is mandatory: replay performs provider reads only.
+            if not db.execute('SELECT 1 FROM ingress_dns_intents WHERE operation_id=? AND route_id=?',(claim.operation_id,route_id)).fetchone() or not db.execute('SELECT 1 FROM ingress_dns_ownership WHERE operation_id=? AND route_id=?',(claim.operation_id,route_id)).fetchone():raise ValueError('Owned DNS evidence is required before issuance.')
+            adoption=journal.get('adoption') or {}
+            fresh=cloudflare_dns.apply(db,route_id,claim.operation_id,key_path,preview_digest=journal['dns_preview']['preview_digest'],adopt_record_id=adoption.get('record_id'),transport=provider_transport,authorize=authorize)
+            if fresh.get('dns')!='verified' or fresh.get('record_id')!=journal['dns_verified']['record_id']:raise ValueError('Owned DNS changed before issuance.')
+            journal['dns_verified']['observed']=time.time()
         if phase=='dns':
             # Recheck fresh host/gateway identity immediately before DNS publication.
             verified=host_client.call('verify',{'route_id':route_id})
@@ -249,9 +284,42 @@ def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=N
             result=cloudflare_dns.apply(db,route_id,claim.operation_id,key_path,preview_digest=journal['dns_preview']['preview_digest'],adopt_record_id=adoption.get('record_id'),transport=provider_transport,authorize=authorize)
             if result.get('dns')!='verified' or result.get('route_id')!=route_id:raise ValueError('DNS ownership is unverified.')
             journal['dns_verified']={'record_id':result['record_id'],'observed':time.time()}
+        elif phase=='certificate':
+            result=host_client.call('request_certificate',{'route_id':route_id,'operation_id':claim.operation_id})
+            _certificate_evidence(result,route_id,claim.operation_id,definition['hostname'])
+            journal['certificate']=result
+        elif phase=='stage-tls':
+            cert=journal['certificate'];_certificate_evidence(cert,route_id,claim.operation_id,definition['hostname'])
+            result=host_client.call('stage_tls',{'route_id':route_id,'operation_id':claim.operation_id,'expected_digest':None,'generation':cert['generation'],'fingerprint':cert['fingerprint']})
+            _tls_evidence(result,route_id,claim.operation_id,cert,('staged','active'))
+            journal['tls_stage']=result
+        elif phase=='activate-tls':
+            identity={'route_id':route_id,'operation_id':claim.operation_id};cert=journal['certificate'];stage=journal['tls_stage']
+            if reconcile:
+                observed=host_client.call('inspect_tls',identity)
+                _tls_evidence(observed,route_id,claim.operation_id,cert,('staged','active','reload-intent','installing','restoring-file'))
+                if observed['digest']!=stage['digest']:raise ValueError('TLS recovery configuration changed.')
+                if observed['status'] not in ('staged','active'):
+                    observed=host_client.call('recover_tls',identity)
+                    _tls_evidence(observed,route_id,claim.operation_id,cert,('staged','active'))
+                    if observed['digest']!=stage['digest']:raise ValueError('TLS recovered configuration changed.')
+                if observed['status']=='staged':host_client.call('activate_tls',dict(identity,digest=stage['digest']))
+            else:host_client.call('activate_tls',dict(identity,digest=stage['digest']))
+            verified=host_client.call('verify_tls',identity)
+            _tls_evidence(verified,route_id,claim.operation_id,cert,('active',))
+            if verified['digest']!=stage['digest']:raise ValueError('TLS served configuration changed.')
+            journal['tls_verified']={'digest':verified['digest'],'generation':cert['generation'],'fingerprint':cert['fingerprint'],'not_after':cert['not_after'],'observed':time.time()}
+        elif phase=='origin-verified':
+            journal.pop('pending_effect',None);journal.pop('recovery_requested',None)
+            _commit(db,claim,journal,state='awaiting-external',resolve_principal=resolve_principal)
+            return True
         else:raise ValueError('Domain phase is unavailable.')
         journal.pop('pending_effect',None);journal.pop('recovery_requested',None)
         next_phase=PHASES[PHASES.index(phase)+1]
+        if phase=='dns':
+            capabilities=host_client.call('capabilities',{})
+            if not isinstance(capabilities,dict) or capabilities.get('schema')!=1 or capabilities.get('http') is not True or type(capabilities.get('tls')) is not bool:raise ValueError('Host capabilities are invalid.')
+            if capabilities['tls']:next_phase='certificate'
         _commit(db,claim,journal,phase=next_phase,state='awaiting-tls' if next_phase=='awaiting-tls' else 'queued',resolve_principal=resolve_principal)
     except Exception:
         # Retain the pre-effect intent even if the response or commit was lost.

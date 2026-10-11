@@ -24,6 +24,7 @@ class DomainExecutionTests(unittest.TestCase):
     def call(self,method,request):
         self.assertFalse(self.db.in_transaction);self.calls.append((method,request))
         base={'route_id':self.fixture.route,'operation_id':self.operation,'digest':'f'*64}
+        if method=='capabilities':return {'schema':1,'http':True,'tls':False}
         if method=='issue_grant':return dict(base,status='granted')
         if method=='stage_http':self.staged=True;return dict(base,status='staged')
         if method=='activate_http':

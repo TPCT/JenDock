@@ -6,7 +6,7 @@ SQLite connection and must be invoked on that connection's owning thread.
 
 
 class HostService:
-    def __init__(self, adapter, issuer, *, available_ports=None):
+    def __init__(self, adapter, issuer, *, available_ports=None, tls=None):
         if issuer.adapter is not adapter:
             raise ValueError('Host issuer and service must share the same adapter')
         callback = issuer.authorize_route
@@ -19,6 +19,17 @@ class HostService:
         self.adapter = adapter
         self.issuer = issuer
         self.adapter.authorize_route = callback
+        self.tls = tls
+        self._tls_capability = tls
+        self._certificate_manager = getattr(tls, "certificates", None)
+        self._related_configs_callback = getattr(adapter, "related_configs", None)
+        self._certificate_callback = None
+        if tls is not None:
+            if tls.http is not adapter or not callable(issuer.authorize_certificate):
+                raise ValueError('TLS capability must share the authorized HTTP adapter')
+            self._certificate_callback = issuer.authorize_certificate
+            tls.authorize_certificate = self._certificate_callback
+
 
     def _check_authorization(self):
         # Compare the exact installed object, never user-defined equality or a
@@ -57,3 +68,27 @@ class HostService:
         if self._available_ports is None:
             raise ValueError('Host port observation is not configured')
         return self._available_ports()
+
+    def capabilities(self, request):
+        self._check_authorization()
+        if not isinstance(request, dict) or request:
+            raise ValueError('Host capability discovery accepts no arguments')
+        if self.tls is not None: self._tls()
+        return {'schema': 1, 'http': True, 'tls': self.tls is not None}
+
+    def _tls(self):
+        self._check_authorization()
+        if (self.tls is None or self.tls is not self._tls_capability
+                or self.tls.http is not self.adapter
+                or getattr(self.tls, 'certificates', None) is not self._certificate_manager
+                or self.adapter.related_configs is not self._related_configs_callback
+                or self.tls.authorize_certificate is not self._certificate_callback):
+            raise ValueError('TLS capability is not configured or changed')
+        return self.tls
+
+    def request_certificate(self, request): return self._tls().request_certificate(request)
+    def stage_tls(self, request): return self._tls().stage_tls(request)
+    def activate_tls(self, request): return self._tls().activate_tls(request)
+    def inspect_tls(self, request): return self._tls().inspect_tls(request)
+    def verify_tls(self, request): return self._tls().verify_tls(request)
+    def recover_tls(self, request): return self._tls().recover_tls(request)

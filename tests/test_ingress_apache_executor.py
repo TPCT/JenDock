@@ -179,3 +179,142 @@ Group: name="www-data" id=33
                 part.write_text(body);part.chmod(0o600)
                 site.write_text('<VirtualHost *:80>\nServerName app.test\nInclude part.conf\nInclude part.conf\n</VirtualHost>\n');site.chmod(0o600)
                 with self.assertRaises(ValueError):e._aliases(str(site),1,'app.test')
+
+    def tls_executor(self, reply, *, trusted=True, hostname='app.example.test'):
+        import datetime
+        import hashlib
+        import os
+        from pathlib import Path
+        import socket
+        import ssl
+        import tempfile
+        import threading
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+        from ingress_apache_executor import ApacheExecutor
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup);root=Path(temporary.name)
+        key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+        name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,hostname)])
+        now=datetime.datetime.now(datetime.timezone.utc)
+        cert=(x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number())
+              .not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(hours=1))
+              .add_extension(x509.SubjectAlternativeName([x509.DNSName(hostname)]),critical=False)
+              .add_extension(x509.BasicConstraints(ca=True,path_length=None),critical=True).sign(key,hashes.SHA256()))
+        certificate=root/'ca.pem';certificate.write_bytes(cert.public_bytes(serialization.Encoding.PEM));certificate.chmod(0o600)
+        private=root/'key.pem';private.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()));private.chmod(0o600)
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(certificate,private)
+        sni=[];context.set_servername_callback(lambda connection,name,ctx:sni.append(name))
+        listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen();listener.settimeout(2)
+        e=object.__new__(ApacheExecutor);e.owner_uid=os.getuid();e.timeout=.5
+        e._configure_tls(listener.getsockname(),certificate if trusted else None)
+        requests=[]
+        def serve():
+            try:
+                connection,_=listener.accept()
+                with connection:
+                    try:
+                        with context.wrap_socket(connection,server_side=True) as secured:
+                            requests.append(secured.recv(4096));secured.sendall(reply)
+                    except (OSError,ssl.SSLError):pass
+            finally:listener.close()
+        thread=threading.Thread(target=serve);thread.start();self.addCleanup(thread.join,3)
+        return e,hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest(),sni,requests
+
+    def test_tls_verified_sni_fingerprint_and_status(self):
+        reply=b'HTTP/1.1 503 Unavailable\r\nX-Deploy-Monitor-Route: '+b'a'*64+b'\r\nContent-Length: 0\r\n\r\n'
+        e,fingerprint,sni,requests=self.tls_executor(reply)
+        proof=e.tls_evidence('app.example.test')
+        self.assertEqual(proof['status'],503);self.assertEqual(proof['certificate_fingerprint'],fingerprint)
+        self.assertEqual(proof['route_token'],'a'*64);self.assertEqual(sni,['app.example.test'])
+        self.assertIn(b'Host: app.example.test',requests[0])
+
+    def test_tls_observation_true_different_identity_and_untrusted_unknown(self):
+        reply=b'HTTP/1.1 200 OK\r\nX-Deploy-Monitor-Route: '+b'a'*64+b'\r\n\r\n'
+        for trusted,wrong,wanted in ((True,False,True),(True,True,False),(False,False,None)):
+            with self.subTest(trusted=trusted,wrong=wrong):
+                e,fingerprint,_,_=self.tls_executor(reply,trusted=trusted)
+                self.assertIs(e.observe_tls('app.example.test','a'*64,'b'*64 if wrong else fingerprint),wanted)
+        e,fingerprint,_,_=self.tls_executor(reply,hostname='other.example.test')
+        self.assertIsNone(e.observe_tls('app.example.test','a'*64,fingerprint))
+
+    def test_tls_duplicate_identity_and_oversized_headers_unknown(self):
+        for reply in (b'HTTP/1.1 200 OK\r\nX-Deploy-Monitor-Route: '+b'a'*64+b'\r\nX-Deploy-Monitor-Route: '+b'a'*64+b'\r\n\r\n', b'HTTP/1.1 200 OK\r\nLarge: '+b'x'*70000):
+            e,fingerprint,_,_=self.tls_executor(reply)
+            self.assertIsNone(e.observe_tls('app.example.test','a'*64,fingerprint))
+
+    def test_tls_listener_is_optional_and_rejects_remote_address(self):
+        from ingress_apache_executor import ApacheExecutor
+        e=object.__new__(ApacheExecutor);e._configure_tls(None,None)
+        self.assertIsNone(e.observe_tls('app.example.test','a'*64,'b'*64))
+        with self.assertRaises(ValueError):e._configure_tls(('192.0.2.1',443),None)
+
+    def test_tls_wrong_route_and_duplicate_gateway_marker(self):
+        reply=b'HTTP/1.1 200 OK\r\nX-Deploy-Monitor-Route: '+b'a'*64+b'\r\n\r\n'
+        e,fingerprint,_,_=self.tls_executor(reply)
+        self.assertFalse(e.observe_tls('app.example.test','b'*64,fingerprint))
+        reply=b'HTTP/1.1 200 OK\r\nX-Deploy-Monitor-Route: '+b'a'*64+b'\r\nX-Deploy-Monitor-Gateway: '+b'b'*64+b'\r\nX-Deploy-Monitor-Gateway: '+b'b'*64+b'\r\n\r\n'
+        e,fingerprint,_,_=self.tls_executor(reply)
+        self.assertIsNone(e.observe_tls('app.example.test','a'*64,fingerprint))
+
+    def test_tls_handshake_stall_is_bounded(self):
+        import socket
+        import threading
+        import time
+        from ingress_apache_executor import ApacheExecutor
+        listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen()
+        e=object.__new__(ApacheExecutor);e.timeout=.05;e._configure_tls(listener.getsockname(),None)
+        def stall():
+            connection,_=listener.accept()
+            with connection:time.sleep(.2)
+            listener.close()
+        thread=threading.Thread(target=stall);thread.start()
+        try:
+            started=time.monotonic()
+            self.assertIsNone(e.observe_tls('app.example.test','a'*64,'b'*64))
+            self.assertLess(time.monotonic()-started,.18)
+        finally:thread.join(1)
+
+    def test_challenge_exact_path_host_and_body(self):
+        body=b'bounded-challenge-proof'
+        e,requests=self.http_executor(b'HTTP/1.1 200 OK\r\nContent-Length: '+str(len(body)).encode()+b'\r\n\r\n'+body)
+        self.assertTrue(e.verify_challenge('app.example.test','A_-0123456789012345',body))
+        self.assertIn(b'GET /.well-known/acme-challenge/A_-0123456789012345 HTTP/1.1',requests[0])
+        self.assertIn(b'Host: app.example.test\r\n',requests[0])
+
+    def test_challenge_redirect_wrong_body_truncation_and_bounds(self):
+        body=b'bounded-challenge-proof'
+        for response,wanted in ((b'HTTP/1.1 302 Found\r\nLocation: https://evil.test/\r\n\r\n',False),
+                                (b'HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\n'+b'x'*23,False),
+                                (b'HTTP/1.1 200 OK\r\nContent-Length: 23\r\n\r\nshort',None),
+                                (b'HTTP/1.1 200 OK\r\nContent-Length: 5000\r\n\r\n',None),
+                                (b'HTTP/1.1 200 OK\r\nContent-Length: 23\r\nContent-Length: 23\r\n\r\n'+body,None),
+                                (b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n',None)):
+            with self.subTest(response=response):
+                e,_=self.http_executor(response)
+                self.assertIs(e.verify_challenge('app.example.test','A'*16,body),wanted)
+
+    def test_challenge_rejects_input_before_connecting(self):
+        from ingress_apache_executor import ApacheExecutor
+        e=object.__new__(ApacheExecutor)
+        for token,body in (('../'+'a'*20,b'x'*16),('a'*15,b'x'*16),('a'*129,b'x'*16),('a'*16,b'x'*4097),('a'*16,'x'*16)):
+            with self.assertRaises(ValueError):e.verify_challenge('app.example.test',token,body)
+
+    def test_challenge_read_timeout_is_bounded(self):
+        import socket
+        import threading
+        import time
+        from ingress_apache_executor import ApacheExecutor
+        listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen()
+        e=object.__new__(ApacheExecutor);e.timeout=.05;e.listener=listener.getsockname()
+        def stall():
+            connection,_=listener.accept()
+            with connection:
+                connection.recv(4096);connection.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 16\r\n\r\n');time.sleep(.2)
+            listener.close()
+        thread=threading.Thread(target=stall);thread.start()
+        try:
+            started=time.monotonic();self.assertIsNone(e.verify_challenge('app.example.test','a'*16,b'x'*16))
+            self.assertLess(time.monotonic()-started,.18)
+        finally:thread.join(1)

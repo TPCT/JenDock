@@ -57,8 +57,17 @@ def load_config(path, *, owner_uid=0):
             result[key]=value
         return result
     value=json.loads(raw,object_pairs_hook=pairs)
-    if not isinstance(value,dict) or set(value)!=FIELDS or type(value['schema_version']) is not int or value['schema_version']!=1:
+    if not isinstance(value,dict) or type(value.get('schema_version')) is not int or value['schema_version'] not in (1,2) or set(value)!=(FIELDS if value['schema_version']==1 else FIELDS|{'tls'}):
         raise ValueError('Invalid host configuration schema')
+    if value['schema_version'] == 2:
+        tls = value['tls']
+        if not isinstance(tls, dict) or set(tls) != {'listener', 'observation_listener', 'ca_file', 'certificates'}:
+            raise ValueError('Invalid administrative TLS configuration')
+        for key in ('listener', 'observation_listener'):
+            item=tls[key]
+            if not isinstance(item, dict) or set(item)!={'address','port'} or type(item['port']) is not int or not 1<=item['port']<=65535:
+                raise ValueError('Invalid TLS listener')
+        if tls['ca_file'] is not None: trusted_file(tls['ca_file'], owner_uid, ancestor_uid=owner_uid)
     if type(value['database_uid']) is not int or value['database_uid']<0:raise ValueError('Explicit database owner is required')
     for field in ('credentials_file','policy_file'):
         trusted_file(value[field],owner_uid,ancestor_uid=owner_uid)
@@ -102,9 +111,16 @@ class Assembly:
             self._socket_endpoint(endpoint)
             os.environ['DOCKER_HOST']='unix://'+str(endpoint)
             apache=config['apache']
+            tls=config.get('tls')
+            tls_options={'tls_listener':(tls['observation_listener']['address'],tls['observation_listener']['port']),'tls_ca_file':tls['ca_file']} if tls else {}
             self.executor=ApacheExecutor(**{k:apache[k] for k in APACHE_FIELDS-{'listener'}},
-                listener=(apache['listener']['address'],apache['listener']['port']),owner_uid=owner_uid,timeout=config['timeout_seconds'])
-            self.adapter=HostAdapter(config['policy_file'],self.executor,owner_uid=owner_uid)
+                listener=(apache['listener']['address'],apache['listener']['port']),owner_uid=owner_uid,timeout=config['timeout_seconds'],**tls_options)
+            certificates = None
+            if tls:
+                from ingress_certificates import CertificateManager
+                certificates=CertificateManager(tls['certificates'],owner_uid=owner_uid)
+            self.adapter=HostAdapter(config['policy_file'],self.executor,owner_uid=owner_uid,
+                challenge_root=certificates.paths['challenge_root'] if certificates else None)
             policy=self.adapter._policy()
             self.adapter._safe(Path(config['socket_path']).parent,directory=True)
             if policy['listener']!=apache['listener']:raise ValueError('Policy and Apache observation listeners must match')
@@ -116,7 +132,11 @@ class Assembly:
                 if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
                     raise ValueError('Host database is not an initialized product database')
             self.issuer=HostGrantIssuer(self.adapter,self.db,verify_gateway=DockerGatewayVerifier(config['docker_executable']),resolve_principal=self.resolve_principal)
-            self.service=HostService(self.adapter,self.issuer,available_ports=self.available_ports)
+            tls_adapter=None
+            if tls:
+                from ingress_host_tls import HostTLSAdapter
+                tls_adapter=HostTLSAdapter(self.adapter,certificates,listener=tls['listener'])
+            self.service=HostService(self.adapter,self.issuer,available_ports=self.available_ports,tls=tls_adapter)
             self.server=HostServer(config['socket_path'],self.service,allowed_uids=config['allowed_uids'],owner_uid=owner_uid,
                                    group_gid=config['socket_group_gid'],timeout=config['timeout_seconds'])
         except Exception:

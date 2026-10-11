@@ -131,3 +131,44 @@ starting services or creating directories.
 This administrative package does not claim live provider DNS, certificate,
 public TLS, or production activation acceptance. See the domain orchestration
 acceptance record for local real-runtime evidence and its synthetic DNS boundary.
+
+## Optional managed TLS (schema 2)
+
+Schema 1 remains HTTP-only. Schema 2 has the same fields plus a required `tls`
+object with exactly `listener`, `observation_listener`, `ca_file`, and
+`certificates`. Both listeners contain `address` and `port`. The observation
+listener must be loopback; the Apache vhost listener is separately configured.
+`ca_file` is null for system trust or an administrator-owned CA bundle for a
+private deployment. Never disable chain or hostname verification.
+
+`certificates` has exactly these administrator-supplied fields:
+
+- `executable`, `expected_version`: trusted Certbot executable and exact version.
+- `server`, `account`, `email`, `agree_tos`: HTTPS ACME directory, preinstalled
+  account identifier, contact address, and administrator terms policy.
+- `config_dir`, `work_dir`, `logs_dir`, `challenge_root`, `state_dir`,
+  `generations_dir`: dedicated trusted directories prepared before startup.
+- `ca_bundle`: trusted certificate-issuer CA bundle.
+- `timeout`: integer issuance deadline between 5 and 600 seconds.
+
+Install the repository's `ingress_certificates.py` and `ingress_host_tls.py` along
+with the helper modules, and use the project's pinned `cryptography==48.0.1`.
+Certbot and its account are installation prerequisites; the helper does not
+install software, create an ACME account, or adopt another application's lineage.
+Apache must already have SSL, headers, alias, and proxy support and its TLS
+listener configured. Run assembly `--check` before exposing the socket.
+
+Keep all writable certificate directories in the product-owned `/var/lib/deploy-monitor`
+namespace or explicitly extend the unit's exact writable-path allowlist. The
+managed HTTP vhost includes a fixed challenge alias. An older HTTP configuration
+without that alias is rejected for issuance and needs an owned configuration
+upgrade; merely enabling schema 2 does not rewrite existing vhosts.
+
+`capabilities({})` reports configured HTTP/TLS capabilities, not readiness.
+Certificate requests retain the normal short connect/frame deadline, with a
+fixed 720-second response window after peer/request validation. Certbot execution
+has its own maximum 600-second deadline. Operations retain issuance and reload
+journals after disconnects; callers inspect/recover instead of blindly replaying
+commands. Stopping the service after 90 seconds may interrupt an in-flight ACME
+operation, so a shutdown is not evidence that issuance failed. Origin HTTPS
+verification is distinct from externally verified application readiness.

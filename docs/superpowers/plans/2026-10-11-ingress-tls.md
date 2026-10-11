@@ -63,3 +63,26 @@ UI keeps DNS / Origin / TLS / external readiness separate. Resume advances the s
 6. Browser desktop/mobile setup/resume/renewal-state evidence and authenticated dashboard/MCP parity. Production deployment remains a separately evidenced installation/activation using the existing authorization; local ACME does not prove public CA/DNS/provider acceptance.
 
 References: [Certbot command reference](https://eff-certbot.readthedocs.io/en/stable/man/certbot.html) for fixed certonly/webroot/lineage/directory options; [Certbot user guide](https://eff-certbot.readthedocs.io/en/stable/using.html) for renewal semantics and live/archive layout. Pin and test the installed version before selecting final argv. This plan relies on post-command certificate inspection rather than renewal exit code or Certbot hooks as proof of Apache activation.
+
+## Implementation checkpoint — 2026-10-11
+
+Implemented certificate ownership/immutable generations, fixed bounded Certbot
+execution, exact challenge proof, separately journaled TLS stage/activation and
+observation recovery, authorized Unix RPC dispatch, schema-2 host assembly, and
+durable domain-worker phases through origin verification. Existing HTTP-only
+capabilities remain supported. An awaiting-TLS operation can resume its original
+identity once TLS is installed. Origin verification currently terminates at
+`awaiting-external`, with public `ready=false`; the UI explains that boundary.
+
+Independent review found and fixed missing socket dispatch, replaceable TLS
+facade capabilities, renewal overlap after an unknown process exit, expired
+owned certificate renewal, and saved webroot drift. Actual local Certbot/Pebble
+and Apache acceptance verifies initial issuance, trusted SNI application response,
+and lost-reload-reply recovery with one signal. See the fixture evidence document.
+
+Still required to finish the specification: external route/backend challenge and
+freshness projection; HTTP-to-HTTPS redirect transition; owned legacy HTTP
+challenge-config upgrade; host/worker renewal scheduling and explicit uncertain
+process recovery; actual two-environment and full domain-worker acceptance;
+production compatibility, rollout, and public-provider verification. This
+checkpoint does not establish those outcomes or complete the platform goal.

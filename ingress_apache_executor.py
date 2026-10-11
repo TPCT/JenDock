@@ -4,6 +4,7 @@ Linux pidfds pin graceful signals to the verified existing process. Setup must
 provide the complete daemon argv and explicit absolute -f configuration path.
 """
 import fnmatch
+import hashlib
 import ipaddress
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import selectors
 import shlex
 import signal
 import socket
+import ssl
 import stat
 import subprocess
 import time
@@ -84,7 +86,7 @@ def bounded_run(argv, timeout, *, env=None):
 
 
 class ApacheExecutor:
-    def __init__(self, *, executable, config, pid_file, listener, expected_argv, owner_uid=0, timeout=5, source_roots=None, server_root=None):
+    def __init__(self, *, executable, config, pid_file, listener, expected_argv, owner_uid=0, timeout=5, source_roots=None, server_root=None, tls_listener=None, tls_ca_file=None):
         self.executable, self.config, self.pid_file = map(Path, (executable, config, pid_file))
         if type(owner_uid) is not int or owner_uid < 0: raise ValueError('Invalid administrator UID')
         if isinstance(timeout, bool) or not isinstance(timeout,(int,float)) or not 0 < timeout <= 60: raise ValueError('Invalid deadline')
@@ -92,6 +94,7 @@ class ApacheExecutor:
         if not isinstance(listener, (list,tuple)) or len(listener) != 2 or not ipaddress.ip_address(listener[0]).is_loopback or type(listener[1]) is not int or not 1 <= listener[1] <= 65535:
             raise ValueError('Observation listener must be loopback')
         self.listener = tuple(listener)
+        self._configure_tls(tls_listener, tls_ca_file)
         self.expected_argv = tuple(expected_argv)
         if not self.expected_argv or self.expected_argv[0] != str(self.executable) or any(not isinstance(a,str) or '\x00' in a for a in self.expected_argv):
             raise ValueError('Invalid expected Apache argv')
@@ -272,29 +275,133 @@ class ApacheExecutor:
             signal.pidfd_send_signal(fd, signal.SIGUSR1)
         finally: os.close(fd)
 
-    def _headers(self, hostname):
+    def _configure_tls(self, listener, ca_file):
+        self.tls_listener = None
+        self._tls_context = None
+        if listener is None:
+            if ca_file is not None: raise ValueError('TLS trust requires a configured listener')
+            return
+        if not isinstance(listener,(list,tuple)) or len(listener)!=2 or not ipaddress.ip_address(listener[0]).is_loopback or type(listener[1]) is not int or not 1<=listener[1]<=65535:
+            raise ValueError('TLS observation listener must be loopback')
+        if ca_file is not None:
+            ca_file=Path(ca_file)
+            self._safe(ca_file,executable=True)
+            if ca_file.stat().st_size>1024*1024:raise ValueError('TLS trust bundle exceeds bound')
+        context=ssl.create_default_context(cafile=str(ca_file) if ca_file is not None else None)
+        context.minimum_version=ssl.TLSVersion.TLSv1_2
+        # Default context verifies the chain and hostname; neither is optional.
+        self.tls_listener=tuple(listener)
+        self._tls_context=context
+
+    @staticmethod
+    def _observation_hostname(hostname):
         if not isinstance(hostname,str) or not _HOST.fullmatch(hostname): raise ValueError('Invalid observation hostname')
-        deadline = time.monotonic()+self.timeout
-        with socket.create_connection(self.listener, timeout=self.timeout) as connection:
-            connection.sendall(('GET / HTTP/1.1\r\nHost: '+hostname+'\r\nConnection: close\r\n\r\n').encode('ascii'))
-            data = bytearray()
-            while b'\r\n\r\n' not in data:
-                remaining = deadline-time.monotonic()
-                if remaining <= 0: raise ValueError('HTTP deadline exceeded')
-                connection.settimeout(remaining)
-                chunk = connection.recv(min(4096, LIMIT+1-len(data)))
-                if not chunk: raise ValueError('Truncated HTTP headers')
-                data.extend(chunk)
-                if len(data)>LIMIT: raise ValueError('HTTP headers exceed bound')
-            lines = bytes(data).split(b'\r\n\r\n',1)[0].decode('ascii').split('\r\n')
-            if not re.fullmatch(r'HTTP/1\.[01] [2-5][0-9]{2}(?: [^\r\n]*)?',lines[0]): raise ValueError('Invalid HTTP status')
-            values = []
-            for line in lines[1:]:
-                if ':' not in line or line.startswith((' ','\t')): raise ValueError('Invalid HTTP header')
-                key,value = line.split(':',1)
-                if key.lower() == 'x-deploy-monitor-route': values.append(value.strip())
-            if len(values)>1: raise ValueError('Ambiguous route headers')
-            return values[0] if values else None
+
+    def _read_evidence(self, connection, hostname, deadline):
+        def remaining():
+            budget=deadline-time.monotonic()
+            if budget<=0:raise ValueError('HTTP observation deadline exceeded')
+            connection.settimeout(budget)
+        remaining()
+        connection.sendall(('GET / HTTP/1.1\r\nHost: '+hostname+'\r\nConnection: close\r\n\r\n').encode('ascii'))
+        data=bytearray()
+        # Only headers are needed. At most LIMIT+1 bytes, including any body
+        # coalesced into the final read; never download or follow a response URL.
+        while b'\r\n\r\n' not in data:
+            remaining()
+            chunk=connection.recv(min(4096,LIMIT+1-len(data)))
+            if not chunk:raise ValueError('Truncated HTTP headers')
+            data.extend(chunk)
+            if len(data)>LIMIT:raise ValueError('HTTP headers exceed bound')
+        lines=bytes(data).split(b'\r\n\r\n',1)[0].decode('ascii').split('\r\n')
+        match=re.fullmatch(r'HTTP/1\.[01] ([2-5][0-9]{2})(?: [^\r\n]*)?',lines[0])
+        if not match:raise ValueError('Invalid HTTP status')
+        markers={}
+        for line in lines[1:]:
+            if ':' not in line or line.startswith((' ','\t')):raise ValueError('Invalid HTTP header')
+            key,value=line.split(':',1);key=key.lower()
+            if key in ('x-deploy-monitor-route','x-deploy-monitor-gateway'):
+                if key in markers or not re.fullmatch('[a-f0-9]{64}',value.strip()):raise ValueError('Ambiguous or invalid identity header')
+                markers[key]=value.strip()
+        return {'status':int(match.group(1)),'route_token':markers.get('x-deploy-monitor-route'),
+                'gateway_token':markers.get('x-deploy-monitor-gateway'),'observed_at':time.time()}
+
+    def http_evidence(self, hostname):
+        self._observation_hostname(hostname)
+        deadline=time.monotonic()+self.timeout
+        with socket.create_connection(self.listener,timeout=self.timeout) as connection:
+            return self._read_evidence(connection,hostname,deadline)
+
+    def _headers(self, hostname):
+        return self.http_evidence(hostname)['route_token']
+
+    def tls_evidence(self, hostname):
+        self._observation_hostname(hostname)
+        if self.tls_listener is None:raise ValueError('TLS observation is not configured')
+        context=self._tls_context
+        if not context.check_hostname or context.verify_mode!=ssl.CERT_REQUIRED:raise ValueError('TLS verification configuration changed')
+        deadline=time.monotonic()+self.timeout
+        with socket.create_connection(self.tls_listener,timeout=self.timeout) as connection:
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise ValueError('TLS observation deadline exceeded')
+            connection.settimeout(remaining)
+            with context.wrap_socket(connection,server_hostname=hostname) as secured:
+                certificate=secured.getpeercert(binary_form=True)
+                if not certificate:raise ValueError('Verified peer certificate is missing')
+                result=self._read_evidence(secured,hostname,deadline)
+                result['certificate_fingerprint']=hashlib.sha256(certificate).hexdigest()
+                return result
+
+    def observe_tls(self, hostname, token, fingerprint):
+        """Config identity only: callers must separately check status/backend proof."""
+        if any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value) for value in (token,fingerprint)):
+            raise ValueError('Invalid TLS observation identity')
+        try:
+            evidence=self.tls_evidence(hostname)
+            return evidence['route_token']==token and evidence['certificate_fingerprint']==fingerprint
+        except (OSError,ValueError,UnicodeError):return None
+
+    def verify_challenge(self, hostname, token, expected_bytes):
+        """Exact bounded static-file proof. No redirects or arbitrary request paths."""
+        self._observation_hostname(hostname)
+        if not isinstance(token,str) or not re.fullmatch('[A-Za-z0-9_-]{16,128}',token):raise ValueError('Invalid challenge token')
+        if not isinstance(expected_bytes,bytes) or not 16<=len(expected_bytes)<=4096:raise ValueError('Invalid challenge proof bytes')
+        deadline=time.monotonic()+self.timeout
+        try:
+            with socket.create_connection(self.listener,timeout=self.timeout) as connection:
+                def remaining():
+                    budget=deadline-time.monotonic()
+                    if budget<=0:raise ValueError('Challenge deadline exceeded')
+                    connection.settimeout(budget)
+                remaining()
+                connection.sendall(('GET /.well-known/acme-challenge/'+token+' HTTP/1.1\r\nHost: '+hostname+'\r\nConnection: close\r\n\r\n').encode('ascii'))
+                data=bytearray()
+                while b'\r\n\r\n' not in data:
+                    remaining();chunk=connection.recv(min(4096,LIMIT+1-len(data)))
+                    if not chunk:raise ValueError('Truncated challenge headers')
+                    data.extend(chunk)
+                    if len(data)>LIMIT:raise ValueError('Challenge headers exceed bound')
+                header,body=bytes(data).split(b'\r\n\r\n',1)
+                lines=header.decode('ascii').split('\r\n')
+                status=re.fullmatch(r'HTTP/1\.[01] ([2-5][0-9]{2})(?: [^\r\n]*)?',lines[0])
+                if not status:raise ValueError('Invalid challenge status')
+                if status.group(1)!='200':return False
+                length=None
+                for line in lines[1:]:
+                    if ':' not in line or line.startswith((' ','\t')):raise ValueError('Invalid challenge header')
+                    name,value=line.split(':',1);name=name.lower();value=value.strip()
+                    if name=='transfer-encoding':raise ValueError('Challenge requires bounded static Content-Length')
+                    if name=='content-length':
+                        if length is not None or not re.fullmatch('[0-9]{1,4}',value):raise ValueError('Invalid challenge length')
+                        length=int(value)
+                if length is None or not 0<=length<=4096:raise ValueError('Challenge body exceeds bound')
+                if length!=len(expected_bytes):return False
+                while len(body)<length:
+                    remaining();chunk=connection.recv(length-len(body))
+                    if not chunk:raise ValueError('Truncated challenge body')
+                    body+=chunk
+                return body==expected_bytes
+        except (OSError,ValueError,UnicodeError):return None
 
     def observe(self, hostname, token):
         if not isinstance(token,str) or not re.fullmatch(r'[0-9a-f]{64}',token): raise ValueError('Invalid route token')

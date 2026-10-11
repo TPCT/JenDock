@@ -113,6 +113,18 @@ class HostGrantIssuer:
                 raise ValueError('Granted domain or gateway identity changed')
             authorize()
 
+    def authorize_certificate(self, route_id, grant):
+        """Certificate effects require the route authority plus recent owned DNS."""
+        self.authorize_route(route_id, grant)
+        import ingress
+        row = self.db.execute('SELECT d.document FROM ingress_routes r JOIN ingress_definitions d ON d.id=r.definition_id WHERE r.id=?', (route_id,)).fetchone()
+        if not row: raise ValueError('Certificate domain definition is unavailable')
+        definition = json.loads(row['document'])
+        evidence = ingress._dns_evidence(self.db, route_id, definition)
+        if (evidence['status'] != 'verified' or type(evidence.get('observed_at')) not in (int, float)
+                or not 0 <= time.time()-evidence['observed_at'] <= 900):
+            raise ValueError('Recent owned DNS evidence is required before certificate effects')
+
     def issue(self,request):
         if not isinstance(request,dict) or set(request)!={'route_id','operation_id','expected_revision'} or any(not isinstance(request[k],str) or not re.fullmatch('[a-f0-9]{32}',request[k]) for k in ('route_id','operation_id')) or type(request['expected_revision']) is not int or request['expected_revision']<0:raise ValueError('Only opaque domain identities and an expected revision are accepted')
         with self.adapter._locked() as policy:
