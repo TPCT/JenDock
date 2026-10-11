@@ -144,11 +144,11 @@ def process_once(db,*,worker_id,host_client,key_path,resolve_principal=None,prov
             request=dict(identity,renewal_id=row['renewal_id'])
             if document.get('pending')=='issue':
                 result=host_client.call('reconcile_certificate',request)
-                if isinstance(result,dict) and result.get('status')=='absent':
+                if isinstance(result,dict) and result.get('status') in ('absent','not-started'):
                     if any(result.get(key)!=value for key,value in request.items()):
-                        raise ValueError('Absent certificate attempt identity changed.')
-                    # The host proved this exact attempt never acquired a journal.
-                    # Retain the durable intent and replay its same idempotency ID.
+                        raise ValueError('Unstarted certificate attempt identity changed.')
+                    # Host proved no journal or an unchanged manager baseline before
+                    # effects. Replay only this exact durable idempotency ID.
                     check()
                     result=host_client.call('renew_certificate',dict(request,expected_generation=document['base_certificate']['generation']))
             else:

@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {blankDomain,domainProblems,domainRequest,domainScope,domainPins,saveDomainRequest,restoreDomainRequest,adoptionRequest,canOpenDomain,domainDisplayStatus,domainExecutorMessage} from './domains.js';
+import {blankDomain,domainProblems,domainRequest,domainScope,domainPins,saveDomainRequest,restoreDomainRequest,adoptionRequest,canOpenDomain,domainDisplayStatus,domainExecutorMessage,domainCertificateView} from './domains.js';
 const values={...blankDomain(),hostname:'Dev.Example.Test.',service_id:'service',zone_id:'zone',dns_type:'A',target:'192.0.2.1'};
 const preview={definition:{...values,hostname:'dev.example.test',project:'app',environment:'development'},...Object.fromEntries(domainPins.map(k=>[k,k==='preview_fingerprint'?'a'.repeat(64):1]))};
 test('create captures exact scope and all preview pins',()=>{const r=domainRequest('app','development',values,preview,'stable-request-1234');assert.equal(r.values.hostname,'dev.example.test');assert.equal(r.values.expected_project_revision,1);assert.throws(()=>domainRequest('app','production',values,preview,'stable-request-1234'));assert.throws(()=>domainRequest('app','development',{...values,target:'other'},preview,'stable-request-1234'));});
@@ -22,9 +22,26 @@ test('executor messages distinguish disabled, missing, stale and unavailable evi
 });
 
 test('public link and ready label expire without a server refresh',()=>{
-  const route={status:'ready',ready:true,dns:{status:'verified'},origin:{status:'verified'},tls:{status:'verified'},external:{status:'verified',expires_at:100}};
+  const route={status:'ready',ready:true,dns:{status:'verified'},origin:{status:'verified'},tls:{status:'verified',not_after:200},external:{status:'verified',expires_at:100}};
   assert.equal(canOpenDomain(route,99),true);assert.equal(domainDisplayStatus(route,99),'Ready');
   assert.equal(canOpenDomain(route,100),false);assert.equal(domainDisplayStatus(route,100),'Verification required');
   assert.equal(canOpenDomain({...route,external:undefined},99),false);
   assert.equal(canOpenDomain({...route,external:{status:'verified',expires_at:Infinity}},99),false);
+});
+
+test('certificate expiry independently removes the application link',()=>{
+ const route={ready:true,dns:{status:'verified'},origin:{status:'verified'},tls:{status:'verified',not_after:100},external:{status:'verified',expires_at:200}};
+ assert.equal(canOpenDomain(route,99),true);assert.equal(canOpenDomain(route,100),false);
+ for(const expiry of [undefined,Infinity,NaN,0])assert.equal(canOpenDomain({...route,tls:{status:'verified',not_after:expiry}},99),false);
+});
+test('certificate presentation distinguishes missing evidence, expiry and renewal checks',()=>{
+ assert.equal(domainCertificateView({},100).status,'Unavailable');
+ assert.equal(domainCertificateView({tls:{not_after:100}},100).status,'Expired');
+ const view=domainCertificateView({tls:{not_after:200},renewal:{status:'complete',next_check_at:180,updated_at:90}},100);
+ assert.equal(view.renewal,'Last check completed');assert.equal(view.status,'Valid');assert.equal(view.nextCheck,180);
+ assert.equal(domainCertificateView({tls:{not_after:200}},100).renewal,'No attempt recorded');
+ const failed=domainCertificateView({renewal:{status:'retrying',error_code:'private-error',next_check_at:120}},100);
+ assert.equal(failed.renewal,'Retry scheduled');assert.equal(failed.warning,true);assert.doesNotMatch(JSON.stringify(failed),/private-error/);
+ assert.equal(domainCertificateView({renewal:{status:'unexpected',next_check_at:Infinity}},100).nextCheck,null);
+ assert.equal(domainCertificateView({renewal:{status:'running',next_check_at:90}},100).nextCheck,null);
 });

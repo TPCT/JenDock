@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import ingress_external
+import domain_renewal
 from ingress_certificates import CertificateManager,run_bounded,CommandError
 from ingress_host_tls import HostTLSAdapter
 import cloudflare_dns
@@ -46,10 +47,17 @@ from ingress_host_grants import HostGrantIssuer,DockerGatewayVerifier
 from ingress_apache_executor import ApacheExecutor
 from live_ingress_runtime import main,free_port,request,PROJECT
 
+CHANGED_RENEWAL='--changed-renewal' in sys.argv
+FORCE_RENEWAL=False  # Trusted fixture executor only; never a production request/config field.
+
 
 def certificates(root,metadata):
     counter={'calls':0,'certonly':0,'renew':0,'renew_commands':[]}
     def executor(argv,*,timeout,env):
+        assert '--force-renewal' not in argv,'Production certificate manager must never force renewal'
+        if 'renew' in argv and FORCE_RENEWAL:
+            assert CHANGED_RENEWAL and metadata['directory_url'].startswith('https://localhost:')
+            argv=[*argv,'--force-renewal']
         counter['calls']+=1
         if 'certonly' in argv:counter['certonly']+=1
         if 'renew' in argv:counter['renew']+=1
@@ -89,7 +97,67 @@ def certificates(root,metadata):
     return manager,counter
 
 
-SOURCE_NAMES=('domain_execution.py','domain_external_flow.py','ingress_external.py','ingress_host_tls.py','ingress_certificates.py','ingress_runtime.py','ingress_host.py','ingress_host_service.py','ingress_host_transport.py','ingress_host_grants.py','domain_worker.py','tests/live_domain_https.py')
+
+def changed_generation_acceptance(db,client,manager,root,routes,reloads,provider,gateway,external_verifier,public_transport,certificate_calls):
+    global FORCE_RENEWAL
+    baseline={};events=[]
+    def serving(hostname):
+        context=ssl.create_default_context(cafile=str(root/'trust.pem'))
+        return public_transport(hostname,['127.0.0.1'],time.monotonic()+10,context)['certificate_fingerprint']
+    for route in routes:
+        op=domain_execution._operation(db,route['operation_id'])
+        journal=json.loads(domain_execution._row(db,route['operation_id'])['journal'])
+        certificate=journal['certificate']
+        assert certificate['not_after']-time.time()<3*86400
+        files=manager.generation_files(op['route_id'],certificate['generation'])
+        baseline[route['operation_id']]={'identity':{'route_id':op['route_id'],'operation_id':op['id']},'hostname':route['hostname'],
+            'certificate':certificate,'files':{role:(files[role],hashlib.sha256(Path(files[role]).read_bytes()).hexdigest()) for role in ('cert','chain','fullchain','privkey')}}
+        assert serving(route['hostname'])==certificate['fingerprint']
+    command_before=certificate_calls['renew'];reload_before=len(reloads)
+    class ObservePromotion:
+        def call(self,method,request):
+            result=client.call(method,request)
+            if method=='activate_tls':
+                saved=json.loads(domain_execution._row(db,request['operation_id'])['journal'])
+                assert saved['certificate']['generation']==baseline[request['operation_id']]['certificate']['generation']
+                assert not domain_execution.public_status(db,request['operation_id'])['ready']
+                events.append({'operation_id':request['operation_id'],'event':'actual-activation-before-metadata-promotion'})
+            return result
+    FORCE_RENEWAL=True
+    try:
+        for _ in range(12):
+            domain_renewal.process_once(db,worker_id='real-renewal-worker',host_client=ObservePromotion(),key_path='unused',provider_transport=provider)
+            rows=[domain_renewal._row(db,op) for op in baseline]
+            for row in rows:
+                assert row['error_code'] is None,{'phase':row['phase'],'state':row['state'],'error_code':row['error_code']}
+                journal=json.loads(domain_execution._row(db,row['operation_id'])['journal'])
+                cert=journal['certificate'];old=baseline[row['operation_id']]
+                assert serving(old['hostname'])==cert['fingerprint'],'Serving generation diverged from verified committed state'
+                if row['state']=='complete':
+                    assert cert['generation']!=old['certificate']['generation'] and cert['fingerprint']!=old['certificate']['fingerprint']
+                    assert domain_execution._row(db,row['operation_id'])['state']=='awaiting-external'
+                    assert not domain_execution.public_status(db,row['operation_id'])['ready']
+                else:
+                    assert cert==old['certificate'],'Candidate promoted before activation verification'
+                for path,digest in old['files'].values():assert hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest,'Old immutable generation was removed or changed'
+            if all(row['state']=='complete' for row in rows):break
+        else:raise AssertionError('Renewal scheduler did not complete bounded phase sequence')
+    finally:FORCE_RENEWAL=False
+    assert certificate_calls['renew']==command_before+2 and len(reloads)==reload_before+2
+    assert len(events)==2
+    for _ in range(5):
+        domain_execution.process_once(db,worker_id='real-renewal-public-observer',gateway=gateway,host_client=client,key_path='unused',provider_transport=provider,external_verifier=external_verifier)
+        if all(domain_execution.public_status(db,op)['ready'] for op in baseline):break
+    else:raise AssertionError('New generations did not regain Ready through actual external verification')
+    result=[]
+    for op,old in baseline.items():
+        current=json.loads(domain_execution._row(db,op)['journal'])['certificate']
+        assert serving(old['hostname'])==current['fingerprint']
+        result.append({'hostname':old['hostname'],'old_generation':old['certificate']['generation'],'new_generation':current['generation'],
+            'old_fingerprint':old['certificate']['fingerprint'],'new_fingerprint':current['fingerprint'],'old_generation_retained':True,'ready_reverified':True})
+    return {'fixture_only_force':True,'pebble_validity_seconds':172800,'scheduler_real_phases':True,'atomic_promotion_observations':events,'routes':result}
+
+SOURCE_NAMES=('domain_execution.py','domain_external_flow.py','ingress_external.py','ingress_host_tls.py','ingress_certificates.py','ingress_runtime.py','ingress_host.py','ingress_host_service.py','ingress_host_transport.py','ingress_host_grants.py','domain_worker.py','domain_renewal.py','tests/live_domain_https.py')
 SOURCE_HASHES={name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in SOURCE_NAMES}
 
 def edge_acceptance(db,docker,apps,ports):
@@ -98,6 +166,10 @@ def edge_acceptance(db,docker,apps,ports):
     process=None
     with tempfile.TemporaryDirectory(prefix='deploy-monitor-domain-edge-') as directory:
         root=Path(directory)/'fixture';metadata=acme.prepare(root);(root/'managed').mkdir(mode=0o700);(root/'state').mkdir(mode=0o700)
+        if CHANGED_RENEWAL:
+            ca_config=json.loads((root/'pebble.json').read_text())
+            ca_config['pebble']['profiles']={'default':{'description':'Local scheduler acceptance only','validityPeriod':172800}}
+            acme.write(root/'pebble.json',json.dumps(ca_config))
         port=metadata['ports']['http'];binary='/usr/sbin/apache2';config=root/'httpd.conf';pid=root/'httpd.pid'
         modules=['mpm_event','authz_core','authz_host','headers','proxy','proxy_http','alias','mime','ssl','socache_shmcb']
         text=''.join('LoadModule '+m+'_module /usr/lib/apache2/modules/mod_'+m+'.so\n' for m in modules)
@@ -281,11 +353,12 @@ def edge_acceptance(db,docker,apps,ports):
                     assert certificate_calls['renew']==len(routes)+1
                     expected=PROJECT+':'+env+':v1';assert request(port,hostname)==(200,expected)
                     routes.append({'environment':env,'hostname':hostname,'operation_id':operation,'status':final['status'],'dns':final['dns'],'tls':final['tls'],'external':final['external'],'lost_reply_resumed':resumed,'renewal_metadata':{'section':'acme_renewal_info','keys':ari_keys},'renewal_noop_verified':True,'renewal_same_id_replay_without_command':True})
+                changed=changed_generation_acceptance(db,client,manager,root,routes,reloads,provider,interrupted_gateway,external_verifier,public_transport,certificate_calls) if CHANGED_RENEWAL else None
                 assert any(row['lost_reply_resumed'] for row in routes)
                 assert len(gateway_reloads)==2 and gateway_lost[0],'Gateway reconciliation repeated reload'
                 assert len(writes)==2;assert request(port,'sentinel.fixture.test')==sentinel_before
                 assert hashlib.sha256(sentinel.read_bytes()).hexdigest()==sentinel_hash
-                report={'source_sha256':source_hashes,'routes':routes,'authenticated_http':True,'actual_unix_rpc':True,'actual_apache':True,'actual_gateway_additions':True,'synthetic_dns_writes':len(writes),'dns_live':False,'tls_verified':True,'ready':True,'public_internet_verified':False,'certificate_calls':certificate_calls,'images':acme.IMAGES,'reloads':len(reloads),'gateway_reloads':len(gateway_reloads),'gateway_lost_reply_reconciled':gateway_lost[0]}
+                report={'changed_generation_renewal':changed,'source_sha256':source_hashes,'routes':routes,'authenticated_http':True,'actual_unix_rpc':True,'actual_apache':True,'actual_gateway_additions':True,'synthetic_dns_writes':len(writes),'dns_live':False,'tls_verified':True,'ready':True,'public_internet_verified':False,'certificate_calls':certificate_calls,'images':acme.IMAGES,'reloads':len(reloads),'gateway_reloads':len(gateway_reloads),'gateway_lost_reply_reconciled':gateway_lost[0]}
         finally:
             try:
                 if http:http.shutdown();http.server_close();http_thread.join(timeout=5)

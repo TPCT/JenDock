@@ -42,7 +42,18 @@ export function adoptionRequest(project,environment,operation,recordId) {
 }
 export const domainStatus = value => String(value||'unverified').replaceAll('-',' ').replace(/^./,c=>c.toUpperCase());
 export function domainTime(value) {return Number.isFinite(value)&&value>0?new Date(value*1000).toLocaleString('en-GB'):'Observation time unavailable';}
-export function canOpenDomain(route, now=Date.now()/1000) {return route?.ready===true&&route?.tls?.status==='verified'&&route?.origin?.status==='verified'&&route?.dns?.status==='verified'&&route?.external?.status==='verified'&&Number.isFinite(route.external.expires_at)&&route.external.expires_at>now;}
+export function canOpenDomain(route, now=Date.now()/1000) {return route?.ready===true&&route?.tls?.status==='verified'&&Number.isFinite(route.tls.not_after)&&route.tls.not_after>now&&route?.origin?.status==='verified'&&route?.dns?.status==='verified'&&route?.external?.status==='verified'&&Number.isFinite(route.external.expires_at)&&route.external.expires_at>now;}
+
+export function domainCertificateView(route, now=Date.now()/1000) {
+  const time=value=>Number.isFinite(value)&&value>0?value:null;
+  const expiry=time(route?.tls?.not_after), renewal=route?.renewal;
+  return {
+    status:expiry===null?'Unavailable':expiry<=now?'Expired':'Valid',expiry,
+    renewal:!renewal?'No attempt recorded':({scheduled:'Scheduled',running:'In progress',complete:'Last check completed',retrying:'Retry scheduled'})[renewal.status]||'Unverified',
+    updated:time(renewal?.updated_at),nextCheck:['scheduled','retrying','complete'].includes(renewal?.status)?time(renewal.next_check_at):null,
+    warning:!!renewal&&(renewal.status==='retrying'||!!renewal.error_code),
+  };
+}
 
 export function domainExecutorMessage(value) {
   const executor=value?.executor;

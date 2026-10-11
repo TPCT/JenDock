@@ -4,13 +4,28 @@ import Field from './Field.jsx';
 import Hint from './Hint.jsx';
 import {Refresh} from './icons.jsx';
 import {creationSessionStorage} from './projectCreationStorage.js';
-import {adoptionRequest,blankDomain,canOpenDomain,domainDisplayStatus,domainExecutorMessage,domainProblems,domainRequest,domainScope,domainStatus,domainStorageKey,domainTime,domainValues,restoreDomainRequest,saveDomainRequest} from './domains.js';
+import {adoptionRequest,blankDomain,canOpenDomain,domainCertificateView,domainDisplayStatus,domainExecutorMessage,domainProblems,domainRequest,domainScope,domainStatus,domainStorageKey,domainTime,domainValues,restoreDomainRequest,saveDomainRequest} from './domains.js';
 
 function Evidence({value,label}) {
   const evidence=typeof value==='object'&&value?value:{status:'unverified'};
   return <Box className="domain-evidence"><Typography component="dt" fontSize={12} color="text.secondary">{label}</Typography><Typography component="dd" fontSize={13} sx={{m:0}}>{domainStatus(evidence.status)}</Typography><Typography fontSize={12} color="text.secondary">{evidence.evidence==='recorded'?'Recorded evidence · ':''}{domainTime(evidence.observed_at)}</Typography></Box>;
 }
 const defaultError = error => error?.message || 'Domain information is unavailable. Try reloading this environment.';
+function CertificateDetails({value}) {
+  const certificate=domainCertificateView(value);
+  if(!certificate.expiry&&!value?.renewal)return null;
+  return <Box component="section" aria-label="Origin certificate" className="domain-certificate">
+    <Stack direction="row" alignItems="center" gap={1}><Typography component="h3" fontSize={14} fontWeight={600}>Origin certificate</Typography><Hint label="About certificate renewal">Recorded origin certificate details. A completed renewal check can keep the current certificate when it is not due for replacement. Public access is verified separately.</Hint></Stack>
+    <Box component="dl" className="domain-evidence-grid" sx={{mt:1.5}}>
+      <Box className="domain-evidence"><Typography component="dt" fontSize={12} color="text.secondary">Expires</Typography><Typography component="dd" fontSize={13} sx={{m:0}}>{certificate.expiry?domainTime(certificate.expiry):'Unavailable'}</Typography>{certificate.status==='Expired'&&<Typography fontSize={13} color="error.main">Expired</Typography>}</Box>
+      <Box className="domain-evidence"><Typography component="dt" fontSize={12} color="text.secondary">Renewal</Typography><Typography component="dd" fontSize={13} sx={{m:0}}>{certificate.renewal}</Typography></Box>
+      <Box className="domain-evidence"><Typography component="dt" fontSize={12} color="text.secondary">Last update</Typography><Typography component="dd" fontSize={13} sx={{m:0}}>{certificate.updated?domainTime(certificate.updated):'No attempt recorded'}</Typography></Box>
+      <Box className="domain-evidence"><Typography component="dt" fontSize={12} color="text.secondary">Next check</Typography><Typography component="dd" fontSize={13} sx={{m:0}}>{certificate.nextCheck?domainTime(certificate.nextCheck):'Not scheduled'}</Typography></Box>
+    </Box>
+    {certificate.warning&&<Alert severity="warning" sx={{mt:2}}>The last renewal attempt could not be verified. Check worker availability and the next scheduled check.</Alert>}
+    {certificate.status==='Expired'&&<Alert severity="error" sx={{mt:2}}>The recorded origin certificate has expired. HTTPS readiness requires a valid served certificate.</Alert>}
+  </Box>;
+}
 export default function Domains({project,environment,username,active,api,onDirty,onPending,onContainers,onIntegrations}) {
   const storage=creationSessionStorage(), storageKey=domainStorageKey(username,project,environment);
   const [request,setRequest]=useState(()=>restoreDomainRequest(storage,storageKey,project,environment));
@@ -22,7 +37,7 @@ export default function Domains({project,environment,username,active,api,onDirty
   const [adoption,setAdoption]=useState(null),[recordId,setRecordId]=useState('');
   const alive=useRef(true),sequence=useRef(0), refreshing=useRef(false), callbacks=useRef({onDirty,onPending});callbacks.current={onDirty,onPending};
   const [,setEvidenceClock]=useState(0);
-  const hasReadyEvidence=routes.some(route=>route.ready)||operation?.ready;
+  const hasReadyEvidence=routes.some(route=>route.ready)||operation?.ready||operation?.tls?.not_after;
   useEffect(()=>{if(!active||!hasReadyEvidence)return;const timer=setInterval(()=>setEvidenceClock(value=>value+1),1000);return()=>clearInterval(timer);},[active,hasReadyEvidence]);
   const label=environment==='production'?'Production':'Development';
   const dirty=!!request || JSON.stringify(draft)!==JSON.stringify(blankDomain());
@@ -108,7 +123,8 @@ export default function Domains({project,environment,username,active,api,onDirty
   }
   const service=options?.services?.find(x=>x.id===draft.service_id)||null,zone=options?.zones?.find(x=>x.id===draft.zone_id)||null;
   const origin=options?.origins?.find(x=>x.dns_type===draft.dns_type&&x.target===draft.target)||null;
-  const shown=operation||detail;
+  const recorded=operation||detail;
+  const shown=operationError&&recorded?{...recorded,ready:false}:recorded;
   return <section className="domains-section" aria-label={`${label} domains`}>
     <Stack direction="row" useFlexGap flexWrap="wrap" alignItems="center" justifyContent="space-between" gap={1} sx={{mb:2}}>
       <Box><Typography variant="h6">Domains</Typography><Typography color="text.secondary" fontSize={13}>Connect a hostname to a running application in {label.toLowerCase()}.</Typography></Box>
@@ -123,7 +139,7 @@ export default function Domains({project,environment,username,active,api,onDirty
       {!options.origins?.length&&<Alert severity="info">The installation’s public origin address has not been configured.</Alert>}
     </Stack>}
     {loading&&!options?<Stack direction="row" spacing={1} alignItems="center" sx={{py:2}} role="status"><CircularProgress size={18}/><Typography>Loading domains…</Typography></Stack>:!routes.length&&!error?<Box className="domains-empty"><Typography fontWeight={600}>No {label.toLowerCase()} domains</Typography><Typography color="text.secondary" fontSize={13} sx={{mt:1}}>Connect a hostname to an eligible application. DNS, origin, and TLS checks are tracked separately.</Typography></Box>:routes.length?<Box component="ul" className="domain-list">{routes.map(row=><Box component="li" className="domain-row" key={row.id}>
-      <Box className="domain-identity"><Button className="domain-name" onClick={()=>openDetail(row)} disabled={busy}>{row.hostname}</Button><Typography color="text.secondary" fontSize={12}>{options?.services?.find(x=>x.id===row.service_id)?.name||'Application '+row.service_id}</Typography><Typography fontSize={12} sx={{mt:.5}}>{domainDisplayStatus(row)}</Typography></Box>
+      <Box className="domain-identity"><Button className="domain-name" onClick={()=>openDetail(row)} disabled={busy}>{row.hostname}</Button><Typography color="text.secondary" fontSize={12}>{options?.services?.find(x=>x.id===row.service_id)?.name||(row.service_id?'Application '+row.service_id:'Application association unavailable')}</Typography><Typography fontSize={12} sx={{mt:.5}}>{domainDisplayStatus(row)}</Typography></Box>
       <Box component="dl" className="domain-evidence-grid"><Evidence label="DNS" value={row.dns}/><Evidence label="Origin" value={row.origin}/><Evidence label="TLS" value={row.tls}/></Box>
       <Button onClick={()=>openDetail(row)} disabled={busy}>View details</Button>
     </Box>)}</Box>:null}
@@ -150,6 +166,7 @@ export default function Domains({project,environment,username,active,api,onDirty
         {busy&&!operation&&<Typography role="status">Loading operation…</Typography>}
         {shown&&<><Stack direction="row" alignItems="center" useFlexGap flexWrap="wrap" gap={1}><Chip size="small" label={domainDisplayStatus(shown)}/>{shown.phase&&<Typography fontSize={13}>Current step: {domainStatus(shown.phase)}</Typography>}</Stack><Typography color="text.secondary" fontSize={12}>Operation updated: {domainTime(operation?.updated_at)}</Typography><Box component="dl" className="domain-evidence-grid"><Evidence label="DNS" value={shown.dns}/><Evidence label="Origin" value={shown.origin}/><Evidence label="TLS" value={shown.tls}/><Evidence label="Public access" value={shown.external}/></Box></>}
         {operation?.error_code&&<Alert severity="warning">The operation needs attention: {domainStatus(operation.error_code)}. Review the recorded state before resuming.</Alert>}
+        {shown&&<CertificateDetails value={shown}/>}
         {(operation?.status==='awaiting-tls'||operation?.next_action==='configure-tls')&&<Alert severity="info">HTTP origin setup is complete. Origin TLS configuration is still required; this domain is not ready for verified HTTPS access.</Alert>}
         {operation?.status==='awaiting-external'&&<Alert severity="info">Origin HTTPS is verified. Public application verification is still pending; this domain is not ready for verified external access.</Alert>}
         {shown?.executor_available===false&&<Alert severity="info">{domainExecutorMessage(shown)} Existing operation details and recovery actions remain available.{shown.executor?.observed_at && <Typography fontSize={12}>Last worker observation: {domainTime(shown.executor.observed_at)}</Typography>}</Alert>}

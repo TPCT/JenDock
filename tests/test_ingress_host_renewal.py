@@ -16,6 +16,7 @@ class RenewalTests(unittest.TestCase):
         self.next=dict(self.metadata,generation='f'*64,fingerprint='a'*64)
         self.f.cert.request.return_value=self.next
         self.f.cert.renewal_status.return_value=dict(self.metadata,attempt=1,process_ended=True,command_succeeded=True)
+        self.f.cert.renewal_status.side_effect=lambda *a,**k:dict(self.f.cert.renewal_status.return_value,owned_generation=self.f.cert.renewal_status.return_value.get('owned_generation','c'*64))
         self.oldbytes=(self.f.root/'managed'/('a'*32+'-tls.conf')).read_bytes()
     def test_renewal_replay_does_not_issue_again_or_replace_active_https(self):
         result=self.f.tls.renew_certificate(self.request)
@@ -29,6 +30,7 @@ class RenewalTests(unittest.TestCase):
     def test_lost_reply_unknown_old_certificate_never_reissues(self):
         self.f.cert.request.side_effect=TimeoutError()
         with self.assertRaises(TimeoutError):self.f.tls.renew_certificate(self.request)
+        self.f.cert.renewal_status.return_value=dict(self.metadata,attempt=2,process_ended=False,command_succeeded=False)
         result=self.f.tls.renew_certificate(self.request)
         self.assertEqual(result['status'],'reconciliation-required')
         self.assertEqual(self.f.cert.request.call_count,1)
@@ -74,6 +76,7 @@ class RenewalTests(unittest.TestCase):
     def test_lost_reply_successful_unchanged_renewal_is_attempt_bound(self):
         self.f.cert.request.side_effect=TimeoutError()
         with self.assertRaises(TimeoutError):self.f.tls.renew_certificate(self.request)
+        self.f.cert.renewal_status.return_value=dict(self.metadata,attempt=2,process_ended=False,command_succeeded=False)
         self.assertEqual(self.f.tls.renew_certificate(self.request)['status'],'reconciliation-required')
         self.f.cert.renewal_status.return_value=dict(self.metadata,attempt=2,process_ended=True,command_succeeded=True)
         result=self.f.tls.reconcile_certificate(dict(self.f.request,renewal_id='e'*32))
@@ -170,7 +173,7 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(self.f.cert.request.call_count,0)
         self.f.http._save=original
         result=self.f.tls.reconcile_certificate({k:self.request[k] for k in ('route_id','operation_id','renewal_id')})
-        self.assertEqual(result['status'],'reconciliation-required')
+        self.assertEqual(result['status'],'not-started')
         self.assertEqual(self.f.cert.request.call_count,0)
         with self.assertRaises(ValueError):self.f.tls.renew_certificate(dict(self.request,renewal_id='f'*32))
         with self.assertRaises(ValueError):self.f.tls.reconcile_certificate(dict(self.f.request,renewal_id='f'*32))
@@ -232,3 +235,27 @@ class RenewalTests(unittest.TestCase):
         self.f.cert.request.return_value=self.metadata
         self.assertEqual(self.f.tls.renew_certificate(retry)['status'],'verified')
         self.assertEqual(self.f.cert.request.call_count,2)
+
+    def test_before_manager_intent_can_resume_same_id_only(self):
+        save=self.f.http._save
+        def interrupt(path,state):
+            save(path,state)
+            if path.name==self.request['route_id']+'-renewal.json':raise OSError('before manager call')
+        self.f.http._save=interrupt
+        with self.assertRaises(OSError):self.f.tls.renew_certificate(self.request)
+        self.f.http._save=save
+        request={k:self.request[k] for k in ('route_id','operation_id','renewal_id')}
+        self.assertEqual(self.f.tls.reconcile_certificate(request)['status'],'not-started')
+        self.assertEqual(self.f.cert.request.call_count,0)
+        self.assertEqual(self.f.tls.renew_certificate(self.request)['status'],'verified')
+        self.assertEqual(self.f.cert.request.call_count,1)
+
+    def test_manager_intent_or_changed_owned_bytes_never_resume(self):
+        self.f.cert.request.side_effect=TimeoutError()
+        with self.assertRaises(TimeoutError):self.f.tls.renew_certificate(self.request)
+        for changes in ({'attempt':2,'process_ended':False},{'owned_generation':'d'*64}, {'process_ended':False}):
+            self.f.cert.renewal_status.return_value=dict(self.metadata,attempt=1,process_ended=True,command_succeeded=True,**{})
+            self.f.cert.renewal_status.return_value.update(changes)
+            with self.subTest(changes=changes):
+                self.assertEqual(self.f.tls.renew_certificate(self.request)['status'],'reconciliation-required')
+                self.assertEqual(self.f.cert.request.call_count,1)

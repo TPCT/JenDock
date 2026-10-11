@@ -1,10 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import { IconButton, Tooltip } from "@mui/material";
 import { Info } from "./icons";
 
 export default function Hint({ label, children }) {
+  const [open, setOpen] = useState(false);
   return (
     <Tooltip
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
       title={children}
       describeChild
       enterTouchDelay={0}
@@ -13,6 +17,12 @@ export default function Hint({ label, children }) {
       <IconButton
         size="small"
         aria-label={label}
+        onKeyDownCapture={event => {
+          if (event.key === "Escape" && open) {
+            event.stopPropagation();
+            setOpen(false);
+          }
+        }}
         sx={{
           color: "text.secondary",
           verticalAlign: "middle",

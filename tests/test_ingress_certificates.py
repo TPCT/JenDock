@@ -221,3 +221,34 @@ class CertificateIssuanceTests(unittest.TestCase):
             with self.subTest(metadata=metadata):
                 path.write_text(original+'\n'+metadata)
                 with self.assertRaises(ValueError):self.manager._renewal('deploy-monitor-'+self.route,self.hostname)
+
+    def test_manager_boundary_distinguishes_not_started_from_unknown_intent(self):
+        initial=self.request()
+        status=lambda:self.manager.renewal_status(self.route,self.operation,self.hostname,authorize=self.authorize)
+        baseline=status();self.assertEqual(baseline['owned_generation'],initial['generation'])
+        execute=self.manager.executor
+        def before_intent(*args,**kwargs):raise RuntimeError('before durable manager intent')
+        self.manager.executor=before_intent
+        with self.assertRaises(RuntimeError):self.request(renew=True)
+        self.assertEqual(status()['attempt'],baseline['attempt']);self.assertTrue(status()['process_ended'])
+        self.manager.executor=execute
+        save=self.manager._save
+        def after_intent(route,journal):
+            save(route,journal)
+            if journal['state']=='issuance-intent':raise RuntimeError('after durable manager intent')
+        self.manager._save=after_intent
+        with self.assertRaises(RuntimeError):self.request(renew=True)
+        self.manager._save=save
+        current=status()
+        self.assertEqual(current['attempt'],baseline['attempt']+1)
+        self.assertFalse(current['process_ended'])
+        self.assertEqual(current['owned_generation'],baseline['owned_generation'])
+        self.assertEqual(self.request(renew=True)['status'],'reconciliation-required')
+        self.assertEqual(len(self.calls),1)
+
+    def test_scheduler_owns_renewal_delay_not_certbot_random_sleep(self):
+        self.request()
+        self.assertNotIn('--no-random-sleep-on-renew',self.calls[-1])
+        self.request(renew=True)
+        self.assertEqual(self.calls[-1].count('--no-random-sleep-on-renew'),1)
+        self.assertNotIn('--force-renewal',self.calls[-1])

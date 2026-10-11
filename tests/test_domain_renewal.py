@@ -162,3 +162,20 @@ class RenewalTests(unittest.TestCase):
         import sqlite3
         with patch.object(execution,'_operation',side_effect=sqlite3.OperationalError('storage fault')):
             with self.assertRaises(sqlite3.OperationalError):renewal.schedule(self.db)
+
+    def test_proven_pre_manager_intent_replays_same_attempt(self):
+        self.lost_issue=True;self.step();attempt=renewal._row(self.db,self.f.operation)['renewal_id']
+        original=self.call
+        def unstarted(method,request):
+            if method=='reconcile_certificate':
+                self.calls.append((method,dict(request)));return dict(request,status='not-started')
+            return original(method,request)
+        self.call=unstarted;self.due();self.step()
+        requests=[request for method,request in self.calls if method=='renew_certificate']
+        self.assertEqual(len(requests),2);self.assertEqual(requests[0],requests[1])
+        self.assertEqual(renewal._row(self.db,self.f.operation)['renewal_id'],attempt)
+        self.assertEqual(renewal._row(self.db,self.f.operation)['phase'],'stage')
+    def test_foreign_pre_manager_identity_never_resends(self):
+        self.lost_issue=True;self.step()
+        self.call=lambda method,request:dict(request,status='not-started',operation_id='foreign')
+        self.due();self.step();self.assertEqual(self.count('renew_certificate'),1)

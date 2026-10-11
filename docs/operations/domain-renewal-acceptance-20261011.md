@@ -24,18 +24,23 @@ contract mismatch (SAN list versus nonexistent hostname), crash before RPC
 arrival, corrupt-record scheduler interruption, and starvation after the first
 100 records. Public TLS projection also rejects nonfinite or nonpositive expiry.
 
-Validation on 2026-10-11: 911 backend tests and 73 frontend tests passed. Receiver,
+Validation on 2026-10-11: 919 backend tests and 75 frontend tests passed. Receiver,
 worker and MCP review images built successfully; each passed isolated imports
 with networking disabled. The final combined real ACME renewal fixture is tracked
 separately in `domain-https-local-acceptance.md` and its runtime report.
 
-This is local evidence only. Real changed-generation renewal, renewal-specific
-browser presentation, HTTP redirect transitions, legacy gateway upgrades, and
-production/public-provider acceptance remain open. This checkpoint does not
-complete the full delivery-platform objective. An interrupted host intent before
-the certificate-manager effect remains an explicit reconciliation state rather
-than an assumption that issuance failed; unattended recovery for that boundary
-still needs exact manager-attempt evidence and acceptance.
+This is local evidence only. HTTP redirect transitions, legacy gateway upgrades,
+expired-serving-certificate recovery and production/public-provider acceptance
+remain open. This checkpoint does not complete the full delivery-platform goal.
+Renewal presentation acceptance is recorded in `domain-renewal-ui-20261011.md`.
+
+Follow-through: a host intent interrupted before the certificate manager starts
+can now report exact `not-started` evidence. This requires the unchanged captured
+manager attempt, confirmed-ended prior process and exact owned generation bytes.
+The same ID can resume only after authority/challenge/active-generation and manager
+evidence are rechecked under the host lock. Once the manager writes a new intent,
+an uncertain outcome cannot be replayed. Contract tests exercise before/after that
+boundary and actual HostTLSAdapter candidate promotion/lost-reply recovery.
 
 The first real renewal fixture failed even though Certbot exited successfully:
 the certificate was not due, but Certbot wrote an `acme_renewal_info` section that
@@ -55,3 +60,20 @@ same-ID reconciliation/replay. The actual ARI section/key is captured. See
 `.runtime/domain-https-acceptance.json`; enclosing runtime cleanup is recorded
 separately. This proves host renewal no-op compatibility, not actual changed
 generation activation or scheduler-driven due renewal through a public CA.
+
+Real changed-generation testing exposed Certbot's default random renewal delay
+exceeding the bounded executor deadline. Renewal argv now uses the pinned official
+`--no-random-sleep-on-renew` option; the application scheduler already owns delays.
+Initial issuance argv and renewal eligibility are unchanged. A regression verifies
+that production argv never adds force-renewal. The real changed-generation fixture
+uses a documented test-only executor flag and local short-lived CA profile.
+
+The corrected real changed-generation edge now passes for both environments.
+Actual worker renewal phases issue a new local-CA certificate, preserve the old
+immutable generation, stage and activate the candidate, and only then promote
+the matching certificate journal. An observation during each actual activation
+confirmed that the old journal remained authoritative and Ready was false before
+promotion. Each new generation then regained Ready through the real HTTPS verifier.
+Six Apache reloads were observed: four initial HTTP/TLS activations and two renewal
+activations. The test-only force flag is absent from production argv. Final outer
+runtime cleanup is separately tracked in the full fixture report.

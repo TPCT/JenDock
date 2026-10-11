@@ -16,6 +16,17 @@ See `docs/operations/domain-renewal-acceptance-20261011.md` and
 Changed-generation live renewal, renewal UI, redirect/legacy upgrades, and public
 provider/production activation remain open alongside the broader checklist below.
 
+Follow-through: real local changed-generation renewal now passed in both
+environments via the actual scheduler, host RPC, Certbot, Apache activation and
+external re-verification. Old immutable certificates remained unchanged; metadata
+promotion followed verified activation. Safe pre-manager-intent recovery and
+Certbot scheduler-owned delay handling are implemented. Expiry/renewal UI,
+expired-link removal and shared Hint Escape behavior were browser-reviewed on
+desktop/mobile with explicitly captured test data. 919 backend and 75 frontend
+tests pass; Docker builds/imports and exact full-fixture cleanup pass. Public
+provider/production verification, expired-serving recovery, redirect/legacy
+upgrades and broader checklist items remain unfinished.
+
 > Execute in the existing checkout with explicitly authorized parallel agents. No new worktrees or feature branches. Review each independent slice and integrate sequentially.
 
 **Goal:** Complete the approved monitoring and CI/CD product, with two independent environments, dynamic configuration, usable container tools and verified delivery.

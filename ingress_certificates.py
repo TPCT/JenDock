@@ -252,7 +252,15 @@ class CertificateManager:
         context={'attempt':journal.get('attempt') if journal else None,
                  'process_ended':bool(journal and journal.get('process_ended') is True),
                  'command_succeeded':bool(journal and journal.get('command_succeeded') is True)}
-        if result['status']=='verified':return dict(result,**context)
+        context['owned_generation']=None
+        if result['status']=='verified':return dict(result,**dict(context,owned_generation=result['generation']))
+        try:
+            files=self._lineage(journal['name'],hostname) if journal else None
+            if files:
+                metadata=self._verify(files,hostname,allow_expired=True)
+                generation=_digest({role:hashlib.sha256(data).hexdigest() for role,data in files.items()})
+                if journal.get('generations',{}).get(generation)==metadata:context['owned_generation']=generation
+        except (OSError,ValueError,UnicodeError):pass
         retryable=False;retry_after=None
         if (journal and journal.get('process_ended') is True and journal.get('command_succeeded') is False
                 and journal.get('state')!='verified'):
@@ -309,7 +317,8 @@ class CertificateManager:
         argv=[str(self.paths['executable']),'renew' if renew else 'certonly','--non-interactive','--no-directory-hooks','--config',str(cli),'--cert-name',name,'--server',self.config['server'],'--account',self.config['account'],'--agree-tos','--email',self.config['email']]
         for flag,key in (('--config-dir','config_dir'),('--work-dir','work_dir'),('--logs-dir','logs_dir')):argv.extend([flag,str(self.paths[key])])
         argv.extend(['--webroot','--webroot-path',str(self.paths['challenge_root'])])
-        if not renew:argv.extend(['-d',hostname])
+        if renew:argv.append('--no-random-sleep-on-renew')  # The durable scheduler owns backoff.
+        else:argv.extend(['-d',hostname])
         authorize()
         try:self.executor(argv,timeout=self.config['timeout'],env=self.environment);journal.update(process_ended=True,command_succeeded=True)
         except CommandError as error:journal['process_ended']=error.ended

@@ -154,8 +154,8 @@ class HostTLSAdapter:
                 # Migrate the legacy single journal before replacing its pointer.
                 self.http._save(prior_path,current)
             else:
-                immutable=('route_id','operation_id','renewal_id','expected_generation','hostname','manager_attempt')
-                if any(prior[k]!=current[k] for k in immutable):raise ValueError('Renewal journal identity differs')
+                immutable=('route_id','operation_id','renewal_id','expected_generation','hostname','manager_attempt','manager_generation','retry')
+                if any(prior.get(k)!=current.get(k) for k in immutable):raise ValueError('Renewal journal identity differs')
                 current=prior
                 self.http._save(pointer,current)
         path=attempt_path(request['renewal_id']);state=read(path)
@@ -181,6 +181,11 @@ class HostTLSAdapter:
                     'status':'reconciliation-required','retryable':False,'retry_after':None}
         def authorize(): self._renewal_authority(policy, request)
         result = self.certificates.renewal_status(request['route_id'], request['operation_id'], grant['hostname'], authorize=authorize)
+        if (state['status']=='issuance-intent' and result.get('attempt')==state['manager_attempt']
+                and result.get('process_ended') is True
+                and re.fullmatch('[a-f0-9]{64}',str(state.get('manager_generation','')))
+                and result.get('owned_generation')==state['manager_generation']):
+            return {**{k:request[k] for k in ('route_id','operation_id','renewal_id')},'status':'not-started'}
         if (result.get('status') == 'verified'
                 and (state['status'] == 'verified' or result.get('generation') != state['expected_generation']
                      or result.get('attempt') == state['manager_attempt'] + 1
@@ -196,7 +201,7 @@ class HostTLSAdapter:
                 or any(not re.fullmatch('[a-f0-9]{64}', str(result.get(k,''))) for k in ('generation','fingerprint'))
                 or type(result.get('not_after')) not in (int,float) or not result['not_after'] > time.time()):
             raise ValueError('Renewed certificate evidence is invalid')
-        result={k:v for k,v in result.items() if k not in ('attempt','process_ended','command_succeeded','retryable','retry_after')}
+        result={k:v for k,v in result.items() if k not in ('attempt','process_ended','command_succeeded','retryable','retry_after','owned_generation')}
         if state['status'] == 'verified' and any(state['result'].get(k) != result.get(k) for k in ('route_id','operation_id','generation','fingerprint','not_after','sans','status')):
             raise ValueError('Renewal replay certificate changed')
         authorize()
@@ -205,7 +210,7 @@ class HostTLSAdapter:
         return dict(result, renewal_id=request['renewal_id'])
 
     def renew_certificate(self, request):
-        """Issue one durable attempt; replays only observe, never rerun Certbot."""
+        """Resume only proven unstarted attempts; unknown commands are observed."""
         self._renewal_request(request)
         with self.http._locked() as policy:
             grant = self._renewal_authority(policy, request)
@@ -213,8 +218,11 @@ class HostTLSAdapter:
             retry = False
             if state:
                 if state['expected_generation'] != request['expected_generation']: raise ValueError('Renewal replay differs')
-                return self._renewal_observe(policy, request, path, state, grant)
-            if current and current['status'] != 'verified':
+                observed=self._renewal_observe(policy, request, path, state, grant)
+                if observed['status']!='not-started':return observed
+                if type(state.get('retry')) is not bool:raise ValueError('Renewal retry policy is unavailable')
+                retry=state['retry']
+            if state is None and current and current['status'] != 'verified':
                 prior_path=Path(policy['state_dir'])/(request['route_id']+'-renewal-'+current['renewal_id']+'.json')
                 if current['status']=='failed-ended':
                     observed=self.certificates.renewal_status(request['route_id'],request['operation_id'],grant['hostname'],
@@ -241,7 +249,13 @@ class HostTLSAdapter:
             self._challenge(policy, request, grant)
             previous=self.certificates.renewal_status(request['route_id'],request['operation_id'],grant['hostname'],authorize=authorize)
             if type(previous.get('attempt')) is not int or previous['attempt']<1: raise ValueError('Certificate issuance history is unavailable')
-            state = dict(request, hostname=grant['hostname'], status='issuance-intent', manager_attempt=previous['attempt'])
+            if not re.fullmatch('[a-f0-9]{64}',str(previous.get('owned_generation',''))):raise ValueError('Owned certificate generation is unavailable')
+            if state is None:
+                state = dict(request, hostname=grant['hostname'], status='issuance-intent', manager_attempt=previous['attempt'],
+                             manager_generation=previous['owned_generation'],retry=retry)
+            elif (previous['attempt']!=state['manager_attempt'] or previous.get('process_ended') is not True
+                    or previous['owned_generation']!=state['manager_generation']):
+                raise ValueError('Certificate manager started or lineage changed')
             authorize(); self.http._save(path, state)
             self.http._save(pointer,state)
             result = self.certificates.request(request['route_id'], request['operation_id'], grant['hostname'], authorize=authorize, renew=True, retry=retry)
