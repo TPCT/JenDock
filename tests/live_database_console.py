@@ -1,5 +1,6 @@
 """Local disposable HTTP -> worker -> Docker -> PostgreSQL acceptance."""
 import argparse
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -20,6 +21,10 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import psycopg
+import httpx2
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+import mcp_server
 from psycopg import sql
 from cryptography.fernet import Fernet
 import adoption
@@ -35,6 +40,42 @@ from store import connect, snapshot
 
 
 def command(args,**kwargs):return subprocess.check_output(args,stderr=subprocess.DEVNULL,**kwargs).decode().strip()
+
+
+async def verify_mcp(dbpath,key,sock,action,project,environment,binding,expected_scope):
+    """Official SDK, real MCP application and Unix/Docker/PG path; no engine mocks."""
+    issued=action('mcp-access-create',values={'label':'Live database fixture',
+        'scopes':['databases:read','databases:data:read'],'allowed_projects':[project],
+        'allowed_repository_ids':[1201],'allowed_environments':[[project,environment]],
+        'expires_at':time.time()+600})
+    app=mcp_server.create_app(dbpath,key,allowed_hosts=['testserver'],database_socket=sock)
+    async with app.app.router.lifespan_context(app.app), httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app),
+            base_url='http://testserver',headers={'Authorization':'Bearer '+issued['token']}) as http:
+        async with streamable_http_client('http://testserver/_deploy/mcp',http_client=http) as (read,write):
+            async with ClientSession(read,write) as client:
+                await client.discover()
+                assert {tool.name for tool in (await client.list_tools()).tools}==mcp_server.DATABASE_TOOLS
+                args={'project_id':project,'environment':environment,'binding_id':binding['id'],'expected_revision':1}
+                async def call(name,values):
+                    result=await client.call_tool(name,values)
+                    assert not result.is_error,'MCP '+name+' failed'
+                    return result.structured_content
+                schemas=await call('database_schemas',args)
+                assert 'public' in schemas['data'] and schemas['scope']==expected_scope
+                table=await call('database_table',dict(args,schema='public',table='sentinel'))
+                assert table['scope']==expected_scope
+                first=await call('database_rows',dict(args,schema='public',table='sentinel',limit=2))
+                assert len(first['data']['rows'])==2 and first['data']['rows'][0][1]['value']==environment
+                second=await call('database_rows',dict(args,schema='public',table='sentinel',limit=2,cursor=first['next_cursor']))
+                assert len(second['data']['rows'])==1 and second['next_cursor'] is None
+                assert first['scope']==expected_scope and second['scope']==expected_scope
+                denied=await client.call_tool('database_schemas',dict(args,environment='production' if environment=='development' else 'development'))
+                assert denied.is_error,'Foreign environment MCP read succeeded'
+                action('mcp-access-revoke',credential_id=issued['credential']['id'])
+                revoked=await http.post('/_deploy/mcp',json={'jsonrpc':'2.0','id':99,'method':'tools/list'},headers={'Accept':'application/json, text/event-stream'})
+                assert revoked.status_code==401,'Revoked MCP bearer was accepted'
+    return {'official_mcp_sdk_real_postgres':True,'mcp_pages':[2,1],
+            'mcp_foreign_environment_denied':True,'mcp_revoked_bearer_denied':True}
 
 
 def main():
@@ -72,7 +113,7 @@ def main():
                     return InspectorService(connection,authority,resolve_candidate=candidate,helper=InspectorHelper(docker=docker,socket=socket,image=image,state_dir=state),key_path=key,cursor_key=cursor_key)
                 sock=str(root/'control.sock')
                 with contextlib.ExitStack() as stack:
-                    stack.enter_context(patch.dict(os.environ,{'CREDENTIALS_FILE':str(credential_file),'DATABASE_INSPECTION_KEY_FILE':str(key),'DATABASE_RECEIVER_UID':str(os.getuid()),'DATABASE_WORKER_UID':str(os.getuid())}))
+                    stack.enter_context(patch.dict(os.environ,{'CREDENTIALS_FILE':str(credential_file),'DATABASE_INSPECTION_KEY_FILE':str(key),'DATABASE_RECEIVER_UID':str(os.getuid()),'DATABASE_MCP_UID':str(os.getuid()),'DATABASE_WORKER_UID':str(os.getuid())}))
                     stack.enter_context(patch.object(control,'DATABASE',dbpath));stack.enter_context(patch.object(control,'database_inspector',factory));stack.enter_context(patch.object(database_rpc.request,'__defaults__',(sock,)))
                     unix=socketserver.ThreadingUnixStreamServer(sock,control.Handler);unix.daemon_threads=True
                     ut=threading.Thread(target=unix.serve_forever,daemon=True);ut.start()
@@ -114,7 +155,7 @@ def main():
                             admin.execute('REVOKE ALL ON DATABASE fixture FROM PUBLIC;GRANT CONNECT ON DATABASE fixture TO inspector;REVOKE CREATE ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA public TO inspector')
                             admin.execute('CREATE TABLE sentinel(id bigint PRIMARY KEY,value text);GRANT SELECT ON sentinel TO inspector')
                             admin.execute('INSERT INTO sentinel VALUES(1,%s),(2,%s),(3,%s)',(environment,environment,environment))
-                        registry.create_project(db,project,{'repository':'TPCT/'+project})
+                        registry.create_project(db,project,{'repository':'TPCT/'+project,'repository_id':1201})
                         recipe={'compose_project':'deploy-monitor','compose_files':[str(compose)],'services':[service]};document=registry.canonical(recipe)
                         revision=db.execute('INSERT INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',(project,hashlib.sha256(document.encode()).hexdigest(),document,time.time())).lastrowid
                         db.execute('UPDATE registry_environments SET recipe_revision=? WHERE project=? AND name=?',(revision,project,environment))
@@ -189,6 +230,7 @@ def main():
                         expected_scope={'project':project,'environment':environment,'binding_id':binding['id'],'binding_revision':1,
                             'definition_digest':binding['definition_digest'],'container_id':cid,'candidate_fingerprint':preview['candidate']['fingerprint']}
                         assert first['scope']==expected_scope and second['scope']==expected_scope
+                        mcp_checks=asyncio.run(verify_mcp(dbpath,key,sock,action,project,environment,binding,expected_scope))
                         action('database-credential-revoke',credential_id=credential['id'],expected_revision=1)
                         revoked=action('database-binding-get',binding_id=binding['id'])['binding']
                         assert revoked['acceptance'] is None and revoked['status']=='credential-stale' and revoked['verified'] is False
@@ -198,7 +240,7 @@ def main():
                         if not ready:assert db.execute('SELECT count(*) FROM database_credentials WHERE project=?',(project,)).fetchone()[0]==1
                         assert not list(state.iterdir()),'helper recovery files remain'
                         assert reader_password not in json.dumps([credential,binding,preview,accepted,first,second])
-                        checks.append({'environment':environment,'http_unix_docker_postgres':True,'pages':[2,1],'response_scope_verified':True,'acceptance_reload_verified':True,'revocation_clears_acceptance':True,'revocation_denied':True,'replay_no_duplicate':True,'cluster_identity_verified':False})
+                        checks.append({'environment':environment,**mcp_checks,'http_unix_docker_postgres':True,'pages':[2,1],'response_scope_verified':True,'acceptance_reload_verified':True,'revocation_clears_acceptance':True,'revocation_denied':True,'replay_no_duplicate':True,'cluster_identity_verified':False})
             finally:db.close()
     finally:
         if ready:ready.unlink(missing_ok=True)

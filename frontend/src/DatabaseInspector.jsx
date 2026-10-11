@@ -1,3 +1,4 @@
+import { supportedDatabaseEngines } from "./databaseConfiguration.js";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -473,11 +474,12 @@ export default function DatabaseInspector({
               )}
               {binding && (
                 <>
-                  {binding.definition.engine !== "postgresql" && (
+                  {!supportedDatabaseEngines.includes(
+                    binding.definition.engine,
+                  ) && (
                     <Alert severity="warning">
-                      Only PostgreSQL inspection is supported by the current
-                      adapter. This saved configuration cannot be inspected
-                      here.
+                      This saved database engine is not supported by the current
+                      adapters. PostgreSQL, MySQL, and MariaDB are supported.
                     </Alert>
                   )}
                   {binding.acceptance && (
@@ -504,7 +506,9 @@ export default function DatabaseInspector({
                       disabled={
                         busy ||
                         binding.status !== "unverified" ||
-                        binding.definition.engine !== "postgresql"
+                        !supportedDatabaseEngines.includes(
+                          binding.definition.engine,
+                        )
                       }
                       onClick={verify}
                     >

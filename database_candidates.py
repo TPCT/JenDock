@@ -86,7 +86,9 @@ def _resolve(db, project, environment, reference, inventory, resolver, now):
     if len(databases) != 1:
         _fail('database_ambiguous')
     database = json.loads(next(iter(databases)))
-    if database.get('engine') not in ('pgsql','postgres','postgresql'):
+    family={'pgsql':'postgresql','postgres':'postgresql','postgresql':'postgresql',
+            'mysql':'mysql','mariadb':'mariadb'}.get(database.get('engine'))
+    if family is None:
         _fail('unsupported_engine')
     if (type(database.get('port')) is not int or not 1 <= database['port'] <= 65535
             or not isinstance(database.get('database'), str) or not 1 <= len(database['database']) <= 128):
@@ -169,7 +171,7 @@ def _resolve(db, project, environment, reference, inventory, resolver, now):
            'reference':reference,'project_revision':registry.get_project(db,project)['revision'],'environment_revision':owner['revision'],'recipe_revision':owner['recipe_revision'],
            'recipe_digest':digest(owner['recipe']),'container_id':identity,'image_id':row['Image'],
            'started_at':row['State'].get('StartedAt'),'network_mode':mode,'networks':networks,'storage':pinned,
-           'engine':'postgresql','database':database['database'],'port':database['port'],
+           'engine':family,'database':database['database'],'port':database['port'],
            'adoption_fingerprint':record['fingerprint']}
     value['fingerprint']=digest(value)
     return value

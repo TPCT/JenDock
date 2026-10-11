@@ -35,6 +35,10 @@ DRIVER_ERRORS={
     'invalid_policy':'The saved inspection policy is invalid. Review its configuration.',
     'invalid_request':'The inspection request is invalid. Reload and try again.',
     'query_failed':'The database could not complete this inspection. Reload and try again.',
+    'unsupported_version':'This database version is not supported by the inspection adapter.',
+    'unsupported_engine':'This database engine or version is not supported by the inspection adapter.',
+    'unsupported_privileges':'This account uses grants or roles the inspection adapter cannot safely verify.',
+    'row_lock_privilege_required':'Row inspection requires SELECT and LOCK TABLES on this database. Metadata remains available with SELECT only.',
 }
 
 
@@ -87,12 +91,16 @@ class InspectorService:
     def _candidate(self,row):
         definition=row['definition'];ownership=definition['ownership']
         candidate=self.resolve_candidate(row['project'],row['environment'],ownership['reference'],kind=ownership['kind'])
-        if (candidate['recipe_revision']!=ownership['revision'] or candidate['engine']!=definition['engine']
+        # Laravel commonly records DB_CONNECTION=mysql for MariaDB too. This is
+        # endpoint-family evidence only; the helper authenticates the exact dialect.
+        engine_matches=(candidate['engine']==definition['engine'] or
+                        candidate['engine']=='mysql' and definition['engine']=='mariadb')
+        if (candidate['recipe_revision']!=ownership['revision'] or not engine_matches
                 or candidate['database']!=definition['database_name'] or candidate['port']!=definition['database_port']):
             raise InspectionError('Database configuration does not match registered ownership.')
         if definition['adapter_version']!=1 or not re.fullmatch('sha256:[a-f0-9]{64}',self.helper.image):
             raise InspectionError('Database verifier configuration is unsupported.')
-        candidate=dict(candidate,verifier={'image':self.helper.image,'adapter_version':1})
+        candidate=dict(candidate,engine=definition['engine'],verifier={'image':self.helper.image,'adapter_version':1})
         candidate['fingerprint']=digest({k:v for k,v in candidate.items() if k!='fingerprint'})
         return candidate
 
@@ -113,7 +121,7 @@ class InspectorService:
             if self._candidate(current)['fingerprint']!=candidate['fingerprint']:
                 raise InspectionError('Database container or storage changed. Verify the binding again.')
         revalidate(candidate['container_id'])
-        payload={'database':definition['database_name'],'user':secret['username'],'password':secret['password'],
+        payload={'engine':definition['engine'],'database':definition['database_name'],'user':secret['username'],'password':secret['password'],
             'port':definition['database_port'],'schemas':definition['allowed_schemas'],
             'row_columns':definition.get('row_columns',{}),'cursor_key':self.cursor_key,
             'cursor_context':{'owner':self.authority.principal.subject_id,'actor_kind':self.authority.principal.actor_kind,'binding':row['id'],'revision':row['revision'],
@@ -135,11 +143,21 @@ class InspectorService:
         if request.get('action')=='schemas' and (not isinstance(result['data'],list) or any(s not in definition['allowed_schemas'] for s in result['data'])):
             raise InspectionError('Database verifier returned unexpected schemas.')
         identity=result.get('identity') if isinstance(result,dict) else None
-        if (not isinstance(identity,dict) or result.get('engine')!='postgresql'
+        if (not isinstance(identity,dict) or result.get('engine')!=definition['engine']
                 or identity.get('database')!=definition['database_name'] or identity.get('user')!=secret['username']
-                or not isinstance(identity.get('database_oid'),str) or not identity['database_oid'].isdigit()
-                or not isinstance(identity.get('server_version'),str) or not identity['server_version'].isdigit()
                 or identity.get('cluster_identity_verified') is not False):
+            raise InspectionError('Database engine returned unexpected identity evidence.')
+        if definition['engine']=='postgresql':
+            valid=(isinstance(identity.get('database_oid'),str) and identity['database_oid'].isdigit()
+                   and isinstance(identity.get('server_version'),str) and identity['server_version'].isdigit())
+        else:
+            version=identity.get('server_version');account=identity.get('account')
+            valid=(isinstance(version,str) and 0<len(version)<=256 and not any(ord(c)<32 for c in version)
+                   and isinstance(account,str) and 0<len(account)<=512 and not any(ord(c)<32 for c in account)
+                   and '@' in account and account.rsplit('@',1)[0]==secret['username']
+                   and 'database_oid' not in identity
+                   and ('mariadb' in version.lower())==(definition['engine']=='mariadb'))
+        if not valid:
             raise InspectionError('Database engine returned unexpected identity evidence.')
         return result,digest(identity)
 

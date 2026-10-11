@@ -109,3 +109,42 @@ export function saveProvenUncommitted(error) {
   // HTTP status cannot prove absence of an earlier committed replay record.
   return error?.outcome === "not_committed";
 }
+
+export const supportedDatabaseEngines = ["postgresql", "mysql", "mariadb"];
+export function candidateDialects(candidate) {
+  // Adoption records mysql for the endpoint family, including Laravel clients
+  // connected to MariaDB. Only authenticated helper evidence proves the dialect.
+  if (["mysql", "mysqlfamily"].includes(candidate?.engine)) return ["mysql", "mariadb"];
+  return supportedDatabaseEngines.includes(candidate?.engine)
+    ? [candidate.engine]
+    : [];
+}
+export function databaseDraftDefaults(binding, candidate) {
+  if (binding)
+    return {
+      engine: binding.definition.engine,
+      schemas: binding.definition.allowed_schemas.join("\n"),
+    };
+  return {
+    engine:
+      ["mysql", "mysqlfamily"].includes(candidate?.engine)
+        ? ""
+        : candidateDialects(candidate)[0] || "",
+    schemas:
+      candidate?.engine === "postgresql" ? "public" : candidate?.database || "",
+  };
+}
+export function validateDatabaseDialect(candidate, engine, schemas) {
+  if (!candidateDialects(candidate).includes(engine))
+    throw new Error(
+      "Choose the database dialect that is actually running: MySQL or MariaDB. Verification will check your selection.",
+    );
+  if (
+    engine !== "postgresql" &&
+    (schemas.length !== 1 || schemas[0] !== candidate.database)
+  )
+    throw new Error(
+      "MySQL and MariaDB inspection permits only the registered database as its schema.",
+    );
+  return engine;
+}

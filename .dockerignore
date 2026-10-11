@@ -67,6 +67,7 @@ frontend/dist
 
 !Dockerfile.database
 !database_postgres.py
+!database_mysql.py
 !database_inspector_entry.py
 
 !database_auth.py

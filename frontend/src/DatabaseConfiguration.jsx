@@ -4,6 +4,9 @@ import Field from "./Field";
 import Hint from "./Hint";
 import {
   databaseRowPolicy,
+  candidateDialects,
+  databaseDraftDefaults,
+  validateDatabaseDialect,
   currentSavedBinding,
   currentSavedCredential,
   mergeCredential,
@@ -28,6 +31,8 @@ export default function DatabaseConfiguration({
     [cursor, setCursor] = useState(null),
     [loaded, setLoaded] = useState(false),
     [candidate, setCandidate] = useState(null);
+  const initializedDefaults = useRef(Boolean(binding));
+  const [engine, setEngine] = useState(binding?.definition.engine || "");
   const [draftBase, setDraftBase] = useState(binding || null);
   const draftConflict = bindingDraftConflict(draftBase, binding || null);
   const [savedReload, setSavedReload] = useState(null);
@@ -36,7 +41,7 @@ export default function DatabaseConfiguration({
     [username, setUsername] = useState(""),
     [password, setPassword] = useState("");
   const [schemas, setSchemas] = useState(
-      binding?.definition.allowed_schemas.join("\n") || "public",
+      binding?.definition.allowed_schemas.join("\n") || "",
     ),
     [policies, setPolicies] = useState(() =>
       Object.entries(binding?.definition.row_columns || {}).flatMap(
@@ -138,12 +143,18 @@ export default function DatabaseConfiguration({
         c?.environment !== environment ||
         c?.reference !== serviceReference ||
         c?.container_id !== containerId ||
-        c?.engine !== "postgresql"
+        !candidateDialects(c).length
       )
         throw new Error(
-          "Registered PostgreSQL ownership does not match this container. Reload its details.",
+          "Registered database ownership does not match this container. Reload its details.",
         );
       setCandidate(c);
+      if (!initializedDefaults.current) {
+        initializedDefaults.current = true;
+        const defaults = databaseDraftDefaults(binding, c);
+        setEngine(defaults.engine);
+        if (!edited) setSchemas(defaults.schemas);
+      }
       // Publishing the current binding refreshes the parent's catalog. Do it
       // after this sequence so both readers do not contend for the worker lock.
       if (currentBinding)
@@ -303,7 +314,7 @@ export default function DatabaseConfiguration({
         policies,
       );
       const values = {
-        engine: candidate.engine,
+        engine: validateDatabaseDialect(candidate, engine, allowed),
         adapter_version: 1,
         ownership: {
           kind: "adopted-compose",
@@ -394,9 +405,9 @@ export default function DatabaseConfiguration({
               setUsername("");
               setPassword("");
               setSelected("");
-              setSchemas(
-                binding?.definition.allowed_schemas.join("\n") || "public",
-              );
+              const defaults = databaseDraftDefaults(binding, candidate);
+              setEngine(defaults.engine);
+              setSchemas(defaults.schemas);
               setSecret(binding?.definition.secret_id || "");
               setPolicies(
                 Object.entries(binding?.definition.row_columns || {}).flatMap(
@@ -504,6 +515,36 @@ export default function DatabaseConfiguration({
         <Typography variant="body2">
           {candidate.database} · {candidate.engine} · port {candidate.port} ·
           registered service {candidate.reference}
+        </Typography>
+      )}
+      {candidate && (
+        <Field
+          select
+          label="Database dialect"
+          value={engine}
+          disabled={locked}
+          onChange={(e) => {
+            setEdited(true);
+            setEngine(e.target.value);
+          }}
+        >
+          <MenuItem value="">Choose MySQL or MariaDB</MenuItem>
+          {candidateDialects(candidate).map((dialect) => (
+            <MenuItem key={dialect} value={dialect}>
+              {dialect === "postgresql"
+                ? "PostgreSQL"
+                : dialect === "mysql"
+                  ? "MySQL"
+                  : "MariaDB"}
+            </MenuItem>
+          ))}
+        </Field>
+      )}
+      {["mysql", "mysqlfamily"].includes(candidate?.engine) && (
+        <Typography variant="body2">
+          The registered service is in the MySQL family. Select its actual
+          dialect; identity verification checks the server before allowing
+          reads.
         </Typography>
       )}
       <Field

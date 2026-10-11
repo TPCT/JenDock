@@ -164,4 +164,21 @@ class InspectionTests(unittest.TestCase):
         for table in ('database_previews','database_acceptances','database_accepted_bindings'):
             self.assertNotIn('private-password',str([tuple(r) for r in self.db.execute('SELECT * FROM '+table)]))
 
+    def test_mysql_family_requires_exact_authenticated_dialect_and_account(self):
+        values=copy.deepcopy(self.binding['definition'])
+        # Public definitions include scope owned by the persistence layer.
+        values.pop('project',None);values.pop('environment',None);values.pop('schema_version',None)
+        values.update(engine='mariadb',database_port=3306,allowed_schemas=['app'],row_columns={})
+        saved=bindings.save_binding(self.db,self.authority.principal,'app','development',values,expected_revision=1,binding_id=self.binding['id'])
+        self.candidate.update(engine='mysql',port=3306)
+        result={'engine':'mariadb','identity':{'database':'app','user':'reader','account':'reader@%','server_version':'11.4.13-MariaDB','cluster_identity_verified':False},'data':['app'],'next_cursor':None,'page_size':25,'observed_at':time.time()}
+        self.helper.response={'result':result}
+        preview=self.service.preview('app','development',saved['id'],2)
+        self.assertEqual(preview['candidate']['engine'],'mariadb')
+        for patch in ({'account':'other@%'},{'server_version':'8.4.11'},{'database_oid':'123'}):
+            self.helper.response={'result':dict(result,identity=dict(result['identity'],**patch))}
+            with self.assertRaises(inspection.InspectionError):self.service.preview('app','development',saved['id'],2)
+        self.helper.response={'result':dict(result,engine='mysql')}
+        with self.assertRaises(inspection.InspectionError):self.service.preview('app','development',saved['id'],2)
+
 if __name__=='__main__':unittest.main()

@@ -34,6 +34,16 @@ class CandidateTests(unittest.TestCase):
         self.assertNotIn('/vol/data',json.dumps(candidates.public(value)))
         self.assertNotIn('private',json.dumps(value))
         self.assertEqual(value['fingerprint'],self.resolve()['fingerprint'])
+    def test_registered_engine_family_is_preserved_without_image_guessing(self):
+        row=self.db.execute('SELECT evidence FROM workload_adoptions').fetchone()
+        original=json.loads(row['evidence'])
+        for engine in ('mysql','mariadb'):
+            evidence=copy.deepcopy(original);evidence.pop('fingerprint')
+            evidence['databases'][0].update(engine=engine,port=3306)
+            evidence['fingerprint']=candidates.digest(evidence)
+            self.db.execute('UPDATE workload_adoptions SET fingerprint=?,evidence=?',(evidence['fingerprint'],json.dumps(evidence)))
+            actual=self.resolve()
+            self.assertEqual(actual['engine'],engine);self.assertEqual(actual['port'],3306)
     def test_wrong_environment_and_managed_role(self):
         for kwargs in ({'environment':'production'},{'kind':'managed-service'}):
             with self.assertRaises(candidates.CandidateError):self.resolve(**kwargs)

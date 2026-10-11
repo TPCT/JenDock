@@ -1,7 +1,8 @@
-"""Private one-request PostgreSQL helper. Never log requests or driver errors."""
+"""Private one-request database helper. Never log requests or driver errors."""
 import json
 import sys
-from database_postgres import Inspector,DatabaseError
+import database_postgres
+import database_mysql
 
 def main():
     result={'error':'invalid_request'}
@@ -17,15 +18,26 @@ def main():
         def constant(_):raise ValueError()
         value=json.loads(raw,object_pairs_hook=pairs,parse_constant=constant)
         fields={'database','user','password','port','schemas','row_columns','cursor_key','cursor_context','request'}
-        if not isinstance(value,dict) or set(value)!=fields:raise ValueError()
+        if not isinstance(value,dict) or set(value) not in (fields,fields|{'engine'}):raise ValueError()
+        engine=value.get('engine','postgresql')
+        if engine not in ('postgresql','mysql','mariadb'):raise ValueError()
         if type(value['port']) is not int or not 1<=value['port']<=65535:raise ValueError()
         if any(not isinstance(value[k],str) or not 1<=len(value[k])<=4096 or '\x00' in value[k] for k in ('database','user','password')):raise ValueError()
-        import psycopg
-        def connect():
-            return psycopg.connect(host='127.0.0.1',port=value['port'],dbname=value['database'],user=value['user'],password=value['password'],connect_timeout=3,sslmode='disable',options='-c search_path=pg_catalog')
-        adapter=Inspector(connect,database=value['database'],user=value['user'],schemas=value['schemas'],row_columns=value['row_columns'],cursor_key=value['cursor_key'].encode(),cursor_context=value['cursor_context'])
+        options={}
+        if engine=='postgresql':
+            import psycopg
+            def connect():
+                return psycopg.connect(host='127.0.0.1',port=value['port'],dbname=value['database'],user=value['user'],password=value['password'],connect_timeout=3,sslmode='disable',options='-c search_path=pg_catalog')
+            adapter_type=database_postgres.Inspector
+        else:
+            import pymysql
+            def connect():
+                return pymysql.connect(host='127.0.0.1',port=value['port'],database=value['database'],user=value['user'],password=value['password'],connect_timeout=3,read_timeout=4,write_timeout=3,charset='utf8mb4',autocommit=True,local_infile=False,client_flag=0)
+            adapter_type=database_mysql.Inspector
+            options['expected_engine']=engine
+        adapter=adapter_type(connect,database=value['database'],user=value['user'],schemas=value['schemas'],row_columns=value['row_columns'],cursor_key=value['cursor_key'].encode(),cursor_context=value['cursor_context'],**options)
         result={'result':adapter.inspect(value['request'])}
-    except DatabaseError as error:result={'error':error.code}
+    except (database_postgres.DatabaseError,database_mysql.DatabaseError) as error:result={'error':error.code}
     except Exception:pass
     encoded=json.dumps(result,allow_nan=False).encode()
     if len(encoded)>240000:encoded=b'{"error":"result_limit"}'

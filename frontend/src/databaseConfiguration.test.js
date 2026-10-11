@@ -140,3 +140,51 @@ test("authorization and conflict errors retain replay identity and replay cannot
   for (const key of Object.keys(scope))
     assert.throws(() => assertSaveScope(scope, { ...scope, [key]: "changed" }));
 });
+
+import {
+  candidateDialects,
+  databaseDraftDefaults,
+  validateDatabaseDialect,
+} from "./databaseConfiguration.js";
+test("database dialect follows trusted options and never guesses MySQL family", () => {
+  const family = { engine: "mysqlfamily", database: "customer_data" };
+  assert.deepEqual(candidateDialects(family), ["mysql", "mariadb"]);
+  const adopted = { engine: "mysql", database: "customer_data" };
+  assert.deepEqual(candidateDialects(adopted), ["mysql", "mariadb"]);
+  assert.equal(databaseDraftDefaults(null, adopted).engine, "");
+  assert.deepEqual(databaseDraftDefaults(null, family), {
+    engine: "",
+    schemas: "customer_data",
+  });
+  assert.throws(() => validateDatabaseDialect(family, "", ["customer_data"]));
+  assert.equal(
+    validateDatabaseDialect(family, "mariadb", ["customer_data"]),
+    "mariadb",
+  );
+  assert.throws(() => validateDatabaseDialect(family, "mysql", ["public"]));
+  assert.throws(() =>
+    validateDatabaseDialect(family, "mysql", ["customer_data", "other"]),
+  );
+  assert.throws(() =>
+    validateDatabaseDialect({ engine: "mariadb", database: "db" }, "mysql", [
+      "db",
+    ]),
+  );
+  assert.deepEqual(
+    databaseDraftDefaults(null, { engine: "postgresql", database: "app" }),
+    { engine: "postgresql", schemas: "public" },
+  );
+});
+test("discard restores saved dialect and schemas instead of refreshed candidate defaults", () => {
+  const binding = {
+    definition: { engine: "mariadb", allowed_schemas: ["saved_db"] },
+  };
+  assert.deepEqual(
+    databaseDraftDefaults(binding, {
+      engine: "mysqlfamily",
+      database: "new_db",
+    }),
+    { engine: "mariadb", schemas: "saved_db" },
+  );
+  assert.deepEqual(candidateDialects({ engine: "unsupported" }), []);
+});

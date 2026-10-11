@@ -100,10 +100,13 @@ SYSTEM_SCHEMAS = {'mysql', 'sys', 'performance_schema', 'information_schema'}
 
 
 class Inspector:
-    def __init__(self, connect, *, database, user, schemas, row_columns=None, cursor_key, cursor_context):
+    def __init__(self, connect, *, database, user, schemas, row_columns=None, cursor_key, cursor_context, expected_engine=None):
         quote_identifier(database)
         if not isinstance(user, str) or not user or len(user) > 128 or database in SYSTEM_SCHEMAS or schemas != [database]:
             raise DatabaseError('invalid_policy')
+        if expected_engine not in (None, 'mysql', 'mariadb'):
+            raise DatabaseError('invalid_policy')
+        self.expected_engine = expected_engine
         self.connect = connect
         self.database = database
         self.user = user
@@ -171,6 +174,8 @@ class Inspector:
             if not isinstance(version, str):
                 raise DatabaseError('unsupported_engine')
             engine = 'mariadb' if 'MariaDB' in version else 'mysql'
+            if self.expected_engine is not None and engine != self.expected_engine:
+                raise DatabaseError('identity_changed')
             # Deliberately do not claim compatibility with arbitrary server forks.
             supported_version = re.match(r'^(10\.(6|11)\.|11\.(4|8)\.)', version) if engine == 'mariadb' else re.match(r'^8\.(0|4)\.', version)
             if not supported_version:
