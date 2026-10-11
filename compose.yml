@@ -11,6 +11,7 @@ services:
     pids_limit: 64
     environment:
       PUBLIC_ORIGIN: https://monitoring.shiftcodes.net
+      WORKLOAD_WORKER_UID: "0"
       PROJECTS_FILE: /policy/projects.json
       CREDENTIALS_FILE: /config/credentials.json
     volumes:
@@ -40,6 +41,7 @@ services:
       retries: 3
     environment:
       DOCKER_HOST: unix:///run/docker-isolation.sock
+      WORKLOAD_RECEIVER_UID: ${WORKLOAD_RECEIVER_UID:-}
       WORKLOAD_POSTGRES_IMAGE: ${WORKLOAD_POSTGRES_IMAGE:-}
       PROJECTS_FILE: /policy/projects.json
       CREDENTIALS_FILE: /config/credentials.json

@@ -409,8 +409,9 @@ def execute(body, *, peer_uid=None):
             effective_projects(db,CONFIG)
             if JOURNAL.exists():raise ControlError('Container recovery is pending. Resolve it before adopting a workload.')
             inventory=adoption.collect(DOCKER,command)
-            if action=='adoption-preview':return adoption.public(adoption.preview(db,project,body.get('environment'),inventory,resolver=review_compose))
-            result=adoption.adopt(db,project,body.get('environment'),body.get('fingerprint'),inventory,actor,resolver=review_compose)
+            selection={key:body[key] for key in ('services','recipe_revision') if key in body}
+            if action=='adoption-preview':return adoption.public(adoption.preview(db,project,body.get('environment'),inventory,resolver=review_compose,**selection))
+            result=adoption.adopt(db,project,body.get('environment'),body.get('fingerprint'),inventory,actor,resolver=review_compose,**selection)
             audit(db,actor,action,project,'Existing workload adopted as '+body['environment']+'. No containers or data moved.')
             return {'project':result,'message':'Existing workload linked to '+body['environment']+'. No containers or data were moved.'}
         except ValueError as error:raise ControlError(str(error)) from None

@@ -29,8 +29,8 @@ def _command(docker,args):
     except Exception:raise NetworkError('Database network outcome is unavailable; reconcile recorded intent.') from None
 
 
-def _json(docker,args):
-    try:return json.loads(_command(docker,args))
+def _json(docker,args,command=None):
+    try:return json.loads((command or _command)(docker,args))
     except (ValueError,UnicodeError):raise NetworkError('Database network observation is invalid.') from None
 
 
@@ -90,11 +90,11 @@ def _migration_fence(db,metadata,candidate):
         except (ValueError,KeyError,TypeError):raise NetworkError('Migration ownership evidence is unavailable.') from None
 
 
-def _lookup(docker,name):
-    ids=_command(docker,['network','ls','--quiet','--no-trunc','--filter','name=^'+name+'$']).split()
+def _lookup(docker,name,command=None):
+    ids=(command or _command)(docker,['network','ls','--quiet','--no-trunc','--filter','name=^'+name+'$']).split()
     if len(ids)>1 or any(not re.fullmatch('[a-f0-9]{64}',v) for v in ids):raise NetworkError('Database network identity is ambiguous.')
     if not ids:return None
-    value=_json(docker,['network','inspect',ids[0]])
+    value=_json(docker,['network','inspect',ids[0]],command)
     if not isinstance(value,list) or len(value)!=1:raise NetworkError('Database network identity is ambiguous.')
     return value[0]
 
@@ -108,14 +108,14 @@ def _network(row,metadata,journal):
         raise NetworkError('Database bridge ownership or isolation changed.')
 
 
-def _members(db,row,metadata,journal,docker,verify_application):
+def _members(db,row,metadata,journal,docker,verify_application,command=None):
     members=row.get('Containers') or {}
     if not isinstance(members,dict) or len(members)>2:raise NetworkError('Database bridge membership is invalid.')
     target=journal['before']['container_id']
     for identifier,endpoint in members.items():
         if not re.fullmatch('[a-f0-9]{64}',identifier):raise NetworkError('Database bridge member identity is invalid.')
         if identifier==target:continue
-        actual=_json(docker,['inspect',identifier])
+        actual=_json(docker,['inspect',identifier],command)
         if not isinstance(actual,list) or len(actual)!=1 or actual[0].get('Id')!=identifier:raise NetworkError('Application peer observation is invalid.')
         actual=actual[0]
         record=db.execute('SELECT document FROM service_bindings WHERE service_id=?',(metadata['service_id'],)).fetchone()
@@ -140,7 +140,7 @@ def _stable(candidate):
     return {k:v for k,v in candidate.items() if k not in ('fingerprint','project_revision','environment_revision')}
 
 
-def _siblings(db,metadata,journal,candidate,docker):
+def _siblings(db,metadata,journal,candidate,docker,command=None):
     """Only exact, separately verified same-DB bridge endpoints may accumulate."""
     allowed={}
     rows=db.execute('SELECT binding_id,topology_digest,document FROM application_database_networks WHERE binding_id<>? LIMIT 1001',(metadata['pin']['binding_id'],)).fetchall()
@@ -158,9 +158,9 @@ def _siblings(db,metadata,journal,candidate,docker):
             expected={'binding_id':bid,'project':metadata['project'],'environment':metadata['environment'],'service_id':head['service_id'],**{k:definition[k] for k in ('ownership','engine','database_name','database_port')},'ownership_digest':owner['recipe_digest'],'adoption_fingerprint':owner['adoption_fingerprint']}
             if topology!=expected:raise ValueError()
             meta={'pin':{'binding_id':bid},'project':metadata['project'],'environment':metadata['environment'],'service_id':head['service_id'],'alias':'appdb-'+bid,'topology_digest':record['topology_digest']}
-            row=_lookup(docker,_name(meta))
+            row=_lookup(docker,_name(meta),command)
             if row is None:raise NetworkError('A recorded sibling database bridge disappeared.')
-            _network(row,meta,other);_members(db,row,meta,other,docker,None)
+            _network(row,meta,other);_members(db,row,meta,other,docker,None,command)
             after=other['after']
             if bindings.common._digest({k:v for k,v in after.items() if k!='fingerprint'})!=after['fingerprint']:raise ValueError()
             if {k:v for k,v in _stable(after).items() if k!='networks'}!={k:v for k,v in _stable(candidate).items() if k!='networks'}:raise ValueError()
@@ -182,10 +182,10 @@ def _normalized(candidate,allowed):
     return value
 
 
-def _transition(db,candidate,journal,metadata,row,docker):
+def _transition(db,candidate,journal,metadata,row,docker,command=None):
     before=journal['before'];networks=[n for n in candidate['networks'] if n['name']==row['Name']]
     if len(networks)!=1 or networks[0]['id']!=row['Id'] or networks[0]['aliases']!=[metadata['alias']] or not re.fullmatch('[a-f0-9]{64}',networks[0]['endpoint_id']):raise NetworkError('Database endpoint attachment is unverified.')
-    allowed=_siblings(db,metadata,journal,candidate,docker)
+    allowed=_siblings(db,metadata,journal,candidate,docker,command)
     base=_normalized(candidate,allowed)
     base['networks']=[n for n in base['networks'] if n['name']!=row['Name']]
     if base!=_normalized(before,allowed):raise NetworkError('Database identity or original networks changed.')
@@ -210,17 +210,17 @@ def recorded_attachment(db,metadata):
     return _descriptor(metadata,journal)
 
 
-def verify_attachment(db,metadata,*,docker,authorize,resolve_candidate,verify_application=None):
+def verify_attachment(db,metadata,*,docker,authorize,resolve_candidate,verify_application=None,command=None):
     """Strong runtime observation without Docker effects or network journal repair."""
     if db.in_transaction:raise NetworkError('Network observation cannot hold a SQLite transaction.')
     _authority(db,metadata,authorize)
     if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='application_database_networks'").fetchone():raise NetworkError('Database network has no accepted evidence.')
     journal=_load(db,metadata)
     if journal is None or journal['phase']!='verified':raise NetworkError('Database network requires reconciliation.')
-    row=_lookup(docker,_name(metadata))
+    row=_lookup(docker,_name(metadata),command)
     if row is None:raise NetworkError('Database network disappeared.')
-    _network(row,metadata,journal);_members(db,row,metadata,journal,docker,verify_application)
-    _transition(db,_candidate(db,metadata,resolve_candidate),journal,metadata,row,docker)
+    _network(row,metadata,journal);_members(db,row,metadata,journal,docker,verify_application,command)
+    _transition(db,_candidate(db,metadata,resolve_candidate),journal,metadata,row,docker,command)
     _authority(db,metadata,authorize)
     return _descriptor(metadata,journal)
 

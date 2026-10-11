@@ -36,12 +36,29 @@ class RoleRuntimeTests(unittest.TestCase):
     def test_docker_stop_timeout_and_metadata_are_verified(self):
         # Build an otherwise valid ordinary container fixture then apply role config.
         self.f.execute();row=copy.deepcopy(self.f.container);spec=provision.service_config(self.definition,'operation-id')
-        row['Config'].update(Labels={**row['Config']['Labels'],**spec['labels']},Entrypoint=[self.definition['artifact']['command'][0]],Cmd=self.definition['artifact']['command'][1:],Healthcheck={'Test':['CMD',*self.definition['artifact']['healthcheck']]},StopTimeout=70,Env=[k+'='+v for k,v in spec['environment'].items()])
+        row['Config'].update(WorkingDir='/app',Labels={**row['Config']['Labels'],**spec['labels']},Entrypoint=[self.definition['artifact']['command'][0]],Cmd=self.definition['artifact']['command'][1:],Healthcheck={'Test':['CMD',*self.definition['artifact']['healthcheck']]},StopTimeout=70,Env=[k+'='+v for k,v in spec['environment'].items()])
         context=service_runtime.Context(self.f.db,lambda:None)
         args=(row,self.definition,'operation-id',row['Image'],self.f.network['Id'],'example-development-app-1',self.f.root/'example/development/compose.json')
-        provision._verify(*args,runtime_context=context,docker='docker')
+        row['HostConfig']['Tmpfs']={'/tmp':'rw,noexec,nosuid,size=16m'}
+        with patch.object(provision,'_json',return_value=[{'Id':row['Image'],'Config':{'WorkingDir':'/app'}}]):
+            provision._verify(*args,runtime_context=context,docker='docker')
         row['Config']['StopTimeout']=5
-        with self.assertRaises(provision.ProvisioningError):provision._verify(*args,runtime_context=context,docker='docker')
+        with patch.object(provision,'_json',return_value=[{'Id':row['Image'],'Config':{'WorkingDir':'/app'}}]),self.assertRaises(provision.ProvisioningError):
+            provision._verify(*args,runtime_context=context,docker='docker')
+
+
+    def test_workload_layout_rejects_writable_code_and_changed_php_directory(self):
+        actual={'Config':{'WorkingDir':'/app'},'HostConfig':{'Tmpfs':{'/tmp':'rw,noexec,nosuid,size=16m'}}}
+        provision.verify_role_layout(actual,{'WorkingDir':'/app'})
+        for options in [{'WorkingDir':'/tmp'}, {'Tmpfs':{}}, {'Tmpfs':{'/tmp':'rw,nosuid,size=16m'}},
+                        {'Tmpfs':{'/tmp':'rw,noexec,nosuid,size=16m','/app':'rw'}},
+                        {'Tmpfs':{'/tmp':'rw,noexec,nosuid,size=64m'}}]:
+            changed=copy.deepcopy(actual)
+            changed['Config' if 'WorkingDir' in options else 'HostConfig'].update(options)
+            with self.subTest(options=options),self.assertRaises(provision.ProvisioningError):
+                provision.verify_role_layout(changed,{'WorkingDir':'/app'})
+        actual['HostConfig']['Tmpfs']['/tmp']='nosuid,size=16777216,rw,noexec'
+        provision.verify_role_layout(actual,{'WorkingDir':'/app'})
 
     def test_lifecycle_honors_role_grace_and_command_deadline(self):
         import managed_lifecycle as lifecycle

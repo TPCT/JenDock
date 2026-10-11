@@ -4,6 +4,7 @@ This binds existing objects only. It never provisions, starts, moves or deletes
 containers/data. Endpoint evidence identifies configuration, not database integrity.
 """
 import hashlib
+from contextlib import nullcontext
 import json
 import posixpath
 import re
@@ -15,9 +16,42 @@ from compose_identity import ordered_files
 
 
 def initialize(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS workload_adoptions(
-        project TEXT PRIMARY KEY, environment TEXT NOT NULL, fingerprint TEXT NOT NULL,
-        evidence TEXT NOT NULL, actor TEXT NOT NULL, created REAL NOT NULL)''')
+    with (nullcontext() if db.in_transaction else registry.transaction(db)):
+        columns = list(db.execute('PRAGMA table_info(workload_adoptions)'))
+        if columns and [(r['name'], r['pk']) for r in columns if r['pk']] == [('project', 1)]:
+            # Preserve byte-identical evidence and all receipts atomically. No
+            # environment or ownership is inferred during the legacy migration.
+            db.execute('ALTER TABLE workload_adoptions RENAME TO workload_adoptions_legacy')
+            db.execute("""CREATE TABLE workload_adoptions(
+                project TEXT NOT NULL, environment TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                evidence TEXT NOT NULL, actor TEXT NOT NULL, created REAL NOT NULL,
+                PRIMARY KEY(project,environment))""")
+            db.execute('INSERT INTO workload_adoptions SELECT * FROM workload_adoptions_legacy')
+            db.execute('DROP TABLE workload_adoptions_legacy')
+        elif not columns:
+            db.execute("""CREATE TABLE workload_adoptions(
+                project TEXT NOT NULL, environment TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                evidence TEXT NOT NULL, actor TEXT NOT NULL, created REAL NOT NULL,
+                PRIMARY KEY(project,environment))""")
+        elif [(r['name'], r['pk']) for r in columns if r['pk']] != [('project', 1), ('environment', 2)]:
+            raise ValueError('Adoption schema requires an explicit supported migration.')
+
+
+def _conflicts(db, project, environment, evidence):
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workload_adoptions'").fetchone():return
+    rows=db.execute('SELECT * FROM workload_adoptions LIMIT 1001').fetchall()
+    if len(rows)>1000:raise ValueError('Adoption ownership inventory exceeds its bound.')
+    identities={r['id'] for r in evidence['containers']}
+    storage=[m['source'].rstrip('/') for d in evidence['databases'] for m in d['storage']]
+    for row in rows:
+        if row['project']==project and row['environment']==environment:continue
+        try:
+            prior=json.loads(row['evidence'])
+            if prior['project']!=row['project'] or prior['environment']!=row['environment'] or prior['fingerprint']!=row['fingerprint'] or _digest({k:v for k,v in prior.items() if k!='fingerprint'})!=row['fingerprint']:raise ValueError()
+            if identities.intersection(r['id'] for r in prior['containers']):raise ValueError()
+            other=[m['source'].rstrip('/') for d in prior['databases'] for m in d['storage']]
+            if any(a==b or a.startswith(b+'/') or b.startswith(a+'/') for a in storage for b in other):raise ValueError()
+        except (ValueError,KeyError,TypeError):raise ValueError('Another adopted environment has conflicting or invalid ownership evidence.') from None
 
 
 def _digest(value):
@@ -77,7 +111,7 @@ def public(evidence):
     # Host storage paths remain worker-private; browser gets verifiable identities.
     return {key: evidence[key] for key in ('project', 'environment', 'project_revision', 'environment_revision',
              'fingerprint', 'state', 'containers')} | {'databases': [{key: value for key, value in d.items() if key != 'storage'}
-                                                                  for d in evidence['databases']]}
+                                                                  for d in evidence['databases']]} | {key:evidence[key] for key in ('selected_services','selected_recipe_revision') if key in evidence}
 
 
 def _files(values):
@@ -118,7 +152,7 @@ def _storage(row, path=None):
     return sorted([{'type': m['type'], 'source': m['source'], 'destination': m['destination']} for m in mounts], key=lambda m: m['destination'])
 
 
-def preview(db, project, environment, inventory, *, now=None, resolver=None):
+def preview(db, project, environment, inventory, *, now=None, resolver=None, services=None, recipe_revision=None):
     now = time.time() if now is None else now
     registered = registry.get_project(db, project)
     target = registry.get_environment(db, project, environment)
@@ -129,21 +163,34 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
     if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='service_reservations'").fetchone():
         if db.execute("SELECT 1 FROM service_reservations WHERE project=? AND environment=? AND state='held'", (project, environment)).fetchone():
             raise ValueError('Accepted service capacity is reserved in this environment. Reconcile it before adoption.')
-    if registered['legacy_binding'] is not None:
-        raise ValueError('The existing workload is already adopted.')
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workload_adoptions'").fetchone() and db.execute('SELECT 1 FROM workload_adoptions WHERE project=? AND environment=?',(project,environment)).fetchone():
+        raise ValueError('This environment workload is already adopted.')
     if target['recipe_revision'] is not None or target['state'] != 'not-provisioned':
         raise ValueError('This environment already owns a workload.')
     observed = inventory.get('observed')
     if not isinstance(observed, (float, int)) or not 0 <= now - observed <= 90:
         raise ValueError('Refresh live Docker inventory before adopting a workload.')
     projects = registry.legacy_projects(db)
-    legacy = projects[project]
+    legacy = json.loads(db.execute('SELECT legacy_document FROM registry_projects WHERE id=?',(project,)).fetchone()[0] or '{}')
     recipe = legacy.get('recipe')
+    if recipe_revision is not None:
+        registry.revision_number(recipe_revision)
+        record=db.execute('SELECT document,digest FROM registry_recipes WHERE id=? AND project=?',(recipe_revision,project)).fetchone()
+        if record is None:raise ValueError('Select an existing recipe owned by this project.')
+        recipe=json.loads(record['document'])
+        if not isinstance(recipe,dict) or _digest(recipe)!=record['digest']:raise ValueError('Selected recipe integrity is invalid.')
     if not recipe:
         raise ValueError('The existing workload has no deployment recipe.')
     prefixes = legacy.get('container_prefixes', [])
     rows = inventory.get('containers', [])
     members = [r for r in rows if any(r.get('name', '').startswith(p) for p in prefixes)]
+    if recipe_revision is not None:
+        members=[r for r in rows if r.get('compose_project')==recipe.get('compose_project') and r.get('compose_service') in recipe.get('services',[]) and (not prefixes or any(r.get('name','').startswith(p) for p in prefixes))]
+    if services is not None:
+        if (not isinstance(services,list) or not services or len(services)>100 or any(not isinstance(v,str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]*',v) for v in services) or len(set(services))!=len(services) or not set(services)<=set(recipe.get('services',[]))):raise ValueError('Select unique services from the registered recipe.')
+        services=sorted(services)
+        members=[r for r in members if r.get('compose_service') in services]
+    selected_services=services
     if not members:
         raise ValueError('No existing containers match this registered workload.')
     expected_files = _files(recipe.get('compose_files'))
@@ -154,12 +201,12 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
         if row.get('compose_project') != recipe.get('compose_project'):
             raise ValueError('Container ownership conflicts with its registered Compose configuration.')
         owners = [name for name, p in projects.items() if any(row['name'].startswith(prefix) for prefix in p.get('container_prefixes', []))]
-        if owners != [project]:
+        if owners != [project] and not (recipe_revision is not None and not owners):
             raise ValueError('A container has ambiguous project ownership.')
     services = [r.get('compose_service') for r in members]
     if len(services) != len(set(services)) or not all(isinstance(s, str) and s for s in services):
         raise ValueError('Compose services must have unique container membership.')
-    if set(recipe.get('services', [])) - set(services):
+    if set(selected_services if selected_services is not None else recipe.get('services', [])) - set(services):
         raise ValueError('Some deployment services are missing from the actual workload.')
     for row in members:
         observed_files = _files(row.get('compose_files'))
@@ -230,6 +277,15 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
     sources = {m['source'] for d in databases for m in d['storage']}
     if any(r['id'] not in member_ids and sources.intersection(m['source'] for m in _storage(r)) for r in rows):
         raise ValueError('Persistent database storage is shared with another workload.')
+    import adopted_workloads, provenance
+    claims=list(db.execute('SELECT e.project,e.name,r.document,r.digest FROM registry_environments e JOIN registry_recipes r ON r.id=e.recipe_revision AND r.project=e.project'))
+    for retained in adopted_workloads.all_owners(db):
+        claims.append({'project':retained['project'],'name':retained['environment'],'document':registry.canonical(retained['recipe']),'digest':retained['recipe_digest']})
+    for claim in claims:
+        claimed_recipe=json.loads(claim['document'])
+        if _digest(claimed_recipe)!=claim['digest']:raise ValueError('Registered owner recipe integrity is invalid.')
+        if claim['project']==project and claim['name']==environment:continue
+        if any(provenance.matches(claimed_recipe,r['compose_project'],r['compose_service'],r['compose_files']) for r in members):raise ValueError('Another registered environment owns this Compose service.')
     selected = sorted([{'id': r['id'], 'name': r['name'], 'image_id': r['image_id'],
                         'service': r['compose_service'], 'running': bool(r['running'])} for r in members], key=lambda r: r['name'])
     result = {'project': project, 'environment': environment, 'project_revision': registered['revision'],
@@ -238,25 +294,31 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
               'state': 'active' if all(r['running'] for r in selected) else 'stopped' if not any(r['running'] for r in selected) else 'degraded'}
     if service_provenance:
         result['service_provenance'] = service_provenance
+    if selected_services is not None:result['selected_services']=selected_services
+    if recipe_revision is not None:result['selected_recipe_revision']=recipe_revision
+    _conflicts(db,project,environment,result)
     result['fingerprint'] = _digest(result)
     return result
 
 
-def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None, resolver=None):
+def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None, resolver=None, services=None, recipe_revision=None):
     initialize(db)
     with registry.transaction(db):
-        previous = db.execute('SELECT environment,fingerprint,actor FROM workload_adoptions WHERE project=?', (project,)).fetchone()
+        previous = db.execute('SELECT environment,fingerprint,actor,evidence FROM workload_adoptions WHERE project=? AND environment=?', (project,environment)).fetchone()
         if previous:
             if (previous['environment'], previous['fingerprint'], previous['actor']) != (environment, fingerprint, actor):
                 raise ValueError('This workload was adopted with a different reviewed identity.')
+            prior=json.loads(previous['evidence'])
+            if prior.get('selected_services') != (sorted(services) if isinstance(services,list) else services) or prior.get('selected_recipe_revision')!=recipe_revision:raise ValueError('Adoption replay selection differs from the accepted request.')
             return registry.get_project(db, project)
-        evidence = preview(db, project, environment, inventory, now=now, resolver=resolver)
+        evidence = preview(db, project, environment, inventory, now=now, resolver=resolver, services=services, recipe_revision=recipe_revision)
         if evidence['fingerprint'] != fingerprint:
             raise ValueError('Workload identity or settings changed. Review the refreshed adoption preview.')
         recipe = db.execute('SELECT id,document FROM registry_recipes WHERE project=? AND digest=?', (project, evidence['recipe_digest'])).fetchone()
         if recipe is None:
             raise ValueError('The verified recipe is unavailable.')
         document = json.loads(recipe['document'])
+        if 'selected_services' in evidence:document['services']=evidence['selected_services']
         document['owned_services'] = sorted(r['service'] for r in evidence['containers'])
         if evidence.get('service_provenance'):
             document['service_provenance'] = evidence['service_provenance']
@@ -264,7 +326,7 @@ def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None, 
         db.execute('INSERT OR IGNORE INTO registry_recipes(project,digest,document,created) VALUES(?,?,?,?)',
                    (project, digest, registry.canonical(document), time.time()))
         recipe_id = db.execute('SELECT id FROM registry_recipes WHERE project=? AND digest=?', (project, digest)).fetchone()['id']
-        db.execute('UPDATE registry_projects SET legacy_binding=?,revision=revision+1,updated=? WHERE id=?', (environment, time.time(), project))
+        db.execute('UPDATE registry_projects SET legacy_binding=COALESCE(legacy_binding,?),revision=revision+1,updated=? WHERE id=?', (environment, time.time(), project))
         db.execute('UPDATE registry_environments SET state=?,recipe_revision=?,revision=revision+1 WHERE project=? AND name=?', (evidence['state'], recipe_id, project, environment))
         db.execute('INSERT INTO workload_adoptions VALUES(?,?,?,?,?,?)', (project, environment, fingerprint, registry.canonical(evidence), actor, time.time()))
         import adopted_workloads

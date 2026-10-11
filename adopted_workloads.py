@@ -19,7 +19,7 @@ def initialize(db):
 
 def _evidence(db,project,environment):
     if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workload_adoptions'").fetchone():raise ValueError('Verified adoption is unavailable.')
-    row=db.execute('SELECT * FROM workload_adoptions WHERE project=?',(project,)).fetchone()
+    row=db.execute('SELECT * FROM workload_adoptions WHERE project=? AND environment=?',(project,environment)).fetchone()
     try:
         evidence=json.loads(row['evidence'])
         if row['environment']!=environment or evidence['project']!=project or evidence['environment']!=environment or evidence['fingerprint']!=row['fingerprint'] or digest({k:v for k,v in evidence.items() if k!='fingerprint'})!=row['fingerprint']:raise ValueError()
@@ -40,6 +40,7 @@ def _expected(db,project,evidence):
     row=db.execute('SELECT id FROM registry_recipes WHERE project=? AND digest=?',(project,evidence.get('recipe_digest'))).fetchone()
     if row is None:raise ValueError('The original adoption recipe is unavailable.')
     recipe=_recipe(db,project,row['id'])
+    if 'selected_services' in evidence:recipe['services']=evidence['selected_services']
     recipe['owned_services']=sorted(r['service'] for r in evidence['containers'])
     if evidence.get('service_provenance'):recipe['service_provenance']=evidence['service_provenance']
     return recipe

@@ -80,6 +80,35 @@ class WorkloadTransport:
         if resources is None:raise TransportError('resource_authority_unavailable')
         return service,copy.deepcopy(resources)
 
+    def _database_attachment(self,definition,authorize,deadline):
+        """Fresh retained-DB proof on the same socket and overall request deadline."""
+        import application_database_bindings as bindings
+        import application_database_networks as bridges
+        import database_candidates
+        from database_inventory import DockerInventory
+        from compose_review import review
+        import control
+        pin=definition['runtime']['database_attachment']
+        metadata=bindings.resolve_runtime(self.db,definition['project'],definition['environment'],definition['service_id'],pin,authorize=authorize)
+        def command(docker,args):
+            if docker!=self.docker:raise TransportError('invalid_configuration')
+            return self._run(args,limit=MAX_INSPECT,deadline=deadline).decode()
+        def inventory_runner(argv,**options):
+            if argv[0]!=self.docker:raise TransportError('invalid_configuration')
+            return self._run(argv[1:],limit=min(MAX_INSPECT,options['limit']),deadline=min(deadline,time.monotonic()+options['timeout']))
+        def compose_command(argv):
+            if argv[0]!=control.COMPOSE or not os.path.isabs(control.COMPOSE):raise TransportError('invalid_configuration')
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise TransportError('timeout')
+            raw=self.runner(argv,b'',timeout=min(12,remaining),env=self.env,limit=MAX_INSPECT)
+            if not isinstance(raw,bytes) or len(raw)>MAX_INSPECT:raise TransportError('response_limit')
+            return raw.decode()
+        inventory=DockerInventory(docker=self.docker,socket=self.env['DOCKER_HOST'],runner=inventory_runner,timeout=8)
+        def candidate(project,environment,reference,**options):
+            return database_candidates.resolve(self.db,project,environment,reference,inventory=inventory,
+                provenance_resolver=lambda recipe,service,files:review(recipe,service,files,control.ROOT,compose_command,control.COMPOSE),**options)
+        return bridges.verify_attachment(self.db,metadata,docker=self.docker,authorize=authorize,resolve_candidate=candidate,command=command)
+
     def _verify(self,service,resources,authorize,deadline):
         definition,binding=service['definition'],service['binding'];artifact=definition['artifact']
         actual=self._inspect(['inspect',binding['container_id']],deadline)
@@ -115,6 +144,7 @@ class WorkloadTransport:
                 or any(networks[k].get('NetworkID')!=v for k,v in expected.items())):
             raise TransportError('runtime_configuration_changed')
         context.verify(definition,actual,image.get('Config',{}).get('Env'))
+        service_provisioning.verify_role_layout(actual,image.get('Config',{}))
         for network_name,network_id in expected.items():
             network=self._inspect(['network','inspect',network_id],deadline)
             if descriptor and network_name==descriptor['name']:
@@ -128,6 +158,8 @@ class WorkloadTransport:
             endpoint=networks[network_name].get('EndpointID')
             if not isinstance(endpoint,str) or not re.fullmatch('[a-f0-9]{64}',endpoint) or network.get('Containers',{}).get(binding['container_id'],{}).get('EndpointID')!=endpoint:
                 raise TransportError('network_endpoint_changed')
+        if descriptor and self._database_attachment(definition,authorize,deadline)!=descriptor:
+            raise TransportError('database_network_changed')
         return actual
 
     def _protocol(self,service,request,deadline):

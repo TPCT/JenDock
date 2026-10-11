@@ -32,13 +32,13 @@ class WorkloadTransportTests(unittest.TestCase):
         self.db.execute('UPDATE resource_policies SET document=? WHERE project=?',(registry.canonical(policy['document']),'app'))
         spec=service_provisioning.service_config(self.definition,'role-create-1')
         self.actual={'Id':self.cid,'Image':artifact['image'],'Name':'/'+self.binding['container_name'],'State':{'Running':True},
-            'Config':{'Labels':{**spec['labels'],'com.docker.compose.project':'app','com.docker.compose.service':'development-queue','com.docker.compose.project.config_files':self.binding['compose_files'][0]},
+            'Config':{'WorkingDir':'/app','Labels':{**spec['labels'],'com.docker.compose.project':'app','com.docker.compose.service':'development-queue','com.docker.compose.project.config_files':self.binding['compose_files'][0]},
                       'User':artifact['user'],'Entrypoint':artifact['command'][:1],'Cmd':artifact['command'][1:],'Healthcheck':{'Test':['CMD',*artifact['healthcheck']]},'StopTimeout':70,
                       'Env':['PATH=/usr/bin',*[k+'='+v for k,v in spec['environment'].items()]]},
-            'HostConfig':{'ReadonlyRootfs':True,'CapDrop':['ALL'],'SecurityOpt':['no-new-privileges:true'],'IpcMode':'private','Memory':32*1048576,'MemorySwap':32*1048576,'NanoCpus':100000000,'PidsLimit':128,'NetworkMode':'app-development-managed'},
+            'HostConfig':{'Tmpfs':{'/tmp':'rw,noexec,nosuid,size=16m'},'ReadonlyRootfs':True,'CapDrop':['ALL'],'SecurityOpt':['no-new-privileges:true'],'IpcMode':'private','Memory':32*1048576,'MemorySwap':32*1048576,'NanoCpus':100000000,'PidsLimit':128,'NetworkMode':'app-development-managed'},
             'Mounts':[],'NetworkSettings':{'Networks':{'app-development-managed':{'NetworkID':self.nid,'EndpointID':self.endpoint}}}}
         self.network={'Id':self.nid,'Name':'app-development-managed','Driver':'bridge','Internal':True,'Labels':{'net.shiftcodes.managed.project':'app','net.shiftcodes.managed.environment':'development'},'Containers':{self.cid:{'EndpointID':self.endpoint}}}
-        self.image={'Id':artifact['image'],'Config':{'Env':['PATH=/usr/bin']}}
+        self.image={'Id':artifact['image'],'Config':{'WorkingDir':'/app','Env':['PATH=/usr/bin']}}
         self.calls=[];self.hook=None
         self.transport=WorkloadTransport(self.db,docker='/usr/bin/docker',socket='unix:///tmp/fixture-docker.sock',runner=self.runner)
     def runner(self,argv,payload,**kwargs):
@@ -69,7 +69,7 @@ class WorkloadTransportTests(unittest.TestCase):
         self.assertTrue(all(row[2]['limit']<=1048576 and row[2]['timeout']<=12 for row in self.calls))
         self.assertEqual(self.calls[0][2]['env'],{'PATH':'/usr/local/bin:/usr/bin:/bin','DOCKER_HOST':'unix:///tmp/fixture-docker.sock'})
     def test_scope_stopped_replacement_and_runtime_metadata_reject_before_exec(self):
-        for mutate in [lambda:self.actual.update(Id='f'*64),lambda:self.actual['State'].update(Running=False),lambda:self.actual['Config'].update(User='0:0'),lambda:self.actual['Config'].update(Env=['DEPLOY_MONITOR_PROJECT=foreign']),lambda:self.actual['Config'].update(StopTimeout=5),lambda:self.actual['HostConfig'].update(Memory=1),lambda:self.network.update(Id='f'*64)]:
+        for mutate in [lambda:self.actual.update(Id='f'*64),lambda:self.actual['State'].update(Running=False),lambda:self.actual['Config'].update(User='0:0'),lambda:self.actual['Config'].update(WorkingDir='/other'),lambda:self.actual['HostConfig'].update(Tmpfs={'/tmp':'rw,noexec,nosuid,size=16m','/app':'rw'}),lambda:self.actual['HostConfig'].update(Tmpfs={'/tmp':'rw,exec,nosuid,size=16m'}),lambda:self.actual['Config'].update(Env=['DEPLOY_MONITOR_PROJECT=foreign']),lambda:self.actual['Config'].update(StopTimeout=5),lambda:self.actual['HostConfig'].update(Memory=1),lambda:self.network.update(Id='f'*64)]:
             before=copy.deepcopy((self.actual,self.network));self.calls=[];mutate()
             with self.assertRaises(TransportError):self.call()
             self.assertEqual(self.execs(),[]);self.actual,self.network=before

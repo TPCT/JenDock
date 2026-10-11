@@ -1,6 +1,9 @@
 # Opt-in production packaging. Combine with compose.yml after worker/TLS acceptance.
 # Reuse the existing integration key; never generate a replacement for encrypted data.
 services:
+  worker:
+    environment:
+      WORKLOAD_MCP_UID: ${WORKLOAD_MCP_UID:-}
   receiver:
     environment:
       INTEGRATION_KEY_FILE: /config/integrations.key
@@ -46,6 +49,8 @@ services:
       MCP_ALLOWED_HOSTS: monitoring.shiftcodes.net
       MCP_ALLOWED_ORIGINS: https://monitoring.shiftcodes.net
       MCP_ENABLE_CREATION: "1"
+      MCP_WORKLOAD_SOCKET: ${MCP_WORKLOAD_SOCKET:-}
+      WORKLOAD_WORKER_UID: "0"
       INGRESS_ENABLED: ${INGRESS_ENABLED:-0}
       INGRESS_ORIGIN_IPV4: ${INGRESS_ORIGIN_IPV4:-}
     volumes:

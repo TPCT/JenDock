@@ -159,12 +159,36 @@ def _network(row, definition, expected_id=None):
         raise ProvisioningError('Environment network ownership or isolation differs. No network was reused.')
 
 
+def verify_role_layout(row, image_config):
+    """Verify the fixed PHP working directory and sole writable runtime mount.
+
+    The application image owns its working directory. Role profiles cannot select
+    a different bootstrap or mount writable code over the verified package.
+    """
+    import posixpath
+    workdir = image_config.get('WorkingDir')
+    if (not isinstance(workdir, str) or not workdir.startswith('/') or workdir == '/'
+            or posixpath.normpath(workdir) != workdir or '..' in workdir.split('/')
+            or any(ord(c) < 32 for c in workdir)
+            or row.get('Config', {}).get('WorkingDir') != workdir):
+        raise ProvisioningError('Workload working directory differs from the verified image.')
+    mounts = row.get('HostConfig', {}).get('Tmpfs')
+    if not isinstance(mounts, dict) or set(mounts) != {'/tmp'} or not isinstance(mounts['/tmp'], str):
+        raise ProvisioningError('Workload writable paths differ from the managed template.')
+    options = mounts['/tmp'].split(',')
+    # Docker/Compose may represent the same configured size in bytes or MiB.
+    if (len(options) != 4 or set(options) not in
+            ({'rw', 'noexec', 'nosuid', 'size=16m'}, {'rw', 'noexec', 'nosuid', 'size=16777216'})):
+        raise ProvisioningError('Workload temporary storage differs from the managed template.')
+
+
 def _verify(row, definition, operation_id, image_id, network_id, name, path, resources=None, *, runtime_context=None, docker=None, database_network=None):
     if definition.get('runtime') or definition['artifact'].get('workload'):
         if runtime_context is None or docker is None:raise ProvisioningError('Runtime verification requires current private authority.')
         image = _json([docker, 'image', 'inspect', image_id])[0]
         if image.get('Id') != image_id:raise ProvisioningError('Runtime image identity changed.')
         runtime_context.verify(definition,row,image.get('Config',{}).get('Env'))
+        if definition['artifact'].get('workload'):verify_role_layout(row,image.get('Config',{}))
     config, host = row.get('Config', {}), row.get('HostConfig', {})
     labels = config.get('Labels') or {}
     expected = _labels(definition, operation_id)

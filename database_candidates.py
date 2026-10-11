@@ -67,7 +67,7 @@ def resolve(db, project, environment, reference, *, inventory, provenance_resolv
 def _resolve(db, project, environment, reference, inventory, resolver, now):
     if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workload_adoptions'").fetchone():
         _fail('adoption_required')
-    record = db.execute('SELECT * FROM workload_adoptions WHERE project=?', (project,)).fetchone()
+    record = db.execute('SELECT * FROM workload_adoptions WHERE project=? AND environment=?', (project,environment)).fetchone()
     if not record or record['environment'] != environment:
         _fail('adoption_required')
     evidence = json.loads(record['evidence'])
