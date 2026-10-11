@@ -781,6 +781,7 @@ function App() {
                     setOperationPending={setOperationPending}
                     observationFailed={!!error}
                     initialTab={new URLSearchParams(query || "").get("tab")}
+                    environment={new URLSearchParams(query || "").get("environment")}
                   />
                 ) : page === "jobs" ? (
                   <RunsPage />

@@ -101,3 +101,24 @@ SQLite ResourceWarnings remain. No production deployment or acceptance is claime
 The React existing-binding inspector is being integrated separately. Credential
 setup UI, MySQL/MariaDB adapters, browser acceptance and production rollout remain
 required before treating the whole database workflow or platform as complete.
+
+### Final contract fixture result
+
+A subsequent run with enhanced peer diagnostics passed with exit code 0
+(`/tmp/database-console-scope-final.log`, process 63422). Both environments passed
+all HTTP scope, accepted metadata reload, replay, pagination and revocation checks.
+Strict peer identities/images/running state remained unchanged and exact cleanup
+passed. This supersedes the earlier failed run as final local backend evidence;
+it does not retroactively establish the cause of that earlier peer transition.
+
+### React integration boundary
+
+Container details now offer an inspector for an explicitly selected environment.
+The dialog scopes existing bindings to the service/container, verifies and accepts
+identity, browses schemas/tables/columns/keys/indexes and permitted row pages, and
+disables bindings by revision. It validates response scope before showing data,
+preserves ambiguous acceptance request IDs, clears stale evidence on identity or
+authorization failure, and distinguishes loading/errors from successful empty data.
+It shares parent pending/dirty navigation protection. 77 frontend tests and the
+integrated Vite build passed. Browser acceptance and configuration/credential forms
+are still pending. This is not a complete database-management product release.

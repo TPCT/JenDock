@@ -34,6 +34,7 @@ import TerminalPanel from "./TerminalPanel";
 import ContainerLimits from "./ContainerLimits";
 import ContainerLogs from "./ContainerLogs";
 import ContainerFiles from "./ContainerFiles";
+import DatabaseInspector from "./DatabaseInspector";
 
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const showDate = (value) =>
@@ -115,7 +116,7 @@ const actionTitle = (operation) =>
 
 export default function ContainerPage(props) {
   return (
-    <ContainerWorkspace key={`${props.project}/${props.name}`} {...props} />
+    <ContainerWorkspace key={`${props.project}/${props.name}/${props.environment || "unassigned"}`} {...props} />
   );
 }
 
@@ -129,9 +130,13 @@ function ContainerWorkspace({
   setDirty,
   observationFailed = false,
   initialTab = null,
+  environment: selectedEnvironment = null,
   setOperationPending,
 }) {
   const [detail, setDetail] = useState(null);
+  const [databaseOpen, setDatabaseOpen] = useState(false);
+  const [databasePending, setDatabasePending] = useState(false);
+  const [databaseDirty, setDatabaseDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState(initialTab === "terminal" ? 2 : 0);
@@ -211,23 +216,23 @@ function ContainerWorkspace({
     };
   }, [project, name]);
   useEffect(() => {
-    dirtyRef.current?.(count > 0 || pending || limitsDirty);
-  }, [count, pending, limitsDirty]);
+    dirtyRef.current?.(count > 0 || pending || limitsDirty || databaseDirty);
+  }, [count, pending, limitsDirty, databaseDirty]);
   useEffect(() => {
-    pendingRef.current?.(pending || limitsPending);
-  }, [pending, limitsPending]);
+    pendingRef.current?.(pending || limitsPending || databasePending);
+  }, [pending, limitsPending, databasePending]);
   useEffect(() => {
     const protect = (event) => {
-      if (count || pending || limitsDirty || limitsPending) {
+      if (count || pending || limitsDirty || limitsPending || databaseDirty || databasePending) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", protect);
     return () => window.removeEventListener("beforeunload", protect);
-  }, [count, pending, limitsDirty, limitsPending]);
+  }, [count, pending, limitsDirty, limitsPending, databaseDirty, databasePending]);
   const reload = async () => {
-    if (count || pending || limitsDirty || limitsPending) return;
+    if (count || pending || limitsDirty || limitsPending || databaseDirty || databasePending) return;
     setOperation(null);
     await load();
     try {
@@ -593,6 +598,17 @@ function ContainerWorkspace({
             )}
             {tab === 0 && (
               <>
+                {["development", "production"].includes(selectedEnvironment) && (
+                  <Box sx={{ mb: "var(--space-panel)" }}>
+                    <Button variant="outlined" disabled={loading || !!error || unavailable || pending || !!operation}
+                      onClick={() => setDatabaseOpen(true)}>Inspect database</Button>
+                    <DatabaseInspector key={detail.container_id} api={api} project={project}
+                      environment={selectedEnvironment} serviceReference={detail.service}
+                      containerId={detail.container_id} open={databaseOpen}
+                      onPending={setDatabasePending} onDirty={setDatabaseDirty}
+                      onClose={() => setDatabaseOpen(false)} />
+                  </Box>
+                )}
                 <Typography variant="h6" sx={{ mb: 1 }}>
                   Version & runtime
                 </Typography>
