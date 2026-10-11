@@ -99,6 +99,27 @@ def claim_next(db,worker,lease_seconds=300):
         return Claim(row['operation_id'],worker,generation)
 
 
+def _current_authority(db, principal, operation, definition, row):
+    import ingress
+    current=ingress._definition(db,principal,definition['project'],definition['environment'],{key:definition[key] for key in ingress.FIELDS},'domains:create')
+    if current==definition:return definition
+    # Only observation after a committed TLS activation may follow delivery CAS.
+    # Provisioning and activation recovery must retain exact accepted pins.
+    if row['phase'] not in ('origin-verified','external'):
+        raise ValueError('Domain evidence changed; a fresh preview is required.')
+    journal=json.loads(row['journal'])
+    cert=journal.get('certificate');stage=journal.get('tls_stage');verified=journal.get('tls_verified')
+    _certificate_evidence(cert,operation['route_id'],operation['id'],definition['hostname'])
+    _tls_evidence(stage,operation['route_id'],operation['id'],cert,('staged','active'))
+    if (not isinstance(verified,dict) or set(verified)!={'digest','generation','fingerprint','not_after','observed'}
+            or verified['digest']!=stage['digest']
+            or any(verified[k]!=cert[k] for k in ('generation','fingerprint','not_after'))
+            or type(verified['observed']) not in (int,float) or not 0<verified['observed']<=time.time()):
+        raise ValueError('Committed TLS observation evidence is required.')
+    import domain_authority
+    return domain_authority.validate_current(db,principal,definition)
+
+
 def authorize_claim(db,claim,*,resolve_principal=None,action='write'):
     row=_row(db,claim.operation_id)
     if row['state']!='running' or row['worker']!=claim.worker or row['lease_generation']!=claim.generation or row['lease_expires']<=time.time():raise ValueError('Domain lease changed or expired.')
@@ -109,9 +130,7 @@ def authorize_claim(db,claim,*,resolve_principal=None,action='write'):
     import ingress
     scope='domains:adopt' if action=='adopt' else 'domains:create'
     ingress._authorize(db,principal,scope,definition['project'],definition['environment'])
-    current=ingress._definition(db,principal,definition['project'],definition['environment'],{key:definition[key] for key in ingress.FIELDS},'domains:create')
-    if current!=definition:raise ValueError('Domain evidence changed; a fresh preview is required.')
-    return definition
+    return _current_authority(db,principal,operation,definition,row)
 
 
 def renew_claim(db,claim,*,lease_seconds=300,resolve_principal=None,action='write'):
@@ -138,9 +157,8 @@ def _resume_authority(db,principal,project,environment,operation_id,scope):
     ingress._authorize(db,principal,scope,project,environment)
     operation=_operation(db,operation_id);route,definition=_definition(db,operation)
     if operation['subject']!=principal.subject_id or definition['project']!=project or definition['environment']!=environment:raise ValueError('Domain recovery belongs to another owner or environment.')
-    current=ingress._definition(db,principal,project,environment,{key:definition[key] for key in ingress.FIELDS},'domains:create')
-    if current!=definition:raise ValueError('Domain evidence changed; recovery cannot borrow stale grants.')
-    return operation,definition
+    current=_current_authority(db,principal,operation,definition,_row(db,operation_id))
+    return operation,current
 
 
 def resume(db,principal,project,environment,operation_id):

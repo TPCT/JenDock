@@ -40,8 +40,8 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def request(port, hostname, path='/'):
-    client = http.client.HTTPConnection('127.0.0.1',port,timeout=3)
+def request(port, hostname, path='/', *, timeout=3):
+    client = http.client.HTTPConnection('127.0.0.1',port,timeout=timeout)
     try:
         client.request('GET',path,headers={'Host':hostname})
         result=client.getresponse()
@@ -178,6 +178,54 @@ def deliver_application(db,docker,compose,root,service,image,body,containers,*,r
     return managed_services.get(db,service['id']),job
 
 
+def refresh_proof_after_delivery(db, docker, definition, root, port, *, lost_reply=False):
+    """Exercise actual Nginx proof transition after committed backend replacement."""
+    from unittest.mock import patch
+    import ingress_runtime as runtime
+    import ingress_bindings
+    import ingress_route_generations as generations
+    before = generations.head(db, definition)
+    current = ingress_bindings.current_routes(db, definition)
+    assert before['routes'] != current
+    old = {route['hostname']: runtime.route_proof_token(definition['project'], definition['environment'], route)
+           for route in before['routes']}
+    for host, proof in old.items():
+        assert request(port, host, runtime.ROUTE_PROOF_PATH) == (200, proof)
+    operation = str(uuid.uuid4())
+    original = runtime._command
+    signals = []
+    def execute(args, **kwargs):
+        result = original(args, **kwargs)
+        if args[:2] == [docker, 'exec'] and '-s' in args:
+            signals.append(args)
+            if lost_reply:
+                raise runtime.GatewayError('Fixture lost actual proof reload reply')
+        return result
+    with patch.object(runtime, '_command', side_effect=execute):
+        if lost_reply:
+            try:
+                runtime.refresh_gateway_proof(db, definition, operation, root=root, docker=docker, authorize=lambda: None)
+            except runtime.GatewayError:
+                pass
+            else:
+                raise AssertionError('Lost reload reply must remain uncertain')
+            assert generations.operation(db, operation)['phase'] == 'reload-intent'
+            runtime.recover_gateway_proof(db, definition, operation, root=root, docker=docker, authorize=lambda: None)
+        else:
+            runtime.refresh_gateway_proof(db, definition, operation, root=root, docker=docker, authorize=lambda: None)
+        runtime.refresh_gateway_proof(db, definition, operation, root=root, docker=docker, authorize=lambda: None)
+    assert len(signals) == 1
+    assert generations.head(db, definition)['routes'] == current
+    assert generations.head(db, definition)['generation'] == before['generation'] + 1
+    for route in current:
+        proof = runtime.route_proof_token(definition['project'], definition['environment'], route)
+        assert request(port, route['hostname'], runtime.ROUTE_PROOF_PATH) == (200, proof)
+        previous = next(item for item in before['routes'] if item['hostname'] == route['hostname'])
+        assert (proof == old[route['hostname']]) == (previous == route)
+    return {'single_reload': True, 'lost_reply_reconciled': lost_reply,
+            'new_backend_proof_verified': True, 'unchanged_peer_proofs_preserved': True}
+
+
 def main(edge_acceptance=None):
     import ingress_ports
     import ingress_capacity
@@ -275,6 +323,7 @@ def main(edge_acceptance=None):
                 if unhealthy:
                     assert current['backend']['definition_id']==previous['backend']['definition_id']
                     assert current['backend']['container_id']!=previous['backend']['container_id']
+                proof_refresh=refresh_proof_after_delivery(db,docker,definitions['development'],root/'managed',ports['development'],lost_reply=recover)
                 verified=ingress_runtime.verify_gateway(db,definitions['development'],root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
                 replay=ingress_runtime.apply_gateway(db,definitions['development'],root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
                 assert verified['container_id']==replay['container_id']==gateways['development']['container_id']
@@ -294,7 +343,7 @@ def main(edge_acceptance=None):
                 report['durable_route_transitions'].append({'kind':'verified-health-rollback' if unhealthy else 'pre-CAS-recovery' if recover else 'normal-completion',
                     'job_id':job,'old_generation':previous['generation'],'generation':current['generation'],
                     'container_id':current['backend']['container_id'],'restored_original_definition':unhealthy,
-                    'strong_verify_passed':True,'gateway_replay_preserved_id':True,'stale_generation_rejected':True,'sibling_route_preserved':True})
+                    'proof_refresh':proof_refresh,'strong_verify_passed':True,'gateway_replay_preserved_id':True,'stale_generation_rejected':True,'sibling_route_preserved':True})
             production_before=identity(inspect(docker,apps['production']['binding']['container_id']))
             production_gateway_before=identity(inspect(docker,gateways['production']['container_id']))
             import managed_services
@@ -328,7 +377,8 @@ def main(edge_acceptance=None):
                 pass
             else:
                 raise AssertionError('Stopped backend must fail gateway readiness')
-            status,body=request(ports['development'],'development.fixture.test')
+            # Allow the gateway's 3-second connect timeout to return its 504.
+            status,body=request(ports['development'],'development.fixture.test',timeout=6)
             assert status in (502,503,504),status
             assert not inspect(docker,new_row['Id'])['State']['Running']
             report['stopped_backend_no_wake']=True

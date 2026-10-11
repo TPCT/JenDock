@@ -470,7 +470,7 @@ def prepare_route_addition(db,definition,operation_id,route,*,root,docker,author
     old=generations.operation(db,operation_id)
     if old:
         document=old['document']
-        if document['gateway_digest']!=digest(d) or document['route']!=route or document['root']!=str(Path(root).resolve()):raise GatewayError('Route operation replay differs.')
+        if document.get('kind','addition')!='addition' or document['gateway_digest']!=digest(d) or document['route']!=route or document['root']!=str(Path(root).resolve()):raise GatewayError('Route operation replay differs.')
         return old
     binding=verify_gateway(db,d,root=root,docker=docker,authorize=authorize)
     before=generations.head(db,d);current=ingress_bindings.current_routes(db,d)
@@ -517,16 +517,17 @@ def _addition_evidence(db,d,document,*,root,docker,authorize):
     return binding
 
 
-def apply_route_addition(db,definition,operation_id,*,root,docker,authorize):
+def _apply_route_transition(db,definition,operation_id,*,root,docker,authorize,kind):
     """Resume deterministic pre-signal effects; after signal intent only observe."""
     d=_validate(definition);authorize();operation=generations.operation(db,operation_id)
-    if not operation or operation['document']['gateway_digest']!=digest(d) or operation['document']['root']!=str(Path(root).resolve()):raise GatewayError('Route addition intent is unavailable or changed.')
+    if not operation or operation['document'].get('kind','addition')!=kind or operation['document']['gateway_digest']!=digest(d) or operation['document']['root']!=str(Path(root).resolve()):raise GatewayError('Route addition intent is unavailable or changed.')
     document=operation['document'];phase=operation['phase'];root,config,path=_paths(root,d)
     if phase=='committed':
+        if kind=='proof-refresh' and ingress_bindings.current_routes(db,d)!=document['after']['routes']:raise GatewayError('Completed proof refresh backend pins have been superseded.')
         if generations.head(db,d)!=document['after']:raise GatewayError('Completed route addition has been superseded.')
         return verify_gateway(db,d,root=root,docker=docker,authorize=authorize)
     if phase=='aborted':raise GatewayError('Route addition aborted before reload; prepare a new operation.')
-    if generations.head(db,d)!=document['before']:raise GatewayError('Gateway route generation changed.')
+    if generations.head(db,d)!=document['before'] or ingress_bindings.current_routes(db,d)!=document['backends']:raise GatewayError('Gateway route or backend generation changed.')
     if config.is_symlink() or config.read_text() not in (document['previous'],document['candidate']):raise GatewayError('Gateway configuration changed outside its route journal.')
     if phase in ('prepared','installing','tested'):
         try:
@@ -560,17 +561,64 @@ def apply_route_addition(db,definition,operation_id,*,root,docker,authorize):
     with registry.transaction(db):
         authorize()
         if generations.head(db,d)!=document['before'] or ingress_bindings.current_routes(db,d)!=document['backends']:raise GatewayError('Gateway route evidence changed before commit.')
-        sid=document['route']['service_id'];route=next(r for r in document['after']['routes'] if r['hostname']==document['route']['hostname'])
-        backend={k:v for k,v in route.items() if k!='hostname'}
-        row=db.execute('SELECT backend FROM ingress_backend_bindings WHERE project=? AND environment=? AND service_id=?',(d['project'],d['environment'],sid)).fetchone()
-        if row:
-            if json.loads(row['backend'])!=backend:raise GatewayError('Existing service route binding changed.')
-            db.execute('UPDATE ingress_backend_bindings SET generation=generation+1 WHERE project=? AND environment=? AND service_id=?',(d['project'],d['environment'],sid))
-        else:db.execute('INSERT INTO ingress_backend_bindings VALUES(?,?,?,?,?,?)',(d['project'],d['environment'],sid,digest(d),1,registry.canonical(backend)))
+        if kind=='addition':
+            sid=document['route']['service_id'];route=next(r for r in document['after']['routes'] if r['hostname']==document['route']['hostname'])
+            backend={k:v for k,v in route.items() if k!='hostname'}
+            row=db.execute('SELECT backend FROM ingress_backend_bindings WHERE project=? AND environment=? AND service_id=?',(d['project'],d['environment'],sid)).fetchone()
+            if row:
+                if json.loads(row['backend'])!=backend:raise GatewayError('Existing service route binding changed.')
+                db.execute('UPDATE ingress_backend_bindings SET generation=generation+1 WHERE project=? AND environment=? AND service_id=?',(d['project'],d['environment'],sid))
+            else:db.execute('INSERT INTO ingress_backend_bindings VALUES(?,?,?,?,?,?)',(d['project'],d['environment'],sid,digest(d),1,registry.canonical(backend)))
         result=db.execute('UPDATE ingress_route_heads SET generation=?,routes=? WHERE project=? AND environment=? AND gateway_digest=? AND generation=? AND routes=?',(document['after']['generation'],registry.canonical(document['after']['routes']),d['project'],d['environment'],digest(d),document['before']['generation'],registry.canonical(document['before']['routes'])))
         if result.rowcount!=1:raise GatewayError('Gateway generation CAS failed.')
         generations.phase(db,operation_id,'reload-intent','committed')
     return binding
+
+
+def apply_route_addition(db,definition,operation_id,*,root,docker,authorize):
+    return _apply_route_transition(db,definition,operation_id,root=root,docker=docker,authorize=authorize,kind='addition')
+
+
+def prepare_gateway_proof_refresh(db,definition,operation_id,*,root,docker,authorize):
+    """Capture committed binding changes; caller serializes delivery and routing."""
+    d=_validate(definition);authorize()
+    if d['schema_version']!=3:raise GatewayError('Proof refresh requires an explicitly provisioned schema-3 gateway.')
+    if not isinstance(operation_id,str) or not re.fullmatch('[A-Za-z0-9-]{16,100}',operation_id):raise GatewayError('Invalid proof refresh operation identity.')
+    generations.initialize(db)
+    old=generations.operation(db,operation_id)
+    if old:
+        document=old['document']
+        if document.get('kind')!='proof-refresh' or document['gateway_digest']!=digest(d) or document['root']!=str(Path(root).resolve()):raise GatewayError('Proof refresh replay differs.')
+        return old
+    binding=verify_gateway(db,d,root=root,docker=docker,authorize=authorize)
+    before=generations.head(db,d);current=ingress_bindings.current_routes(db,d)
+    # Only backend definition/container pins may advance. Route ownership is fixed.
+    stable=lambda rows:sorted(({k:r[k] for k in ('hostname','service_id','alias','http_endpoint')} for r in rows),key=lambda r:r['hostname'])
+    if stable(before['routes'])!=stable(current):raise GatewayError('Proof refresh cannot add or change hostname, service, alias or endpoint.')
+    _validate(dict(d,routes=current))
+    for route in current:
+        actual,network=_backend(db,d['project'],d['environment'],route['service_id'],docker)
+        if actual!={k:v for k,v in route.items() if k!='hostname'} or network['Id']!=d['application_network_id']:raise GatewayError('Proof refresh backend is not currently verified.')
+    changed=before['routes']!=current
+    after={'generation':before['generation']+int(changed),'routes':current}
+    document={'kind':'proof-refresh','gateway_digest':digest(d),'root':str(Path(root).resolve()),'before':before,'after':after,
+        'backends':current,'container_id':binding['container_id'],'transport_id':binding['transport_network_id'],
+        'previous':_effective_config(db,d),'candidate':render_nginx(dict(d,routes=current),generation_token=generations.token(d,after))}
+    with registry.transaction(db):
+        authorize()
+        if generations.head(db,d)!=before or ingress_bindings.current_routes(db,d)!=current:raise GatewayError('Proof evidence changed before preparation.')
+        if generations.pending(db,d['project'],d['environment']):raise GatewayError('Another route operation requires recovery.')
+        db.execute('INSERT INTO ingress_route_operations VALUES(?,?,?,?,?)',(operation_id,d['project'],d['environment'],registry.canonical(document),'prepared' if changed else 'committed'))
+    return generations.operation(db,operation_id)
+
+
+def refresh_gateway_proof(db,definition,operation_id,*,root,docker,authorize):
+    prepare_gateway_proof_refresh(db,definition,operation_id,root=root,docker=docker,authorize=authorize)
+    return _apply_route_transition(db,definition,operation_id,root=root,docker=docker,authorize=authorize,kind='proof-refresh')
+
+
+def recover_gateway_proof(db,definition,operation_id,*,root,docker,authorize):
+    return _apply_route_transition(db,definition,operation_id,root=root,docker=docker,authorize=authorize,kind='proof-refresh')
 
 
 def recover_route_addition(db,definition,operation_id,*,root,docker,authorize):
@@ -586,7 +634,7 @@ def retry_aborted_route_addition(db,definition,operation_id,*,root,docker,author
     d=_validate(definition);authorize();operation=generations.operation(db,operation_id)
     if not operation or operation['phase']!='aborted':raise GatewayError('Only an aborted pre-signal addition can be retried.')
     old=operation['document']
-    if old.get('abort_reason')!='pre-signal-failure' or old['gateway_digest']!=digest(d) or old['root']!=str(Path(root).resolve()):
+    if old.get('kind','addition')!='addition' or old.get('abort_reason')!='pre-signal-failure' or old['gateway_digest']!=digest(d) or old['root']!=str(Path(root).resolve()):
         raise GatewayError('Aborted route intent is not eligible for safe retry.')
     history=copy.deepcopy(old.get('attempt_history',[]))
     if len(history)>=16:raise GatewayError('Route retry history reached its bound; administrative reconciliation is required.')

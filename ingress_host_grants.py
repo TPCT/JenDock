@@ -59,6 +59,21 @@ class HostGrantIssuer:
             ops.recheck_credential(self.db,principal)
             source=definition.get('source_environment')
             if source in registry.ENVIRONMENTS and principal.allowed_environments is not None and (definition['project'],source) not in principal.allowed_environments:raise ValueError('Domain source environment is not authorized')
+            # Initial grant/activation retains all accepted pins. Only an exact
+            # committed observation journal may follow managed delivery CAS;
+            # the original definition still identifies the published grant.
+            import ingress
+            current=ingress._definition(self.db,principal,definition['project'],definition['environment'],
+                                        {key:definition[key] for key in ingress.FIELDS},'domains:create')
+            if current!=definition:
+                execution=None
+                if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_executions'").fetchone():
+                    execution=self.db.execute('SELECT * FROM domain_executions WHERE operation_id=?',(operation['id'],)).fetchone()
+                if (not execution or execution['definition_id']!=row['definition_id']
+                        or execution['definition_digest']!=row['digest']):
+                    raise ValueError('Domain evidence changed before a committed observation')
+                import domain_execution
+                domain_execution._current_authority(self.db,principal,dict(operation),definition,execution)
         authorize()
         runtime=self.db.execute('SELECT * FROM ingress_runtime_intents WHERE project=? AND environment=?',(definition['project'],definition['environment'])).fetchone()
         reserved=self.db.execute('SELECT * FROM ingress_ports WHERE project=? AND environment=?',(definition['project'],definition['environment'])).fetchone()

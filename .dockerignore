@@ -46,6 +46,7 @@ frontend/dist
 
 !ingress_capacity.py
 !ingress_runtime.py
+!ingress_proof_refresh.py
 !ingress_ports.py
 !ingress_bindings.py
 !ingress.py
@@ -59,3 +60,5 @@ frontend/dist
 
 !domain_external_flow.py
 !ingress_external.py
+
+!domain_authority.py

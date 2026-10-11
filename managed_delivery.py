@@ -221,7 +221,7 @@ def renew_claim(db, job_id, worker, lease_seconds=120):
         db.execute('UPDATE managed_deliveries SET expires=? WHERE job_id=? AND worker=?', (time.time()+lease_seconds, job_id, worker))
 
 
-def _advance_ingress(db, entry, definition_id, definition, binding):
+def _advance_ingress(db, job_id, entry, definition_id, definition, binding):
     """Caller atomically commits application binding and per-service route CAS."""
     import ingress_bindings
     snapshot = entry.get('ingress_current', entry.get('ingress_snapshot'))
@@ -229,6 +229,9 @@ def _advance_ingress(db, entry, definition_id, definition, binding):
         definition_digest=services.digest(definition), container_id=binding['container_id'],
         alias=binding['compose_service'], http_endpoint=definition['artifact'].get('http_endpoint'))
     entry['ingress_current'] = ingress_bindings.capture(db, definition['project'], definition['environment'], entry['service_id'])
+    if entry['ingress_current'] is not None:
+        import ingress_proof_refresh
+        ingress_proof_refresh.enqueue(db,job_id)
 
 
 def complete_service(db, job_id, worker, service_id, verified_binding):
@@ -251,7 +254,7 @@ def complete_service(db, job_id, worker, service_id, verified_binding):
                              (entry['next_definition_id'], 'running', now, service_id, entry['definition_id'])).rowcount
         if changed != 1: raise ValueError('Managed service changed during completion.')
         db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(verified_binding), now, service_id))
-        _advance_ingress(db, entry, entry['next_definition_id'], definition, verified_binding)
+        _advance_ingress(db, job_id, entry, entry['next_definition_id'], definition, verified_binding)
         entry.update(state='succeeded', verified_binding=copy.deepcopy(verified_binding))
         done = all(item['state'] in ('succeeded','skipped-stopped') for item in plan['services'])
         _save(db, job_id, plan, 'succeeded' if done else 'running')
@@ -302,7 +305,7 @@ def rollback_service(db, job_id, worker, service_id, verified_binding):
                 or not 0 <= time.time()-verified_binding['observed'] <= 90):
             raise ValueError('Verified restored binding is invalid.')
         db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(verified_binding),time.time(),service_id))
-        _advance_ingress(db, entry, entry['definition_id'], entry['definition'], verified_binding)
+        _advance_ingress(db, job_id, entry, entry['definition_id'], entry['definition'], verified_binding)
         entry.update(state='rolled-back',verified_binding=copy.deepcopy(verified_binding))
         _save(db,job_id,plan,'running')
     return public(db,job_id)
@@ -414,7 +417,7 @@ def finish_recovery(db, job_id, worker, outcomes):
                                  (target_id,binding['state'],time.time(),entry['service_id'],current_id)).rowcount
             if changed != 1: raise ValueError('Managed service changed during recovery.')
             db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(binding),time.time(),entry['service_id']))
-            _advance_ingress(db, entry, target_id, definition, binding)
+            _advance_ingress(db, job_id, entry, target_id, definition, binding)
             status = 'succeeded' if outcome == 'new' else ('skipped-stopped' if stopped else ('rolled-back' if entry['state'] == 'rolled-back' else 'unchanged'))
             entry.update(state=status, verified_binding=copy.deepcopy(binding))
             if outcome == 'old' and not stopped: any_old = True

@@ -813,6 +813,13 @@ def recover_managed_deliveries(db):
     return changed
 
 
+def process_delivery_proof_once(db):
+    import ingress_proof_refresh
+    with control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists():return False
+        return ingress_proof_refresh.process_once(db,root=control.ROOT / 'managed-ingress',docker=DOCKER)
+
+
 def resume_managed_deliveries(db):
     import job_target, artifact_publication
     artifact_publication.initialize(db)
@@ -963,6 +970,7 @@ def main():
                 artifact_publication.process(db, inspect_artifact_image)
                 recover_managed_deliveries(db)
                 resume_managed_deliveries(db)
+                process_delivery_proof_once(db)
                 process_service_once(db)
                 try:
                     process_domain_once(db)
