@@ -138,6 +138,66 @@ def catalog(db, project):
     return result
 
 
+class HistoryEvidenceError(ValueError):
+    pass
+
+
+def versions(db, project, environment, *, limit=25, cursor=None):
+    """Bounded history of verified artifacts; associations are persisted evidence only."""
+    initialize(db)
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError('Choose a history page size between 1 and 100.')
+    if cursor is not None and (not isinstance(cursor, str) or not re.fullmatch(r'[a-f0-9-]{36}', cursor)):
+        raise ValueError('The history cursor is invalid. Reload version history.')
+    # CASE guards JSON access even for malformed documents. Scope must be known
+    # before filtering; otherwise corrupted records would masquerade as absence.
+    if db.execute('''SELECT 1 FROM service_artifacts WHERE project=? AND
+            CASE WHEN json_valid(document) THEN COALESCE(
+                json_type(document)='object' AND json_type(document,'$.source_environment')='text'
+                AND json_extract(document,'$.source_environment') IN ('development','production','legacy-unclassified'), 0)
+            ELSE 0 END = 0 LIMIT 1''', (project,)).fetchone():
+        raise HistoryEvidenceError('Version history evidence is malformed. It cannot be presented as an empty history.')
+    query = """SELECT artifact.id,artifact.created AS published_at,COALESCE(source.created,artifact.created) AS source_created,
+        artifact.job_id AS source_job FROM service_artifacts artifact LEFT JOIN jobs source ON source.id=artifact.job_id
+        WHERE artifact.project=? AND json_extract(artifact.document,'$.source_environment')=?"""
+    parameters = [project, environment]
+    if cursor is not None:
+        anchor = db.execute(query + ' AND artifact.id=?', (*parameters, cursor)).fetchone()
+        if anchor is None: raise ValueError('The history cursor does not belong to this environment.')
+        query += ' AND (COALESCE(source.created,artifact.created),artifact.job_id,artifact.created,artifact.id) < (?,?,?,?)'
+        parameters += [anchor['source_created'], anchor['source_job'], anchor['published_at'], anchor['id']]
+    query += ' ORDER BY COALESCE(source.created,artifact.created) DESC,artifact.job_id DESC,artifact.created DESC,artifact.id DESC LIMIT ?'
+    rows = db.execute(query, (*parameters, limit + 1)).fetchall()
+    associations = {}
+    for row in db.execute("""SELECT s.id,s.name,s.environment,s.state,s.updated,d.document,d.digest,
+            b.document AS binding FROM managed_services s LEFT JOIN service_definitions d ON d.id=s.definition_id
+            LEFT JOIN service_bindings b ON b.service_id=s.id WHERE s.project=? AND s.environment=?
+            ORDER BY s.name,s.id""", (project, environment)):
+        try:
+            definition = json.loads(row['document'])
+            binding = json.loads(row['binding']) if row['binding'] else {}
+            if (not isinstance(definition, dict) or digest(definition) != row['digest']
+                    or not isinstance(definition.get('artifact_id'), str) or not isinstance(binding, dict)):
+                raise ValueError()
+            associations.setdefault(definition['artifact_id'], []).append({
+                'service_id': row['id'], 'name': row['name'], 'environment': row['environment'],
+                'recorded_state': row['state'], 'recorded_at': row['updated'], 'container_id': binding.get('container_id')})
+        except (ValueError, KeyError, TypeError):
+            raise HistoryEvidenceError('Recorded service association evidence is inconsistent.') from None
+    result = []
+    for row in rows[:limit]:
+        try: artifact = artifact_for_service(db, project, row['id'])
+        except (ValueError, KeyError, TypeError):
+            raise HistoryEvidenceError('A historical artifact cannot be verified against its recorded source. History is unavailable until the evidence is repaired.') from None
+        result.append({key: artifact[key] for key in ('template_id', 'template_revision', 'source_job',
+            'source_sha', 'source_environment', 'image_name', 'image')} | {
+            'artifact_id': artifact['id'], 'source_created': row['source_created'],
+            'published_at': row['published_at'], 'image_availability': 'not_checked',
+            'recorded_services': associations.get(artifact['id'], [])})
+    return {'project': project, 'environment': environment, 'versions': result,
+            'next_cursor': rows[limit - 1]['id'] if len(rows) > limit else None, 'evidence': 'recorded'}
+
+
 def reservation_totals(db, project, environment):
     initialize(db)
     row = db.execute("SELECT COALESCE(SUM(memory_mib),0),COALESCE(SUM(cpu),0) FROM service_reservations WHERE project=? AND environment=? AND state='held'", (project, environment)).fetchone()

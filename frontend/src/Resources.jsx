@@ -234,7 +234,7 @@ export default function Resources({
   const env = draft.environments[environment];
   const containers = verifiedServices.filter((row) => row.Names && row.ID);
   return (
-    <Stack spacing={3} sx={{ py: 3, maxWidth: 1000, minWidth: 0 }}>
+    <Stack spacing={2} sx={{ maxWidth: 1000, minWidth: 0 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Box>
           <Typography component="h2" variant="h5" sx={{ display: "inline" }}>
@@ -304,7 +304,7 @@ export default function Resources({
         />
       </Tabs>
       <Stack
-        spacing={3}
+        spacing={2}
         role="tabpanel"
         id="resources-panel"
         aria-labelledby={`resources-${environment}`}

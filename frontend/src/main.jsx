@@ -80,6 +80,7 @@ import {
 } from "@mui/material";
 import Resources from "./Resources.jsx";
 import ServiceCreation from "./ServiceCreation.jsx";
+import ServiceVersions from "./ServiceVersions.jsx";
 import { clearServiceDrafts } from "./serviceCreation.js";
 import BuildProfile from "./BuildProfile.jsx";
 import EnvironmentSettings from "./EnvironmentSettings.jsx";
@@ -102,6 +103,7 @@ import {
 } from "./model.js";
 import "./style.css";
 import "./github.css";
+import "./spacing.css";
 const ContainerPage = deferredScreen(() => import("./ContainerPage.jsx"), "container");
 const RunDetail = deferredScreen(() => import("./RunDetail.jsx"), "deployment");
 const Telemetry = deferredScreen(() => import("./Telemetry.jsx"), "telemetry");
@@ -226,11 +228,11 @@ function Status({ value }) {
 }
 function Empty({ title, children }) {
   return (
-    <Box sx={{ py: 5, textAlign: "center" }}>
+    <Box className="empty-state">
       <Typography variant="h6">{title}</Typography>
-      <Typography color="text.secondary" sx={{ mt: 1 }}>
+      {children && <Typography component="div" color="text.secondary" className="empty-state-description">
         {children}
-      </Typography>
+      </Typography>}
     </Box>
   );
 }
@@ -466,8 +468,8 @@ function App() {
             textTransform: "none",
             fontSize: 13,
             minWidth: 0,
-            padding: "16px 0",
-            marginRight: 26,
+            padding: "12px 0",
+            marginRight: 24,
           },
         },
       },
@@ -496,7 +498,7 @@ function App() {
       MuiDialogTitle: {
         styleOverrides: {
           root: ({ theme }) => ({
-            padding: "20px 24px",
+            padding: "16px var(--space-page)",
             borderBottom: `1px solid ${theme.palette.divider}`,
             flexShrink: 0,
             fontSize: 20,
@@ -507,8 +509,8 @@ function App() {
       MuiDialogContent: {
         styleOverrides: {
           root: {
-            padding: "24px",
-            "&.MuiDialogContent-root": { paddingTop: 24 },
+            padding: "16px var(--space-page)",
+            "&.MuiDialogContent-root": { paddingTop: 16 },
             overflowY: "auto",
           },
         },
@@ -516,7 +518,7 @@ function App() {
       MuiDialogActions: {
         styleOverrides: {
           root: ({ theme }) => ({
-            padding: "16px 24px",
+            padding: "12px var(--space-page)",
             borderTop: `1px solid ${theme.palette.divider}`,
             flexShrink: 0,
             flexWrap: "wrap",
@@ -1270,8 +1272,8 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
       <div className="release-band"><div><span>Last verified deployment</span><strong><code>{deployed?.sha?.slice(0,9)||"Not recorded"}</code><small>{deployed?date(deployed.updated):environmentLabel}</small></strong></div><div><span>Deployment branch</span><strong><Branch sx={{fontSize:14}}/>{current?.environment?.branch || "Unavailable"}<small>{current?.environment?.automatic?"Automatic preference on":"Automatic preference off"}</small></strong></div><div><span>Latest run</span><strong>{latest?<><Status value={latest.status}/><Button size="small" onClick={()=>navigate("job/"+latest.id)}>View run<Arrow sx={{fontSize:13,ml:.5}}/></Button></>:"No runs recorded"}</strong></div></div>
       <div className="section-heading"><Typography variant="h6">Containers <span className="count">{containers.length}</span></Typography><Button onClick={()=>{setTab(1);onTabChange?.("containers");}}>View containers</Button></div>{containerList}
       <Box sx={{mt:3,display:'flex',alignItems:'center',gap:1}}><Button variant="outlined" disabled={loading || pending || !!workspaceError || !(current?.capabilities?.build?.enabled || current?.capabilities?.deploy?.enabled)} onClick={()=>openBuild(id,null,{environment,branch:current.environment.branch,project_revision:current.project.revision,environment_revision:current.environment.revision,recipe_revision:current.environment.recipe_revision,build_source:current.build_source,deploy_enabled:!!current.capabilities?.deploy?.enabled})}>{`Build ${environmentLabel.toLowerCase()}`}</Button><Typography color="text.secondary" fontSize={13}>{current?.capabilities?.build?.reason || (!current?.capabilities?.build?.enabled ? "Environment deployment is not configured." : "")}</Typography></Box>
-    </> : tab===1 ? containerList : tab===2 ? runs.length?<RunList jobs={runs}/>:<Empty title={`No ${environmentLabel.toLowerCase()} runs`}>Runs appear here when their recorded target belongs to this environment.</Empty> : null}
-    {(unassigned || existing.length || legacyRuns.length) && <section className="unassigned-workload"><div><Typography variant="h6">Existing workload</Typography><Typography color="text.secondary" fontSize={13}>Environment unassigned <Hint label="About the existing workload">These containers and historical runs have not been verified as Development or Production. Their existing management remains available separately.</Hint></Typography></div><div className="unassigned-workload-actions">{unassigned&&<Button variant="outlined" disabled={pending} onClick={()=>{if(!adoptionDirty)setAdoptionEnvironment(environment);setAdoptionOpen(true);}}>{adoptionDirty?'Check linking request':'Link to '+environmentLabel}</Button>}<Button variant="outlined" onClick={()=>setLegacyView("containers")}>Containers{existing.length?` (${existing.length})`:""}</Button><Button color="inherit" aria-haspopup="menu" aria-controls={workloadMenu ? "workload-actions" : undefined} aria-expanded={!!workloadMenu} onClick={event=>setWorkloadMenu(event.currentTarget)}>More actions</Button><ActionMenu id="workload-actions" anchorEl={workloadMenu} open={!!workloadMenu} onClose={()=>setWorkloadMenu(null)}><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("history");}}><ListItemIcon><History fontSize="small"/></ListItemIcon>Deployment history</MenuItem><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("settings");}}><ListItemIcon><Settings fontSize="small"/></ListItemIcon>Deployment settings</MenuItem>{p.build_ready&&<MenuItem disabled={pending} onClick={()=>{setWorkloadMenu(null);openBuild(id,null,{environment:"legacy-unclassified"});}}><ListItemIcon><PlayArrow fontSize="small"/></ListItemIcon>Build existing workload</MenuItem>}</ActionMenu></div></section>}
+    </> : tab===1 ? <>{containerList}<ServiceVersions key={id+":"+environment} project={id} environment={environment} api={api} navigate={navigate} refreshKey={reload}/></> : tab===2 ? runs.length?<RunList jobs={runs}/>:<Empty title={`No ${environmentLabel.toLowerCase()} runs`}>Runs appear here when their recorded target belongs to this environment.</Empty> : null}
+    {!!(unassigned || existing.length || legacyRuns.length) && <section className="unassigned-workload"><div><Typography variant="h6">Existing workload</Typography><Typography color="text.secondary" fontSize={13}>Environment unassigned <Hint label="About the existing workload">These containers and historical runs have not been verified as Development or Production. Their existing management remains available separately.</Hint></Typography></div><div className="unassigned-workload-actions">{unassigned&&<Button variant="outlined" disabled={pending} onClick={()=>{if(!adoptionDirty)setAdoptionEnvironment(environment);setAdoptionOpen(true);}}>{adoptionDirty?'Check linking request':'Link to '+environmentLabel}</Button>}<Button variant="outlined" onClick={()=>setLegacyView("containers")}>Containers{existing.length?` (${existing.length})`:""}</Button><Button color="inherit" aria-haspopup="menu" aria-controls={workloadMenu ? "workload-actions" : undefined} aria-expanded={!!workloadMenu} onClick={event=>setWorkloadMenu(event.currentTarget)}>More actions</Button><ActionMenu id="workload-actions" anchorEl={workloadMenu} open={!!workloadMenu} onClose={()=>setWorkloadMenu(null)}><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("history");}}><ListItemIcon><History fontSize="small"/></ListItemIcon>Deployment history</MenuItem><MenuItem onClick={()=>{setWorkloadMenu(null);setLegacyView("settings");}}><ListItemIcon><Settings fontSize="small"/></ListItemIcon>Deployment settings</MenuItem>{p.build_ready&&<MenuItem disabled={pending} onClick={()=>{setWorkloadMenu(null);openBuild(id,null,{environment:"legacy-unclassified"});}}><ListItemIcon><PlayArrow fontSize="small"/></ListItemIcon>Build existing workload</MenuItem>}</ActionMenu></div></section>}
     <AdoptWorkload open={adoptionOpen} project={id} environment={adoptionEnvironment} api={api} onDirty={setAdoptionDirty} onPending={setAdoptionPending} onClose={()=>setAdoptionOpen(false)} onLinked={async(project)=>{setLinkedProject(project);await refresh();setReload(value=>value+1);setAdoptionOpen(false);}}/>
     <Dialog open={!!legacyView} onClose={()=>!settingsPending&&setLegacyView(null)} keepMounted fullWidth maxWidth="lg" aria-labelledby="legacy-workload-title"><DialogTitle id="legacy-workload-title">Existing workload · Environment unassigned</DialogTitle><DialogContent dividers><Box sx={{display:legacyView==="containers"?"block":"none"}}>{existing.length?<Services id={id} items={existing}/>:<Empty title="Container inventory unavailable">{workspaceError || "Reload the workspace to inspect the unassigned container inventory."}<Button onClick={()=>setReload(value=>value+1)}>Reload</Button></Empty>}</Box><Box sx={{display:legacyView==="history"?"block":"none"}}>{legacyRuns.length?<RunList jobs={legacyRuns}/>:<Empty title="No unassigned runs recorded"/>}</Box><Box sx={{display:legacyView==="settings"?"block":"none"}}><ProjectSettings id={id} setDirty={setSettingsDirty} setOperationPending={setSettingsPending} onEnvironments={()=>{setLegacyView(null);setTab(3);}}/></Box></DialogContent><DialogActions><Button disabled={settingsPending} onClick={()=>setLegacyView(null)}>Close</Button></DialogActions></Dialog>
     <Dialog open={budgetsOpen} onClose={()=>!resourcesPending&&setBudgetsOpen(false)} keepMounted fullWidth maxWidth="md" aria-labelledby="project-budgets-title"><DialogTitle id="project-budgets-title">Project budgets · Both environments</DialogTitle><DialogContent dividers>{budgetsViewed&&<Resources key={id} id={id} services={servicesFor(data,p)} verifiedServices={workspaceError ? [] : containers} verifiedEnvironment={environment} footerContainer={resourceFooter} navigate={route=>{setBudgetsOpen(false);navigate(route);}} api={api} setDirty={setResourcesDirty} setOperationPending={setResourcesPending}/>}</DialogContent><DialogActions><Box component="span" ref={setResourceFooter} sx={{display:"contents"}}/><Button disabled={resourcesPending} onClick={()=>setBudgetsOpen(false)}>Close</Button></DialogActions></Dialog>

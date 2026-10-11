@@ -64,3 +64,7 @@ Review findings already addressed: nested non-reentrant worker lock, managed dis
 ## Interrupted managed delivery — 2026-10-11
 
 Checkpoint 8de260a implements local managed build-to-deploy. Read-only runtime reconciliation and durable recovery leases now verified via an actual Docker crash-before-CAS fixture, including multi-pass peer convergence without replaying create/start. Per-container outcomes and reconciliation-aware rerun state reviewed on desktop/mobile. Ambiguous records lacking exact identity remain unresolved by design; broader platform completion and production activation are still open.
+
+## Artifact history and shared spacing — 2026-10-11
+
+Added scoped immutable artifact history with stable pagination and explicit integrity failures; recorded service associations are distinguished from live runtime proof. Real local HTTP/SQLite browser pagination and environment separation passed on synthetic test records. Owner's global padding/margin correction is implemented through shared tokens, Empty, forms, dialogs, page gutters, lists and run styles; representative desktop/mobile rendered evidence recorded in `docs/operations/versions-spacing-acceptance-20261011.md`. Whole-product and production acceptance remain open.

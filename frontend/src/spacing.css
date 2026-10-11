@@ -1,0 +1,44 @@
+/* Shared operational density. Keep these tokens available to portalled dialogs. */
+:root {
+  --space-inline: 8px;
+  --space-group: 12px;
+  --space-panel: 16px;
+  --space-section: 24px;
+  --space-page: 24px;
+}
+.workspace-main > main { padding: var(--space-section) var(--space-page) var(--space-panel); }
+.workspace-top { padding-inline: var(--space-page); }
+.project-heading { gap: var(--space-panel); }
+.project-identity { gap: var(--space-inline); }
+.project-subtitle { margin: 4px 0 0 32px; }
+.project-heading-actions { gap: var(--space-inline); }
+.environment-workspace-bar { margin-top: var(--space-group); gap: 4px var(--space-panel); }
+.project-tabs { margin-top: 0; margin-bottom: var(--space-panel); }
+.project-tabs .MuiTab-root { padding-block: var(--space-group); margin-right: var(--space-section); }
+.section-heading { gap: var(--space-group); margin-bottom: var(--space-group); }
+.project-status, .resource-chart { margin-bottom: var(--space-section); }
+.chart-toolbar { margin-bottom: var(--space-group); }
+.release-band { margin-top: 0; margin-bottom: var(--space-section); padding: var(--space-panel); gap: var(--space-panel); }
+.release-band > div > span { margin-bottom: var(--space-inline); }
+.performance-section { margin-top: var(--space-section); padding-top: var(--space-panel); }
+.unassigned-workload { margin-top: var(--space-section); padding-top: var(--space-panel); }
+.empty-state { padding: var(--space-panel); text-align: center; }
+.empty-state-description { margin-top: var(--space-inline) !important; font-size: 14px !important; }
+.directory-row, .deployment-row { padding: var(--space-group) var(--space-panel); gap: var(--space-group); }
+.service-line { min-height: 64px; padding-block: var(--space-inline); }
+.event-row { padding-block: var(--space-panel); gap: var(--space-panel); }
+.fleet-strip { margin-block: var(--space-panel); gap: var(--space-panel); }
+.workspace-main > main > footer { margin-top: var(--space-section); padding-block: var(--space-panel); }
+@media (max-width: 800px) {
+  :root { --space-page: 16px; }
+  .workspace-main > main { padding-top: var(--space-panel); }
+  .project-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-inline); }
+  .project-heading > div:first-child, .project-identity { min-width: 0; }
+  .project-heading-actions { margin: 0; align-self: start; }
+  .project-subtitle { margin-left: 0; }
+  .project-tabs .MuiTab-root { margin-right: var(--space-panel); }
+  .service-line { padding: var(--space-group); gap: var(--space-inline); }
+  .directory-row, .deployment-row { padding: var(--space-group); }
+  .directory-row { padding-right: var(--space-section); }
+  .release-band { padding: var(--space-panel); }
+}

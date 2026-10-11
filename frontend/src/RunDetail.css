@@ -100,7 +100,7 @@
   gap: 20px;
   border-top: 1px solid var(--run-border);
   border-bottom: 1px solid var(--run-border);
-  padding: 20px 0;
+  padding: var(--space-panel) 0;
 }
 .run-detail .run-facts dt {
   font-size: 12px;
@@ -133,8 +133,8 @@
 .run-detail .run-workspace {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
-  gap: 28px;
-  margin-top: 28px;
+  gap: var(--space-section);
+  margin-top: var(--space-section);
 }
 .run-detail .run-sidebar {
   border-right: 1px solid var(--run-border);
@@ -340,7 +340,7 @@
   align-items: center;
   gap: 16px;
   flex-direction: column;
-  padding: 48px 20px;
+  padding: var(--space-panel);
 }
 .run-cancel-facts {
   display: grid;

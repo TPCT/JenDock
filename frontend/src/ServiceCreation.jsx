@@ -409,7 +409,7 @@ export default function ServiceCreation({
           </Box>
         </DialogTitle>
         <DialogContent dividers>
-          <Stack spacing={3}>
+          <Stack spacing={2}>
             <Typography fontWeight={600}>
               {project} · {label}
             </Typography>

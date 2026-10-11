@@ -210,7 +210,7 @@ function EnvironmentProfile({
           </Typography>
         </DialogTitle>
         <DialogContent dividers>
-          <Stack spacing={3}>
+          <Stack spacing={2}>
             {error && <Alert severity="error">{error}</Alert>}
             {message && <Alert severity="success">{message}</Alert>}
             {confirmReload && (

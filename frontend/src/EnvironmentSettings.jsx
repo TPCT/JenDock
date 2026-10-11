@@ -209,7 +209,7 @@ export default function EnvironmentSettings({
     }
   };
   return (
-    <Stack spacing={3} sx={{ py: 3, maxWidth: 900, minWidth: 0 }}>
+    <Stack spacing={2} sx={{ pb: 2, maxWidth: 900, minWidth: 0 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Box>
           <Typography component="h2" variant="h5" sx={{ display: "inline" }}>
@@ -243,7 +243,7 @@ export default function EnvironmentSettings({
         </Alert>
       )}
       <Stack
-        spacing={3}
+        spacing={2}
         id="environment-settings-panel"
         aria-label={`${names[environment]} deployment settings`}
       >

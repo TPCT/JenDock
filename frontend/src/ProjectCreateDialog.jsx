@@ -214,7 +214,7 @@ export default function ProjectCreateDialog({
         </Hint>
       </DialogTitle>
       <DialogContent dividers>
-        <Stack spacing={3}>
+        <Stack spacing={2}>
           {error && (
             <Alert severity="error" sx={{ overflowWrap: "anywhere" }}>
               {error}

@@ -36,7 +36,7 @@ export default function Field({
           display: "block",
           fontSize: 13,
           fontWeight: 600,
-          mb: 1,
+          mb: 0.75,
           color: props.error ? "error.main" : "text.primary",
         }}
       >

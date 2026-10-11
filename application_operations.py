@@ -238,6 +238,17 @@ def list_services(db, principal, project, environment):
     return managed_services.list_services(db, project, environment)
 
 
+def service_versions(db, principal, project, environment, *, limit=25, cursor=None):
+    import managed_services
+    _service_authorize(db, principal, 'services:read', project, environment)
+    try:
+        return managed_services.versions(db, project, environment, limit=limit, cursor=cursor)
+    except managed_services.HistoryEvidenceError as error:
+        raise OperationError('history_evidence_unavailable', str(error), 409) from None
+    except ValueError as error:
+        raise OperationError('invalid_history_request', str(error), 400) from None
+
+
 def get_service(db, principal, service_id):
     if not isinstance(principal,Principal) or 'services:read' not in principal.scopes:
         raise OperationError('forbidden','Service access is not permitted.',403)

@@ -82,3 +82,14 @@ remain Recorded. Historical records without events say that stage history is
 unavailable. Validation retries preserve their mode; validated runs explicitly
 offer Deploy from branch. Historical missing branches are not inferred from the
 current tracked branch.
+
+## Shared operational spacing
+
+`frontend/src/spacing.css` owns the shared spacing scale: 8px between controls,
+12px within compact rows, 16px for panel padding and form groups, and 24px between
+sections. The workspace header and page share a 24px horizontal gutter on desktop
+and 16px on mobile. Empty states use 16px padding and omit absent descriptions.
+Tabs separate their content by 16px without an extra top gap. Dialog titles and
+content use 16px vertical padding; action footers use 12px and the same responsive
+horizontal gutter. Shared field labels remain 6px above inputs. Preserve 40px
+icon-button touch targets while making the surrounding layout more compact.

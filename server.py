@@ -120,7 +120,7 @@ class Application:
                     return 200,{'connection':connection,'message':message}
                 except integrations.IntegrationError as error:
                     return 409,{'error':str(error)}
-            if action in ('service-templates', 'service-list', 'service-get', 'service-create', 'service-resume'):
+            if action in ('service-templates', 'service-list', 'service-versions', 'service-get', 'service-create', 'service-resume'):
                 import application_operations as operations
                 ensure_registry(db, self.config)
                 principal = operations.Principal(session['username'], 'console',
@@ -130,6 +130,9 @@ class Application:
                         return 202, operations.resume_service(db, principal, body.get('operation_id'))
                     if action == 'service-templates':
                         return 200, operations.service_templates(db, principal, body.get('project'), body.get('environment'))
+                    if action == 'service-versions':
+                        return 200, operations.service_versions(db, principal, body.get('project'), body.get('environment'),
+                            limit=body.get('limit', 25), cursor=body.get('cursor'))
                     if action == 'service-list':
                         return 200, {'services': operations.list_services(db, principal, body.get('project'), body.get('environment'))}
                     if action == 'service-get':

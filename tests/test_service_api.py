@@ -36,6 +36,16 @@ class ServiceApiTests(unittest.TestCase):
                 self.assertEqual((code, body), (200, expected))
                 self.assertEqual(call.call_args.args[-2:], ('test', 'production'))
 
+    def test_version_history_forwards_scoped_pagination(self):
+        result = {'versions': [], 'next_cursor': None, 'evidence': 'recorded'}
+        with patch.object(operations, 'service_versions', return_value=result) as call:
+            code, body = self.app.action(self.session, {'action': 'service-versions', 'project': 'test',
+                'environment': 'production', 'limit': 10, 'cursor': 'opaque-cursor'})
+        self.assertEqual((code, body), (200, result))
+        self.assertEqual(call.call_args.args[-2:], ('test', 'production'))
+        self.assertEqual(call.call_args.kwargs, {'limit': 10, 'cursor': 'opaque-cursor'})
+        self.assertIn('services:read', call.call_args.args[1].scopes)
+
     def test_typed_failure_preserves_recoverable_code(self):
         with patch.object(operations, 'create_service', side_effect=operations.OperationError('capacity_unavailable', 'Choose a smaller allocation.')):
             code, body = self.app.action(self.session, {'action': 'service-create', 'project': 'test',
