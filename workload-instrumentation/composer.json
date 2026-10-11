@@ -1,0 +1,1 @@
+{"name":"shiftcodes/deploy-monitor-workloads","description":"Scoped Laravel database queue and scheduler instrumentation","version":"1.0.0","type":"library","license":"MIT","require":{"php":"^8.2","laravel/framework":"12.69.3"},"autoload":{"psr-4":{"Shiftcodes\\Workloads\\":"src/"}},"extra":{"laravel":{"providers":["Shiftcodes\\Workloads\\WorkloadServiceProvider"]}}}

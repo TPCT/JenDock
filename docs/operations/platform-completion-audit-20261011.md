@@ -281,3 +281,18 @@ terminal result displayed without redispatch, missing environment query resolved
 conflicting environment blocked, platform variables protected. Evidence is under
 /tmp/container-recovery-ui-evidence/. Fixture exit 0 and exact cleanup confirmed.
 This is browser workflow acceptance, not proof of actual Docker mutation.
+
+Instrumentation checkpoint: the experimental package pins patched Laravel 12.69.3
+(the earlier 12.35.0 pin was rejected by Composer's advisory checks). Eight unit
+checks and five isolated framework regressions pass. The actual host-PHP/Laravel
+plus disposable Docker PostgreSQL fixture exited 0 in session 6185, covering real
+queue events, atomic single-job retry/receipt replay, business completion,
+scheduler events, no execution during reads, and wrong-scope rejection. Exact
+cleanup, peer inventory and package-source preservation passed. Package digest:
+`b0a6dcf746f0e2a22393bd9ed44e6e020e1e94965b46bf7c3b08f854006aafa5`.
+Evidence: /tmp/live-workload-laravel-four-fixes.log. Four review defects were fixed:
+skipped-task attribution, accepted-timeout heartbeat freshness, ISO worker times,
+and immutable empty schedule registries. Docker-exec identity, public API/MCP/UI
+integration and broader concurrency/interruption acceptance remain required. The
+new WorkloadPanel components are deliberately unintegrated until those boundaries
+exist; neither the artifact gate nor those components prove an operational role.
