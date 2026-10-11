@@ -112,9 +112,10 @@ def projection(db, operation, definition, journal, state, phase='external'):
 def schedule(db):
     """Queue one due read-only check; caller still uses ordinary execution leases."""
     import registry
+    import domain_execution
     with registry.transaction(db):
         now = time.time()
-        rows = db.execute("SELECT operation_id,journal FROM domain_executions WHERE state IN ('ready','awaiting-external') ORDER BY updated LIMIT 100").fetchall()
+        rows = db.execute("SELECT operation_id,journal FROM domain_executions WHERE state IN ('ready','awaiting-external')"+domain_execution.renewal_execution_filter(db)+" ORDER BY updated LIMIT 100").fetchall()
         for row in rows:
             journal = json.loads(row['journal'])
             due = journal.get('external_recheck_at', 0)

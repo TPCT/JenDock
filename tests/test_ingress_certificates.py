@@ -172,3 +172,52 @@ class CertificateIssuanceTests(unittest.TestCase):
             self.assertEqual(len(self.calls),1)
         path.write_text(original);self.request(renew=True)
         command=self.calls[-1];self.assertEqual(command[command.index('--webroot-path')+1],self.config['challenge_root'])
+
+    def test_known_ended_failed_renewal_retry_requires_backoff_and_owned_bytes(self):
+        from unittest.mock import patch
+        self.request()
+        def fail(argv,**kwargs):
+            if '--version' in argv:return b'certbot 5.8.0'
+            self.calls.append(argv)
+            raise certificates.CommandError(ended=True)
+        self.manager.executor=fail
+        self.assertEqual(self.request(renew=True)['status'],'reconciliation-required')
+        status=lambda:self.manager.renewal_status(self.route,self.operation,self.hostname,authorize=self.authorize)
+        self.assertFalse(status()['retryable'])
+        started=self.manager._journal(self.route)['started']
+        with patch.object(certificates.time,'time',return_value=started+301):
+            self.assertTrue(status()['retryable'])
+            self.request(renew=True,retry=True)
+        self.assertEqual(len(self.calls),3)
+        self.assertEqual(self.manager._journal(self.route)['previous_fingerprint'],self.manager._verify(self.files,self.hostname)['fingerprint'])
+
+    def test_unknown_renewal_process_never_becomes_retryable_by_age(self):
+        from unittest.mock import patch
+        self.request();self.lost=True
+        self.assertEqual(self.request(renew=True)['status'],'reconciliation-required')
+        started=self.manager._journal(self.route)['started']
+        with patch.object(certificates.time,'time',return_value=started+301):
+            status=self.manager.renewal_status(self.route,self.operation,self.hostname,authorize=self.authorize)
+            self.assertFalse(status['retryable'])
+            self.request(renew=True,retry=True)
+        self.assertEqual(len(self.calls),2)
+
+    def test_certbot_58_non_due_ari_cache_is_owned_non_executable_metadata(self):
+        self.request()
+        path=Path(self.config['config_dir'])/'renewal'/('deploy-monitor-'+self.route+'.conf')
+        with path.open('a') as stream:stream.write('\n[acme_renewal_info]\nari_retry_after = 2026-10-12T15:04:05\n')
+        result=self.request(renew=True)
+        self.assertEqual(result['status'],'verified')
+
+    def test_ari_cache_rejects_unknown_duplicate_hooks_and_bad_timestamp(self):
+        self.request()
+        path=Path(self.config['config_dir'])/'renewal'/('deploy-monitor-'+self.route+'.conf');original=path.read_text()
+        for metadata in ('[acme_renewal_info]\npre_hook = command\n',
+                         '[acme_renewal_info]\nunknown = 2026-10-12T15:04:05\n',
+                         '[acme_renewal_info]\nari_retry_after = bad\n',
+                         '[acme_renewal_info]\nari_retry_after = 2026-99-12T15:04:05\n',
+                         '[acme_renewal_info]\nari_retry_after = 2026-10-12T15:04:05\nari_retry_after = 2026-10-13T15:04:05\n',
+                         '[acme_renewal_info]\nari_retry_after = 2026-10-12T15:04:05\n[arbitrary]\nx = y\n'):
+            with self.subTest(metadata=metadata):
+                path.write_text(original+'\n'+metadata)
+                with self.assertRaises(ValueError):self.manager._renewal('deploy-monitor-'+self.route,self.hostname)

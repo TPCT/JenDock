@@ -81,3 +81,12 @@ class DomainTLSTests(unittest.TestCase):
         journal['certificate']['not_after']=journal['tls_verified']['not_after']=time.time()-1
         self.db.execute('UPDATE domain_executions SET journal=?',(json.dumps(journal),))
         self.assertEqual(self.status()['tls']['status'],'expired');self.assertFalse(self.status()['ready'])
+
+    def test_invalid_certificate_expiry_cannot_be_projected_as_verified(self):
+        self.tls_until('origin-verified');self.step()
+        journal=json.loads(execution._row(self.db,self.operation)['journal'])
+        for expiry in (float('inf'),float('-inf'),float('nan'),0,-1):
+            with self.subTest(expiry=expiry):
+                journal['certificate']['not_after']=journal['tls_verified']['not_after']=expiry
+                self.db.execute('UPDATE domain_executions SET journal=?',(json.dumps(journal),))
+                with self.assertRaises(ValueError):self.status()

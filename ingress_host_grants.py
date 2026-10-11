@@ -73,7 +73,10 @@ class HostGrantIssuer:
                         or execution['definition_digest']!=row['digest']):
                     raise ValueError('Domain evidence changed before a committed observation')
                 import domain_execution
-                domain_execution._current_authority(self.db,principal,dict(operation),definition,execution)
+                # A grant establishes ownership, not serving readiness. Expired owned
+                # TLS may be renewed; verify_tls and public projection still
+                # enforce current certificate validity independently.
+                domain_execution._current_authority(self.db,principal,dict(operation),definition,execution,allow_expired=True)
         authorize()
         runtime=self.db.execute('SELECT * FROM ingress_runtime_intents WHERE project=? AND environment=?',(definition['project'],definition['environment'])).fetchone()
         reserved=self.db.execute('SELECT * FROM ingress_ports WHERE project=? AND environment=?',(definition['project'],definition['environment'])).fetchone()

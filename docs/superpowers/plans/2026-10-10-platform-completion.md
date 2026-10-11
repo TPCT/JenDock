@@ -1,5 +1,21 @@
 # Dynamic delivery platform completion plan
 
+## Renewal and combined HTTPS checkpoint — 2026-10-11
+
+Local host renewal and worker scheduling now have durable attempt identities,
+bounded scans/backoff, original-authority enforcement, exact generation promotion
+and expiring public evidence. Independent reviews repaired SAN schema mismatch,
+pre-RPC loss, later-cycle history, failed-ended history, malformed-record starvation
+and real Certbot ARI metadata compatibility. 911 backend and 73 frontend tests
+pass; receiver/worker/MCP builds and isolated imports pass. Combined real local
+ACME/Apache/Nginx/Unix RPC acceptance reached Ready in both environments and
+verified non-due renewal replay without duplicate commands/reloads. Full managed
+delivery/recovery/rollback and exact fixture cleanup passed, with peers unchanged.
+See `docs/operations/domain-renewal-acceptance-20261011.md` and
+`docs/operations/domain-https-local-acceptance.md` for limits and evidence.
+Changed-generation live renewal, renewal UI, redirect/legacy upgrades, and public
+provider/production activation remain open alongside the broader checklist below.
+
 > Execute in the existing checkout with explicitly authorized parallel agents. No new worktrees or feature branches. Review each independent slice and integrate sequentially.
 
 **Goal:** Complete the approved monitoring and CI/CD product, with two independent environments, dynamic configuration, usable container tools and verified delivery.

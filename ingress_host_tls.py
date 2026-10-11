@@ -114,6 +114,152 @@ class HostTLSAdapter:
             return self.certificates.request(request['route_id'], request['operation_id'], grant['hostname'],
                 authorize=authorize)
 
+    def _renewal_request(self, request, *, reconcile=False):
+        fields = ('route_id', 'operation_id', 'renewal_id')
+        self.http._request(request, fields if reconcile else fields + ('expected_generation',))
+        if not isinstance(request['renewal_id'], str) or not re.fullmatch('[a-f0-9]{32}', request['renewal_id']):
+            raise ValueError('Invalid renewal identity')
+        if not reconcile and (not isinstance(request['expected_generation'], str)
+                or not re.fullmatch('[a-f0-9]{64}', request['expected_generation'])):
+            raise ValueError('Invalid expected certificate generation')
+
+    def _renewal_authority(self, policy, request):
+        grant = self._context(policy, request)
+        if not callable(self.authorize_certificate):
+            raise ValueError('Certificate authority verification is not configured')
+        self.authorize_certificate(request['route_id'], grant)
+        return grant
+
+    def _renewal_journals(self, policy, request, grant, *, retry=False):
+        pointer=Path(policy['state_dir'])/(request['route_id']+'-renewal.json')
+        def read(path):
+            value=self.http._state(path)
+            if value is None:
+                if self.http._read(path) is not None:raise ValueError('Renewal journal is malformed')
+                return None
+            if (not isinstance(value,dict) or value.get('route_id')!=request['route_id']
+                    or value.get('operation_id')!=request['operation_id'] or value.get('hostname')!=grant['hostname']
+                    or not re.fullmatch('[a-f0-9]{32}',str(value.get('renewal_id','')))
+                    or not re.fullmatch('[a-f0-9]{64}',str(value.get('expected_generation','')))
+                    or value.get('status') not in ('issuance-intent','verified','failed-ended')
+                    or type(value.get('manager_attempt')) is not int or value['manager_attempt']<1):
+                raise ValueError('Renewal attempt ownership changed')
+            return value
+        def attempt_path(identifier):
+            return Path(policy['state_dir'])/(request['route_id']+'-renewal-'+identifier+'.json')
+        current=read(pointer)
+        if current:
+            prior_path=attempt_path(current['renewal_id']);prior=read(prior_path)
+            if prior is None:
+                # Migrate the legacy single journal before replacing its pointer.
+                self.http._save(prior_path,current)
+            else:
+                immutable=('route_id','operation_id','renewal_id','expected_generation','hostname','manager_attempt')
+                if any(prior[k]!=current[k] for k in immutable):raise ValueError('Renewal journal identity differs')
+                current=prior
+                self.http._save(pointer,current)
+        path=attempt_path(request['renewal_id']);state=read(path)
+        if state and state['renewal_id']!=request['renewal_id']:raise ValueError('Renewal attempt path differs')
+        if state is None:
+            # An interrupted write may leave an intent before the route pointer.
+            # Never let another ID bypass that unknown attempt. Bound history IO.
+            for index,other in enumerate(Path(policy['state_dir']).glob(request['route_id']+'-renewal-*.json')):
+                if index>=4096:raise ValueError('Renewal history requires administrator reconciliation')
+                identifier=other.name[len(request['route_id']+'-renewal-'):-5]
+                if not re.fullmatch('[a-f0-9]{32}',identifier):raise ValueError('Renewal history namespace is invalid')
+                prior=read(other)
+                if prior is None or prior['renewal_id']!=identifier:raise ValueError('Renewal history identity differs')
+                if prior['status'] not in ('verified','failed-ended') and (current is None or prior['renewal_id']!=current['renewal_id']):
+                    raise ValueError('Unpointed renewal outcome requires reconciliation')
+        if current and current['renewal_id']!=request['renewal_id'] and current['status'] not in ('verified','failed-ended') and not retry:
+            raise ValueError('Prior renewal outcome requires reconciliation')
+        return pointer,path,state,current
+
+    def _renewal_observe(self, policy, request, path, state, grant):
+        if state['status']=='failed-ended':
+            return {**{k:request[k] for k in ('route_id','operation_id','renewal_id')},
+                    'status':'reconciliation-required','retryable':False,'retry_after':None}
+        def authorize(): self._renewal_authority(policy, request)
+        result = self.certificates.renewal_status(request['route_id'], request['operation_id'], grant['hostname'], authorize=authorize)
+        if (result.get('status') == 'verified'
+                and (state['status'] == 'verified' or result.get('generation') != state['expected_generation']
+                     or result.get('attempt') == state['manager_attempt'] + 1
+                     and result.get('process_ended') is True and result.get('command_succeeded') is True)):
+            return self._renewal_finish(request, path, state, result, authorize)
+        return {**{k: request[k] for k in ('route_id','operation_id','renewal_id')}, 'status':'reconciliation-required',
+                'retryable': result.get('retryable') is True, 'retry_after': result.get('retry_after')}
+
+    def _renewal_finish(self, request, path, state, result, authorize):
+        if (not isinstance(result, dict) or result.get('status') != 'verified'
+                or result.get('route_id') != request['route_id'] or result.get('operation_id') != request['operation_id']
+                or result.get('sans') != [state['hostname']]
+                or any(not re.fullmatch('[a-f0-9]{64}', str(result.get(k,''))) for k in ('generation','fingerprint'))
+                or type(result.get('not_after')) not in (int,float) or not result['not_after'] > time.time()):
+            raise ValueError('Renewed certificate evidence is invalid')
+        result={k:v for k,v in result.items() if k not in ('attempt','process_ended','command_succeeded','retryable','retry_after')}
+        if state['status'] == 'verified' and any(state['result'].get(k) != result.get(k) for k in ('route_id','operation_id','generation','fingerprint','not_after','sans','status')):
+            raise ValueError('Renewal replay certificate changed')
+        authorize()
+        state.update(status='verified', result=result)
+        self.http._save(path, state)
+        return dict(result, renewal_id=request['renewal_id'])
+
+    def renew_certificate(self, request):
+        """Issue one durable attempt; replays only observe, never rerun Certbot."""
+        self._renewal_request(request)
+        with self.http._locked() as policy:
+            grant = self._renewal_authority(policy, request)
+            pointer,path,state,current = self._renewal_journals(policy,request,grant,retry=True)
+            retry = False
+            if state:
+                if state['expected_generation'] != request['expected_generation']: raise ValueError('Renewal replay differs')
+                return self._renewal_observe(policy, request, path, state, grant)
+            if current and current['status'] != 'verified':
+                prior_path=Path(policy['state_dir'])/(request['route_id']+'-renewal-'+current['renewal_id']+'.json')
+                if current['status']=='failed-ended':
+                    observed=self.certificates.renewal_status(request['route_id'],request['operation_id'],grant['hostname'],
+                        authorize=lambda:self._renewal_authority(policy,request))
+                    if observed.get('attempt')!=current['manager_attempt']+1:
+                        raise ValueError('Prior renewal process identity changed')
+                else:
+                    observed=self._renewal_observe(policy,dict(request,renewal_id=current['renewal_id']),prior_path,current,grant)
+                if observed.get('retryable') is not True:raise ValueError('Prior renewal outcome requires reconciliation')
+                # Archive the proven ended failure before advancing the pointer.
+                # Its exact ID must never become an unpointed unknown intent.
+                current['status']='failed-ended'
+                self.http._save(prior_path,current)
+                self.http._save(pointer,current)
+                retry=True
+            tls_path, _, active = self._state(policy, request, ('route_id','operation_id'))
+            # Expired certificate ownership still permits renewal; no expired
+            # certificate is declared ready or installed through this check.
+            if (active['status'] != 'active' or active['generation'] != request['expected_generation']
+                    or self.http._read(tls_path) != active['candidate']
+                    or active['grant_digest'] != _digest(json.dumps(grant, sort_keys=True))):
+                raise ValueError('Renewal must match the owned active HTTPS generation')
+            def authorize(): self._renewal_authority(policy, request)
+            self._challenge(policy, request, grant)
+            previous=self.certificates.renewal_status(request['route_id'],request['operation_id'],grant['hostname'],authorize=authorize)
+            if type(previous.get('attempt')) is not int or previous['attempt']<1: raise ValueError('Certificate issuance history is unavailable')
+            state = dict(request, hostname=grant['hostname'], status='issuance-intent', manager_attempt=previous['attempt'])
+            authorize(); self.http._save(path, state)
+            self.http._save(pointer,state)
+            result = self.certificates.request(request['route_id'], request['operation_id'], grant['hostname'], authorize=authorize, renew=True, retry=retry)
+            if result.get('status') == 'verified':
+                return self._renewal_finish(request, path, state, result, authorize)
+            return self._renewal_observe(policy, request, path, state, grant)
+
+    def reconcile_certificate(self, request):
+        self._renewal_request(request, reconcile=True)
+        with self.http._locked() as policy:
+            grant = self._renewal_authority(policy, request)
+            _,path,state,_ = self._renewal_journals(policy,request,grant)
+            if state is None:
+                # A prior completed attempt is retained separately, so absence
+                # now proves this exact ID never acquired an issuance journal.
+                return dict(request, status='absent')
+            return self._renewal_observe(policy, request, path, state, grant)
+
     def _config(self, grant, certificate, files):
         # Internal capability output is still checked before entering config text.
         if not isinstance(files, dict) or not {'fullchain', 'privkey'} <= set(files):

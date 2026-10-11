@@ -82,6 +82,13 @@ def _row(db,operation_id):
     return row
 
 
+def renewal_execution_filter(db):
+    """SQL predicate for the fixed domain_executions table, never caller input."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_renewals'").fetchone():
+        return ''
+    return " AND NOT EXISTS (SELECT 1 FROM domain_renewals r WHERE r.operation_id=domain_executions.operation_id AND r.state!='complete' AND r.phase IN ('stage','activate'))"
+
+
 def claim_next(db,worker,lease_seconds=300):
     if not isinstance(worker,str) or not 1<=len(worker)<=120 or type(lease_seconds) is not int or not 30<=lease_seconds<=3600:raise ValueError('Invalid domain worker lease.')
     initialize(db)
@@ -91,7 +98,7 @@ def claim_next(db,worker,lease_seconds=300):
         for expired in db.execute("SELECT operation_id FROM domain_executions WHERE state='running' AND lease_expires<=?",(now,)).fetchall():
             db.execute("UPDATE domain_executions SET state='reconciliation-required',worker=NULL,lease_expires=NULL,error_code='lease_expired',updated=? WHERE operation_id=?",(now,expired['operation_id']))
             db.execute("UPDATE ingress_operations SET status='reconciliation-required' WHERE id=?",(expired['operation_id'],))
-        row=db.execute("SELECT * FROM domain_executions WHERE state='queued' ORDER BY updated,operation_id LIMIT 1").fetchone()
+        row=db.execute("SELECT * FROM domain_executions WHERE state='queued'"+renewal_execution_filter(db)+" ORDER BY updated,operation_id LIMIT 1").fetchone()
         if row is None:return None
         generation=row['lease_generation']+1
         db.execute("UPDATE domain_executions SET state='running',worker=?,lease_generation=?,lease_expires=?,updated=? WHERE operation_id=? AND state='queued'",(worker,generation,now+lease_seconds,now,row['operation_id']))
@@ -99,7 +106,7 @@ def claim_next(db,worker,lease_seconds=300):
         return Claim(row['operation_id'],worker,generation)
 
 
-def _current_authority(db, principal, operation, definition, row):
+def _current_authority(db, principal, operation, definition, row, *, allow_expired=False):
     import ingress
     current=ingress._definition(db,principal,definition['project'],definition['environment'],{key:definition[key] for key in ingress.FIELDS},'domains:create')
     if current==definition:return definition
@@ -109,7 +116,7 @@ def _current_authority(db, principal, operation, definition, row):
         raise ValueError('Domain evidence changed; a fresh preview is required.')
     journal=json.loads(row['journal'])
     cert=journal.get('certificate');stage=journal.get('tls_stage');verified=journal.get('tls_verified')
-    _certificate_evidence(cert,operation['route_id'],operation['id'],definition['hostname'])
+    _certificate_evidence(cert,operation['route_id'],operation['id'],definition['hostname'],allow_expired=allow_expired)
     _tls_evidence(stage,operation['route_id'],operation['id'],cert,('staged','active'))
     if (not isinstance(verified,dict) or set(verified)!={'digest','generation','fingerprint','not_after','observed'}
             or verified['digest']!=stage['digest']
@@ -189,16 +196,31 @@ def approve_adoption(db,principal,project,environment,operation_id,record_id,pre
     return public_status(db,operation_id)
 
 
-def _certificate_evidence(value,route,operation,hostname):
+def _certificate_evidence(value,route,operation,hostname,*,allow_expired=False):
+    import math
     if (not isinstance(value,dict) or value.get('route_id')!=route or value.get('operation_id')!=operation or value.get('status')!='verified'
             or value.get('sans')!=[hostname] or any(not re.fullmatch('[a-f0-9]{64}',str(value.get(k,''))) for k in ('generation','fingerprint'))
-            or type(value.get('not_after')) not in (int,float) or not value['not_after']>time.time()):raise ValueError('Verified current certificate identity is required.')
+            or type(value.get('not_after')) not in (int,float) or not math.isfinite(value['not_after'])
+            or value['not_after']<=0 or (not allow_expired and value['not_after']<=time.time())):raise ValueError('Verified current certificate identity is required.')
 
 
 def _tls_evidence(value,route,operation,certificate,statuses):
     if (not isinstance(value,dict) or value.get('route_id')!=route or value.get('operation_id')!=operation or value.get('status') not in statuses
             or value.get('generation')!=certificate['generation'] or value.get('fingerprint')!=certificate['fingerprint']
             or not re.fullmatch('[a-f0-9]{64}',str(value.get('digest','')))):raise ValueError('Verified TLS transition identity is required.')
+
+
+def _renewal_status(db, operation_id):
+    """Public lifecycle metadata only; never expose the certificate journal."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_renewals'").fetchone():
+        return None
+    row=db.execute('SELECT state,phase,next_at,failures,error_code,updated FROM domain_renewals WHERE operation_id=?',(operation_id,)).fetchone()
+    if not row:return None
+    status={'queued':'scheduled','running':'running','complete':'complete'}.get(row['state'],'unverified')
+    if row['state']=='queued' and row['failures']>0:status='retrying'
+    return {'status':status,'phase':row['phase'] if row['phase'] in ('issue','stage','activate') else None,
+            'next_check_at':row['next_at'],'updated_at':row['updated'],
+            'error_code':'renewal_unverified' if row['error_code'] else None}
 
 
 def public_status(db,operation_id):
@@ -227,6 +249,7 @@ def public_status(db,operation_id):
                 or cert.get('route_id')!=operation['route_id'] or cert.get('operation_id')!=operation_id or cert.get('sans')!=[definition['hostname']]
                 or any(not re.fullmatch('[a-f0-9]{64}',str(tls[k])) for k in ('generation','fingerprint','digest'))):raise ValueError('Recorded TLS verification is invalid.')
         _tls_evidence(stage,operation['route_id'],operation_id,cert,('staged','active'))
+        _certificate_evidence(cert,operation['route_id'],operation_id,definition['hostname'],allow_expired=True)
         tls_evidence={'status':'origin-verified' if tls['not_after']>time.time() else 'expired','evidence':'recorded','observed_at':tls['observed'],'live_checked':False,'fingerprint':tls['fingerprint'],'not_after':tls['not_after']}
     import domain_external_flow
     ready,external=domain_external_flow.projection(db,operation,definition,journal,row['state'],row['phase'])
@@ -237,7 +260,7 @@ def public_status(db,operation_id):
     return {'id':operation_id,'route_id':operation['route_id'],'project':definition['project'],'environment':definition['environment'],
             'status':public_state,'phase':row['phase'],'updated_at':row['updated'],'error_code':row['error_code'],
             'dns':dns_evidence,'origin':origin_evidence,
-            'tls':tls_evidence,'external':external,'ready':ready,'runtime_verification':'verified' if ready else 'pending',**ingress.executor_status(db),
+            'tls':tls_evidence,'external':external,'renewal':_renewal_status(db,operation_id),'ready':ready,'runtime_verification':'verified' if ready else 'pending',**ingress.executor_status(db),
             'next_action':{'awaiting-adoption':'review-dns-adoption','reconciliation-required':'resume','failed':'review-and-resume','awaiting-tls':'resume','awaiting-external':'resume','verification-required':'resume'}.get(public_state),
             'adoption_preview':journal.get('dns_preview') if row['state']=='awaiting-adoption' else None}
 

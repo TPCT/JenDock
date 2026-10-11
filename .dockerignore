@@ -62,3 +62,5 @@ frontend/dist
 !ingress_external.py
 
 !domain_authority.py
+
+!domain_renewal.py

@@ -87,6 +87,8 @@ class HostService:
         return self.tls
 
     def request_certificate(self, request): return self._tls().request_certificate(request)
+    def renew_certificate(self, request): return self._tls().renew_certificate(request)
+    def reconcile_certificate(self, request): return self._tls().reconcile_certificate(request)
     def stage_tls(self, request): return self._tls().stage_tls(request)
     def activate_tls(self, request): return self._tls().activate_tls(request)
     def inspect_tls(self, request): return self._tls().inspect_tls(request)

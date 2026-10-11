@@ -146,7 +146,7 @@ class CertificateManager:
     def _renewal(self,name,hostname):
         live=self.paths['config_dir']/'live'/name;archive=self.paths['config_dir']/'archive'/name
         renewal=self._read(self.paths['config_dir']/'renewal'/(name+'.conf')).decode('utf-8')
-        values={};webroots={};section='top';seen_map=False
+        values={};webroots={};section='top';seen_map=False;ari={};seen_ari=False
         def scalar(value):
             if len(value)>=2 and value[0] in (chr(34),chr(39)) and value[-1]==value[0]:return value[1:-1]
             return value
@@ -156,16 +156,27 @@ class CertificateManager:
             if line.startswith('['):
                 if line=='[renewalparams]' and section=='top':section='parameters'
                 elif line=='[[webroot_map]]' and section=='parameters' and not seen_map:section='webroots';seen_map=True
+                elif line=='[acme_renewal_info]' and section in ('parameters','webroots') and not seen_ari:section='ari';seen_ari=True
                 else:raise CertificateError('Certificate renewal section is unsupported.')
                 continue
             if '=' not in line:raise CertificateError('Certificate renewal metadata is invalid.')
             key,value=(part.strip() for part in line.split('=',1))
+            if section=='ari':
+                # Certbot 5.8.0 renewal.py writes this non-executable cache even
+                # when a certificate is not due. No arbitrary ARI keys are read.
+                value=scalar(value)
+                if key!='ari_retry_after' or ari or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}',value):
+                    raise CertificateError('Certificate renewal cache is invalid.')
+                try:datetime.datetime.fromisoformat(value)
+                except ValueError:raise CertificateError('Certificate renewal cache is invalid.') from None
+                ari[key]=value;continue
             if section=='webroots':
                 if key in webroots:raise CertificateError('Duplicate renewal webroot mapping.')
                 webroots[key]=scalar(value);continue
             key=key.lower().replace('-','_')
             if 'hook' in key or key in values:raise CertificateError('Certificate renewal hooks or duplicate settings are forbidden.')
             values[key]=scalar(value)
+        if seen_ari and not ari:raise CertificateError('Certificate renewal cache is incomplete.')
         challenge=str(self.paths['challenge_root'])
         if webroots!={hostname:challenge}:raise CertificateError('Renewal webroot mapping differs from the owned hostname and challenge directory.')
         if 'webroot_path' in values and scalar(values['webroot_path'].removesuffix(',').strip())!=challenge:raise CertificateError('Renewal challenge directory changed.')
@@ -234,6 +245,30 @@ class CertificateManager:
             return {'route_id':route_id,'operation_id':operation_id,'status':'reconciliation-required'}
         return self._commit(route_id,journal,files,metadata,authorize)
 
+    def renewal_status(self,route_id,operation_id,hostname,*,authorize):
+        """Observe first; expose retry only for a proven ended failed command."""
+        result=self.inspect(route_id,operation_id,hostname,authorize=authorize)
+        journal=self._journal(route_id)
+        context={'attempt':journal.get('attempt') if journal else None,
+                 'process_ended':bool(journal and journal.get('process_ended') is True),
+                 'command_succeeded':bool(journal and journal.get('command_succeeded') is True)}
+        if result['status']=='verified':return dict(result,**context)
+        retryable=False;retry_after=None
+        if (journal and journal.get('process_ended') is True and journal.get('command_succeeded') is False
+                and journal.get('state')!='verified'):
+            try:
+                files=self._lineage(journal['name'],hostname)
+                metadata=self._verify(files,hostname,allow_expired=True)
+                generation=_digest({role:hashlib.sha256(data).hexdigest() for role,data in files.items()})
+                if (metadata['fingerprint']==journal.get('previous_fingerprint')
+                        and journal.get('generations',{}).get(generation)==metadata
+                        and type(journal.get('started')) in (int,float) and 0<journal['started']<=time.time()):
+                    retry_after=journal['started']+300
+                    retryable=time.time()>=retry_after
+            except (OSError,ValueError,UnicodeError):pass
+        authorize()
+        return dict(result,retryable=retryable,retry_after=retry_after,**context)
+
     def request(self,route_id,operation_id,hostname,*,authorize,renew=False,retry=False):
         name=self._identity(route_id,operation_id,hostname);authorize();journal=self._journal(route_id)
         if journal:
@@ -249,8 +284,11 @@ class CertificateManager:
                 try:files=self._lineage(name,hostname);metadata=self._verify(files,hostname,allow_expired=True)
                 except (OSError,ValueError,UnicodeError):return observed
                 generation=_digest({role:hashlib.sha256(data).hexdigest() for role,data in files.items()})
-                if (journal.get('state')!='verified' or journal.get('generations',{}).get(generation)!=metadata
-                        or metadata['not_after']>time.time()):return observed
+                expired_owned=(journal.get('state')=='verified' and metadata['not_after']<=time.time())
+                ended_retry=(retry and journal.get('process_ended') is True and journal.get('command_succeeded') is False
+                             and metadata['fingerprint']==journal.get('previous_fingerprint')
+                             and time.time()-journal['started']>=300)
+                if journal.get('generations',{}).get(generation)!=metadata or not (expired_owned or ended_retry):return observed
             elif observed['status']!='verified' and not (retry and time.time()-journal['started']>=300):return observed
         else:
             for path in (self.paths['config_dir']/'live'/name,self.paths['config_dir']/'archive'/name,self.paths['config_dir']/'renewal'/(name+'.conf')):
@@ -264,7 +302,7 @@ class CertificateManager:
         else:self._atomic(cli,b'')
         version=self.executor([str(self.paths['executable']),'--version'],timeout=5,env=self.environment)
         if version.strip()!=('certbot '+self.config['expected_version']).encode():raise CertificateError('Certbot version does not match the installed policy.')
-        prior=journal.get('evidence',{}).get('fingerprint') if journal else None
+        prior=(journal.get('evidence',{}).get('fingerprint') or journal.get('previous_fingerprint')) if journal else None
         generations=journal.get('generations',{}) if journal else {}
         journal={'operation_id':operation_id,'hostname':hostname,'name':name,'policy_digest':self.policy_digest,'previous_fingerprint':prior,'attempt':journal.get('attempt',0)+1 if journal else 1,'started':time.time(),'state':'issuance-intent','process_ended':False,'command_succeeded':False,'generations':generations}
         authorize();self._save(route_id,journal)

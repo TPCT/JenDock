@@ -19,7 +19,7 @@ MAX_FRAME = 65536
 # Certbot is independently bounded to 600s; leave room for validation and reply.
 CERTIFICATE_DEADLINE = 720
 METHODS = frozenset({'stage_http', 'activate_http', 'inspect', 'verify', 'recover'})
-SERVICE_METHODS = METHODS | {'issue_grant', 'available_ports', 'capabilities', 'request_certificate', 'stage_tls', 'activate_tls', 'inspect_tls', 'verify_tls', 'recover_tls'}
+SERVICE_METHODS = METHODS | {'issue_grant', 'available_ports', 'capabilities', 'request_certificate', 'renew_certificate', 'reconcile_certificate', 'stage_tls', 'activate_tls', 'inspect_tls', 'verify_tls', 'recover_tls'}
 ERRORS = frozenset({'unauthorized', 'invalid_request', 'operation_failed'})
 
 
@@ -148,7 +148,7 @@ class HostServer:
                         try:
                             # Closed capability mapping, never arbitrary attribute access.
                             method = envelope['method']
-                            if method == 'request_certificate':
+                            if method in ('request_certificate', 'renew_certificate'):
                                 deadline = time.monotonic() + CERTIFICATE_DEADLINE
                             if method == 'inspect': result = self.adapter.inspect(envelope['request'])
                             elif method == 'verify': result = self.adapter.verify(envelope['request'])
@@ -159,6 +159,8 @@ class HostServer:
                             elif method == 'available_ports' and isinstance(self.adapter, HostService): result = self.adapter.available_ports(envelope['request'])
                             elif method == 'capabilities' and isinstance(self.adapter, HostService): result = self.adapter.capabilities(envelope['request'])
                             elif method == 'request_certificate' and isinstance(self.adapter, HostService): result = self.adapter.request_certificate(envelope['request'])
+                            elif method == 'renew_certificate' and isinstance(self.adapter, HostService): result = self.adapter.renew_certificate(envelope['request'])
+                            elif method == 'reconcile_certificate' and isinstance(self.adapter, HostService): result = self.adapter.reconcile_certificate(envelope['request'])
                             elif method == 'stage_tls' and isinstance(self.adapter, HostService): result = self.adapter.stage_tls(envelope['request'])
                             elif method == 'activate_tls' and isinstance(self.adapter, HostService): result = self.adapter.activate_tls(envelope['request'])
                             elif method == 'inspect_tls' and isinstance(self.adapter, HostService): result = self.adapter.inspect_tls(envelope['request'])
@@ -194,7 +196,7 @@ class HostClient:
                 if uid != self.expected_server_uid:
                     raise TransportError('Untrusted host helper identity')
                 _send(connection, {'method':method, 'request':request}, deadline)
-                if method == 'request_certificate':
+                if method in ('request_certificate', 'renew_certificate'):
                     deadline = time.monotonic() + CERTIFICATE_DEADLINE
                 response = _read(connection, deadline)
                 if not isinstance(response, dict): raise ValueError('Invalid response')
