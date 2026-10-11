@@ -35,6 +35,7 @@ import ContainerLimits from "./ContainerLimits";
 import ContainerLogs from "./ContainerLogs";
 import ContainerFiles from "./ContainerFiles";
 import DatabaseInspector from "./DatabaseInspector";
+import WorkloadConsole from "./WorkloadConsole";
 import ApplicationDatabaseSettings from "./ApplicationDatabaseSettings";
 
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -210,6 +211,7 @@ function ContainerWorkspace({
   api,
   refresh,
   notify,
+  username,
   setDirty,
   observationFailed = false,
   initialTab = null,
@@ -224,6 +226,7 @@ function ContainerWorkspace({
   const [databaseDirty, setDatabaseDirty] = useState(false);
   const [applicationDirty, setApplicationDirty] = useState(false);
   const [applicationPending, setApplicationPending] = useState(false);
+  const [workloadPending, setWorkloadPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState(initialTab === "terminal" ? 2 : 0);
@@ -330,6 +333,7 @@ function ContainerWorkspace({
         databaseDirty ||
         applicationDirty ||
         applicationPending ||
+        workloadPending ||
         attachmentUnresolved,
     );
   }, [
@@ -339,6 +343,7 @@ function ContainerWorkspace({
     databaseDirty,
     applicationDirty,
     applicationPending,
+    workloadPending,
     attachmentUnresolved,
   ]);
   useEffect(() => {
@@ -347,6 +352,7 @@ function ContainerWorkspace({
         limitsPending ||
         databasePending ||
         applicationPending ||
+        workloadPending ||
         attachmentUnresolved,
     );
   }, [
@@ -354,6 +360,7 @@ function ContainerWorkspace({
     limitsPending,
     databasePending,
     applicationPending,
+    workloadPending,
     attachmentUnresolved,
   ]);
   useEffect(() => {
@@ -367,6 +374,7 @@ function ContainerWorkspace({
         databasePending ||
         applicationDirty ||
         applicationPending ||
+        workloadPending ||
         attachmentUnresolved
       ) {
         event.preventDefault();
@@ -384,6 +392,7 @@ function ContainerWorkspace({
     databasePending,
     applicationDirty,
     applicationPending,
+    workloadPending,
     attachmentUnresolved,
   ]);
   const reload = async () => {
@@ -396,6 +405,7 @@ function ContainerWorkspace({
       databasePending ||
       applicationDirty ||
       applicationPending ||
+      workloadPending ||
       attachmentUnresolved
     )
       return;
@@ -448,7 +458,8 @@ function ContainerWorkspace({
       limitsDirty ||
       limitsPending ||
       applicationDirty ||
-      applicationPending
+      applicationPending ||
+      workloadPending
     )
       return;
     if (kind !== "environment-save" && count) {
@@ -660,7 +671,8 @@ function ContainerWorkspace({
     limitsPending ||
     limitsDirty ||
     applicationDirty ||
-    applicationPending;
+    applicationPending ||
+    workloadPending;
   const environment = detail ? { ...detail.environment, ...changes } : {};
   const keys = Object.keys(environment)
     .sort()
@@ -820,6 +832,9 @@ function ContainerWorkspace({
               "Terminal",
               "Logs",
               "Files",
+              ...(["queue", "scheduler"].includes(detail.workload?.role)
+                ? [detail.workload.role === "queue" ? "Queue" : "Schedules"]
+                : []),
             ].map((label, index) => (
               <Tab
                 key={label}
@@ -871,10 +886,34 @@ function ContainerWorkspace({
               }}
             />
           </Box>
+          {["queue", "scheduler"].includes(detail.workload?.role) && (
+            <Box
+              role="tabpanel"
+              id="service-panel-5"
+              aria-labelledby="service-tab-5"
+              sx={{ display: tab === 5 ? "block" : "none" }}
+            >
+              <WorkloadConsole
+                metadata={detail.workload}
+                username={username}
+                api={api}
+                active={tab === 5}
+                disabled={
+                  unavailable ||
+                  pending ||
+                  limitsPending ||
+                  applicationPending ||
+                  count > 0 ||
+                  !!operation
+                }
+                onPending={setWorkloadPending}
+              />
+            </Box>
+          )}
           <Box
             role="tabpanel"
-            id={`service-panel-${tab}`}
-            aria-labelledby={`service-tab-${tab}`}
+            id={tab === 5 ? undefined : `service-panel-${tab}`}
+            aria-labelledby={tab === 5 ? undefined : `service-tab-${tab}`}
             sx={{ py: 1 }}
           >
             {tab === 3 && (

@@ -45,6 +45,32 @@ def _target(db, request):
         raise OperationError('workload_identity_changed', 'The accepted workload identity changed. Reload its details.', 409) from None
 
 
+def recorded_workload(db, service):
+    """Public immutable role metadata, never a claim of current runtime health."""
+    definition = service['definition']
+    workload = definition['artifact'].get('workload')
+    if not workload:
+        return None
+    artifact_verified = True
+    try:
+        managed_services.require_role_capability(db, definition['artifact'])
+    except ValueError:
+        artifact_verified = False
+    binding = service.get('binding') or {}
+    digest = managed_services.digest(definition)
+    target = None
+    if (binding.get('definition_digest') == digest and isinstance(binding.get('container_id'), str)
+            and re.fullmatch('[a-f0-9]{64}', binding['container_id'])):
+        target = dict(project=service['project'], environment=service['environment'], service_id=service['id'],
+                      container_id=binding['container_id'], definition_digest=digest, adapter_revision=workload['adapter_revision'])
+    config_keys = ('connection', 'queues', 'timeout_seconds', 'retry_after_seconds', 'max_attempts',
+                   'sleep_seconds', 'shutdown_grace_seconds') if workload['role'] == 'queue' else ('connection', 'timezone', 'scope')
+    import copy
+    return {'role': workload['role'], 'adapter': workload['adapter'], 'artifact_verified': artifact_verified,
+            'runtime_observed': False, 'target': target,
+            'configuration': {k: copy.deepcopy(workload['configuration'][k]) for k in config_keys if k in workload['configuration']}}
+
+
 def targets(db, request, authority):
     if not {'project', 'environment'} <= set(request) <= {'project', 'environment', 'limit', 'cursor'}:
         invalid()
@@ -62,24 +88,12 @@ def targets(db, request, authority):
     for row in rows[:limit]:
         service = managed_services.get(db, row['id'])
         definition = service['definition']
-        workload = definition['artifact'].get('workload')
-        if not workload:
+        workload = recorded_workload(db, service)
+        if workload is None:
             continue
-        artifact_verified = True
-        try:
-            managed_services.require_role_capability(db, definition['artifact'])
-        except ValueError:
-            artifact_verified = False
-        binding = service.get('binding') or {}
-        digest = managed_services.digest(definition)
-        target = None
-        if (binding.get('definition_digest') == digest and isinstance(binding.get('container_id'), str)
-                and re.fullmatch('[a-f0-9]{64}', binding['container_id'])):
-            target = dict(project=request['project'], environment=request['environment'], service_id=service['id'],
-                          container_id=binding['container_id'], definition_digest=digest, adapter_revision=workload['adapter_revision'])
         result.append({'service_id': service['id'], 'name': definition['name'], 'role': workload['role'],
-                       'recorded_state': service['state'], 'artifact_verified': artifact_verified,
-                       'runtime_observed': False, 'target': target})
+                       'recorded_state': service['state'], 'artifact_verified': workload['artifact_verified'],
+                       'runtime_observed': False, 'target': workload['target']})
     authority.authorize(authority.actor, request, 'read')
     return {'items': result, 'next_cursor': rows[limit - 1]['id'] if len(rows) > limit else None}
 

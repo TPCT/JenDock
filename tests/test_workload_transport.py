@@ -123,6 +123,10 @@ class WorkloadTransportTests(unittest.TestCase):
         self.assertTrue(catalog['items'][0]['artifact_verified'])
         self.assertFalse(catalog['items'][0]['runtime_observed']);self.assertEqual(self.execs(),[])
         self.assertNotIn('command',str(catalog));self.assertNotIn('password',str(catalog))
+        metadata=workload_control.recorded_workload(self.db,managed_services.get(self.db,self.sid))
+        self.assertEqual(metadata['configuration']['queues'],['default','mail'])
+        self.assertEqual(metadata['target'],catalog['items'][0]['target'])
+        self.assertFalse(metadata['runtime_observed'])
         result=workload_control.execute(self.db,body,transport=self.transport,authority=Authority())
         self.assertEqual(result['workload']['observation']['result']['connection_id'],'pgsql')
         body.update(action='queue-retry',request_id='retry-controller-0001',connection_id='pgsql',queue='default',failed_job_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',failure_revision='f'*64)
@@ -136,6 +140,23 @@ class WorkloadTransportTests(unittest.TestCase):
             with self.assertRaises(TransportError):self.call()
             self.assertEqual(self.calls,[])
         finally:self.db.rollback()
+
+    def test_recorded_metadata_never_retargets_stale_or_missing_binding(self):
+        import workload_control
+        service = managed_services.get(self.db, self.sid)
+        service['binding']['definition_digest'] = self.digest
+        current = workload_control.recorded_workload(self.db, service)
+        self.assertEqual(current['target']['container_id'], self.cid)
+        self.assertTrue(current['artifact_verified'])
+        for binding in (None, {}, {**service['binding'], 'definition_digest': 'f'*64},
+                        {**service['binding'], 'container_id': 'short-id'}):
+            with self.subTest(binding=binding):
+                result = workload_control.recorded_workload(self.db, {**service, 'binding': binding})
+                self.assertIsNone(result['target'])
+                self.assertFalse(result['runtime_observed'])
+        current['configuration']['queues'].append('not-authorized')
+        self.assertNotIn('not-authorized', service['definition']['artifact']['workload']['configuration']['queues'])
+        self.assertEqual(self.execs(), [])
 
 
 class BoundedExchangeTests(unittest.TestCase):

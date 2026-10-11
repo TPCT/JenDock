@@ -287,6 +287,8 @@ def details(project, name, _with_identity=False):
             import service_runtime
             result['managed_service_id']=managed['id']
             result['managed_environment']=managed['environment']
+            from workload_control import recorded_workload
+            result['workload']=recorded_workload(metadata_db,managed)
             result['runtime']=service_runtime.status(metadata_db,project,managed['environment'],managed['id'])
             result['runtime']['platform_managed_variables']=sorted(key for key in env if __import__('workload_environment').reserved(key))
             pin=(managed['definition'].get('runtime') or {}).get('database_attachment')

@@ -122,3 +122,5 @@ frontend/dist
 !workload_operations.py
 !workload_protocol.py
 !workload_transport.py
+
+!workload_package_verifier.py

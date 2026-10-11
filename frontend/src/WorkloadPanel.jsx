@@ -126,7 +126,7 @@ export function ScheduleRecords({ items, history, registryRevision }) {
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={1} alignItems="center">
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" color="text.secondary" sx={{minWidth:0,overflowWrap:"anywhere"}}>
           Registry {registryRevision}
         </Typography>
         <Hint label="About scheduled times">
@@ -153,7 +153,7 @@ export function ScheduleRecords({ items, history, registryRevision }) {
               Last outcome: {outcomeLabel(item.last_outcome)}
             </Typography>
             <Typography variant="body2">
-              Next occurrence: {timeLabel(item.next_due_at)}
+              Next occurrence (your local time): {timeLabel(item.next_due_at)}
             </Typography>
             <Stack direction="row" useFlexGap flexWrap="wrap" gap={1}>
               <Chip

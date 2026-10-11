@@ -789,6 +789,7 @@ function App() {
                     }} />
                 ) : page === "container" ? (
                   <ContainerPage
+                    username={session?.username}
                     key={id + "/" + name}
                     project={id}
                     name={name}
