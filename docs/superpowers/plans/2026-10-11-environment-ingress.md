@@ -163,3 +163,19 @@ Ruling: authenticated host helper tests use private temporary directories below
 root-owned sticky /tmp rather than the repository's writable ancestors. This
 preserves filesystem trust checks; product Compose labels remain deploy-monitor.
 An unknown restoration outcome stays restoring and never reloads blindly.
+
+Dynamic host grant/executor checkpoint: host-owned issuer derives exact grant from
+accepted DB state plus bound port/capacity and fresh strong Docker/HTTP verification.
+Principal grants are rechecked and publication is journaled/CAS guarded. Production
+Apache executor implemented with bounded commands, pidfd signal and literal alias
+inventory supplementation. Actual ephemeral installed-Apache test passed after
+real -S output exposed whitespace and omitted-alias cases;628 backend tests pass.
+See docs/operations/host-grants-executor-20261011.md. No host daemon installed yet.
+
+Integration review requirement: initial immutable gateway supports a batch of routes
+but not sequential domain addition. Before enabling the UI flow, implement stable
+environment gateway identity and journaled config revisions preserving prior routes.
+Also add scoped domain options/list/status (domain operations currently use a separate
+table), explicit domain permissions across console/MCP issuance, leased worker phases
+and certificate lifecycle. Literal vhost inventory fails closed on dynamic in-block
+includes/macros; expand verified inventory support before adopting such host configs.
