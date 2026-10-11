@@ -346,6 +346,42 @@ def run_migrations(recipe, policy, images):
                     '--force', '--no-interaction'), timeout=600)
 
 
+def _migration_source_evidence(paths):
+    detected = sorted(set(path for path in paths if schema_change_paths(path)))
+    # Source filenames are untrusted; quote controls and bound public diagnostics.
+    summary = ', '.join(json.dumps(path[:160], ensure_ascii=True) for path in detected[:8])
+    if len(detected) > 8:
+        summary += ' (additional paths omitted)'
+    return detected, summary
+
+
+def check_managed_migration_capability(source, sha, selection, tracked):
+    """Heuristic source boundary, not ledger verification or startup-code safety."""
+    baselines = set()
+    services = selection.get('services') if isinstance(selection, dict) else None
+    if not isinstance(services, list) or not services:
+        raise StepFailure('Managed migration source evidence is missing. No build or runtime cutover was started.')
+    for service in services:
+        try:
+            baseline = service['definition']['artifact'].get('source_sha')
+        except (KeyError, TypeError, AttributeError):
+            baseline = None
+        if not isinstance(baseline, str) or not re.fullmatch('[0-9a-f]{40}', baseline):
+            detected, summary = _migration_source_evidence(tracked)
+            if detected:
+                raise StepFailure('Managed migration runner is unsupported: current source has schema or migration files without a verified source baseline: ' + summary + '. No migrations or runtime cutover were performed.')
+            continue
+        baselines.add(baseline)
+    for baseline in sorted(baselines):
+        try:
+            changed = run(['git', 'diff', '--name-only', '--no-renames', '-z', baseline, sha, '--'], cwd=source, capture=True)
+        except StepFailure:
+            raise StepFailure('Managed migration source comparison failed. No migrations or runtime cutover were performed.') from None
+        detected, summary = _migration_source_evidence(changed.split(chr(0)))
+        if detected:
+            raise StepFailure('Managed migration runner is unsupported. Changed schema or migration source files (not database pending migrations): ' + summary + '. No migrations or runtime cutover were performed. Validation-only builds remain available.')
+
+
 def build_artifacts(db, job, project, validate_only):
     """Build a new project's pinned source without any runtime target dependency."""
     managed = project['recipe'].get('schema_kind') == 'managed-build'
@@ -358,7 +394,7 @@ def build_artifacts(db, job, project, validate_only):
         source_recipe = dict(project['recipe'])
         if managed:
             import managed_delivery
-            managed_delivery.load_target(db, job['id'])
+            managed_selection = managed_delivery.load_target(db, job['id'])
             source_recipe.pop('managed_target'); source_recipe['schema_kind'] = 'artifact-build'
         recipe = build_profiles.validate_recipe(source_recipe)
     except (ValueError, TypeError, KeyError):
@@ -381,6 +417,8 @@ def build_artifacts(db, job, project, validate_only):
         tracked = run(['git', 'ls-files'], cwd=source, capture=True).splitlines()
         if any(Path(path).name in ('.env', 'id_rsa', 'id_ed25519') for path in tracked):
             raise StepFailure('A sensitive configuration file was found in Git. Build stopped before copying the context.')
+        if managed:
+            check_managed_migration_capability(source, sha, managed_selection, tracked)
         images = {}
         for spec in recipe['images']:
             try:

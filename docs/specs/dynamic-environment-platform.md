@@ -1,6 +1,8 @@
 # Dynamic projects, environments and delivery
 
-Status: proposed architecture for review; not implemented or deployed.
+Status: approved target architecture; partially implemented and locally verified.
+Whole-platform and production acceptance remain incomplete.
+See `../operations/platform-completion-audit-20261011.md` for the current evidence boundary.
 Date: 2026-10-10
 
 ## Product outcome

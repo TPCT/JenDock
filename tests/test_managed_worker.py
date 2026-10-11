@@ -87,7 +87,7 @@ class ManagedSourceCompletionTests(unittest.TestCase):
         self.job['mode'] = 'deploy'
         self.recipe['schema_kind'] = 'managed-build'
         self.recipe['managed_target'] = {'pinned': True}
-        with patch.object(managed_delivery, 'load_target'), patch.object(worker, 'process_managed_delivery', side_effect=AssertionError('Nested runtime dispatch')):
+        with patch.object(managed_delivery, 'load_target', return_value={'services': [{'definition': {'artifact': {'source_sha': 'a'*40}}}]}), patch.object(worker, 'schema_change_paths', return_value=[]), patch.object(worker, 'process_managed_delivery', side_effect=AssertionError('Nested runtime dispatch')):
             self.execute(False)
         self.mocks[3].assert_called_once()
         self.assertEqual(self.mocks[3].call_args.args[4], 'deploying')
