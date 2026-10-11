@@ -121,7 +121,12 @@ def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor
                 if _job_environment(db, row['id']) == environment:
                     db.execute("UPDATE jobs SET status='superseded',updated=? WHERE id=?", (now, row['id']))
         # Bound metadata while preserving in-flight work and recent deduplication.
-        db.execute("DELETE FROM jobs WHERE updated<? AND status NOT IN ('queued','validation-queued','building','testing','deploying','recovering')",
+        artifact_guard = ''
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='service_artifacts'").fetchone():
+            artifact_guard = ' AND id NOT IN (SELECT job_id FROM service_artifacts)'
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_publications'").fetchone():
+            artifact_guard += " AND id NOT IN (SELECT job_id FROM artifact_publications WHERE status!='succeeded')"
+        db.execute("DELETE FROM jobs WHERE updated<? AND status NOT IN ('queued','validation-queued','building','testing','deploying','recovering')" + artifact_guard,
                    (now - 30 * 86400,))
         db.execute('DELETE FROM events WHERE job_id NOT IN (SELECT id FROM jobs)')
         db.execute('DELETE FROM job_targets WHERE job_id NOT IN (SELECT id FROM jobs)')

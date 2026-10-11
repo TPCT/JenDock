@@ -120,6 +120,13 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
     now = time.time() if now is None else now
     registered = registry.get_project(db, project)
     target = registry.get_environment(db, project, environment)
+    # Accepted provisioning owns its environment even before a runtime recipe exists.
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_services'").fetchone():
+        if db.execute("SELECT 1 FROM managed_services WHERE project=? AND environment=? AND state IN ('queued','provisioning','recovery-required')", (project, environment)).fetchone():
+            raise ValueError('Service creation or recovery already owns this environment. Complete it before adopting another workload.')
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='service_reservations'").fetchone():
+        if db.execute("SELECT 1 FROM service_reservations WHERE project=? AND environment=? AND state='held'", (project, environment)).fetchone():
+            raise ValueError('Accepted service capacity is reserved in this environment. Reconcile it before adoption.')
     if registered['legacy_binding'] is not None:
         raise ValueError('The existing workload is already adopted.')
     if target['recipe_revision'] is not None or target['state'] != 'not-provisioned':

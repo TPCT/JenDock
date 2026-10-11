@@ -195,6 +195,16 @@ def validate_execution_recipe(project):
                 raise StepFailure('Build paths must remain inside the checked-out source.')
         if image.get('deploy', True) and (not isinstance(image.get('env_key'), str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', image['env_key'])):
             raise StepFailure('A deployment image variable is required.')
+    if 'service_profiles' in recipe:
+        import managed_services
+        profiles = recipe['service_profiles']
+        if not isinstance(profiles, dict):
+            raise StepFailure('Service profiles must be a configured template map.')
+        try:
+            for template_id in profiles:
+                managed_services._profile({'recipe': recipe}, template_id)
+        except (ValueError, TypeError, KeyError):
+            raise StepFailure('Service profiles must define valid fixed commands, health checks and runtime identity.') from None
     for test in tests:
         if (not isinstance(test, dict) or test.get('image') not in names or
                 not isinstance(test.get('command'), list) or not test['command'] or
@@ -419,7 +429,7 @@ def deploy(db, job, project, validate_only=False):
             finally:
                 subprocess.run([DOCKER, 'rm', '-f', test_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         if validate_only:
-            set_status(db, job['id'], 'validated', 'Build and internal tests passed. Services and databases were not changed.' + (' Development migrations will run during deployment.' if migration else ' Migration changes require review.' if schema_changes else ''))
+            complete_build(db, job['id'], recipe, images, 'validated', 'Build and internal tests passed. Services and databases were not changed.' + (' Development migrations will run during deployment.' if migration else ' Migration changes require review.' if schema_changes else ''))
             return
         if schema_changes and not migration:
             set_status(db, job['id'], 'failed', 'Build and internal tests passed. Database changes cannot run without a verified non-destructive migration runner for this environment. Services and databases were not changed.')
@@ -466,11 +476,56 @@ def deploy(db, job, project, validate_only=False):
         except Exception:
             recover(db, journal)
             return
-        set_status(db, job['id'], 'succeeded', 'Deployment and runtime checks passed. ' + ('Pending development migrations were applied successfully.' if migration else 'No database migrations were run automatically.'))
+        complete_build(db, job['id'], recipe, images, 'succeeded', 'Deployment and runtime checks passed. ' + ('Pending development migrations were applied successfully.' if migration else 'No database migrations were run automatically.'))
+        # A previous successful build may still need its tags for a durable
+        # catalog retry, even after its old containers have been replaced.
+        if db.execute("SELECT 1 FROM artifact_publications WHERE status='pending' LIMIT 1").fetchone():
+            return
         # No force, no volume pruning. Docker refuses images still referenced.
+        import managed_services
+        protected = set(managed_services.protected_images(db))
         for old in previous_images:
             if old not in images.values():
-                subprocess.run([DOCKER, 'image', 'rm', old], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+                try:
+                    metadata = json.loads(run([DOCKER, 'image', 'inspect', old], capture=True))
+                except (StepFailure, ValueError):
+                    continue
+                if len(metadata) == 1 and metadata[0].get('Id') not in protected:
+                    subprocess.run([DOCKER, 'image', 'rm', old], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+
+
+def inspect_artifact_image(reference):
+    rows = json.loads(run([DOCKER, 'image', 'inspect', reference], capture=True))
+    if not isinstance(rows, list) or len(rows) != 1:
+        raise StepFailure('Built image identity is unavailable for service creation.')
+    return rows[0].get('Id')
+
+
+def complete_build(db, job_id, recipe, images, status, detail):
+    import artifact_publication
+    artifact_publication.record(db, job_id, recipe, images, status=status, detail=detail)
+    artifact_publication.process(db, inspect_artifact_image, job_id)
+
+
+def publish_service_artifacts(db, job_id, recipe, images):
+    import artifact_publication
+    artifact_publication.record(db, job_id, recipe, images)
+    return artifact_publication.process(db, inspect_artifact_image, job_id)
+
+
+def prune_job_images(db, job_id):
+    """Protect catalogued/accepted service sources while clearing unused build outputs."""
+    import managed_services
+    import artifact_publication
+    if artifact_publication.pending(db, job_id):
+        return
+    protected = set(managed_services.protected_images(db))
+    candidates = run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet',
+                      '--filter', 'label=net.shiftcodes.job=' + str(job_id)], capture=True).splitlines()
+    for image_id in set(candidates) - protected:
+        if re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
+            subprocess.run([DOCKER, 'image', 'rm', image_id], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=60)
 
 
 def observe(db):
@@ -562,6 +617,36 @@ def project_for_job(db, job):
             'recipe': target['recipe']}
 
 
+def process_service_once(db):
+    """Serialize provisioning with deployments and direct container operations."""
+    import managed_services
+    import service_provisioning
+    with control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists():
+            return False
+        worker_id = 'worker-' + str(os.getpid())
+        claim = managed_services.claim_next(db, worker_id, lease_seconds=300)
+        if claim is None:
+            return False
+        operation_id = claim['operation_id']
+        def authorize():
+            definition = managed_services.authorize_claim(db, operation_id, worker_id)
+            managed_services.renew_claim(db, operation_id, worker_id, lease_seconds=300)
+            return definition
+        try:
+            definition = authorize()
+            managed_root = control.ROOT / 'managed'
+            if managed_root.is_symlink():
+                raise StepFailure('Managed service directory cannot be a symbolic link.')
+            managed_root.mkdir(mode=0o700, parents=False, exist_ok=True)
+            binding = service_provisioning.provision(db, operation_id, definition,
+                root=managed_root, docker=DOCKER, compose=COMPOSE, authorize=authorize)
+            managed_services.finish(db, operation_id, worker_id, binding, definition['desired_state'])
+        except Exception:
+            managed_services.fail(db, operation_id, worker_id, recovery_required=True)
+        return True
+
+
 def main():
     STATE.mkdir(exist_ok=True)
     Path('/work').mkdir(exist_ok=True)
@@ -607,6 +692,9 @@ def main():
         threading.Thread(target=collector, daemon=True).start()
         while True:
             try:
+                import artifact_publication
+                artifact_publication.process(db, inspect_artifact_image)
+                process_service_once(db)
                 job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()
                 if job:
                     validation = job['status'] == 'validation-queued'
@@ -628,12 +716,13 @@ def main():
                                 raise SystemExit(1)
                             phase = db.execute('SELECT detail FROM jobs WHERE id=?', (job['id'],)).fetchone()['detail']
                             detail = str(error) if isinstance(error, StepFailure) else 'Internal failure. Deployment was not marked successful.'
-                            set_status(db, job['id'], 'failed', phase + ' — ' + detail)
+                            source = db.execute('SELECT status FROM jobs WHERE id=?', (job['id'],)).fetchone()
+                            if source['status'] not in ('validated', 'succeeded'):
+                                set_status(db, job['id'], 'failed', phase + ' — ' + detail)
                         finally:
                             # Only this job's unreferenced images; never force
                             # delete a running image and never touch volumes.
-                            subprocess.run([DOCKER, 'image', 'prune', '-af', '--filter', 'label=net.shiftcodes.job=' + str(job['id'])],
-                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+                            prune_job_images(db, job['id'])
                             subprocess.run([DOCKER, 'builder', 'prune', '-af'],
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
             except (StepFailure, OSError):

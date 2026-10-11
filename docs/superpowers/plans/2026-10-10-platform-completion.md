@@ -42,3 +42,15 @@
 - [ ] Dashboard project creation: current metadata dialog is a first slice; complete repository verification and environment onboarding, then service creation/provisioning flow.
 - [ ] Authenticated MCP adapter: project list/get/create, service list/get/create and operation status; revocable scoped credentials, reuse application permissions/audit/revisions/idempotency. No raw host-shell tool or secret-bearing results.
 - [ ] Cross-surface acceptance: MCP-created project/service visible and operable in dashboard; dashboard-created entities discoverable by MCP; invalid/unauthorized/duplicate/conflicting requests rejected without orphan services.
+
+## Active service-creation implementation — 2026-10-11
+
+Previous goal turn made verified progress: commit `33632c7` added real repository verification, durable project creation/reload recovery and independent runtime ownership. Full objective remains open.
+
+Current coordinated slice (same checkout, no production mutations):
+- Backend agent: immutable trusted build artifacts, service definitions, scoped creation authorization, idempotent queued operations and transactional RAM/CPU reservations.
+- Provisioning agent: journaled isolated environment Compose provisioning with exact Docker identity, stopped/running outcomes and recovery evidence.
+- Frontend agent: selected-environment service dialog, trusted artifact selection, captured request identity and actual operation status.
+- Root: HTTP/worker integration, artifact publication and retention, shared capacity enforcement and end-to-end acceptance.
+
+Product decision: a Python HTTP fixture is test data only. The product must offer real project build artifacts, not substitute a dummy application for service provisioning. User-supplied arbitrary images/commands are not the trusted build-source contract. A missing verified artifact remains visible until the real build publisher supplies one. Mixed adopted/managed environments require a verified ownership transition; no legacy manifest is modified by inference.

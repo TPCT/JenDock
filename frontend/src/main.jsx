@@ -79,6 +79,8 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import Resources from "./Resources.jsx";
+import ServiceCreation from "./ServiceCreation.jsx";
+import { clearServiceDrafts } from "./serviceCreation.js";
 import EnvironmentSettings from "./EnvironmentSettings.jsx";
 import AdoptWorkload from "./AdoptWorkload.jsx";
 import ProjectCreateDialog from "./ProjectCreateDialog.jsx";
@@ -261,6 +263,7 @@ function App() {
       creationDraft.current = restoreCreation(creationSessionStorage(), value.username);
     } else {
       clearCreation(creationSessionStorage(), creationOwner.current);
+      clearServiceDrafts(creationSessionStorage(), creationOwner.current);
       creationOwner.current = null;
       creationDraft.current = null;
     }
@@ -553,6 +556,7 @@ function App() {
     return r;
   };
   const context = {
+    username: session?.username,
     creationDraft,
     saveCreationDraft,
     data,
@@ -1215,7 +1219,7 @@ function Services({ id, items, environment, accessBlockedReason = "" }) {
   );
 }
 function ProjectPage({ id, environment: requestedEnvironment = "development", initialTab, onEnvironmentChange, onTabChange }) {
-  const { data, navigate, openBuild, api, refresh, setDirty, setOperationPending } = useApp();
+  const { data, navigate, openBuild, api, refresh, setDirty, setOperationPending, username } = useApp();
   const environment = requestedEnvironment === "production" ? "production" : "development";
   const environmentLabel = environment === "production" ? "Production" : "Development";
   const [tab, setTab] = useState(projectTabIndex(initialTab)), [workspace, setWorkspace] = useState(null), [workspaceError, setWorkspaceError] = useState(""), [loading, setLoading] = useState(true), [reload, setReload] = useState(0), [legacyView, setLegacyView] = useState(null), [budgetsOpen, setBudgetsOpen] = useState(false), [budgetsViewed, setBudgetsViewed] = useState(false), [settingsDirty, setSettingsDirty] = useState(false), [resourcesDirty, setResourcesDirty] = useState(false), [environmentsDirty, setEnvironmentsDirty] = useState(false), [settingsPending, setSettingsPending] = useState(false), [resourcesPending, setResourcesPending] = useState(false), [environmentsPending, setEnvironmentsPending] = useState(false);
@@ -1223,9 +1227,10 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
   const p = data.projects[id];
   const [linkedProject,setLinkedProject]=useState(null);
   const [resourceFooter,setResourceFooter]=useState(null);
+  const [servicePending,setServicePending]=useState(false);
   const [workloadMenu, setWorkloadMenu] = useState(null);
   const [adoptionOpen,setAdoptionOpen]=useState(false), [adoptionDirty,setAdoptionDirty]=useState(false), [adoptionPending,setAdoptionPending]=useState(false), [adoptionEnvironment,setAdoptionEnvironment]=useState(environment);
-  const pending = settingsPending || resourcesPending || environmentsPending || adoptionPending;
+  const pending = settingsPending || resourcesPending || environmentsPending || adoptionPending || servicePending;
   useEffect(() => { setDirty(settingsDirty || resourcesDirty || environmentsDirty || adoptionDirty); return () => setDirty(false); }, [settingsDirty, resourcesDirty, environmentsDirty, adoptionDirty, setDirty]);
   useEffect(() => { setOperationPending(pending); return () => setOperationPending(false); }, [pending, setOperationPending]);
   useEffect(() => {
@@ -1258,6 +1263,7 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
     {workspaceError && <Alert severity="error" sx={{mt:2}} action={<Button onClick={()=>setReload(value=>value+1)}>Retry</Button>}>{workspaceError}</Alert>}
     <Tabs value={tab} onChange={(_,value)=>{setTab(value); onTabChange?.(["overview", "containers", "deployments", "settings"][value]);}} className="project-tabs" aria-label={`${environmentLabel} workspace`}><Tab label="Overview"/><Tab label="Containers"/><Tab label="Deployments"/><Tab label="Settings"/></Tabs>
     <Box sx={{display:tab===3?"block":"none"}}><EnvironmentSettings key={id} id={id} linkedProject={linkedProject} environment={environment} api={api} branches={Object.keys(branchState(data,id).branches || {})} BranchControl={BranchPicker} onDirty={setEnvironmentsDirty} onPending={setEnvironmentsPending} onSaved={()=>setReload(value=>value+1)}/><Box sx={{borderTop:1,borderColor:'divider',pt:2}}><Button color="inherit" onClick={openBudgets}>Project budgets</Button><Hint label="About project budgets">These budgets cover both environments. Saved allocations are policy settings, not proof of container ownership or applied runtime limits.</Hint></Box></Box>
+    {['development','production'].map(target=><Box key={target} sx={{display:tab===1&&environment===target?'block':'none'}}><ServiceCreation project={id} environment={target} username={username} active={tab===1&&environment===target} api={api} navigate={navigate} onPending={setServicePending} onChanged={async()=>{await refresh();setReload(value=>value+1);}}/></Box>)}
     {tab!==3 && loading && !current ? <Typography role="status" sx={{py:3}}>Loading {environmentLabel.toLowerCase()} workspace…</Typography> : tab===0 ? <>
       <div className="release-band"><div><span>Last verified deployment</span><strong><code>{deployed?.sha?.slice(0,9)||"Not recorded"}</code><small>{deployed?date(deployed.updated):environmentLabel}</small></strong></div><div><span>Deployment branch</span><strong><Branch sx={{fontSize:14}}/>{current?.environment?.branch || "Unavailable"}<small>{current?.environment?.automatic?"Automatic preference on":"Automatic preference off"}</small></strong></div><div><span>Latest run</span><strong>{latest?<><Status value={latest.status}/><Button size="small" onClick={()=>navigate("job/"+latest.id)}>View run<Arrow sx={{fontSize:13,ml:.5}}/></Button></>:"No runs recorded"}</strong></div></div>
       <div className="section-heading"><Typography variant="h6">Containers <span className="count">{containers.length}</span></Typography><Button onClick={()=>{setTab(1);onTabChange?.("containers");}}>View containers</Button></div>{containerList}

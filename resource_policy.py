@@ -79,6 +79,8 @@ def save(db, project, revision, document):
             raise ValueError('Resource application is running. Wait before changing the budget.')
         if current['revision'] != revision:
             raise ValueError('Resource settings changed. Reload before saving.')
+        import managed_services
+        managed_services.validate_capacity(db, project, document)
         result = dict(project=project, revision=revision + 1, document=document, updated=time.time())
         db.execute('INSERT OR REPLACE INTO resource_policies VALUES(?,?,?,?)', (project, result['revision'], json.dumps(document), result['updated']))
         db.execute('COMMIT')

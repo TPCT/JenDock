@@ -63,7 +63,9 @@ def context(db, project, container, actual=None):
             if not all(field in row['budget'] for field in ('memory_mib', 'cpu')):
                 reason = 'Set this environment’s RAM and CPU budget before reserving container capacity.'
             else:
-                ceiling = {field: row['budget'][field] - sum(value[field] for name, value in row['services'].items() if name != container)
+                import managed_services
+                held = managed_services.reservation_totals(db, project, binding['name'])
+                ceiling = {field: row['budget'][field] - held[field] - sum(value[field] for name, value in row['services'].items() if name != container)
                            for field in ('memory_mib', 'cpu')}
     elif configured and reserved is None:
         reason = 'Verified environment ownership is required to reserve capacity for this container. Adopt its workload before changing limits.'
@@ -113,6 +115,8 @@ def commit(db, transition):
         if row is None or row['revision'] != binding['revision'] or row['recipe_revision'] != binding['recipe_revision']:
             raise ValueError('Environment ownership changed before the reservation could be saved.')
         resource_policy.validate(transition['after'])
+        import managed_services
+        managed_services.validate_capacity(db, transition['project'], transition['after'])
         db.execute('INSERT OR REPLACE INTO resource_policies VALUES(?,?,?,?)',
                    (transition['project'], transition['revision'] + 1, json.dumps(transition['after']), time.time()))
 

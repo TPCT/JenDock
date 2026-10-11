@@ -24,12 +24,13 @@ class Principal:
     credential_id: str | None = None
     allowed_projects: frozenset | None = None
     allowed_repository_ids: frozenset | None = None
+    allowed_environments: frozenset | None = None
 
     def __post_init__(self):
         if (not isinstance(self.subject_id, str) or not 1 <= len(self.subject_id) <= 120
                 or any(ord(c) < 32 for c in self.subject_id) or self.actor_kind not in ('console', 'mcp', 'internal')):
             raise OperationError('forbidden', 'Authenticated principal is invalid.', 403)
-        for field in ('scopes', 'allowed_projects', 'allowed_repository_ids'):
+        for field in ('scopes', 'allowed_projects', 'allowed_repository_ids', 'allowed_environments'):
             value = getattr(self, field)
             if value is not None:
                 if not isinstance(value, (set, frozenset)):
@@ -160,4 +161,122 @@ def get_operation(db, principal, operation_id):
     if row is None:
         raise OperationError('operation_not_found', 'Operation was not found.', 404)
     _authorize(principal, 'operations:read', row['project'], row['repository_id'])
-    return json.loads(row['result'])['operation']
+    result=json.loads(row['result'])
+    if row['operation'].startswith('service-create:'):
+        _service_authorize(db,principal,'operations:read',row['project'],result['service']['environment'])
+    return result['operation']
+
+
+@dataclass(frozen=True)
+class ServiceInput:
+    project: str
+    environment: str
+    values_json: str
+
+
+def service_input(project, environment, values):
+    registry.identifier(project)
+    if environment not in registry.ENVIRONMENTS or not isinstance(values, dict):
+        raise OperationError('invalid_input', 'Choose a supported environment and service definition.')
+    return ServiceInput(project, environment, registry.canonical(values))
+
+
+def _service_authorize(db, principal, scope, project, environment):
+    if not isinstance(environment,str) or environment not in registry.ENVIRONMENTS:
+        raise OperationError('invalid_input','Choose Development or Production.')
+    _authorize(principal, scope, project)
+    if principal.allowed_environments is not None and (project, environment) not in principal.allowed_environments:
+        raise OperationError('forbidden', 'This environment is not permitted for this principal.', 403)
+    record = registry.get_project(db, project)
+    _authorize(principal, scope, project, record['repository_id'])
+    return record
+
+
+def create_service(db, principal, input, idempotency_key):
+    import managed_services as services
+    if not isinstance(input, ServiceInput): raise OperationError('invalid_input', 'Typed service input is required.')
+    _service_authorize(db, principal, 'services:create', input.project, input.environment)
+    if principal.credential_id is not None:
+        raise OperationError('unsupported_credential', 'Credential-scoped provisioning is not enabled yet.', 403)
+    if not isinstance(idempotency_key, str) or not re.fullmatch('[A-Za-z0-9-]{16,80}', idempotency_key):
+        raise OperationError('invalid_request_id', 'A stable service creation request ID is required.')
+    initialize(db); services.initialize(db)
+    try: values = json.loads(input.values_json)
+    except (ValueError, TypeError): raise OperationError('invalid_input', 'Invalid service definition.') from None
+    if not isinstance(values, dict): raise OperationError('invalid_input', 'Service definition must be an object.')
+    if values.get('desired_state', 'stopped') == 'running':
+        _service_authorize(db, principal, 'services:start', input.project, input.environment)
+    scope_key = 'service-create:' + input.project + ':' + input.environment
+    fingerprint = services.digest({'project': input.project, 'environment': input.environment, 'values': values})
+    with registry.transaction(db):
+        record = _service_authorize(db, principal, 'services:create', input.project, input.environment)
+        existing = db.execute('SELECT fingerprint,result FROM application_operations WHERE subject=? AND operation=? AND request_key=?',
+                              (principal.subject_id, scope_key, idempotency_key)).fetchone()
+        if existing:
+            if existing['fingerprint'] != fingerprint: raise OperationError('idempotency_conflict', 'This request ID belongs to different service details.')
+            return json.loads(existing['result'])
+        try:
+            definition = services.validate_definition(db, input.project, input.environment, values)
+            operation_id = str(uuid.uuid4())
+            service = services.accept(db, input.project, input.environment, definition, operation_id)
+        except ValueError as error:
+            raise OperationError('service_unavailable', str(error)) from None
+        operation = {'operation_id': operation_id, 'status': 'queued', 'resource_id': service['id'], 'revision': 1,
+                     'detail': 'Service creation queued; no running service is claimed.', 'links': {'project': '#project/' + input.project}}
+        result = {'service': service, 'operation': operation}
+        db.execute('INSERT INTO application_operations VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                   (operation_id, principal.subject_id, principal.actor_kind, principal.credential_id, scope_key,
+                    idempotency_key, fingerprint, input.project, record['repository_id'], registry.canonical(result), time.time()))
+        db.execute('INSERT INTO application_operation_events(operation_id,actor,event,created) VALUES(?,?,?,?)',
+                   (operation_id, principal.subject_id, 'service-queued', time.time()))
+        return result
+
+
+def list_services(db, principal, project, environment):
+    import managed_services
+    _service_authorize(db, principal, 'services:read', project, environment)
+    return managed_services.list_services(db, project, environment)
+
+
+def get_service(db, principal, service_id):
+    if not isinstance(principal,Principal) or 'services:read' not in principal.scopes:
+        raise OperationError('forbidden','Service access is not permitted.',403)
+    import managed_services
+    managed_services.initialize(db)
+    service = managed_services.get(db, service_id)
+    _service_authorize(db, principal, 'services:read', service['project'], service['environment'])
+    return service
+
+
+def service_templates(db, principal, project, environment):
+    import managed_services
+    _service_authorize(db, principal, 'services:create', project, environment)
+    return {'templates': managed_services.catalog(db, project),
+            'environment_revision': registry.get_environment(db, project, environment)['revision'],
+            'policy_revision': __import__('resource_policy').read(db, project)['revision']}
+
+
+def resume_service(db, principal, operation_id):
+    if not isinstance(principal,Principal) or 'services:create' not in principal.scopes:
+        raise OperationError('forbidden','Service recovery is not permitted.',403)
+    import managed_services as services
+    initialize(db); services.initialize(db)
+    with registry.transaction(db):
+        row = db.execute("SELECT * FROM application_operations WHERE id=? AND subject=? AND operation LIKE 'service-create:%'",
+                         (operation_id, principal.subject_id)).fetchone()
+        if row is None: raise OperationError('operation_not_found', 'Service operation was not found.', 404)
+        result = json.loads(row['result']); definition = result['service']['definition']
+        _service_authorize(db, principal, 'services:create', definition['project'], definition['environment'])
+        if definition['desired_state'] == 'running':
+            _service_authorize(db, principal, 'services:start', definition['project'], definition['environment'])
+        if principal.credential_id is not None:
+            raise OperationError('unsupported_credential', 'Credential-scoped provisioning is not enabled yet.', 403)
+        if result['operation']['status'] in ('queued', 'provisioning'): return result
+        if result['operation']['status'] != 'recovery-required':
+            raise OperationError('not_recoverable', 'Only an operation awaiting recovery can be resumed.')
+        try:
+            services.artifact_for_service(db, definition['project'], definition['artifact_id'])
+            services.validate_capacity(db, definition['project'], __import__('resource_policy').read(db, definition['project'])['document'])
+        except ValueError as error: raise OperationError('service_unavailable', str(error)) from None
+        services._update(db, operation_id, 'queued', 'Recovery queued against the original definition and recorded resource journal.')
+        return json.loads(db.execute('SELECT result FROM application_operations WHERE id=?', (operation_id,)).fetchone()['result'])
