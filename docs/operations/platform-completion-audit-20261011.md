@@ -26,8 +26,8 @@ of subsequent local commits. No server mutation was performed in this audit.
 | --- | --- | --- |
 | Dynamic project/environment registry | `registry.py`, shared authenticated `application_operations.py`, registry-backed settings and immutable targets | Production import/adoption and public runtime verification |
 | UI and MCP creation | Shared operations, scoped credentials, verified artifacts, durable provisioning; local SDK/worker/console evidence in MCP acceptance docs | Production packaging/client acceptance; database/queue/scheduler role templates |
-| Automatic managed delivery | Immutable source/build/test/publication, rollout identity and recovery, health and protected image cleanup | Complete database migration stage and retryable cleanup recovery |
-| Production migrations | Explicit executor design; legacy path fails closed for unsupported schema operations | Typed Alembic plan implemented; trusted executor, Laravel parser, binding/ledger integration and actual schema acceptance remain in progress |
+| Automatic managed delivery | Immutable source/build/test/publication, rollout identity and recovery, health and protected image cleanup | Complete database migration stage; durable cleanup retry and actual untagged-image recovery now verified |
+| Production migrations | Explicit executor design; legacy path fails closed for unsupported schema operations | Alembic and Laravel PostgreSQL parsers/executors passed actual PHP/PG schema acceptance; environment binding, helper protocol and worker/ledger integration remain in progress |
 | Development migrations | Fixed Laravel pending migration command in legacy path | Verified DB binding and pending ledger; Alembic adapter; explicit development-only reset configuration |
 | Database inspection | Encrypted configuration; actual authenticated HTTP/Unix/Docker/PostgreSQL two-environment browser configuration/acceptance/rows/revocation; durable rejected-save recovery; scoped MCP protocol reads; MySQL 8.4.11 and MariaDB 11.4.13 direct-adapter and authenticated HTTP/Unix/helper acceptance; PostgreSQL official SDK-to-live-engine acceptance | MySQL/MariaDB full browser acceptance, broader row types, production rollout |
 | Scheduler/queue | Deployment queue and monitor scheduling exist | Workload-specific schedule and job adapters, actual queue depth/failed job/retry evidence |
@@ -77,3 +77,20 @@ These are local builds; the verified production baseline above remains unchanged
 The next implementation contract is `../specs/database-inspector.md`, reviewed
 against both backend identity/permission boundaries and frontend workflows.
 The PostgreSQL backend path now has real local runtime acceptance (see database-console-20261011.md). The broader inspector workflow and platform requirements remain open.
+
+## Latest local build and review
+
+Three application targets rebuilt successfully after cleanup and shared database
+ownership changes; read-only, network-disabled Python import smoke checks passed.
+
+- receiver: `sha256:8338fec92f5a3ea7f8c649d4236aacb244551d1128d4f8f20b9a2bec9573a0ae`
+- worker: `sha256:0e95aa6f49c04dac3fc0073d14438507fbf16aff8c991984797319f012a3a2e1`
+- MCP: `sha256:7169d6f0a4a28576a6932bb0e734869b1c11574a350c35f9194c11202f2511df`
+
+The full suite before the new migration-binding work passed 1089 backend tests
+and 89 frontend tests. New ownership and purpose-bound migration-credential tests
+passed separately. Purpose-separated migration accounts are encrypted and support
+rotation/revocation and durable save receipts; this is not yet a published UI/API
+or an integrated migration stage. See cleanup-recovery-20261011.md for the actual
+Docker untagged-image deletion/retry proof and the Laravel acceptance note for
+real engine evidence. Production still runs the separately verified baseline.

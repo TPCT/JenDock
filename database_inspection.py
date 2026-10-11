@@ -8,6 +8,7 @@ import uuid
 
 import database_bindings as bindings
 import database_candidates as candidates
+import database_target
 import registry
 from application_operations import OperationError
 
@@ -89,15 +90,9 @@ class InspectorService:
         return row
 
     def _candidate(self,row):
-        definition=row['definition'];ownership=definition['ownership']
-        candidate=self.resolve_candidate(row['project'],row['environment'],ownership['reference'],kind=ownership['kind'])
-        # Laravel commonly records DB_CONNECTION=mysql for MariaDB too. This is
-        # endpoint-family evidence only; the helper authenticates the exact dialect.
-        engine_matches=(candidate['engine']==definition['engine'] or
-                        candidate['engine']=='mysql' and definition['engine']=='mariadb')
-        if (candidate['recipe_revision']!=ownership['revision'] or not engine_matches
-                or candidate['database']!=definition['database_name'] or candidate['port']!=definition['database_port']):
-            raise InspectionError('Database configuration does not match registered ownership.')
+        definition=row['definition']
+        try:candidate=database_target.resolve_ownership(row,resolve_candidate=self.resolve_candidate)
+        except database_target.TargetError as error:raise InspectionError(str(error)) from None
         if definition['adapter_version']!=1 or not re.fullmatch('sha256:[a-f0-9]{64}',self.helper.image):
             raise InspectionError('Database verifier configuration is unsupported.')
         candidate=dict(candidate,engine=definition['engine'],verifier={'image':self.helper.image,'adapter_version':1})
@@ -105,11 +100,8 @@ class InspectorService:
         return candidate
 
     def _registered(self,candidate):
-        project=registry.get_project(self.db,candidate['project'])
-        env=registry.get_environment(self.db,candidate['project'],candidate['environment'])
-        if (project['revision']!=candidate['project_revision'] or env['revision']!=candidate['environment_revision']
-                or env['recipe_revision']!=candidate['recipe_revision']):
-            raise InspectionError('Registered database ownership changed.')
+        try:database_target.check_registered(self.db,candidate)
+        except database_target.TargetError as error:raise InspectionError(str(error)) from None
 
     def _run(self,row,candidate,request,scope='databases:manage'):
         definition=row['definition']
