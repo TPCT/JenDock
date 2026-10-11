@@ -913,7 +913,7 @@ function ContainerWorkspace({
                     Add variable
                   </Button>
                 </Stack>
-                <Divider sx={{ my: 3 }} />
+                <Divider sx={{ my: "var(--space-group)" }} />
                 <Stack direction="row" useFlexGap flexWrap="wrap" spacing={2}>
                   <Button
                     variant="contained"

@@ -24,7 +24,7 @@
 .release-band > div > span { margin-bottom: var(--space-inline); }
 .performance-section { margin-top: var(--space-section); padding-top: var(--space-panel); }
 .unassigned-workload { margin-top: var(--space-section); padding-top: var(--space-panel); }
-.empty-state { padding: var(--space-panel); text-align: center; }
+.empty-state { padding: var(--space-group) var(--space-panel); text-align: center; }
 .empty-state-description { max-width: 72ch; margin-inline: auto !important; }
 .empty-state-description { margin-top: var(--space-inline) !important; font-size: 14px !important; }
 .directory-row, .deployment-row { padding: var(--space-group) var(--space-panel); gap: var(--space-group); }
@@ -97,4 +97,13 @@
   .workspace-main .MuiButton-root { min-height: 40px; }
   .project-layout { gap: var(--space-panel); }
   .event-row { gap: var(--space-inline); }
+}
+
+/* Preserve room before dividers without doubling inline metadata gaps. */
+.release-band > div:not(:last-child) { padding-right: var(--space-panel); }
+.release-band small, .release-band .MuiButton-root { margin-left: 0; }
+@media (max-width: 800px) {
+  .release-band > div:not(:last-child) { padding-right: 0; }
+  .release-band > div { gap: var(--space-group); }
+  .release-band > div > span { margin-bottom: 0; }
 }

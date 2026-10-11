@@ -132,7 +132,7 @@ function deferredScreen(load, name) {
       if (this.state.downloadFailed) return <Alert severity="error" action={<Button color="inherit" onClick={() => window.location.reload()}>Reload application</Button>}>The {name} screen could not be downloaded. Reload the application to get the current screen files.</Alert>;
       if (this.state.failed) return <Alert severity="error" action={<Button color="inherit" onClick={this.retry}>Retry</Button>}>The {name} screen could not open. Try again.</Alert>;
       const Screen = this.Screen;
-      return <Suspense fallback={<Stack direction="row" spacing={2} alignItems="center" role="status" sx={{ py: 4 }}><CircularProgress size={20} aria-hidden="true"/><Typography>Loading {name}…</Typography></Stack>}><Screen {...this.props}/></Suspense>;
+      return <Suspense fallback={<Stack direction="row" spacing={2} alignItems="center" role="status" sx={{ py: "var(--space-panel)" }}><CircularProgress size={20} aria-hidden="true"/><Typography>Loading {name}…</Typography></Stack>}><Screen {...this.props}/></Suspense>;
     }
   };
 }

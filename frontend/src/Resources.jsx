@@ -212,7 +212,7 @@ export default function Resources({
   };
   if (!draft)
     return (
-      <Stack spacing={2} sx={{ py: 3 }}>
+      <Stack spacing={2} sx={{ py: "var(--space-panel)" }}>
         {error ? (
           <>
             <Alert severity="error">
