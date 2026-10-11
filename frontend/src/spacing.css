@@ -8,7 +8,12 @@
   --space-page: 24px;
   --space-label: 6px;
 }
-.workspace-main > main { padding: var(--space-section) var(--space-page) var(--space-panel); }
+.workspace-main > main {
+  /* Align content and breadcrumbs instead of centering only the content. */
+  max-width: none;
+  min-width: 0;
+  padding: var(--space-section) var(--space-page);
+}
 .workspace-top { padding-inline: var(--space-page); }
 .project-heading { gap: var(--space-panel); }
 .project-identity { gap: var(--space-inline); }
@@ -18,13 +23,14 @@
 .project-tabs { margin-top: 0; margin-bottom: var(--space-panel); }
 .project-tabs .MuiTab-root { padding-block: var(--space-group); margin-right: var(--space-section); }
 .section-heading { gap: var(--space-group); margin-bottom: var(--space-group); }
+.section-heading > .MuiTypography-root { margin: 0; }
 .project-status, .resource-chart { margin-bottom: var(--space-section); }
 .chart-toolbar { margin-bottom: var(--space-group); }
 .release-band { margin-top: 0; margin-bottom: var(--space-section); padding: var(--space-panel); gap: var(--space-panel); }
 .release-band > div > span { margin-bottom: var(--space-inline); }
 .performance-section { margin-top: var(--space-section); padding-top: var(--space-panel); }
 .unassigned-workload { margin-top: var(--space-section); padding-top: var(--space-panel); }
-.empty-state { padding: var(--space-group) var(--space-panel); text-align: center; }
+.empty-state { padding: var(--space-panel); text-align: center; }
 .empty-state-description { max-width: 72ch; margin-inline: auto !important; }
 .empty-state-description { margin-top: var(--space-inline) !important; font-size: 14px !important; }
 .directory-row, .deployment-row { padding: var(--space-group) var(--space-panel); gap: var(--space-group); }
@@ -74,7 +80,6 @@
 .versions-description .MuiIconButton-root { flex-shrink: 0; }
 @media (max-width: 800px) {
   .section-heading { flex-wrap: wrap; }
-  .version-row { padding: var(--space-group); }
 }
 
 /* Content rhythm: labels belong to controls, rows to sections, sections to pages. */
@@ -111,14 +116,5 @@
 /* Compact metadata controls should not inflate their containing rows. */
 .workspace-main .section-heading { min-height: 32px; }
 .workspace-main .section-heading .MuiTypography-h6 { line-height: 1.5; }
-.service-versions { margin-top: var(--space-section); }
 .versions-title { display: flex; align-items: center; gap: var(--space-tight); }
-.service-versions .versions-description { display: block; margin-top: var(--space-tight); }
-.version-source .MuiButton-root { min-height: 24px; line-height: 24px; }
-.version-row { align-items: start; }
-.workspace-main .empty-state { padding-block: var(--space-panel); }
 .workspace-main .empty-state-description { line-height: 1.5; }
-@media (max-width: 800px) {
-  .service-versions { margin-top: var(--space-panel); }
-  .version-source .MuiButton-root { min-height: 40px; }
-}
