@@ -18,10 +18,11 @@ class CleanupRecoveryTests(unittest.TestCase):
         with patch('artifact_publication.pending',return_value=False), \
              patch('managed_services.protected_images',return_value=set()), \
              patch('managed_delivery.protected_images',return_value=set()), \
-             patch.object(worker,'run',return_value=image), \
+             patch.object(worker,'run',return_value=image) as inventory, \
              patch.object(worker.subprocess,'run',return_value=subprocess.CompletedProcess([],1)):
             with self.assertRaises(worker.StepFailure):
                 worker.prune_job_images(MagicMock(),12)
+            self.assertIn('--all',inventory.call_args.args[0])
 
     def test_nonzero_previous_image_removal_is_not_silently_successful(self):
         image='sha256:'+'a'*64

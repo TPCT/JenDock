@@ -26,3 +26,16 @@ That UI fixture did not execute Docker cleanup. Actual Docker cleanup acceptance
 and production deployment remain unverified; successful unit tests are not a claim
 that live images were deleted. The broader migration executor integration is also
 separate work.
+
+## Actual Docker follow-through
+
+The disposable real Docker fixture found an inventory defect: untagged images
+were omitted by the default `image ls` query. All three cleanup inventory paths
+now use `--all`. `tests/live_image_cleanup.py` explicitly verifies untagged images,
+actual artifact-catalog protection, one injected removal failure, persisted
+backoff after SQLite reconnect, successful removal on retry, unchanged successful
+deployment status, and no extra removal on completed replay. Final session 23674
+exited 0; evidence is `/tmp/live-image-cleanup-untagged.log`.
+Exact fixture teardown preserved pre-existing images/container identities.
+Builder-cache pruning and volume operations were forbidden in this fixture;
+actual builder-cache cleanup remains separate from this image-removal proof.

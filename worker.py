@@ -632,7 +632,7 @@ def prune_job_images(db, job_id):
         return False
     import managed_delivery
     protected = set(managed_services.protected_images(db)) | managed_delivery.protected_images(db)
-    candidates = run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet',
+    candidates = run([DOCKER, 'image', 'ls', '--all', '--no-trunc', '--quiet',
                       '--filter', 'label=net.shiftcodes.job=' + str(job_id)], capture=True).splitlines()
     return remove_cleanup_images(set(candidates) - protected)
 
@@ -660,7 +660,7 @@ def prune_legacy_images(db, job_id):
     record = db.execute("SELECT images FROM image_cleanup WHERE job_id=? AND kind='legacy-images'", (job_id,)).fetchone()
     candidates = set(json.loads(record['images']))
     protected = managed_services.protected_images(db) | managed_delivery.protected_images(db)
-    existing = set(run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet'], capture=True).splitlines())
+    existing = set(run([DOCKER, 'image', 'ls', '--all', '--no-trunc', '--quiet'], capture=True).splitlines())
     return remove_cleanup_images(candidates & existing - protected)
 
 
@@ -795,7 +795,7 @@ def prune_managed_previous_images(db, job_id):
     if target['recipe'].get('schema_kind') != 'managed-build': return True
     protected = managed_services.protected_images(db) | managed_delivery.protected_images(db)
     candidates = {item['definition']['artifact']['image'] for item in target['recipe']['managed_target']['services']}
-    existing = set(run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet'], capture=True).splitlines())
+    existing = set(run([DOCKER, 'image', 'ls', '--all', '--no-trunc', '--quiet'], capture=True).splitlines())
     return remove_cleanup_images(candidates & existing - protected)
 
 
