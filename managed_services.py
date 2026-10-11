@@ -210,7 +210,9 @@ def versions(db, project, environment, *, limit=25, cursor=None):
 def reservation_totals(db, project, environment):
     initialize(db)
     row = db.execute("SELECT COALESCE(SUM(memory_mib),0),COALESCE(SUM(cpu),0) FROM service_reservations WHERE project=? AND environment=? AND state='held'", (project, environment)).fetchone()
-    return {'memory_mib': row[0], 'cpu': row[1]}
+    import ingress_capacity
+    gateway=ingress_capacity.totals(db,project,environment)
+    return {'memory_mib': row[0]+gateway['memory_mib'], 'cpu': row[1]+gateway['cpu']}
 
 
 def validate_capacity(db, project, document):
@@ -230,8 +232,8 @@ def validate_definition(db, project, environment, values):
     if not isinstance(values['artifact_id'], str) or not isinstance(values['template_id'], str):
         raise ValueError('Choose a published service artifact and template.')
     name = values['name']
-    if not isinstance(name, str) or not re.fullmatch('[a-z][a-z0-9-]{0,47}', name):
-        raise ValueError('Use a lowercase service name with letters, numbers and hyphens.')
+    if not isinstance(name, str) or name == 'ingress' or not re.fullmatch('[a-z][a-z0-9-]{0,47}', name):
+        raise ValueError('Use a lowercase service name with letters, numbers and hyphens; ingress is reserved for routing.')
     desired = values.get('desired_state', 'stopped')
     if desired not in ('stopped', 'running'): raise ValueError('Choose stopped or running.')
     for field in ('environment_revision', 'policy_revision', 'template_revision'):
@@ -276,20 +278,7 @@ def accept(db, project, environment, definition, operation_id):
     for field in ('memory_mib', 'cpu'):
         total = totals[field] + sum(value[field] for value in env_policy['services'].values()) + definition['resources'][field]
         if total > env_policy['budget'].get(field, 0) + 1e-8: raise ValueError('Insufficient environment ' + field + ' budget for this service.')
-    metric = db.execute('SELECT observed,value FROM telemetry ORDER BY observed DESC LIMIT 1').fetchone()
-    if metric is None or not 0 <= time.time() - metric['observed'] <= 90:
-        raise ValueError('Fresh host capacity observations are required before creating a service.')
-    host = json.loads(metric['value'])
-    for field in ('memory_total', 'memory_used', 'cpu_count'):
-        resource_policy.number(host.get(field), 'Observed host capacity', 0, 2**63)
-    allocated_cpu=0
-    for saved in db.execute('SELECT document FROM resource_policies'):
-        document=json.loads(saved['document']); resource_policy.validate(document)
-        allocated_cpu+=sum(cap['cpu'] for env in document['environments'].values() for cap in env['services'].values())
-    held = db.execute("SELECT COALESCE(SUM(memory_mib),0),COALESCE(SUM(cpu),0) FROM service_reservations WHERE state='held'").fetchone()
-    if ((host.get('memory_total', 0) - host.get('memory_used', 0)) / 1048576 < held[0] + definition['resources']['memory_mib']
-            or host.get('cpu_count', 0) < allocated_cpu + held[1] + definition['resources']['cpu']):
-        raise ValueError('Observed host capacity cannot cover accepted service reservations.')
+    validate_host_capacity(db,definition['resources'])
     if db.execute('SELECT 1 FROM managed_services WHERE project=? AND environment=? AND name=?', (project, environment, definition['name'])).fetchone():
         raise ValueError('This service name is already reserved in the selected environment.')
     identifier = str(uuid.uuid4()); definition = dict(definition, service_id=identifier)
@@ -493,3 +482,23 @@ def refresh_binding(db, service_id, expected_container_id, verified_binding):
         result['service']=get(db,service_id)
         db.execute('UPDATE application_operations SET result=? WHERE id=?',(registry.canonical(result),service['operation_id']))
         return copy.deepcopy(verified_binding)
+
+
+def validate_host_capacity(db, resources):
+    """Caller serializes accepted allocations; current telemetry is required."""
+    metric = db.execute('SELECT observed,value FROM telemetry ORDER BY observed DESC LIMIT 1').fetchone()
+    if metric is None or not 0 <= time.time() - metric['observed'] <= 90:
+        raise ValueError('Fresh host capacity observations are required before creating a service.')
+    host = json.loads(metric['value'])
+    for field in ('memory_total', 'memory_used', 'cpu_count'):
+        resource_policy.number(host.get(field), 'Observed host capacity', 0, 2**63)
+    allocated_cpu=0
+    for saved in db.execute('SELECT document FROM resource_policies'):
+        document=json.loads(saved['document']); resource_policy.validate(document)
+        allocated_cpu+=sum(cap['cpu'] for env in document['environments'].values() for cap in env['services'].values())
+    held = db.execute("SELECT COALESCE(SUM(memory_mib),0),COALESCE(SUM(cpu),0) FROM service_reservations WHERE state='held'").fetchone()
+    import ingress_capacity
+    gateway=ingress_capacity.host_totals(db)
+    if ((host.get('memory_total', 0) - host.get('memory_used', 0)) / 1048576 < held[0] + gateway['memory_mib'] + resources['memory_mib']
+            or host.get('cpu_count', 0) < allocated_cpu + held[1] + gateway['cpu'] + resources['cpu']):
+        raise ValueError('Observed host capacity cannot cover accepted service reservations.')

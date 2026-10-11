@@ -258,11 +258,25 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
         network = _lookup(docker, 'network', network_name)
         if network is None: raise ProvisioningError('Created environment network could not be verified.')
     _network(network, definition, journal.get('network_id'))
-    for identifier in (network.get('Containers') or {}):
-        attached = _json([docker, 'inspect', identifier])[0]
-        labels = attached.get('Config', {}).get('Labels') or {}
-        if any(labels.get(PREFIX + key) != definition[key] for key in ('project', 'environment')):
+    known = {binding['container_id'] for _, _, binding in refreshed_bindings}
+    if journal.get('container_id'):
+        known.add(journal['container_id'])
+    elif old and journal.get('phase') == 'create-intent':
+        # A lost create response may precede recording its ID. Admit only the
+        # exact candidate after the existing full application verification.
+        candidate = _lookup(docker, 'container', name)
+        if candidate is not None:
+            _verify(candidate, definition, operation_id, image_id, network['Id'], name, path)
+            known.add(candidate['Id'])
+
+    def verify_members(observed):
+        from ingress_runtime import verified_network_members
+        gateways = verified_network_members(db, definition['project'], definition['environment'],
+            docker=docker, application_network_id=network['Id'], authorize=authorize)
+        if set(observed.get('Containers') or {}) - (known | set(gateways)):
             raise ProvisioningError('An unowned container is attached to the environment network.')
+
+    verify_members(network)
     phase = journal['phase']
     _persist(db, operation_id, digest, journal, phase, network_id=network['Id'])
     actual = _lookup(docker, 'container', name)
@@ -279,6 +293,7 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
     if journal.get('container_id', actual['Id']) != actual['Id']:
         raise ProvisioningError('Owned container was replaced. Recovery is required.')
     _verify(actual, definition, operation_id, image_id, network['Id'], name, path)
+    known.add(actual['Id'])
     resumed_start = phase in ('start-intent', 'verified')
     _persist(db, operation_id, digest, journal, phase if resumed_start else 'created', container_id=actual['Id'])
     if definition['desired_state'] == 'running':
@@ -290,6 +305,7 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
             current_network = _lookup(docker, 'network', network_name)
             if current_network is None: raise ProvisioningError('Environment network disappeared before startup.')
             _network(current_network, definition, network['Id'])
+            verify_members(current_network)
             command([docker, 'start', actual['Id']])
         deadline = time.monotonic() + health_timeout
         while True:

@@ -199,3 +199,26 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(self.reconcile()['outcome'], 'verified-old')
         self.item['state'] = 'unchanged'
         self.assertEqual(self.reconcile()['outcome'], 'verified-old')
+
+    def test_verified_gateway_admitted_in_rollout_and_reconciliation(self):
+        from types import SimpleNamespace
+        self.network['Containers'] = {'8'*64: {}}
+        helper = SimpleNamespace(verified_network_members=lambda *a, **k: frozenset({'8'*64}))
+        with patch.dict('sys.modules', {'ingress_runtime': helper}):
+            self.assertEqual(self.deliver()['container_id'], 'd'*64)
+            self.assertEqual(self.reconcile()['outcome'], 'verified-new')
+            helper.verified_network_members = lambda *a, **k: (_ for _ in ()).throw(ValueError('gateway missing'))
+            self.assertEqual(self.reconcile()['outcome'], 'unknown')
+
+    def test_gateway_drift_blocks_rollout_before_mutation(self):
+        from types import SimpleNamespace
+        helper = SimpleNamespace(verified_network_members=lambda *a, **k: (_ for _ in ()).throw(ValueError('gateway drift')))
+        with patch.dict('sys.modules', {'ingress_runtime': helper}):
+            with self.assertRaisesRegex(ValueError, 'gateway drift'): self.deliver()
+        self.assertEqual(self.replacement_count, 0)
+
+    def test_unverified_same_label_peer_blocks_rollout_and_reconciliation(self):
+        self.network['Containers'] = {'9'*64: {}}
+        with self.assertRaisesRegex(ValueError, 'unknown container'): self.deliver()
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+        self.assertEqual(self.replacement_count, 0)

@@ -9,6 +9,8 @@ import socket
 import time
 import registry
 
+_NO_OPERATION = object()
+
 
 def initialize(db):
     db.execute('''CREATE TABLE IF NOT EXISTS ingress_ports(
@@ -18,10 +20,10 @@ def initialize(db):
         PRIMARY KEY(project,environment))''')
 
 
-def _identity(project, environment, operation_id=None):
+def _identity(project, environment, operation_id=_NO_OPERATION):
     registry.identifier(project)
     if environment not in ('development','production'):raise ValueError('Choose Development or Production.')
-    if operation_id is not None and (not isinstance(operation_id,str) or not re.fullmatch('[A-Za-z0-9-]{16,100}',operation_id)):
+    if operation_id is not _NO_OPERATION and (not isinstance(operation_id,str) or not re.fullmatch('[A-Za-z0-9-]{16,100}',operation_id)):
         raise ValueError('A stable gateway operation identity is required.')
 
 

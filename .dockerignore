@@ -43,3 +43,7 @@ frontend/dist
 !requirements-mcp.txt
 !container_files.py
 !container_file_changes.py
+
+!ingress_capacity.py
+!ingress_runtime.py
+!ingress_ports.py

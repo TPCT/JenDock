@@ -50,6 +50,9 @@ class IngressPortsTest(unittest.TestCase):
         ingress_ports.release(self.db,'demo','development','operation-12345678')
         ingress_ports.release(self.db,'demo','development','operation-12345678')
         self.assertEqual(ingress_ports.get(self.db,'demo','production'),peer)
+    def test_missing_operation_identity_is_rejected_before_probe(self):
+        with self.assertRaises(ValueError):self.reserve(op=None,available=lambda p:self.fail('unexpected probe'))
+
     def test_invalid_input_never_runs_host_probe(self):
         for kwargs in ({'occupied_ports':None},{'occupied_ports':{True}},{'occupied_ports':{-1}}):
             with self.assertRaises(ValueError):self.reserve(available=lambda p:self.fail('unexpected probe'),**kwargs)

@@ -84,6 +84,9 @@ def rollout(db, operation_id, item, *, docker, compose, authorize, health_timeou
         provision._network(row, old, binding['network_ids'][0])
         known = {p['binding']['container_id'] for p in peers if p.get('binding')}
         known.update(journal.get('replacement_ids', []))
+        from ingress_runtime import verified_network_members
+        known.update(verified_network_members(db, old['project'], old['environment'],
+            docker=docker, application_network_id=binding['network_ids'][0], authorize=authorize))
         if set(row.get('Containers') or {}) - known:
             raise RolloutError('An unknown container joined the managed environment network.')
 
@@ -282,7 +285,11 @@ def reconcile(db, operation_id, item, *, docker, authorize):
                 return unknown('Runtime health is not verified.')
         network = provision._json([docker, 'network', 'inspect', binding['network_ids'][0]])[0]
         provision._network(network, old, binding['network_ids'][0])
-        if set(network.get('Containers') or {}) - {p['container_id'] for _, p, _, _ in observations}:
+        from ingress_runtime import verified_network_members
+        known = {p['container_id'] for _, p, _, _ in observations}
+        known.update(verified_network_members(db, old['project'], old['environment'],
+            docker=docker, application_network_id=binding['network_ids'][0], authorize=authorize))
+        if set(network.get('Containers') or {}) - known:
             return unknown('Unknown network peer identity.')
         if path.read_bytes() != manifest_bytes:
             return unknown('Manifest changed during observation.')

@@ -194,3 +194,35 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(current['state'], 'stopped')
         self.assertGreaterEqual(current['observed'], first_binding['observed'])
         self.assertEqual(first_binding['state'], 'running')  # Original creation evidence is unchanged.
+
+    def test_same_label_impostor_network_peer_is_rejected(self):
+        self.execute()
+        self.network['Containers'] = {'9'*64: {}}
+        before = len(self.calls)
+        # The old guard inspects this fixture and sees matching ownership labels.
+        with self.assertRaisesRegex(ValueError, 'unowned container'):
+            self.execute()
+        self.assertFalse(any(c[0] == 'compose' for c in self.calls[before:]))
+
+    def test_verified_gateway_admitted_and_drift_fails_closed(self):
+        from types import SimpleNamespace
+        self.execute()
+        self.network['Containers'] = {'8'*64: {}}
+        helper = SimpleNamespace(verified_network_members=lambda *a, **k: frozenset({'8'*64}))
+        with patch.dict('sys.modules', {'ingress_runtime': helper}):
+            self.assertEqual(self.execute()['container_id'], 'c'*64)
+            helper.verified_network_members = lambda *a, **k: (_ for _ in ()).throw(ValueError('gateway drift'))
+            with self.assertRaisesRegex(ValueError, 'gateway drift'): self.execute()
+
+    def test_lost_create_response_recovers_fully_verified_attached_candidate(self):
+        original = self.command
+        def lost_response(args, **kwargs):
+            result = original(args, **kwargs)
+            if args[0] == 'compose':
+                self.network['Containers'] = {self.container['Id']: {}}
+                raise provision.ProvisioningError('lost response')
+            return result
+        with patch.object(provision, 'command', side_effect=lost_response):
+            with self.assertRaisesRegex(ValueError, 'lost response'): self.execute()
+        self.assertEqual(self.execute()['container_id'], 'c'*64)
+        self.assertEqual(sum(c[0] == 'compose' for c in self.calls), 1)
