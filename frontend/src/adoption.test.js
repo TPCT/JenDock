@@ -20,3 +20,24 @@ test('second environment requires exact receipt not first legacy anchor',()=>{
  assert.equal(linkedEnvironment({...result,receipt:undefined},'app','production',fingerprint),false);
  assert.equal(linkedEnvironment(result,'app','development',fingerprint),false);
 });
+
+import {adoptionRecoveryKey,adoptionCheckpoint,restoreAdoption} from './adoption.js';
+test('recovery persists only exact request identity and isolates owner and environment',()=>{
+ const preview={project:'app',environment:'production',fingerprint:'a'.repeat(64),selected_recipe_revision:7,selected_services:['queue','app'],databases:[{password:'must-not-persist'}],containers:[{id:'private'}]};
+ const saved=adoptionCheckpoint(preview);
+ assert.deepEqual(Object.keys(saved).sort(),['environment','fingerprint','project','recipe_revision','services']);
+ const key=adoptionRecoveryKey('admin','app','production');
+ assert.notEqual(key,adoptionRecoveryKey('other','app','production'));
+ assert.notEqual(key,adoptionRecoveryKey('admin','app','development'));
+ const storage={getItem:()=>JSON.stringify(saved)};
+ assert.deepEqual(restoreAdoption(storage,key,'app','production'),saved);
+ assert.throws(()=>restoreAdoption(storage,key,'app','development'));
+ assert.equal(restoreAdoption({getItem:()=>null},key,'app','production'),null);
+});
+test('malformed or unreadable recovery fails closed',()=>{
+ const value={project:'app',environment:'production',fingerprint:'a'.repeat(64)};
+ for(const bad of ['{',JSON.stringify({...value,fingerprint:'bad'}),JSON.stringify({...value,services:['app','app']}),JSON.stringify({...value,recipe_revision:-1})]){
+  assert.throws(()=>restoreAdoption({getItem:()=>bad},'key','app','production'));
+ }
+ assert.throws(()=>restoreAdoption({getItem:()=>{throw new Error('denied')}},'key','app','production'));
+});

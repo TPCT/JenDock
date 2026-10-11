@@ -67,8 +67,20 @@ The success response includes the exact environment and fingerprint receipt; the
 first legacy compatibility anchor is not evidence that a second environment failed.
 The linking action stays available for another unprovisioned environment.
 
-Browser acceptance of these selectors and recovery after a full page reload remain
-unverified. In-memory drafts do not survive a full reload. A public recipe
+The UI checkpoints the exact submitted request in session storage before dispatch,
+scoped by authenticated username, project and environment. It stores the fingerprint
+and recipe/service selection only, not the inspected database/container details.
+An unconfirmed request survives reload and exposes Check linking request even if
+the environment has already been linked. It cannot silently obtain a new preview.
+Storage failures prevent new dispatch, and receipts must match before clearing.
+Owner/scope changes remount the dialog; late responses cannot refresh another scope.
+
+Frontend helper tests cover serialization, scope and corrupt storage rejection;
+123 frontend tests and the production frontend build pass. Browser acceptance of
+the selectors, dropped responses and full reload recovery remains unverified.
+Editable, not-yet-submitted selection drafts still do not survive a full reload.
+Accepted request replay still depends on Docker inventory availability in control.py;
+a read-only exact receipt recovery path remains needed. A public recipe
 registration/editor workflow also remains unimplemented; an explicit revision
 must already exist through trusted configuration. Do not invent recipe records
 or bypass adoption to make a workflow appear complete.

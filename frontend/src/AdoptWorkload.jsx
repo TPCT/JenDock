@@ -13,10 +13,11 @@ import {
 } from "@mui/material";
 import Hint from "./Hint";
 import Field from "./Field";
-import { selectionPayload, reviewedSelection, matchesReview, linkedEnvironment } from "./adoption.js";
+import { selectionPayload, reviewedSelection, matchesReview, linkedEnvironment, adoptionRecoveryKey, adoptionCheckpoint, restoreAdoption } from "./adoption.js";
 
 export default function AdoptWorkload({
   open,
+  owner,
   project,
   environment,
   api,
@@ -26,22 +27,37 @@ export default function AdoptWorkload({
   onPending,
 }) {
   const scope = `${project}:${environment}`;
-  const [draft, setDraft] = useState({ scope, recipe_revision: null, services: null });
+  const [recovery] = useState(() => {
+    try {
+      const key = adoptionRecoveryKey(owner, project, environment);
+      return { key, request: restoreAdoption(sessionStorage, key, project, environment) };
+    } catch {
+      return { error: "The saved linking request could not be read. Resolve recovery before starting another request." };
+    }
+  });
+  const recovered = recovery.request;
+  const [storageError, setStorageError] = useState(recovery.error || "");
+  const [draft, setDraft] = useState({ scope, recipe_revision: recovered?.recipe_revision ?? null, services: recovered?.services ?? null });
   const selection = draft.scope === scope ? draft : { recipe_revision: null, services: null };
   const selectionKey = JSON.stringify(selectionPayload(selection));
   const [options, setOptions] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [preview, setPreview] = useState(recovered ? {
+    ...recovered, selected_recipe_revision: recovered.recipe_revision,
+    selected_services: recovered.services, recovered: true,
+  } : null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
-  const [uncertain, setUncertain] = useState(false);
+  const [uncertain, setUncertain] = useState(!!recovered);
   const [linked, setLinked] = useState(false);
   const linkedRecord = useRef(null);
   const lock = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const title = environment === "production" ? "Production" : "Development";
   useEffect(() => {
-    if (!open || uncertain || linked) return;
+    if (!open || uncertain || linked || storageError) return;
     let active = true;
     setLoading(true);
     setPreview(null);
@@ -88,7 +104,7 @@ export default function AdoptWorkload({
     return () => {
       active = false;
     };
-  }, [open, project, environment, api, reload, selectionKey]);
+  }, [open, project, environment, api, reload, selectionKey, uncertain, linked, storageError]);
   useEffect(() => {
     onDirty(!linked && (uncertain || (draft.scope === scope && (draft.recipe_revision != null || draft.services != null))));
     return () => onDirty(false);
@@ -107,11 +123,18 @@ export default function AdoptWorkload({
     }
   };
   const save = async () => {
-    if (lock.current || !preview || linked || !matchesReview(preview, project, environment, selection)) return;
+    if (lock.current || storageError || !preview || linked || !matchesReview(preview, project, environment, selection)) return;
     lock.current = true;
     setSaving(true);
     setError("");
     try {
+      // Persist before dispatch: an interrupted response must replay this fingerprint.
+      try {
+        sessionStorage.setItem(recovery.key, JSON.stringify(adoptionCheckpoint(preview)));
+      } catch {
+        setStorageError("The linking request could not be saved for recovery. No request was sent.");
+        return;
+      }
       const result = await api("action", {
         action: "adoption-save",
         project: preview.project,
@@ -125,17 +148,25 @@ export default function AdoptWorkload({
         throw new Error(
           "The saved result could not be verified. Check the original request before starting another review.",
         );
+      sessionStorage.removeItem(recovery.key);
+      if (!alive.current) return;
       setUncertain(false);
       setDraft({ scope, recipe_revision: null, services: null });
       setLinked(true);
       linkedRecord.current = result.project;
       await finish();
     } catch (error) {
-      setUncertain(uncertain || !error.status || error.status >= 500);
+      if (!alive.current) return;
+      const unknown = uncertain || !error.status || error.status >= 500;
+      setUncertain(unknown);
+      if (!unknown) {
+        try { sessionStorage.removeItem(recovery.key); }
+        catch { setStorageError("The rejected request could not be cleared from recovery storage."); }
+      }
       setError(error.message || "The linking result could not be confirmed.");
     } finally {
       lock.current = false;
-      setSaving(false);
+      if (alive.current) setSaving(false);
     }
   };
   return (
@@ -188,6 +219,8 @@ export default function AdoptWorkload({
               Inspecting existing containers and database identities…
             </Typography>
           )}
+          {storageError && <Alert severity="error">{storageError}</Alert>}
+          {uncertain && <Alert severity="warning">A linking request has an unconfirmed result. Check the original request to recover its exact result before changing the selection.</Alert>}
           {error && (
             <Alert severity="error" sx={{ overflowWrap: "anywhere" }}>
               {error}
@@ -204,7 +237,7 @@ export default function AdoptWorkload({
               The workload is linked to {title}.
             </Alert>
           )}
-          {preview && (
+          {preview && !preview.recovered && (
             <>
               <Box>
                 <Typography variant="h6" sx={{ mb: 1 }}>
@@ -299,7 +332,7 @@ export default function AdoptWorkload({
         )}
         <Button
           variant="contained"
-          disabled={loading || saving || (!linked && !preview)}
+          disabled={loading || saving || !!storageError || (!linked && !preview)}
           onClick={linked ? finish : save}
         >
           {saving
