@@ -465,6 +465,12 @@ function App() {
         },
       },
       MuiIconButton: { styleOverrides: { root: { width: 40, height: 40 } } },
+      MuiTableCell: {
+        styleOverrides: {
+          root: { padding: "var(--space-group) var(--space-panel)" },
+          sizeSmall: { padding: "var(--space-inline) var(--space-panel)" },
+        },
+      },
       MuiTab: {
         styleOverrides: {
           root: {

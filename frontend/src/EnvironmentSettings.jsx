@@ -135,7 +135,7 @@ export default function EnvironmentSettings({
   };
   if (!project || !drafts)
     return (
-      <Stack spacing={2} sx={{ py: "var(--space-panel)" }}>
+      <Stack spacing={2}>
         {error ? (
           <>
             <Alert severity="error">{error}</Alert>
@@ -209,7 +209,10 @@ export default function EnvironmentSettings({
     }
   };
   return (
-    <Stack spacing={2} sx={{ pb: "var(--space-group)", maxWidth: 900, minWidth: 0 }}>
+    <Stack
+      spacing={2}
+      sx={{ pb: "var(--space-group)", maxWidth: 900, minWidth: 0 }}
+    >
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
           <Typography component="h2" variant="h6">
@@ -256,48 +259,55 @@ export default function EnvironmentSettings({
             </Hint>
           </Typography>
         )}
-        {BranchControl ? (
-          <BranchControl
-            label="Branch"
-            value={draft.branch || null}
-            options={options}
-            disabled={!!busy}
-            onChange={(_, branch) => edit({ branch: branch || "" })}
-            error={branchMissing}
-            helperText={
-              branchMissing ? "Choose a repository branch." : undefined
-            }
-            onRefresh={() =>
-              api("action", { action: "refresh-branches", project: id }).catch(
-                (error) => setError(error.message),
-              )
-            }
-          />
-        ) : (
-          <Autocomplete
-            value={draft.branch || null}
-            options={options}
-            disabled={!!busy}
-            onChange={(_, branch) => edit({ branch: branch || "" })}
-            noOptionsText="No repository branches have been observed"
-            renderInput={(params) => (
-              <Field
-                {...params}
-                label="Branch"
-                required
-                error={branchMissing}
-                helperText={
-                  branchMissing ? "Choose a repository branch." : undefined
-                }
-              />
-            )}
-          />
-        )}
-        {!branches.length && (
-          <Typography color="text.secondary">
-            Branch list unavailable. Use the refresh icon in the branch field.
-          </Typography>
-        )}
+        <Box>
+          {BranchControl ? (
+            <BranchControl
+              label="Branch"
+              value={draft.branch || null}
+              options={options}
+              disabled={!!busy}
+              onChange={(_, branch) => edit({ branch: branch || "" })}
+              error={branchMissing}
+              helperText={
+                branchMissing ? "Choose a repository branch." : undefined
+              }
+              onRefresh={() =>
+                api("action", {
+                  action: "refresh-branches",
+                  project: id,
+                }).catch((error) => setError(error.message))
+              }
+            />
+          ) : (
+            <Autocomplete
+              value={draft.branch || null}
+              options={options}
+              disabled={!!busy}
+              onChange={(_, branch) => edit({ branch: branch || "" })}
+              noOptionsText="No repository branches have been observed"
+              renderInput={(params) => (
+                <Field
+                  {...params}
+                  label="Branch"
+                  required
+                  error={branchMissing}
+                  helperText={
+                    branchMissing ? "Choose a repository branch." : undefined
+                  }
+                />
+              )}
+            />
+          )}
+          {!branches.length && (
+            <Typography
+              color="text.secondary"
+              fontSize={13}
+              sx={{ mt: "var(--space-tight)" }}
+            >
+              Branch list unavailable. Use the refresh icon in the branch field.
+            </Typography>
+          )}
+        </Box>
         <Box>
           <FormControlLabel
             control={

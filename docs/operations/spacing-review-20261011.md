@@ -1,48 +1,39 @@
-# Shared interface spacing review — 2026-10-11
+# Shared spacing follow-through — 2026-10-11
 
-Scope: existing React interface, local product runtime at 127.0.0.1:19191.
-No backend or production runtime change.
+Scope: the monitoring React interface, preserving the current GitHub-style design
+and the shared 4/8/12/16/24px spacing system.
 
-Removed dialog footer padding exceptions in container confirmation and run
-cancellation; removed doubled Stack margin/gap in deployment settings; aligned
-Add variable with the external input label; normalized environment tab spacing,
-sidebar section spacing, mobile directory inset and version pagination wrapping.
-Version hint aligns centrally with its description on mobile.
+The existing shared page, dialog, empty-state and Versions spacing already replaces
+the larger gaps shown in the reported screenshot. This pass fixes remaining
+consumer-level inconsistencies:
 
-Validation: frontend build passed; all 65 frontend tests passed; git diff --check
-passed; Impeccable layout detector returned no findings for spacing and version CSS.
-Inspected rendered project directory, project containers/versions, mobile create
-container dialog, and run 27. At 390px mobile viewport main padding is 16px;
-dialog title/content use 16px and footer 12px 16px. Desktop main uses 24px 24px
-16px, environment tab margins 24px/0px, empty-state padding 16px. No document
-horizontal overflow in measured container mobile and run desktop views.
+- Branch availability helper is grouped with its input, separated by 4px rather
+  than an unrelated 16px form-row interval.
+- Versions use a single metadata column at the same 800px breakpoint as the
+  compact workspace, avoiding squeezed columns at 701–800px.
+- Container Actions header shares the same inset as its row actions.
+- Container metadata uses 4px label/value gaps and a 16px separation before the
+  next pair on mobile, without a trailing value margin.
+- Run-stage body indentation derives from the heading icon widths and gaps;
+  mobile outcome alignment uses that same measurement.
+- Loading/error content does not add an extra 16px padding inside already
+  padded settings/resource surfaces.
+- MUI table cells use shared 12px vertical/16px horizontal insets, with 8px
+  vertical insets for explicitly dense tables.
 
-Local captured observations are not production acceptance. Not every operational
-form/error state was exercised; container Add variable alignment is source-reviewed,
-not authenticated live-container workflow acceptance. Screenshot evidence:
-/tmp/monitor-spacing-desktop.png (temporary local artifact).
+Verification: frontend production build passed; 86 frontend tests passed;
+`git diff --check` passed; Impeccable layout scan returned no findings.
+Existing Vite warning about chunks larger than 500kB remains unrelated.
 
-## Current shared spacing follow-through
+Browser review used the existing local product at port 19191, which clearly
+labels its captured observations and disconnects production operations. Inspected
+project containers/Versions, environment settings, Source & build dialog,
+deployment detail, container detail, project directory and mobile navigation.
+Desktop 1307px, tablet 760px and mobile 390px were checked. Versions reflowed into
+one column at 760px; mobile Versions and directory had no page-width overflow.
+The modal retained separate header/content/footer and touch controls.
 
-Normalized remaining shared gaps without changing navigation or operational actions:
-empty states use 12px vertical / 16px horizontal insets; the following Versions
-section uses 16px separation rather than stacking another 24px. Container headers
-and rows share horizontal insets and 12px column gaps, with 8px name/action gaps.
-Domain empty states and rows now follow the same panel/list rhythm. Version
-metadata uses the shared tight/inline tokens; environment loading uses 16px.
-
-Current browser pass: desktop project Containers/Versions and run 27; mobile
-390x844 project Containers/Versions, Settings, project directory and Add container
-modal. Measured desktop page padding 24px, mobile horizontal padding 16px,
-empty-state padding 12px 16px, next Versions margin 16px, version row padding
-12px 16px. No document horizontal overflow in the measured project/list/run views.
-Mobile dialog content/title 16px, footer 12px 16px, width and scrollWidth 358px.
-Opening/closing the dialog and navigation were exercised without submitting changes.
-Other screens inherit shared styles but were not individually visually accepted
-in this pass. Captured preview and synthetic version records are not production
-runtime or pipeline acceptance.
-
-75 frontend tests passed; frontend build passed with the existing bundle-size
-warning; layout detector returned no findings for the three changed CSS files;
-git diff --check passed. Screenshot: /tmp/monitor-spacing-final-20261011.png.
-This update is local only, with no production deployment.
+Screenshots are in `.runtime/spacing-review/`. These are visual acceptance of
+the local UI, not a claim of live operational or production deployment acceptance.
+Database inspection tables share the new theme, but their full live workflow was
+not rerun for this visual-only pass.
