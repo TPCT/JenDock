@@ -29,7 +29,7 @@ of subsequent local commits. No server mutation was performed in this audit.
 | Automatic managed delivery | Immutable source/build/test/publication, rollout identity and recovery, health and protected image cleanup | Complete database migration stage and retryable cleanup recovery |
 | Production migrations | Explicit executor design; legacy path fails closed for unsupported schema operations | Trusted typed-operation executor, actual ledger, DB binding, locks, parser adapters, schema postverification |
 | Development migrations | Fixed Laravel pending migration command in legacy path | Verified DB binding and pending ledger; Alembic adapter; explicit development-only reset configuration |
-| Database inspection | No real inspector API/adapter/UI at audit time | Binding and encrypted read credential reference, schema/keys/indexes, bounded rows and engine deadlines |
+| Database inspection | Private encrypted binding persistence, namespace-pinned helper and PostgreSQL driver; actual two-environment catalog/row/DDL-race fixtures | Trusted ownership/preview acceptance, fresh worker authentication, HTTP/MCP and UI; MySQL/MariaDB; broader row types |
 | Scheduler/queue | Deployment queue and monitor scheduling exist | Workload-specific schedule and job adapters, actual queue depth/failed job/retry evidence |
 | Container tools | Identity-checked operations, logs, terminal, resource controls and read-only files | Role-specific DB/scheduler/queue tools; broader production acceptance |
 | Domains/TLS | Durable owned DNS/routing, TLS issuance/renewal, external proof freshness; actual local two-environment fixtures | Public provider/CA rollout, legacy routing/redirect, expired-serving recovery acceptance |

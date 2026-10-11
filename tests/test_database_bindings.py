@@ -92,3 +92,20 @@ class DatabaseBindingsTests(unittest.TestCase):
         with self.assertRaises(bindings.BindingError):bindings.credential_for_use(self.db,'app','development',other['id'],1,self.key)
         denied=dataclasses.replace(self.principal,scopes=frozenset())
         with self.assertRaises(ops.OperationError):bindings.list_bindings(self.db,denied,'app','development')
+
+    def test_row_policy_is_persisted_in_immutable_definition(self):
+        secret=self.secret();values=self.definition(secret)
+        values['row_columns']={'public':{'a.b':['id','name'],'a':['id']}}
+        first=bindings.save_binding(self.db,self.principal,'app','development',values,expected_revision=0)
+        self.assertEqual(first['definition']['row_columns'],values['row_columns'])
+        values['row_columns']['public']['a.b']=['id']
+        second=bindings.save_binding(self.db,self.principal,'app','development',values,expected_revision=1,binding_id=first['id'])
+        self.assertNotEqual(first['definition_digest'],second['definition_digest'])
+        stored=json.loads(self.db.execute('SELECT document FROM database_binding_definitions WHERE id=?',(first['definition_id'],)).fetchone()[0])
+        self.assertEqual(stored['row_columns']['public']['a.b'],['id','name'])
+
+    def test_row_policy_rejects_unscoped_and_unbounded_columns(self):
+        secret=self.secret();values=self.definition(secret)
+        for policy in ({'other':{'table':['id']}},{'public':{'table':['id','id']}},{'public':{'table':[]}},{'public':{'table':['x']*21}},{'public':{'table':'*'}},[]):
+            with self.subTest(policy=policy),self.assertRaises(bindings.BindingError):
+                bindings.save_binding(self.db,self.principal,'app','development',dict(values,row_columns=policy),expected_revision=0)

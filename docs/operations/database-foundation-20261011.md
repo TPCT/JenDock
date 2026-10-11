@@ -31,22 +31,57 @@ ciphertext transplant/wrong-key denial, sanitized audits, actual subprocess byte
 limits and timeout/reaping paths, plus mocked Docker namespace/configuration,
 private input, exact cleanup, malformed output and retained cleanup recovery.
 
-No real PostgreSQL adapter, helper image, HTTP/MCP database actions or Database UI
-are delivered by these modules. They are intentionally not wired into public scope
-catalogs or deployment images yet. The selected PostgreSQL adapter agent exhausted
-its usage allocation before producing a module; its proposed contract was reviewed
-but is not implementation evidence.
+## PostgreSQL driver and private image
 
-Next required implementation is the fixed-query PostgreSQL driver and trusted helper
-entrypoint, followed by worker-side live session/principal resolution, actual
-registered database ownership verification, bounded HTTP reads and the frontend.
-Driver identity/privilege checks, real Docker inspected configuration, two-database
-sentinel isolation, engine timeouts, full end-to-end credentials/rows protection,
-and cleanup under actual daemon failures still require live fixture evidence.
-MySQL/MariaDB and the separate trusted migration executor remain in the full scope.
+`database_postgres.py`, `database_inspector_entry.py` and `Dockerfile.database`
+now implement fixed catalog inspection and bounded row previews through the actual
+namespace-pinned helper. Secrets enter on stdin, never Docker environment/argv.
+The driver verifies database/user identity and rejects writable inspection roles,
+including column-only grants. Row policy is a nested schema/table column allowlist;
+when supplied to saved binding definitions it is included in their immutable digest.
+An omitted row policy is metadata-only, not implicit access to all columns.
 
-The full backend suite passed 947 tests before the final two additional helper
-regressions; all 21 focused database tests passed afterward. No claim of real
-PostgreSQL acceptance follows from these tests.
+Rows currently require an ordinary heap table, built-in supported scalar columns,
+and a single integer primary key. RLS, inherited/partitioned/foreign/view relations,
+custom types and unsupported pagination fail explicitly. Encrypted keyset cursors
+bind policy/principal context supplied by the trusted caller and relation schema.
+Text previews preserve NULL/empty differences and truncate at 256 characters.
+Page budgets, statement and lock deadlines, response size, and helper wall-time
+bounds apply. Pages are separate live observations, not a cross-page snapshot.
 
-No production service, data, grants or deployment configuration changed here.
+The driver takes ACCESS SHARE on ONLY the selected table, then refreshes metadata
+under READ COMMITTED and checks the same OID before rows. The retained lock prevents
+concurrent ordinary relation DDL from invalidating capability checks. SQL table
+locks do not prevent schema rename. Rows therefore additionally require schema
+administration owned by a cluster superuser, with no non-superuser members of that
+owner role; pg_database_owner resolves to the actual database owner. This initial
+adapter trusts cluster administrators and does not claim safety against concurrent
+administrator namespace substitution. Other schema ownership arrangements receive
+`unsupported_schema_owner`; the tool never changes ownership or privileges.
+
+Actual local Docker/PostgreSQL fixtures verify different Development/Production
+sentinels, catalog/keys/FK data, two row pages, NULL/empty/truncation, encrypted cursor
+scope, quoted/dotted identifiers, column-grant denial, wrong database, lock timeout,
+cleanup and preservation of pre-existing Docker peers. Two-connection regressions
+verify RLS committed before the lock is rejected, and post-lock RLS/rename remain
+blocked through the row read and complete after transaction release.
+
+This is private driver/transport evidence, not HTTP or UI acceptance. No public
+HTTP/MCP database actions or Database UI are delivered yet. Binding candidate
+ownership/storage verification, principal-owned preview acceptance and idempotency,
+fresh worker session authentication, real policy resolution, and authenticated
+end-to-end reads remain required. MySQL/MariaDB adapters and general row type/key
+support remain part of the full product scope. No production deployment occurred.
+
+Local validation after this driver slice: 27 focused database tests and 955 backend
+tests passed. The full suite emits existing ResourceWarning diagnostics for some
+test-owned resources; this is not a warning-free result. The helper image builds
+successfully with its pinned Python base and PostgreSQL client dependencies.
+
+Final actual fixture passed in both environments with helper image
+`sha256:50052ff65971e0bb9dfbc2e940f5549e5caa12915b6d06d27d847b3e6b52ec81`.
+Non-superuser schema ownership and non-superuser membership in the trusted owner
+role were rejected; after restoring each fixture privilege, inspection recovered.
+All exact fixture containers/helpers were removed and existing peers preserved.
+Independent source review found no remaining component-commit blocker under the
+explicit trusted-administrator boundary; it did not certify public integration.

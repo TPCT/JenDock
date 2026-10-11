@@ -129,7 +129,7 @@ def list_credentials(db,principal,project,environment):
 
 def _definition(values,project,environment):
     fields={'engine','adapter_version','ownership','database_name','database_port','secret_id','secret_revision','allowed_schemas','policy_revision'}
-    if not isinstance(values,dict) or set(values)!=fields:raise BindingError('Database binding fields are invalid.')
+    if not isinstance(values,dict) or not fields<=set(values) or set(values)-fields-{'row_columns'}:raise BindingError('Database binding fields are invalid.')
     if values['engine'] not in ('postgresql','mysql','mariadb'):raise BindingError('Database engine is unsupported.')
     for key in ('adapter_version','secret_revision','policy_revision'):
         if type(values[key]) is not int or values[key]<1:raise BindingError('Database binding revisions must be positive integers.')
@@ -142,6 +142,19 @@ def _definition(values,project,environment):
     schemas=values['allowed_schemas']
     def name(value):return isinstance(value,str) and 1<=len(value)<=128 and not any(ord(c)<32 or ord(c)==127 for c in value)
     if not name(values['database_name']) or not isinstance(schemas,list) or not 1<=len(schemas)<=100 or not all(name(v) for v in schemas) or len(set(schemas))!=len(schemas):raise BindingError('Database and schema identifiers are invalid.')
+    # Omitted policy is metadata-only. A revision without a policy document
+    # never grants row access; permitted columns are part of the immutable digest.
+    rows=values.get('row_columns',{})
+    if not isinstance(rows,dict) or set(rows)-set(schemas):raise BindingError('Row policy schemas are invalid.')
+    total=0
+    for schema,tables in rows.items():
+        if not isinstance(tables,dict):raise BindingError('Row policy tables are invalid.')
+        total+=len(tables)
+        for table,columns in tables.items():
+            if (not name(table) or not isinstance(columns,list) or not 1<=len(columns)<=20
+                    or not all(name(column) for column in columns) or len(set(columns))!=len(columns)):
+                raise BindingError('Row policy columns are invalid.')
+    if total>100:raise BindingError('Row policy exceeds the table limit.')
     _id(values['secret_id'])
     return json.loads(registry.canonical({'schema_version':1,'project':project,'environment':environment,**values}))
 
