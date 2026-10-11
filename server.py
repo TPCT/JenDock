@@ -27,6 +27,7 @@ class Application:
         self.integration_key = os.environ.get("INTEGRATION_KEY_FILE", "/config/integrations.key")
         self.config = config
         self.database = database
+        self.web_root = Path(os.environ.get('WEB_ROOT', str(Path(__file__).parent / 'web'))).resolve()
         self.credentials = json.loads(Path(credentials).read_text())
         self.failures = {}
         self.lock = threading.Lock()
@@ -231,7 +232,7 @@ class Application:
                     return 409,{'error':str(error)}
                 except (TypeError,AttributeError):
                     return 409,{'error':'Invalid or stale resource policy. Check allocation totals and reload if another session changed settings.'}
-            if action in ('adoption-preview','adoption-save','container-logs','container-details','resource-details','resource-apply','container-limits-save','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
+            if action in ('adoption-preview','adoption-save','container-files-list','container-files-preview','container-logs','container-details','resource-details','resource-apply','container-limits-save','container-start','container-stop','container-restart','environment-save','terminal-open','terminal-poll','terminal-close'):
                 payload=dict(body,actor=session['username'],terminal_owner=session['token'])
                 try:
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
@@ -487,7 +488,7 @@ def handler(app):
             if path not in files:
                 return self.respond(404,{'error':'Not found'})
             name,mime=files[path]
-            root=(Path(__file__).parent/'web').resolve()
+            root=app.web_root
             asset=(root/name).resolve()
             if not asset.is_relative_to(root) or not asset.is_file():
                 return self.respond(404,{'error':'Not found'})

@@ -41,3 +41,5 @@ frontend/dist
 !mcp_credentials.py
 !mcp_server.py
 !requirements-mcp.txt
+!container_files.py
+!container_file_changes.py

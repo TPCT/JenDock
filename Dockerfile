@@ -20,7 +20,7 @@ FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf5
 RUN apk add --no-cache git openssh-client ca-certificates && pip install --no-cache-dir PyYAML==6.0.3 cryptography==48.0.1
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-COPY mcp_credentials.py worker.py store.py control.py terminal_control.py telemetry.py resource_policy.py registry.py job_target.py delivery_target.py integrations.py workspace.py direct_limits.py adoption.py compose_identity.py provenance.py provenance_store.py compose_reconciliation.py compose_review.py container_logs.py ownership.py build_profiles.py managed_delivery.py managed_rollout.py application_operations.py managed_services.py service_provisioning.py artifact_publication.py ./
+COPY container_file_changes.py container_files.py mcp_credentials.py worker.py store.py control.py terminal_control.py telemetry.py resource_policy.py registry.py job_target.py delivery_target.py integrations.py workspace.py direct_limits.py adoption.py compose_identity.py provenance.py provenance_store.py compose_reconciliation.py compose_review.py container_logs.py ownership.py build_profiles.py managed_delivery.py managed_rollout.py application_operations.py managed_services.py service_provisioning.py artifact_publication.py ./
 CMD ["python", "worker.py"]
 
 FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a AS mcp

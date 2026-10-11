@@ -33,6 +33,7 @@ import {
 import TerminalPanel from "./TerminalPanel";
 import ContainerLimits from "./ContainerLimits";
 import ContainerLogs from "./ContainerLogs";
+import ContainerFiles from "./ContainerFiles";
 
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const showDate = (value) =>
@@ -503,16 +504,20 @@ function ContainerWorkspace({
             scrollButtons="auto"
             aria-label="Container details"
           >
-            {["Details & version", "Variables", "Terminal", "Logs"].map(
-              (label, index) => (
-                <Tab
-                  key={label}
-                  id={`service-tab-${index}`}
-                  aria-controls={`service-panel-${index}`}
-                  label={index === 1 && count ? `${label} (${count})` : label}
-                />
-              ),
-            )}
+            {[
+              "Details & version",
+              "Variables",
+              "Terminal",
+              "Logs",
+              "Files",
+            ].map((label, index) => (
+              <Tab
+                key={label}
+                id={`service-tab-${index}`}
+                aria-controls={`service-panel-${index}`}
+                label={index === 1 && count ? `${label} (${count})` : label}
+              />
+            ))}
           </Tabs>
           <Box sx={{ display: tab === 0 ? "block" : "none" }}>
             <ContainerLimits
@@ -562,7 +567,30 @@ function ContainerWorkspace({
             aria-labelledby={`service-tab-${tab}`}
             sx={{ py: 1 }}
           >
-            {tab === 3 && <ContainerLogs api={api} project={project} name={name} containerId={detail.container_id} enabled={!loading && !error && !unavailable && !pending && !operation}/>}
+            {tab === 3 && (
+              <ContainerLogs
+                api={api}
+                project={project}
+                name={name}
+                containerId={detail.container_id}
+                enabled={
+                  !loading && !error && !unavailable && !pending && !operation
+                }
+              />
+            )}
+            {tab === 4 && (
+              <ContainerFiles
+                key={detail.container_id}
+                api={api}
+                project={project}
+                name={name}
+                containerId={detail.container_id}
+                enabled={
+                  !loading && !error && !unavailable && !pending && !operation
+                }
+                reason={reason}
+              />
+            )}
             {tab === 0 && (
               <>
                 <Typography variant="h6" sx={{ mb: 1 }}>

@@ -27,6 +27,7 @@ services:
     read_only: true
     user: "0:65534"
     cap_drop: [ALL]
+    cap_add: [SYS_PTRACE]
     security_opt: [no-new-privileges:true]
     mem_limit: 384m
     cpus: 0.5
@@ -42,6 +43,7 @@ services:
       PROJECTS_FILE: /policy/projects.json
       CREDENTIALS_FILE: /config/credentials.json
       GIT_SSH_COMMAND: ssh -i /credentials/id_rsa -o Hostname=ssh.github.com -p 443 -o HostKeyAlias=github.com -o ConnectTimeout=10 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/credentials/known_hosts
+      CONTAINER_FILES_PROC_ROOT: /host/proc
     volumes:
       - ./policy:/policy:ro
       - ./git-credentials:/credentials:ro
@@ -52,6 +54,7 @@ services:
       - /opt/docker-engine/projects:/opt/docker-engine/projects
       - state:/state
       - /proc/stat:/host/proc-stat:ro
+      - /proc:/host/proc:ro
       - /proc/meminfo:/host/proc-meminfo:ro
       - /proc/uptime:/host/proc-uptime:ro
       - /proc/loadavg:/host/proc-loadavg:ro

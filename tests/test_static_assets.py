@@ -22,7 +22,7 @@ class StaticAssetTests(unittest.TestCase):
         (self.root / 'web/assets/escape.js').symlink_to(self.root / 'outside.js')
         self.patch = patch('server.__file__', str(self.root / 'server.py'))
         self.patch.start()
-        app = SimpleNamespace(session=lambda *args, **kwargs: None)
+        app = SimpleNamespace(session=lambda *args, **kwargs: None, web_root=(self.root / 'web').resolve())
         self.http = ThreadingHTTPServer(('127.0.0.1', 0), handler(app))
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()

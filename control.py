@@ -263,6 +263,20 @@ def execute(body):
         from container_logs import read
         try:return read(body)
         except ValueError as error:raise ControlError(str(error)) from None
+    if action in ('container-files-list', 'container-files-preview'):
+        from container_files import FileBrowser, FileBrowserError
+        from container_file_changes import read as file_changes
+        browser = FileBrowser(inspector=inspect_target,
+                              proc_root=os.environ.get('CONTAINER_FILES_PROC_ROOT', '/proc'),
+                              change_provider=file_changes)
+        try:
+            arguments = (project, name, body.get('container_id'))
+            if action == 'container-files-list':
+                return browser.list(*arguments, path=body.get('path', ''),
+                                    cursor=body.get('cursor'), limit=body.get('limit', 100))
+            return browser.preview(*arguments, path=body.get('path', ''))
+        except FileBrowserError as error:
+            raise ControlError(str(error)) from None
     if action=='container-details':return details(project,name)
     if action=='resource-details':
         from direct_limits import context
