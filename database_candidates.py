@@ -57,7 +57,7 @@ def resolve(db, project, environment, reference, *, inventory, provenance_resolv
         _fail('unsupported_ownership')
     try:
         return _resolve(db, project, environment, reference, inventory,
-                        provenance_resolver, time.time() if now is None else now)
+                        provenance_resolver, now)
     except CandidateError:
         raise
     except (ValueError, KeyError, TypeError, IndexError, AttributeError, OSError):
@@ -93,6 +93,9 @@ def _resolve(db, project, environment, reference, inventory, resolver, now):
         _fail('invalid_database_evidence')
     observed = inventory()
     stamp = observed.get('observed')
+    # The observation is collected after resolution starts; judge freshness
+    # against the clock after collection, not a pre-collection timestamp.
+    if now is None:now=time.time()
     if type(stamp) not in (int,float) or not 0 <= now-stamp <= 30:
         _fail('stale_inventory')
     rows = observed['containers']

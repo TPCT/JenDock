@@ -51,7 +51,7 @@ def _digest(document):
     return hashlib.sha256(registry.canonical(document).encode()).hexdigest()
 
 
-def _cipher(key_path):
+def _key_material(key_path):
     try:
         fd=os.open(Path(key_path),os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
         with os.fdopen(fd,'rb') as stream:
@@ -59,8 +59,13 @@ def _cipher(key_path):
             if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077 or info.st_uid not in (0,os.geteuid()):raise ValueError()
             value=stream.read(4097).strip()
         if len(value)>4096:raise ValueError()
-        return Fernet(value)
+        Fernet(value)
+        return value
     except (OSError,TypeError,ValueError):raise BindingError('Database encryption key is unavailable or insecure.') from None
+
+
+def _cipher(key_path):
+    return Fernet(_key_material(key_path))
 
 
 def _credential(db,project,environment,identifier):
@@ -216,7 +221,15 @@ def _public_binding(db,row):
     secret=db.execute('SELECT revision,enabled FROM database_credentials WHERE id=? AND project=? AND environment=?',(document['secret_id'],row['project'],row['environment'])).fetchone()
     status='unverified' if secret and secret['enabled'] and secret['revision']==document['secret_revision'] else 'credential-stale'
     if not row['enabled']:status='disabled'
-    return {k:row[k] for k in ('id','project','environment','revision','definition_id','created','updated')} | {'enabled':bool(row['enabled']),'definition':document,'definition_digest':saved['digest'],'status':status,'verified':False}
+    acceptance=None
+    # Historical acceptance is not a current runtime health assertion. Runtime
+    # reads independently revalidate credentials, ownership, storage and engine.
+    if status=='unverified' and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='database_accepted_bindings'").fetchone():
+        accepted=db.execute('SELECT binding_revision,definition_digest,accepted FROM database_accepted_bindings WHERE binding_id=?',(row['id'],)).fetchone()
+        if accepted and accepted['binding_revision']==row['revision'] and accepted['definition_digest']==saved['digest']:
+            acceptance={'binding_revision':row['revision'],'definition_digest':saved['digest'],
+                'accepted_at':accepted['accepted'],'runtime_revalidation_required':True}
+    return {k:row[k] for k in ('id','project','environment','revision','definition_id','created','updated')} | {'enabled':bool(row['enabled']),'definition':document,'definition_digest':saved['digest'],'status':status,'verified':False,'acceptance':acceptance}
 
 
 def save_binding(db,principal,project,environment,values,*,expected_revision,binding_id=None,revalidate=None,request_id=None):

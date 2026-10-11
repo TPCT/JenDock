@@ -8,6 +8,9 @@ from database_auth import ConsoleAuthority
 from application_operations import OperationError
 
 FIELDS = {
+    'database-preview': {'binding_id','expected_revision'},
+    'database-accept': {'preview_id','request_id'},
+    'database-read': {'binding_id','expected_revision','request'},
     'database-credentials': {'limit','cursor'},
     'database-credential-save': {'values', 'expected_revision', 'credential_id', 'request_id'},
     'database-credential-revoke': {'credential_id', 'expected_revision'},
@@ -18,7 +21,7 @@ FIELDS = {
 }
 
 
-def execute(db, body, *, credentials_file=None, key_path=None):
+def execute(db, body, *, credentials_file=None, key_path=None, inspection_factory=None):
     if not isinstance(body, dict) or body.get('action') not in FIELDS:
         raise OperationError('invalid_input', 'Unknown database operation.', 400)
     action = body['action']
@@ -29,7 +32,14 @@ def execute(db, body, *, credentials_file=None, key_path=None):
     authority = ConsoleAuthority(db, body.get('authentication'), credentials_file)
     args = (db, authority.principal, body.get('project'), body.get('environment'))
     options = {'revalidate': authority.recheck}
-    if action == 'database-credentials':
+    if action in ('database-preview','database-accept','database-read'):
+        if inspection_factory is None:raise OperationError('unavailable','Database inspection is not configured.',503)
+        inspector=inspection_factory(db,authority)
+        target=(body.get('project'),body.get('environment'))
+        if action=='database-preview':result=inspector.preview(*target,body.get('binding_id'),body.get('expected_revision'))
+        elif action=='database-accept':result=inspector.accept(*target,body.get('preview_id'),body.get('request_id'))
+        else:result=inspector.read(*target,body.get('binding_id'),body.get('expected_revision'),body.get('request'))
+    elif action == 'database-credentials':
         result = {'credentials': bindings.list_credentials(*args, limit=body.get('limit',25),cursor=body.get('cursor'), **options)}
     elif action == 'database-credential-save':
         result = {'credential': bindings.save_credential(*args, body.get('values'),

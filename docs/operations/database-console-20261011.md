@@ -71,3 +71,33 @@ Validation: 984 backend tests passed; after the final receipt-response marker, a
 56 database tests passed again. Receiver, worker and MCP images built and passed
 network-disabled import checks. Existing ResourceWarning diagnostics remain in
 the broader test suite. No production deployment was performed.
+
+## Live inspection and accepted evidence
+
+Added a bounded Docker inventory collector and worker-owned inspection orchestration.
+Preview resolves registered ownership and checks the actual PostgreSQL helper;
+acceptance repeats the check and records an idempotent, revision-pinned observation.
+Reads pin project/environment, binding revision/digest, container and candidate
+fingerprint in the public response. Binding catalogs expose historical acceptance
+only while configuration/credential revisions match; they do not claim live health.
+Runtime inspection is blocked while either environment recovery journal is pending.
+
+A real local HTTP login -> authenticated Unix worker -> Docker inventory -> isolated
+helper -> PostgreSQL fixture passed for both Development and Production before the
+last response-contract additions. That run included actual two-plus-one-row pages,
+acceptance replay, revocation denial and exact cleanup/peer preservation. It exposed
+and fixed a real freshness bug: inventory timestamps must be compared after collection.
+The later run additionally verified scoped responses and accepted metadata after
+get/list reload for both environments, but exited 1 at the final running-peer-set
+assertion. The original assertion did not identify the transitioned peer; its cause
+is unproven. No fixture/helper containers, networks or volumes remained afterward.
+The fixture now records exact pre/post peer identities and states without weakening
+the guard. Do not report this latest run as a complete pass.
+
+Current validation: 1004 backend tests passed, including 76 database-focused tests;
+worker image built and its control/inspection/inventory imports passed. Existing
+SQLite ResourceWarnings remain. No production deployment or acceptance is claimed.
+
+The React existing-binding inspector is being integrated separately. Credential
+setup UI, MySQL/MariaDB adapters, browser acceptance and production rollout remain
+required before treating the whole database workflow or platform as complete.

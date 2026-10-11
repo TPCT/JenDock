@@ -16,6 +16,10 @@ from pathlib import Path
 import yaml
 from application_operations import OperationError
 from database_bindings import BindingError
+from database_inspection import InspectionError
+from database_candidates import CandidateError
+from database_inventory import InventoryError
+from database_helper import HelperError
 from compose_identity import ordered_files
 from store import connect, effective_projects, audit
 
@@ -238,6 +242,26 @@ def without_resource_limits(config,service):
     if not target.get('deploy',{}):target.pop('deploy',None)
     return result
 
+def database_inspector(db,authority):
+    import base64
+    import hmac
+    import database_bindings
+    from database_candidates import resolve
+    from database_inventory import DockerInventory
+    from database_helper import InspectorHelper
+    from database_inspection import InspectorService
+    key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE')
+    material=database_bindings._key_material(key_path)
+    cursor_key=base64.urlsafe_b64encode(hmac.digest(material,b'database-cursors-v1','sha256')).decode()
+    state=Path('/worker-state/database-inspector')
+    state.mkdir(mode=0o700,exist_ok=True)
+    socket=os.environ.get('DOCKER_HOST','unix:///run/docker-isolation.sock')
+    inventory=DockerInventory(docker=DOCKER,socket=socket,timeout=8)
+    def candidate(project,environment,reference,**options):
+        return resolve(db,project,environment,reference,inventory=inventory,provenance_resolver=review_compose,**options)
+    helper=InspectorHelper(docker=DOCKER,socket=socket,image=os.environ.get('DATABASE_INSPECTOR_IMAGE'),state_dir=state)
+    return InspectorService(db,authority,resolve_candidate=candidate,helper=helper,key_path=key_path,cursor_key=cursor_key)
+
 def execute(body, *, peer_uid=None):
     if not isinstance(body,dict):raise ControlError('Invalid operation request.')
     if isinstance(body.get('action'),str) and body['action'].startswith('database-'):
@@ -248,8 +272,10 @@ def execute(body, *, peer_uid=None):
         if not LOCK.acquire(blocking=False):raise ControlError('Another operation is running. Retry after it completes.')
         db=None
         try:
+            if body['action'] in ('database-preview','database-accept','database-read') and (JOURNAL.exists() or (Path(os.environ.get('STATE_DIR','/worker-state'))/'transaction.json').exists()):
+                raise ControlError('Database inspection is unavailable while environment recovery is pending.')
             db=connect(DATABASE)
-            return database_control.execute(db,body,key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE'))
+            return database_control.execute(db,body,key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE'),inspection_factory=database_inspector)
         finally:
             if db is not None:db.close()
             LOCK.release()
@@ -420,7 +446,7 @@ class Handler(socketserver.StreamRequestHandler):
             response={'ok':True,'result':result}
         except OperationError as error:
             response={'ok':False,'error':str(error),'status':error.status}
-        except BindingError as error:
+        except (BindingError,InspectionError,CandidateError,InventoryError,HelperError) as error:
             response={'ok':False,'error':str(error),'status':409}
         except ControlError as error:response={'ok':False,'error':str(error)}
         except Exception:response={'ok':False,'error':'Container management is temporarily unavailable.'}

@@ -145,3 +145,23 @@ class DatabaseControlFlowTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as caught:
             self.action('database-credential-save',values={**values,'password':'changed'},expected_revision=0,request_id=key)
         with caught.exception as response:self.assertEqual(response.code,409)
+
+    def test_recovery_journal_blocks_runtime_but_keeps_revocation_available(self):
+        credential=self.save()
+        journal=Path(self.f.tmp.name)/'pending-environment.json'
+        journal.write_text('{}')
+        with patch.object(control,'JOURNAL',journal),patch.object(control,'database_inspector') as factory:
+            for action in ('database-preview','database-accept','database-read'):
+                with self.assertRaises(HTTPError) as caught:self.action(action)
+                with caught.exception as response:
+                    self.assertEqual(response.code,409)
+                    self.assertIn('recovery',json.load(response)['error'])
+            factory.assert_not_called()
+            result=self.action('database-credential-revoke',credential_id=credential['id'],expected_revision=1)
+            self.assertFalse(result['credential']['enabled'])
+        journal.unlink()
+        deployment=Path(self.f.tmp.name)/'transaction.json';deployment.write_text('{}')
+        with patch.dict(os.environ,{'STATE_DIR':self.f.tmp.name}),patch.object(control,'database_inspector') as factory:
+            with self.assertRaises(HTTPError) as caught:self.action('database-preview')
+            with caught.exception as response:self.assertEqual(response.code,409)
+            factory.assert_not_called()

@@ -73,3 +73,8 @@ frontend/dist
 !database_bindings.py
 !database_control.py
 !database_rpc.py
+
+!database_candidates.py
+!database_inspection.py
+!database_inventory.py
+!database_helper.py
