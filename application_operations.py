@@ -218,6 +218,81 @@ def get_operation(db, principal, operation_id):
     return result['operation']
 
 
+_PUBLIC_OPERATION_STATES = {
+    'succeeded': 'Project metadata creation completed; no service provisioning is implied.',
+    'queued': 'Service creation is queued for a worker.',
+    'provisioning': 'The worker is provisioning the selected service.',
+    'stopped': 'The worker verified the service ownership and requested stopped state.',
+    'running': 'The worker verified the service ownership and requested running state.',
+    'failed': 'Provisioning failed. Review the operation with an authorized operator.',
+    'recovery-required': 'Provisioning did not finish. Resource ownership must be reviewed before recovery.',
+}
+_PUBLIC_OPERATION_EVENTS = {
+    'project-created': ('succeeded', 'Project and inactive environment slots were recorded.'),
+    'service-queued': ('queued', 'Service creation was accepted and queued.'),
+    **{state: (state, description) for state, description in _PUBLIC_OPERATION_STATES.items()},
+}
+_PUBLIC_PROVISIONING_PHASES = {
+    'accepted': 'Provisioning evidence was recorded.',
+    'network-intent': 'A network operation was journaled; completion is not implied.',
+    'create-intent': 'Container creation was journaled; completion is not implied.',
+    'created': 'Container creation evidence was recorded.',
+    'start-intent': 'Container startup was journaled; readiness is not implied.',
+    'verified': 'Runtime verification evidence was recorded.',
+}
+
+
+def operation_status(db, principal, operation_id, *, after_event=0, limit=25):
+    """Authorized public progress; console get_operation retains its existing shape.
+
+    Event text and worker journals are private input, not user-facing descriptions.
+    Only known lifecycle codes and fixed descriptions leave this boundary.
+    """
+    if (not isinstance(operation_id, str) or not 1 <= len(operation_id) <= 120
+            or type(after_event) is not int or not 0 <= after_event <= 2**63-1
+            or type(limit) is not int or not 1 <= limit <= 100):
+        raise OperationError('invalid_input', 'Use a valid operation ID, nonnegative event cursor and page size from 1 to 100.', 400)
+    operation = get_operation(db, principal, operation_id)
+    status = operation.get('status')
+    if status not in _PUBLIC_OPERATION_STATES: status = 'unknown'
+    result = {key: operation[key] for key in ('operation_id', 'resource_id', 'revision') if key in operation}
+    result.update(status=status, description=_PUBLIC_OPERATION_STATES.get(status, 'Operation state is unavailable.'))
+    rows = db.execute("""SELECT id,event,created FROM application_operation_events
+        WHERE operation_id=? AND id>? ORDER BY id LIMIT ?""", (operation_id, after_event, limit+1)).fetchall()
+    events = []
+    for row in rows[:limit]:
+        event = row['event']
+        if event in _PUBLIC_OPERATION_EVENTS:
+            event_status, description = _PUBLIC_OPERATION_EVENTS[event]
+            code = event
+        elif isinstance(event, str) and event.startswith('recovery-authority:'):
+            code, event_status, description = 'recovery-authority-updated', None, 'Recovery authority was revalidated.'
+        else:
+            code, event_status, description = 'operation-updated', None, 'An operation update was recorded.'
+        events.append({'id': row['id'], 'code': code, 'status': event_status, 'description': description, 'created': row['created']})
+    last = events[-1]['id'] if events else after_event
+    result.update(events=events, last_event=last, next_after_event=last if len(rows)>limit else None)
+    result['stage'] = None
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='service_provisioning_journals'").fetchone():
+        journal = db.execute('SELECT document,updated FROM service_provisioning_journals WHERE operation_id=?', (operation_id,)).fetchone()
+        if journal:
+            try:
+                document = json.loads(journal['document'])
+                phase = document.get('phase') if isinstance(document, dict) else None
+            except (ValueError, TypeError): phase = None
+            if not isinstance(phase, str) or phase not in _PUBLIC_PROVISIONING_PHASES: phase = 'unknown'
+            result['stage'] = {'code': phase, 'description': _PUBLIC_PROVISIONING_PHASES.get(phase, 'Provisioning stage evidence is unavailable.'),
+                               'updated': journal['updated']}
+    # No MCP resume tool is implemented. Do not claim that a recorded journal
+    # proves eligibility: console resume rechecks authority, artifacts and capacity.
+    required = status == 'recovery-required'
+    result['recovery'] = {'required': required, 'mcp_available': False,
+        'reason': 'mcp_resume_not_supported' if required else 'recovery_not_requested',
+        'description': 'An authorized operator must review ownership and use the console recovery flow, which revalidates eligibility.'
+                       if required else 'No recovery action is offered by this status response.'}
+    return result
+
+
 @dataclass(frozen=True)
 class ServiceInput:
     project: str

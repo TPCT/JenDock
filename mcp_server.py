@@ -55,7 +55,7 @@ SCHEMAS = {
     'service_get': obj({'service_id': string()}, ['service_id']),
     'service_create': obj({'project_id': string(), 'environment': ENV, 'definition': DEFINITION,
                            'idempotency_key': KEY}, ['project_id', 'environment', 'definition', 'idempotency_key']),
-    'operation_status': obj({'operation_id': string()}, ['operation_id']),
+    'operation_status': obj({'operation_id': string(), 'after_event': {'type':'integer', 'minimum':0, 'maximum':9223372036854775807, 'default':0}, 'limit': PAGE['limit']}, ['operation_id']),
 }
 
 
@@ -163,7 +163,7 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
                 elif name == 'service_list': payload = page([public_service(v) for v in ops.list_services(db, p, a['project_id'], a['environment'])], a)
                 elif name == 'service_templates': payload = public_templates(ops.service_templates(db, p, a['project_id'], a['environment']), a['environment'], p)
                 elif name == 'service_get': payload = public_service(ops.get_service(db, p, a['service_id']))
-                elif name == 'operation_status': payload = public_operation(ops.get_operation(db, p, a['operation_id']))
+                elif name == 'operation_status': payload = ops.operation_status(db, p, a['operation_id'], after_event=a.get('after_event', 0), limit=a.get('limit', 25))
                 elif name == 'project_create':
                     value = ops.project_input(a['project_id'], {k: a[k] for k in ('repository', 'repository_id', 'label') if k in a}, a.get('integration_ref', 'github'))
                     created = ops.create_project(db, p, value, a['idempotency_key'], key_path)

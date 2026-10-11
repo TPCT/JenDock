@@ -195,8 +195,12 @@ class MCPCreationSDKTests(unittest.TestCase):
                             self.assertFalse((await client.call_tool('service_get', {'service_id':value['service']['id']})).is_error)
                             services = await client.call_tool('service_list', {'project_id':'app','environment':'development'})
                             self.assertEqual(len(services.structured_content['items']),1)
-                            status = await client.call_tool('operation_status', {'operation_id':value['operation']['operation_id']})
+                            status = await client.call_tool('operation_status', {'operation_id':value['operation']['operation_id'], 'after_event':0, 'limit':1})
                             self.assertEqual(status.structured_content['status'],'queued')
+                            self.assertEqual(status.structured_content['events'][0]['code'], 'service-queued')
+                            self.assertFalse(status.structured_content['recovery']['mcp_available'])
+                            following = await client.call_tool('operation_status', {'operation_id':value['operation']['operation_id'], 'after_event':status.structured_content['last_event'], 'limit':1})
+                            self.assertEqual(following.structured_content['events'], [])
                             for output in (created, replay, services, status):
                                 self.assertNotIn('provider-secret', str(output))
                                 self.assertNotIn('command', str(output))

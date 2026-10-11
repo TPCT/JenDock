@@ -135,6 +135,46 @@ Docker isolation does not prove integrity of the previously compromised host.
 
 ## Verification
 
+### Optional authenticated MCP endpoint
+
+`compose.mcp.yml` extends the receiver/worker deployment with the official SDK
+sidecar. Set `DEPLOY_INTEGRATION_KEY_FILE` to the existing private encryption-key
+file used by the receiver; preserve this key when encrypted integrations exist.
+Both receiver and MCP must be able to read the same key as UID 65534. The overlay
+refuses to create missing host bind files. It is packaging, not proof of an
+activated production endpoint.
+
+Compose validation (does not start services):
+
+```sh
+docker compose -f compose.yml -f compose.mcp.yml config --quiet
+```
+
+The sidecar uses the shared registry database and current console owner file,
+has no Docker socket, and publishes only `127.0.0.1:19192`. It waits for the
+worker healthcheck at startup. Its own unauthenticated probe requires the
+listener to reject requests with 401; that proves listener/auth-boundary
+availability, not database or provisioning health.
+
+Include `deployment/apache-mcp.conf` inside the existing monitoring TLS vhost
+before the catch-all `ProxyPass /`, then validate Apache and verify actual TLS
+requests before declaring deployment complete. The route preserves the exact
+public Host and removes forwarding headers rejected by MCP. Keep the existing
+certificate and dashboard routing. See Apache's [ProxyPass ordering and
+ProxyAddHeaders documentation](https://httpd.apache.org/docs/2.4/mod/mod_proxy.html).
+
+Create scoped, expiring bearer credentials in Integrations → MCP access.
+The one-time token is not recoverable; revocation is immediate. OAuth is not
+implemented. Run one sidecar process because rate limiting is process-local.
+`operation_status` supports `after_event` and `limit` for sanitized progress;
+recovery currently directs an authorized operator to the console.
+
+MCP tests require `requirements-mcp.txt` in the test Python environment.
+`tests/live_mcp_creation.py` exercises SDK → real local Docker worker → console
+HTTP on temporary synthetic data and cleans only its fixture resources.
+`tests/live_mcp_proxy.py` checks the Apache route against the running local MCP
+preview without tokens. Neither test is production acceptance.
+
 ```sh
 python3 -m unittest discover -s tests -v
 npm --prefix frontend ci
