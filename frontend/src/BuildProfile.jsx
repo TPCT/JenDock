@@ -257,6 +257,57 @@ function EnvironmentProfile({
                   }
                   onChange={(event) => update("target", event.target.value)}
                 />
+                <Box>
+                  <Typography fontWeight={600}>
+                    HTTP endpoint{" "}
+                    <Hint label="About the HTTP endpoint">
+                      Declare the container's HTTP port and health path for
+                      future routing. Leave the port blank for services without
+                      HTTP. Saving this metadata does not publish a domain,
+                      configure routing or deploy a container.
+                    </Hint>
+                  </Typography>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={2}
+                    sx={{ mt: 2 }}
+                  >
+                    <Field
+                      label="HTTP port (optional)"
+                      value={draft.http_port}
+                      fullWidth
+                      disabled={!!busy}
+                      error={submitted && !!problems.http_port}
+                      helperText={
+                        submitted ? problems.http_port || undefined : undefined
+                      }
+                      inputProps={{ inputMode: "numeric", maxLength: 5 }}
+                      onChange={(event) =>
+                        update("http_port", event.target.value)
+                      }
+                    />
+                    <Field
+                      label="HTTP health path"
+                      value={draft.http_health_path}
+                      fullWidth
+                      disabled={!!busy || !draft.http_port}
+                      error={submitted && !!problems.http_health_path}
+                      helperText={
+                        submitted
+                          ? problems.http_health_path || undefined
+                          : undefined
+                      }
+                      inputProps={{
+                        maxLength: 240,
+                        spellCheck: false,
+                        autoCapitalize: "none",
+                      }}
+                      onChange={(event) =>
+                        update("http_health_path", event.target.value)
+                      }
+                    />
+                  </Stack>
+                </Box>
                 <Typography fontWeight={600}>
                   Commands{" "}
                   <Hint label="How command arguments work">

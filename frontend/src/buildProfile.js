@@ -5,6 +5,11 @@ export function profileDraft(values) {
     context: values?.context ?? ".",
     target: values?.target ?? "",
     user: values?.user ?? "",
+    http_port:
+      values?.http_endpoint?.port == null
+        ? ""
+        : String(values.http_endpoint.port),
+    http_health_path: values?.http_endpoint?.health_path ?? "/",
     ...Object.fromEntries(
       argvFields.map((key) => [key, values?.[key]?.join("\n") ?? ""]),
     ),
@@ -35,6 +40,26 @@ export function profileProblems(draft) {
       ? ""
       : "Enter a non-root numeric UID:GID, such as 1000:1000.",
   };
+  const port = draft.http_port ?? "";
+  const healthPath = draft.http_health_path ?? "/";
+  problems.http_port =
+    port === "" ||
+    (/^[0-9]+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535)
+      ? ""
+      : "Enter an integer port from 1 to 65535, or leave it blank.";
+  problems.http_health_path =
+    port === "" ||
+    (typeof healthPath === "string" &&
+      healthPath.startsWith("/") &&
+      healthPath.length <= 240 &&
+      /^\/[A-Za-z0-9._~/-]*$/.test(healthPath) &&
+      (healthPath === "/" ||
+        !healthPath
+          .slice(1)
+          .split("/")
+          .some((part) => ["", ".", ".."].includes(part))))
+      ? ""
+      : "Enter a path such as /health, without a query, fragment or trailing slash.";
   for (const key of argvFields) {
     const argv = draft[key].split("\n");
     problems[key] =
@@ -72,6 +97,14 @@ export function profilePayload(project, environment, reviewed, draft) {
       context: draft.context,
       target: draft.target || null,
       user: draft.user,
+      ...(draft.http_port
+        ? {
+            http_endpoint: {
+              port: Number(draft.http_port),
+              health_path: draft.http_health_path ?? "/",
+            },
+          }
+        : {}),
       ...Object.fromEntries(
         argvFields.map((key) => [key, draft[key].split("\n")]),
       ),

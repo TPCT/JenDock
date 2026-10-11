@@ -118,3 +118,17 @@ Files: create `tests/live_ingress_http.py` and `docs/operations/environment-ingr
 - [ ] Run affected existing runtime, delivery, reconciliation, resource, integration, MCP and frontend tests. No existing no-PortBindings application invariant is removed merely to make gateway tests pass.
 - [ ] Produce opt-in host-helper/Apache deployment packaging and rollback instructions with concrete owned files/resources. Read-only production inventory must validate compatibility before the production rollout. Apply DNS writes, gateway creation, host helper installation, Apache reload and certificate issuance as a distinct reviewed deployment step within the owner's existing authorization; preserve exact target ownership and verify each resulting effect.
 - [ ] Report local readiness separately from live Cloudflare/public ACME/client acceptance and production activation. Do not mark whole-platform completion: database inspector, database service provisioning, secrets/persistence onboarding, scheduler/queue instrumentation and broader migration adapters remain separate open work.
+
+## Implementation ledger — 2026-10-11
+
+Ruling: use the existing main checkout and explicitly authorized multiagents, overriding generic skill worktree/inline-only defaults. Endpoint metadata, UI and independent architecture review have non-overlapping ownership.
+
+Task 1 in progress: versioned HTTP metadata and per-environment gateway port intent. `ingress_ports.py` reserves only local intent, not an active endpoint or OS lease. Eleven tests cover concurrent database connections, restart/replay, cross-environment/operation isolation, real occupied loopback socket, Docker-owned port exclusion, exhaustion and bound-identity release refusal. Creation intent is journaled before mutation; even without a recorded container ID, an interrupted create cannot release its port. It is not yet exposed through route APIs or worker runtime.
+
+Review rulings carried into Tasks 2–4:
+- Gateway must resolve replaced application addresses dynamically or explicitly reload on verified target transition; force an IP change in real acceptance. Verify unique network alias ownership, not just a matching service name.
+- Route definition/artifact pins must advance atomically with successful managed rollout or verified rollback. Immutable definition IDs change across releases; a route cannot retain its old definition while claiming current readiness.
+- Reserve the generated ingress service name and reject existing conflicting applications before side effects. Never admit infrastructure by a name prefix.
+- Admit exact gateway identity in every provisioning, delivery and recovery network guard. Preserve application no-PortBindings/internal-network rules.
+- One gateway per environment shares a single capacity reservation across its routes. Account it in the existing resource policy/managed-service transactions, not a disconnected table; enforce its real runtime caps.
+- Host helper needs root-owned policy/state, peer-credential authorization, independent route/hostname/port ownership, and a helper-wide lock across configtest/reload/restore/renewal. Worker-provided digests alone are not authorization. Reject unsafe filesystem ownership/links and detect existing wildcard/alias/vhost collisions.

@@ -91,3 +91,31 @@ class BuildProfileTests(unittest.TestCase):
         self.assertEqual(app.action({'username':'owner'},body)[0],409)
         row = self.db.execute("SELECT actor FROM audit WHERE action='build-profile-save'").fetchone()
         self.assertEqual(row[0],'owner')
+
+    def test_http_endpoint_uses_v2_and_preserves_v1_recipe(self):
+        old=self.save();before=profiles.get_private(self.db,'app','development')
+        old_document=self.db.execute('SELECT document FROM registry_recipes WHERE id=?',(before['source_revision'],)).fetchone()[0]
+        endpoint={'port':8080,'health_path':'/health/ready'}
+        saved=self.save(dict(self.values,http_endpoint=endpoint))
+        recipe=profiles.get_private(self.db,'app','development')['recipe']
+        self.assertEqual(recipe['schema_version'],2)
+        self.assertEqual(recipe['service_profiles']['application-v1']['revision'],2)
+        self.assertEqual(saved['values']['http_endpoint'],endpoint)
+        self.assertEqual(profiles.validate_recipe(recipe),recipe)
+        self.assertEqual(self.db.execute('SELECT document FROM registry_recipes WHERE id=?',(before['source_revision'],)).fetchone()[0],old_document)
+        self.assertNotIn('http_endpoint',before['recipe']['service_profiles']['application-v1'])
+        self.assertEqual(profiles.validate_values(dict(self.values,http_endpoint=None)),self.values)
+
+    def test_http_endpoint_closed_schema_and_normalized_path(self):
+        bad=[None,True,0,65536,'8080',1.5]
+        for port in bad:
+            with self.subTest(port=port),self.assertRaises(ValueError):
+                profiles.validate_values(dict(self.values,http_endpoint={'port':port,'health_path':'/'}))
+        for path in ('http://localhost','//host','/a//b','/a/../b','/a/./b','/a/','/x?password=secret','/x#fragment','/%2e%2e','/a\\b','/a\nb','/user:pass@host','/has space'):
+            with self.subTest(path=path),self.assertRaises(ValueError):
+                profiles.validate_values(dict(self.values,http_endpoint={'port':80,'health_path':path}))
+        for endpoint in ({'port':80},{'port':80,'health_path':'/','url':'http://host'},[]):
+            with self.assertRaises(ValueError):profiles.validate_values(dict(self.values,http_endpoint=endpoint))
+        self.save();recipe=profiles.get_private(self.db,'app','development')['recipe']
+        recipe['service_profiles']['application-v1']['http_endpoint']={'port':80,'health_path':'/'}
+        with self.assertRaises(ValueError):profiles.validate_recipe(recipe)

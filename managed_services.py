@@ -41,9 +41,14 @@ def _profile(target, template_id):
     if not isinstance(profiles,dict): raise ValueError('Service profile catalog is invalid.')
     profile = profiles.get(template_id)
     if (not isinstance(template_id, str) or not re.fullmatch('[a-z0-9][a-z0-9-]{0,63}', template_id)
-            or not isinstance(profile, dict) or set(profile) != {'revision', 'image_name', 'command', 'healthcheck', 'user'}
-            or type(profile['revision']) is not int or profile['revision'] < 1):
+            or not isinstance(profile, dict) or set(profile) not in ({'revision', 'image_name', 'command', 'healthcheck', 'user'},
+                {'revision', 'image_name', 'command', 'healthcheck', 'user', 'http_endpoint'})
+            or type(profile['revision']) is not int or profile['revision'] < 1
+            or 'http_endpoint' in profile and profile['revision'] != 2):
         raise ValueError('This build has no supported immutable service profile.')
+    if 'http_endpoint' in profile:
+        from build_profiles import validate_http_endpoint
+        validate_http_endpoint(profile['http_endpoint'])
     if profile['image_name'] not in [image.get('name') for image in target['recipe'].get('images', [])]:
         raise ValueError('The service profile image is not part of this build recipe.')
     for field in ('command', 'healthcheck'):
@@ -84,6 +89,7 @@ def publish_artifact(db, job_id, template_id, image_id):
                     'target_fingerprint': target['fingerprint'], 'template_id': template_id,
                     'template_revision': profile['revision'], 'image_name': profile['image_name'], 'image': image_id,
                     'command': profile['command'], 'healthcheck': profile['healthcheck'], 'user': profile['user']}
+        if 'http_endpoint' in profile: document['http_endpoint'] = copy.deepcopy(profile['http_endpoint'])
         fingerprint = digest(document)
         old = db.execute('SELECT id FROM service_artifacts WHERE project=? AND digest=?', (target['project'], fingerprint)).fetchone()
         if old: return artifact_for_service(db, target['project'], old['id'])
@@ -101,7 +107,9 @@ def artifact_for_service(db, project, artifact_id):
     target = _source(db, row['job_id']); profile = _profile(target, document['template_id'])
     if (target['project'] != project or target['fingerprint'] != document['target_fingerprint']
             or any(document[key] != profile[key] for key in ('image_name', 'command', 'healthcheck', 'user'))
-            or document['template_revision'] != profile['revision']):
+            or document['template_revision'] != profile['revision']
+            or ('http_endpoint' in document) != ('http_endpoint' in profile)
+            or document.get('http_endpoint') != profile.get('http_endpoint')):
         raise ValueError('Service artifact no longer matches its verified source.')
     return dict(document, id=row['id'], digest=row['digest'])
 
@@ -134,7 +142,8 @@ def catalog(db, project):
                        'artifact_id': artifact['id'], 'image': artifact['image'], 'image_name': artifact['image_name'],
                        'source_job': artifact['source_job'], 'source_sha': artifact['source_sha'],
                        'source_environment': artifact['source_environment'], 'command': artifact['command'],
-                       'healthcheck': artifact['healthcheck'], 'desired_states': ['stopped', 'running']})
+                       'healthcheck': artifact['healthcheck'], 'desired_states': ['stopped', 'running'],
+                       **({'http_endpoint': copy.deepcopy(artifact['http_endpoint'])} if 'http_endpoint' in artifact else {})})
     return result
 
 

@@ -96,3 +96,87 @@ test("empty profile starts unconfigured without inventing commands or runtime id
   assert.equal(draft.user, "");
   assert.throws(() => profilePayload("app", "development", reviewed(), draft));
 });
+test("HTTP endpoint round-trips its exact port and health path without caller schema version", () => {
+  const source = {
+    ...values(),
+    http_endpoint: { port: 8080, health_path: "/health/ready" },
+  };
+  const draft = profileDraft(source);
+  assert.equal(draft.http_port, "8080");
+  assert.equal(draft.http_health_path, "/health/ready");
+  const request = profilePayload("app", "development", reviewed(), draft);
+  assert.deepEqual(request.values, source);
+  assert.equal("schema_version" in request.values, false);
+});
+test("blank HTTP port preserves v1 payload and removes previously saved endpoint", () => {
+  const draft = profileDraft({
+    ...values(),
+    http_endpoint: { port: 8080, health_path: "/health" },
+  });
+  draft.http_port = "";
+  draft.http_health_path = "ignored draft";
+  assert.deepEqual(
+    profilePayload("app", "development", reviewed(), draft).values,
+    values(),
+  );
+  assert.equal(profileDraft(values()).http_health_path, "/");
+});
+test("HTTP endpoint validates bounded integer port and normalized absolute health path", () => {
+  for (const http_port of [
+    "0",
+    "65536",
+    "-1",
+    "1.5",
+    "1e3",
+    " 80",
+    "80 ",
+    "http",
+  ])
+    assert.ok(
+      profileProblems({ ...profileDraft(values()), http_port }).http_port,
+      http_port,
+    );
+  for (const http_port of ["1", "80", "65535"])
+    assert.equal(
+      profileProblems({ ...profileDraft(values()), http_port }).http_port,
+      "",
+    );
+  for (const http_health_path of [
+    "",
+    "health",
+    "https://site/health",
+    "//host",
+    "/a//b",
+    "/a/",
+    "/a/../b",
+    "/./health",
+    "/health?x=1",
+    "/health:ready",
+    "/health@check",
+    "/صحة",
+    "/héalth",
+    "/health#part",
+    "/a%2fb",
+    "/a\\b",
+    "/a b",
+    "/a\n",
+    "/" + "a".repeat(240),
+  ])
+    assert.ok(
+      profileProblems({
+        ...profileDraft(values()),
+        http_port: "8080",
+        http_health_path,
+      }).http_health_path,
+      http_health_path,
+    );
+  for (const http_health_path of ["/", "/health", "/health/ready"])
+    assert.equal(
+      profileProblems({
+        ...profileDraft(values()),
+        http_port: "8080",
+        http_health_path,
+      }).http_health_path,
+      "",
+    );
+});

@@ -1,4 +1,5 @@
 """Durable, atomic catalog publication after a verified successful build."""
+import copy
 import json
 import re
 import time
@@ -65,7 +66,8 @@ def process(db, inspect, job_id=None):
                     'source_environment': target['environment'], 'target_fingerprint': target['fingerprint'],
                     'template_id': template, 'template_revision': profile['revision'],
                     'image_name': profile['image_name'], 'image': image, 'command': profile['command'],
-                    'healthcheck': profile['healthcheck'], 'user': profile['user']})
+                    'healthcheck': profile['healthcheck'], 'user': profile['user'],
+                    **({'http_endpoint': copy.deepcopy(profile['http_endpoint'])} if 'http_endpoint' in profile else {})})
             with registry.transaction(db):
                 if services._source(db, identifier)['fingerprint'] != target['fingerprint']: raise ValueError('Source mismatch')
                 for document in documents:

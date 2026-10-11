@@ -32,8 +32,22 @@ def _argv(value, label):
         raise ValueError(label + ' must contain 1 to 40 nonempty arguments without control characters.')
 
 
+def validate_http_endpoint(value):
+    """Trusted internal HTTP address metadata; never an arbitrary upstream URL."""
+    if not isinstance(value, dict) or set(value) != {'port', 'health_path'}:
+        raise ValueError('HTTP endpoint requires exactly a port and health path.')
+    if type(value['port']) is not int or not 1 <= value['port'] <= 65535:
+        raise ValueError('HTTP endpoint port must be an integer from 1 to 65535.')
+    path = value['health_path']
+    if (not isinstance(path, str) or not 1 <= len(path) <= 240
+            or not re.fullmatch(r'/[A-Za-z0-9._~/-]*', path)
+            or path != '/' and any(part in ('', '.', '..') for part in path[1:].split('/'))):
+        raise ValueError('HTTP health path must be a normalized absolute path without a query or URL.')
+    return copy.deepcopy(value)
+
+
 def validate_values(values):
-    if not isinstance(values, dict) or set(values) != FIELDS:
+    if not isinstance(values, dict) or set(values) not in (FIELDS, FIELDS | {'http_endpoint'}):
         raise ValueError('Provide exactly Dockerfile, context, target, test/application/health arguments and runtime user.')
     _path(values['dockerfile'], 'Dockerfile'); _path(values['context'], 'Build context', True)
     target = values['target']
@@ -42,24 +56,33 @@ def validate_values(values):
     for field in ('test_command', 'command', 'healthcheck'): _argv(values[field], field)
     if not isinstance(values['user'], str) or not re.fullmatch('[1-9][0-9]{0,8}:[0-9]{1,9}', values['user']):
         raise ValueError('Runtime user must be a non-root numeric UID:GID.')
-    return copy.deepcopy(values)
+    result = copy.deepcopy(values)
+    if result.get('http_endpoint') is not None:
+        result['http_endpoint'] = validate_http_endpoint(result['http_endpoint'])
+    else:
+        result.pop('http_endpoint', None)
+    return result
 
 
 def _recipe(project, environment, values):
     name = project + '-' + environment
     image = {'name': name, 'dockerfile': values['dockerfile'], 'context': values['context']}
     if values['target'] is not None: image['target'] = values['target']
-    return {'schema_kind': 'artifact-build', 'schema_version': 1, 'images': [image],
+    endpoint = values.get('http_endpoint')
+    revision = 2 if endpoint is not None else 1
+    profile = {'revision': revision, 'image_name': name, 'command': values['command'],
+               'healthcheck': values['healthcheck'], 'user': values['user']}
+    if endpoint is not None: profile['http_endpoint'] = copy.deepcopy(endpoint)
+    return {'schema_kind': 'artifact-build', 'schema_version': revision, 'images': [image],
             'tests': [{'image': name, 'command': values['test_command']}],
-            'service_profiles': {'application-v1': {'revision': 1, 'image_name': name,
-                'command': values['command'], 'healthcheck': values['healthcheck'], 'user': values['user']}}}
+            'service_profiles': {'application-v1': profile}}
 
 
 def validate_recipe(recipe):
     """Fail closed before workers use persisted build instructions."""
     try:
         if (not isinstance(recipe, dict) or set(recipe) != {'schema_kind','schema_version','images','tests','service_profiles'}
-                or recipe['schema_kind'] != 'artifact-build' or type(recipe['schema_version']) is not int or recipe['schema_version'] != 1
+                or recipe['schema_kind'] != 'artifact-build' or type(recipe['schema_version']) is not int or recipe['schema_version'] not in (1, 2)
                 or not isinstance(recipe['images'], list) or len(recipe['images']) != 1
                 or not isinstance(recipe['tests'], list) or len(recipe['tests']) != 1
                 or not isinstance(recipe['service_profiles'], dict) or set(recipe['service_profiles']) != {'application-v1'}):
@@ -67,11 +90,14 @@ def validate_recipe(recipe):
         image, test, profile = recipe['images'][0], recipe['tests'][0], recipe['service_profiles']['application-v1']
         if (not isinstance(image, dict) or set(image) not in ({'name','dockerfile','context'}, {'name','dockerfile','context','target'})
                 or not isinstance(test, dict) or set(test) != {'image','command'}
-                or not isinstance(profile, dict) or set(profile) != {'revision','image_name','command','healthcheck','user'}
-                or type(profile['revision']) is not int or profile['revision'] != 1
+                or not isinstance(profile, dict) or set(profile) not in ({'revision','image_name','command','healthcheck','user'},
+                    {'revision','image_name','command','healthcheck','user','http_endpoint'})
+                or type(profile['revision']) is not int or profile['revision'] != recipe['schema_version']
+                or 'http_endpoint' in profile and profile['revision'] != 2
                 or not isinstance(image['name'], str) or not re.fullmatch('[a-z0-9][a-z0-9-]{0,63}-(development|production)',image['name'])
                 or test['image'] != image['name'] or profile['image_name'] != image['name']):
             raise ValueError('Artifact profile identities are inconsistent.')
+        if 'http_endpoint' in profile: validate_http_endpoint(profile['http_endpoint'])
         validate_values({'dockerfile':image['dockerfile'], 'context':image['context'], 'target':image.get('target'),
                          'test_command':test['command'], 'command':profile['command'], 'healthcheck':profile['healthcheck'], 'user':profile['user']})
         return copy.deepcopy(recipe)
@@ -102,6 +128,7 @@ def get(db, project, environment):
         recipe = source['recipe']; image = recipe['images'][0]; profile = recipe['service_profiles']['application-v1']
         values = {'dockerfile':image['dockerfile'], 'context':image['context'], 'target':image.get('target'),
                   'test_command':recipe['tests'][0]['command'], 'command':profile['command'], 'healthcheck':profile['healthcheck'], 'user':profile['user']}
+        if 'http_endpoint' in profile: values['http_endpoint'] = copy.deepcopy(profile['http_endpoint'])
     return {'project':project, 'environment':environment, 'project_revision':project_row['revision'],
             'environment_revision':env['revision'], 'profile_revision':source['profile_revision'] if source else 0,
             'source_revision':source['source_revision'] if source else None, 'values':values,
