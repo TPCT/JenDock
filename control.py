@@ -376,6 +376,27 @@ def execute(body, *, peer_uid=None):
         finally:
             if db is not None:db.close()
             LOCK.release()
+    if body.get('action') in ('workload-role-details','queue-failures','scheduler-history','queue-retry','workload-operation'):
+        import workload_auth
+        import workload_control
+        import workload_operations
+        import workload_protocol
+        import workload_transport
+        if not LOCK.acquire(blocking=False):raise OperationError('busy','Another operation is running. Retry after it completes.',409)
+        db=None
+        try:
+            db=connect(DATABASE)
+            inner=workload_auth.from_peer(db,body.get('authentication'),peer_uid)
+            authority=workload_auth.Authority(db,inner)
+            if JOURNAL.exists() or (Path(os.environ.get('STATE_DIR','/worker-state'))/'transaction.json').exists():
+                raise OperationError('recovery_pending','Workload observations are unavailable while environment recovery is pending.',409)
+            transport=workload_transport.WorkloadTransport(db,docker=DOCKER,socket=os.environ.get('DOCKER_HOST','unix:///run/docker-isolation.sock'))
+            return workload_control.execute(db,{k:v for k,v in body.items() if k!='authentication'},transport=transport,authority=authority)
+        except (workload_operations.WorkloadError,workload_protocol.ProtocolError,workload_transport.TransportError):
+            raise OperationError('workload_unavailable','Workload operation could not be verified. Check its original receipt before repeating a retry.',409) from None
+        finally:
+            if db is not None:db.close()
+            LOCK.release()
     action=body.get('action');project=body.get('project');name=body.get('container');actor=body.get('actor','admin')
     if action in ('adoption-preview','adoption-save'):
         import adoption
@@ -578,10 +599,12 @@ class Handler(socketserver.StreamRequestHandler):
             body=database_rpc.decode(line)
             if isinstance(body,dict) and isinstance(body.get('action'),str) and body['action'].startswith('database-') and len(line)>65536:
                 raise ControlError('Database request is too large.')
+            if isinstance(body,dict) and body.get('action') in ('workload-role-details','queue-failures','scheduler-history','queue-retry','workload-operation') and len(line)>16384:
+                raise OperationError('request_limit','Workload request is too large.',413)
             result=execute(body,peer_uid=database_rpc.peer_uid(self.connection))
             response={'ok':True,'result':result}
         except OperationError as error:
-            response={'ok':False,'error':str(error),'status':error.status}
+            response={'ok':False,'error':str(error),'code':error.code,'status':error.status}
         except InspectionError as error:
             response={'ok':False,'error':str(error),'code':error.code,'status':409}
         except SaveRejected as error:
@@ -591,7 +614,7 @@ class Handler(socketserver.StreamRequestHandler):
         except ControlError as error:response={'ok':False,'error':str(error)}
         except Exception:response={'ok':False,'error':'Container management is temporarily unavailable.'}
         encoded=json.dumps(response,allow_nan=False).encode()+b'\n'
-        if isinstance(body,dict) and isinstance(body.get('action'),str) and body['action'].startswith('database-') and len(encoded)>262144:
+        if isinstance(body,dict) and isinstance(body.get('action'),str) and (body['action'].startswith('database-') or body['action'] in ('workload-role-details','queue-failures','scheduler-history','queue-retry','workload-operation')) and len(encoded)>262144:
             encoded=b'{"ok":false,"error":"Response is too large. Request a smaller page.","status":413}\n'
         try:self.wfile.write(encoded)
         except (BrokenPipeError,ConnectionResetError):pass

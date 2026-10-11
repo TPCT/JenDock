@@ -296,3 +296,56 @@ and immutable empty schedule registries. Docker-exec identity, public API/MCP/UI
 integration and broader concurrency/interruption acceptance remain required. The
 new WorkloadPanel components are deliberately unintegrated until those boundaries
 exist; neither the artifact gate nor those components prove an operational role.
+
+## Private workload control integration checkpoint
+
+The new workload_protocol validates closed adapter requests/responses, scope and
+receipt identity before any application output can reach the console. The bounded
+workload_transport verifies the registered container/image/runtime settings,
+networks, package capability and trusted process metadata before fixed-argv Docker
+exec; timeouts after retry dispatch are explicitly ambiguous. It never starts a
+consumer or database. The independent workload_auth resolves live console/MCP
+credentials with workload-only scopes, including repository/environment grants.
+New scopes do not expand old tokens. Private peer channels require explicit
+WORKLOAD_RECEIVER_UID / WORKLOAD_MCP_UID; they default disabled.
+
+The durable retry journal records original actor and exact target before dispatch.
+Lost replies/process death lead to receipt-only recovery, never an automatic second
+enqueue. Reconciliation can persist a verified receipt under continuing read
+permission; mutation acceptance/dispatch still require read plus retry. Container
+preflight happens outside SQLite transactions, with static pins rechecked inside.
+The controller preserves source observations separately from worker receipt times.
+
+Console HTTP actions now reach the shared controller through bounded Unix RPC.
+Actual authenticated HTTP/session/CSRF and kernel peer checks were exercised;
+container observations in that fixture are test doubles. A separate integration
+test uses the actual registry/definitions and journal with the bounded transport
+and synthetic Docker replies. Neither is actual workload-container acceptance.
+The 61 focused workload tests pass, including concurrent acceptance, lost reply,
+authority revocation, response limits and real subprocess timeout/stdout/stderr
+bounds. Frontend 113 tests and Vite build pass, with existing bundle-size warning.
+
+Three affected images built; all five images passed packaged-source hashes and
+network-disabled/read-only Python import probes. Evidence:
+/tmp/workload-images-build.log and /tmp/workload-image-proof.log.
+Receiver afd6143d6124649959d9b5fb1b1ff6b28bc715d564a79084b5fffa30e78a5a7f
+(45 modules); worker 01633d45e0413001c47a060b8e5304c6ffb0e94ca5903b717f350335ae7a005b
+(77 modules); MCP 1672fe0921dc04b2863014db43f2f03d414417aa87bac66ec5177e4380595ef5
+(46 modules). Database/migration helper image/source identities are unchanged.
+
+Still open: workload MCP tool declarations/routes, functional role-panel controller
+and browser flows, build-time isolated role verifier wiring, enabling peer channels
+in the accepted deployment configuration, actual Docker-exec Laravel/PG acceptance
+with both environments, and the broader adapter/platform matrix. No production
+push, deployment or destructive database operation occurred. Two review agents
+stopped on usage limits after delivering code; root completed integration checks.
+
+After successful image verification, exactly the three prior receiver/worker/MCP
+image IDs from the preceding checkpoint were removed without force, after checking
+all running/stopped container references and image tags/digests. No volumes or
+helper images pinned by earlier acceptance were removed.
+
+Final source checkpoint: all 1,279 backend tests passed in 47.755 seconds
+(/tmp/workload-final-suite.log); 61 focused workload tests and 3 packaging checks
+also passed. Existing test ResourceWarnings remain. The image import/hash probes
+completed successfully and all build/test process handles exited 0.

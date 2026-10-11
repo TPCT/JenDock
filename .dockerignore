@@ -115,3 +115,10 @@ frontend/dist
 
 !managed_lifecycle.py
 !workload_environment.py
+
+!workload_rpc.py
+!workload_auth.py
+!workload_control.py
+!workload_operations.py
+!workload_protocol.py
+!workload_transport.py

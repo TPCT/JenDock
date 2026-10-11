@@ -123,6 +123,18 @@ class Application:
                     return 200,response['result']
                 except (OSError,ValueError,KeyError,TypeError):
                     return 503,{'error':'Database configuration is unavailable. Reload its saved state before retrying.'}
+            if action in ('workload-role-details','queue-failures','scheduler-history','queue-retry','workload-operation'):
+                import workload_rpc
+                if set(body)&{'authentication','actor','terminal_owner'}:
+                    return 400,{'error':'Unexpected workload authentication fields.','code':'invalid_input'}
+                payload=dict(body,authentication={'kind':'console','session_digest':session['token']})
+                try:
+                    response=workload_rpc.request(payload,self.control_socket)
+                    if not response['ok']:
+                        return response.get('status',409),{'error':response.get('error','Workload operation is unavailable.'),'code':response.get('code','workload_unavailable')}
+                    return 200,response['result']
+                except (OSError,ValueError,KeyError,TypeError):
+                    return 503,{'error':'Workload communication is unavailable. Check the original operation before repeating a retry.','code':'workload_unavailable'}
             if action=='logout':
                 db.execute('DELETE FROM sessions WHERE token=?',(session['token'],))
                 audit(db,session['username'],'logout')
@@ -133,7 +145,7 @@ class Application:
                 owner = operations.Principal(session['username'], 'console', frozenset({
                     'projects:read', 'projects:create', 'services:read', 'services:create',
                     'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt',
-                    'databases:read', 'databases:data:read'}))
+                    'databases:read', 'databases:data:read', 'workloads:read', 'workloads:retry'}))
                 try:
                     if action == 'mcp-access-list':
                         return 200, {'credentials': mcp_credentials.list_credentials(db, owner),

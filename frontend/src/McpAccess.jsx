@@ -355,6 +355,8 @@ export default function McpAccess({ api, onDirty, onPending }) {
                       "domains:read": "Read domains",
                       "domains:create": "Create and recover domains",
                       "domains:adopt": "Adopt domain DNS records",
+                      "workloads:read": "Read queue and schedule observations",
+                      "workloads:retry": "Retry one failed job (requires workload read)",
                       "databases:read": "Read accepted database metadata",
                       "databases:data:read":
                         "Read permitted database rows (requires metadata access)",
