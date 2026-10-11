@@ -82,3 +82,29 @@ application; distinguish selection revocation from an applied rotation.
    reload and unsaved-change navigation work through the real API.
 7. Exact local fixture cleanup preserves peer containers, storage and business
    sentinels. Production rollout remains a separate acceptance step.
+
+## MySQL-family attachment implementation checkpoint
+
+Application attachment definitions and dashboard endpoint choices now support
+`mysql` and `mariadb` alongside unchanged PostgreSQL definitions. Field mappings
+preserve the exact endpoint and credential revision. A shared URL generator emits
+`mysql://` for both MySQL wire-protocol engines and `postgresql://` for PostgreSQL;
+applications requiring driver-specific DSNs should use explicit field mapping.
+The same generator is used when checking a registered stop after revocation.
+
+Adopted `mysql` configuration can describe MariaDB, matching existing target
+compatibility rules. **This is configuration compatibility, not actual-engine
+verification.** The application attachment path currently resolves Docker/Compose,
+storage and ownership identity but does not independently authenticate the live
+MySQL/MariaDB engine. A separately configured inspection binding does not supply
+that guarantee by itself. Do not promote this slice as completed runtime support
+or deploy it until a trusted engine proof and real application read/write,
+replacement, restart and revoked-stop acceptance are implemented.
+
+Current evidence: 1,338 backend tests, 124 frontend tests, and frontend build pass.
+New tests cover both dialects' private URL escaping/field mapping, foreign endpoint
+rejection, environment fencing and registered stop after revocation. Independent
+review ran 11 backend binding tests and 8 frontend settings tests and identified
+the engine-proof gap above. No live MySQL/MariaDB application acceptance is claimed.
+Migrations remain PostgreSQL-only; no migration validation or execution was widened.
+MySQL-family implicit DDL commits require dialect-specific partial-apply recovery.

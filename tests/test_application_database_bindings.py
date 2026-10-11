@@ -26,6 +26,14 @@ def managed_definition(service_id,name='web'):
 class AttachmentTests(unittest.TestCase):
     def setUp(self):
         self.f=fixtures.AdoptedWorkloadTests();self.f.setUp();self.addCleanup(self.f.doCleanups);self.db=self.f.db
+        engine=getattr(self,'engine','postgresql')
+        if engine!='postgresql':
+            import adoption
+            evidence=json.loads(self.db.execute('SELECT evidence FROM workload_adoptions').fetchone()[0])
+            evidence.pop('fingerprint')
+            for endpoint in evidence['databases']:endpoint.update(engine='mysql',port=3306)
+            evidence['fingerprint']=adoption._digest(evidence)
+            self.db.execute('UPDATE workload_adoptions SET evidence=?,fingerprint=?',(json.dumps(evidence),evidence['fingerprint']))
         with registry.transaction(self.db):adopted_workloads.retain(self.db,'example','development')
         self.principal=ops.Principal('owner','console',frozenset({'databases:manage'}))
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
@@ -35,7 +43,7 @@ class AttachmentTests(unittest.TestCase):
         self.db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)',(self.service,registry.canonical(definition),managed_services.digest(definition),0))
         self.db.execute('INSERT INTO managed_services VALUES(?,?,?,?,?,?,?,?,?)',(self.service,'example','development','web',self.service,'operation','running',0,0))
         self.secret=credentials.save_credential(self.db,self.principal,'example','development',{'username':'app','password':'private/@:value'},expected_revision=0,key_path=self.key)
-        self.values={'service_id':self.service,'ownership':{'kind':'adopted-compose','reference':'db','revision':self.f.recipe_id},'engine':'postgresql','database_name':'app','database_port':5432,'secret_id':self.secret['id'],'secret_revision':1,'environment_mapping':{'url':'DATABASE_URL'}}
+        self.values={'service_id':self.service,'ownership':{'kind':'adopted-compose','reference':'db','revision':self.f.recipe_id},'engine':engine,'database_name':'app','database_port':5432 if engine=='postgresql' else 3306,'secret_id':self.secret['id'],'secret_revision':1,'environment_mapping':{'url':'DATABASE_URL'}}
     def test_missing_artifact_is_invalid_managed_definition_not_legacy_fallback(self):
         definition=managed_definition(self.service);definition.pop('artifact')
         identifier=str(uuid.uuid4())

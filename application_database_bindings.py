@@ -36,8 +36,8 @@ def _service(db,project,environment,service_id):
 
 def _definition(values,project,environment):
     if not isinstance(values,dict) or set(values)!=FIELDS:raise BindingError('Application database attachment fields are invalid.')
-    common._definition({k:values[k] for k in ('ownership','engine','database_name','database_port','secret_id','secret_revision')}|{'adapter_version':1,'allowed_schemas':['public'],'policy_revision':1},project,environment)
-    if values['engine']!='postgresql' or values['ownership']['kind']!='adopted-compose':raise BindingError('A retained PostgreSQL database is required.')
+    common._definition({k:values[k] for k in ('ownership','engine','database_name','database_port','secret_id','secret_revision')}|{'adapter_version':1,'allowed_schemas':['public'] if values['engine']=='postgresql' else [values['database_name']],'policy_revision':1},project,environment)
+    if values['ownership']['kind']!='adopted-compose':raise BindingError('A retained adopted database is required.')
     try:
         if str(uuid.UUID(values['service_id']))!=values['service_id']:raise ValueError()
     except (ValueError,TypeError,AttributeError):raise BindingError('An exact managed service is required.') from None
@@ -61,7 +61,8 @@ def _ownership(db,definition):
     if len(containers)!=1:raise BindingError('Database service ownership is ambiguous.')
     matches=[r for r in evidence['databases'] if r.get('container_id')==containers[0]['id']]
     identities={(r.get('engine'),r.get('database'),r.get('port')) for r in matches}
-    if not identities or any(engine not in ('pgsql','postgres','postgresql') or name!=definition['database_name'] or port!=definition['database_port'] for engine,name,port in identities):raise BindingError('Database endpoint differs from adopted evidence.')
+    allowed_engines={'postgresql':('pgsql','postgres','postgresql'),'mysql':('mysql',),'mariadb':('mysql','mariadb')}[definition['engine']]
+    if not identities or any(engine not in allowed_engines or name!=definition['database_name'] or port!=definition['database_port'] for engine,name,port in identities):raise BindingError('Database endpoint differs from adopted evidence.')
     return owner
 
 
@@ -164,6 +165,13 @@ def resolve_runtime(db,project,environment,service_id,pin,*,authorize):
     return result
 
 
+def _connection_url(definition, alias, secret):
+    # MariaDB uses the MySQL wire protocol. Drivers are supplied by the app image;
+    # use field mapping when that app requires a driver-specific URL scheme.
+    scheme = 'postgresql' if definition['engine'] == 'postgresql' else 'mysql'
+    return scheme+'://'+quote(secret['username'],safe='')+':'+quote(secret['password'],safe='')+'@'+alias+':'+str(definition['database_port'])+'/'+quote(definition['database_name'],safe='')
+
+
 def runtime_environment(db,project,environment,service_id,pin,key_path,*,authorize):
     """Private values only; never return this from HTTP/MCP or persist in recipes."""
     metadata=resolve_runtime(db,project,environment,service_id,pin,authorize=authorize);definition=metadata['definition']
@@ -171,7 +179,7 @@ def runtime_environment(db,project,environment,service_id,pin,key_path,*,authori
     if resolve_runtime(db,project,environment,service_id,pin,authorize=authorize)!=metadata:raise BindingError('Application database authority changed.')
     mapping=definition['environment_mapping']
     values={'host':metadata['alias'],'port':str(definition['database_port']),'database':definition['database_name'],**secret}
-    if 'url' in mapping:return {mapping['url']:'postgresql://'+quote(secret['username'],safe='')+':'+quote(secret['password'],safe='')+'@'+metadata['alias']+':'+str(definition['database_port'])+'/'+quote(definition['database_name'],safe='')}
+    if 'url' in mapping:return {mapping['url']:_connection_url(definition, metadata['alias'], secret)}
     return {name:values[field] for field,name in mapping.items()}
 
 
@@ -215,7 +223,7 @@ def verify_stopping_environment(db,project,environment,service_id,pin,actual_val
     mapping=definition['environment_mapping']
     values={'host':metadata['alias'],'port':str(definition['database_port']),'database':definition['database_name'],**secret}
     if 'url' in mapping:
-        expected={mapping['url']:'postgresql://'+quote(secret['username'],safe='')+':'+quote(secret['password'],safe='')+'@'+metadata['alias']+':'+str(definition['database_port'])+'/'+quote(definition['database_name'],safe='')}
+        expected={mapping['url']:_connection_url(definition, metadata['alias'], secret)}
     else:expected={name:values[field] for field,name in mapping.items()}
     if not isinstance(actual_values,dict) or any(actual_values.get(k)!=v for k,v in expected.items()):raise BindingError('Accepted application database environment changed.')
     if resolve_stopping(db,project,environment,service_id,pin,authorize=authorize)!=metadata:raise BindingError('Application stop authority changed.')

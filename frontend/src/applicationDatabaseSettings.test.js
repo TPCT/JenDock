@@ -195,3 +195,14 @@ test("persisted attachment operation contains only allowlisted recovery fields a
     /storage unavailable/,
   );
 });
+
+test("application connection preserves MySQL and MariaDB endpoint identities", () => {
+  for (const engine of ["mysql", "mariadb"]) {
+    const endpoint = { ...definition, engine, database_port: 3306 };
+    const draft = { endpoint: endpointKey(endpoint), credential: "account", mode: "fields", mapping: {host:"DB_HOST",port:"DB_PORT",database:"DB_DATABASE",username:"DB_USERNAME",password:"DB_PASSWORD"} };
+    const values = applicationValues(draft, [{enabled:true,definition:endpoint}], [{id:"account",enabled:true,revision:3}], "service");
+    assert.equal(values.engine, engine);
+    assert.equal(values.database_port, 3306);
+    assert.deepEqual(values.ownership, endpoint.ownership);
+  }
+});

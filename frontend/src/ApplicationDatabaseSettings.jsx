@@ -165,7 +165,7 @@ export default function ApplicationDatabaseSettings({
           .filter(
             (row) =>
               row.enabled &&
-              row.definition?.engine === "postgresql" &&
+              ["postgresql", "mysql", "mariadb"].includes(row.definition?.engine) &&
               row.definition.ownership?.kind === "adopted-compose",
           )
           .map((row) => [endpointKey(row.definition), row]),

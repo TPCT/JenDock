@@ -42,10 +42,10 @@ export function applicationValues(draft, endpoints, credentials, service) {
   const account = credentials.find((row) => row.id === draft.credential);
   if (
     !endpoint ||
-    endpoint.engine !== "postgresql" ||
+    !["postgresql", "mysql", "mariadb"].includes(endpoint.engine) ||
     endpoint.ownership?.kind !== "adopted-compose"
   )
-    throw new Error("Choose a PostgreSQL database in this environment.");
+    throw new Error("Choose a supported database in this environment.");
   if (!account?.enabled)
     throw new Error("Choose an enabled application account.");
   const keys =
