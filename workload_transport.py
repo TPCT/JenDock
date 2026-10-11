@@ -107,6 +107,11 @@ class WorkloadTransport:
         def candidate(project,environment,reference,**options):
             return database_candidates.resolve(self.db,project,environment,reference,inventory=inventory,
                 provenance_resolver=lambda recipe,service,files:review(recipe,service,files,control.ROOT,compose_command,control.COMPOSE),**options)
+        import application_database_probe
+        proof=application_database_probe.verify(self.db,metadata,docker=self.docker,socket=self.env['DOCKER_HOST'],
+            key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE',''),resolve_candidate=candidate,
+            authorize=authorize,runner=self.runner,deadline=deadline)
+        candidate=application_database_probe.bind_candidate(metadata,proof,candidate)
         return bridges.verify_attachment(self.db,metadata,docker=self.docker,authorize=authorize,resolve_candidate=candidate,command=command)
 
     def _verify(self,service,resources,authorize,deadline):

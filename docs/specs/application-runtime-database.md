@@ -93,18 +93,23 @@ applications requiring driver-specific DSNs should use explicit field mapping.
 The same generator is used when checking a registered stop after revocation.
 
 Adopted `mysql` configuration can describe MariaDB, matching existing target
-compatibility rules. **This is configuration compatibility, not actual-engine
-verification.** The application attachment path currently resolves Docker/Compose,
-storage and ownership identity but does not independently authenticate the live
-MySQL/MariaDB engine. A separately configured inspection binding does not supply
-that guarantee by itself. Do not promote this slice as completed runtime support
-or deploy it until a trusted engine proof and real application read/write,
+compatibility rules. The application attachment path now authenticates the live
+MySQL/MariaDB engine through a private fixed-query helper, in addition to resolving
+Docker/Compose, storage and ownership identity. This is an application credential
+probe, independent of separately configured read-only inspection credentials.
+The helper connects through the database container's loopback namespace; this
+does not prove grants from the application's bridge address. Do not promote this
+slice as completed runtime support until real application-network read/write,
 replacement, restart and revoked-stop acceptance are implemented.
 
 Current evidence: 1,338 backend tests, 124 frontend tests, and frontend build pass.
 New tests cover both dialects' private URL escaping/field mapping, foreign endpoint
 rejection, environment fencing and registered stop after revocation. Independent
 review ran 11 backend binding tests and 8 frontend settings tests and identified
-the engine-proof gap above. No live MySQL/MariaDB application acceptance is claimed.
+the engine-proof gap addressed by the subsequent identity-helper change. Real
+MySQL/MariaDB helper evidence is recorded in
+`../operations/application-identity-evidence-20261011.json`. It proves both engine
+identities, wrong-engine and credential rejection, a separate account insert/read,
+and exact fixture cleanup; it does not prove full application cutover.
 Migrations remain PostgreSQL-only; no migration validation or execution was widened.
 MySQL-family implicit DDL commits require dialect-specific partial-apply recovery.

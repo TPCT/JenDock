@@ -192,6 +192,33 @@ class Context:
         inventory=DockerInventory(docker=docker,socket=os.environ.get('DOCKER_HOST','unix:///run/docker-isolation.sock'),timeout=8)
         def candidate(project,environment,reference,**options):
             return database_candidates.resolve(self.db,project,environment,reference,inventory=inventory,provenance_resolver=control.review_compose,**options)
+        import application_database_probe
+        import database_helper
+        import time
+        from compose_review import review
+        deadline=time.monotonic()+45
+        socket=os.environ.get('DOCKER_HOST','unix:///run/docker-isolation.sock')
+        probe_env={'PATH':'/usr/local/bin:/usr/bin:/bin','DOCKER_HOST':socket}
+        def bounded_command(argv,*,timeout,limit):
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise application_database_probe.ProbeError('timeout')
+            raw=database_helper.exchange(argv,b'',timeout=min(timeout,remaining),env=probe_env,limit=limit)
+            if not isinstance(raw,bytes) or len(raw)>limit:raise application_database_probe.ProbeError('response_limit')
+            return raw
+        def probe_inventory_runner(argv,**options):
+            if argv[0]!=docker:raise application_database_probe.ProbeError('invalid_configuration')
+            return bounded_command(argv,timeout=options['timeout'],limit=min(options['limit'],1048576))
+        def probe_compose_command(argv):
+            if argv[0]!=control.COMPOSE or not os.path.isabs(control.COMPOSE):raise application_database_probe.ProbeError('invalid_configuration')
+            return bounded_command(argv,timeout=12,limit=1048576).decode()
+        probe_inventory=DockerInventory(docker=docker,socket=socket,runner=probe_inventory_runner,timeout=8,max_bytes=1048576)
+        def probe_candidate(project,environment,reference,**options):
+            return database_candidates.resolve(self.db,project,environment,reference,inventory=probe_inventory,
+                provenance_resolver=lambda recipe,service,files:review(recipe,service,files,control.ROOT,probe_compose_command,control.COMPOSE),**options)
+        proof=application_database_probe.verify(self.db,metadata,docker=docker,
+            socket=socket,key_path=self.key_path,resolve_candidate=probe_candidate,
+            authorize=self.authorize,deadline=deadline)
+        candidate=application_database_probe.bind_candidate(metadata,proof,candidate)
         callback=networks.ensure_attachment if ensure else networks.verify_attachment
         return callback(self.db,metadata,docker=docker,authorize=self.authorize,resolve_candidate=candidate,verify_application=verify_application)
 

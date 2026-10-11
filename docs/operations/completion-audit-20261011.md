@@ -1,6 +1,7 @@
 # Full-system completion audit — 2026-10-11
 
-Source checkpoint: `ec15c4b`. This is an incomplete delivery audit, not acceptance.
+Initial source checkpoint: `ec15c4b`; subsequent checkpoints are noted below.
+This is an incomplete delivery audit, not acceptance.
 Independent read-only agent review checked the platform completion plan, dynamic
 environment spec, current source and runtime evidence. Earlier checklist statements
 about missing queues, schedulers, database tools and ingress are stale; use their
@@ -14,6 +15,13 @@ current runtime evidence instead of restarting implemented work.
 - Two-environment queue/scheduler real Docker evidence exists in
   `workload-runtime-acceptance-20261011.md`; it explicitly excludes browser and
   repository-triggered delivery acceptance.
+- Authenticated two-environment adoption browser recovery subsequently passed;
+  see `adoption-browser-acceptance-20261011.md` for its synthetic-inventory and
+  injected-response boundaries.
+- MySQL/MariaDB application definitions and field mappings now exist. The live
+  fixed-query engine helper passed real-engine checks; see
+  `application-identity-acceptance-20261011.md`. Complete application-network
+  runtime and cutover acceptance remain outstanding.
 
 ## Build attempt and artifact boundary
 
@@ -34,11 +42,14 @@ was recreated. Do not report these attempts as successful image builds.
 2. Public recipe registration/editor. Current adoption catalog selects recipes
    registered through trusted configuration; it cannot onboard an arbitrary new
    Compose layout entirely through the product.
-3. Authenticated adoption browser acceptance, including both environments,
-   committed-but-lost response, full reload and simultaneous pending requests.
-4. MySQL/MariaDB application bindings and migration support. Database inspection
-   supports those engines, but `application_database_bindings.py` and
-   `migration_bindings.py` currently accept PostgreSQL only.
+3. Remaining adoption recovery browser cases: unavailable/corrupt storage,
+   logout/owner isolation and an actual transport disconnect. The bounded
+   committed-but-lost-response/reload/two-environment browser slice is complete.
+4. MySQL/MariaDB application runtime acceptance and migration support. Application
+   bindings now support those engines with independent identity probes;
+   `migration_bindings.py` still accepts PostgreSQL only. Actual application-bridge
+   grants/read-write, database restart/replacement and revoked-stop evidence is
+   still needed. Discovery must correctly use each engine's installed client.
 5. Explicit Development-only fresh/refresh configuration and isolated execution.
    Production destructive database operations must remain prohibited.
 6. Public Cloudflare/CA/ingress activation, intended MCP client/TLS and deployed

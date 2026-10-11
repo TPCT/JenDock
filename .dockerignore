@@ -126,3 +126,5 @@ frontend/dist
 !workload_package_verifier.py
 
 !workload_artifact_verifier.py
+!application_database_identity.py
+!application_database_probe.py
