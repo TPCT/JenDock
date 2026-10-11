@@ -59,6 +59,10 @@ def public_job(db, row):
         result['target_state'] = 'pinned'
     except (ValueError, TypeError, KeyError):
         result.update(target=None, target_state='unassigned')
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_deliveries'").fetchone():
+        if db.execute('SELECT 1 FROM managed_deliveries WHERE job_id=?',(row['id'],)).fetchone():
+            import managed_delivery
+            result['managed_delivery'] = managed_delivery.public(db, row['id'])
     return result
 
 
@@ -83,8 +87,6 @@ def capture_registered_target(db, project, branch, sha, mode, *, environment=Non
     if source_revision is not None:
         expected = request_identity({'environment': binding, 'project_revision': project_revision,
             'environment_revision': environment_revision, 'source_revision': source_revision, 'recipe_revision': recipe_revision})
-        if mode != 'validate':
-            raise ValueError('A source build profile cannot deploy or start services.')
         import build_profiles
         source = build_profiles.get(db, project, binding)
         if any(source[key] != expected[key] for key in ('project_revision', 'environment_revision', 'source_revision')):
@@ -95,6 +97,13 @@ def capture_registered_target(db, project, branch, sha, mode, *, environment=Non
         recipe = json.loads(row['document'])
         if hashlib.sha256(registry.canonical(recipe).encode()).hexdigest() != row['digest']:
             raise ValueError('Source build profile integrity is invalid.')
+        if mode == 'deploy':
+            from workspace import read
+            capability = read(db, project, binding)['capabilities']['deploy']
+            if not capability['enabled'] or capability.get('kind') != 'managed-build':
+                raise ValueError(capability['reason'] or 'No verified managed deployment target exists.')
+            import managed_delivery
+            recipe = dict(recipe, schema_kind='managed-build', managed_target=managed_delivery.capture(db, project, binding))
         return job_target.capture(project=project, environment=binding, repository=registered['repository'],
             repository_id=registered['repository_id'], branch=branch, sha=sha, mode=mode,
             recipe_revision=source_revision, recipe=recipe, project_revision=project_revision,
@@ -167,7 +176,10 @@ def webhook_bindings(db, repository, repository_id, branch):
             if runtime_build or source is None:
                 match['recipe_revision'] = env['recipe_revision']
             else:
-                match.update(source_revision=source['source_revision'], mode='validate')
+                from workspace import read
+                capability = read(db, project, name)['capabilities']['deploy']
+                mode = 'deploy' if capability['enabled'] and capability.get('kind') == 'managed-build' else 'validate'
+                match.update(source_revision=source['source_revision'], mode=mode)
             matches.append(match)
         if not configured and registered['legacy_binding'] is None and registered['legacy_settings'] and legacy[project]['branch'] == branch:
             matches.append({'project': project, 'branch': branch, 'automatic': legacy[project]['automatic'], 'environment': None})

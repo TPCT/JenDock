@@ -348,13 +348,19 @@ def run_migrations(recipe, policy, images):
 
 def build_artifacts(db, job, project, validate_only):
     """Build a new project's pinned source without any runtime target dependency."""
-    if job['mode'] != 'validate' or not validate_only:
+    managed = project['recipe'].get('schema_kind') == 'managed-build'
+    if (managed and (job['mode'] != 'deploy' or validate_only)) or (not managed and (job['mode'] != 'validate' or not validate_only)):
         raise StepFailure('Artifact-only build profiles support validation builds only. No deployment was started.')
     if project.get('environment') not in ('development', 'production'):
         raise StepFailure('An explicit environment is required for an artifact build.')
     import build_profiles
     try:
-        recipe = build_profiles.validate_recipe(project['recipe'])
+        source_recipe = dict(project['recipe'])
+        if managed:
+            import managed_delivery
+            managed_delivery.load_target(db, job['id'])
+            source_recipe.pop('managed_target'); source_recipe['schema_kind'] = 'artifact-build'
+        recipe = build_profiles.validate_recipe(source_recipe)
     except (ValueError, TypeError, KeyError):
         raise StepFailure('The pinned artifact build profile is invalid. Save a supported build source before retrying.') from None
     if any(image['name'] != job['project'] + '-' + project['environment'] for image in recipe['images']):
@@ -408,13 +414,19 @@ def build_artifacts(db, job, project, validate_only):
                 identifier = cidfile.read_text().strip() if cidfile.exists() else ''
                 if re.fullmatch('[a-f0-9]{64}', identifier):
                     subprocess.run([DOCKER, 'rm', '-f', identifier], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-        complete_build(db, job['id'], recipe, images, 'validated',
-                       'Pinned source built and isolated tests passed. Verified application artifact publication was recorded; no environment was provisioned.')
+        if managed:
+            complete_build(db, job['id'], project['recipe'], images, 'deploying',
+                           'Source and isolated tests passed. Publishing artifacts before managed runtime verification.')
+            # The idle worker dispatches the durable rollout after releasing
+            # the non-reentrant deployment/control lock.
+        else:
+            complete_build(db, job['id'], recipe, images, 'validated',
+                           'Pinned source built and isolated tests passed. Verified application artifact publication was recorded; no environment was provisioned.')
 
 
 def deploy(db, job, project, validate_only=False):
     diagnostics.job_id = job['id']
-    if isinstance(project.get('recipe'), dict) and project['recipe'].get('schema_kind') == 'artifact-build':
+    if isinstance(project.get('recipe'), dict) and project['recipe'].get('schema_kind') in ('artifact-build', 'managed-build'):
         return build_artifacts(db, job, project, validate_only)
     validate_execution_recipe(project)
     if job['mode'] not in ('validate', 'deploy') or validate_only != (job['mode'] == 'validate'):
@@ -553,7 +565,8 @@ def deploy(db, job, project, validate_only=False):
             return
         # No force, no volume pruning. Docker refuses images still referenced.
         import managed_services
-        protected = set(managed_services.protected_images(db))
+        import managed_delivery
+        protected = set(managed_services.protected_images(db)) | managed_delivery.protected_images(db)
         for old in previous_images:
             if old not in images.values():
                 try:
@@ -589,7 +602,8 @@ def prune_job_images(db, job_id):
     import artifact_publication
     if artifact_publication.pending(db, job_id):
         return
-    protected = set(managed_services.protected_images(db))
+    import managed_delivery
+    protected = set(managed_services.protected_images(db)) | managed_delivery.protected_images(db)
     candidates = run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet',
                       '--filter', 'label=net.shiftcodes.job=' + str(job_id)], capture=True).splitlines()
     for image_id in set(candidates) - protected:
@@ -687,6 +701,81 @@ def project_for_job(db, job):
             'recipe': target['recipe']}
 
 
+def prune_managed_previous_images(db, job_id):
+    """Retire only superseded images from this verified managed target."""
+    import job_target, managed_services, managed_delivery
+    target = job_target.load(db, job_id)
+    if target['recipe'].get('schema_kind') != 'managed-build': return
+    protected = managed_services.protected_images(db) | managed_delivery.protected_images(db)
+    candidates = {item['definition']['artifact']['image'] for item in target['recipe']['managed_target']['services']}
+    for image in candidates - protected:
+        if re.fullmatch('sha256:[a-f0-9]{64}', image):
+            subprocess.run([DOCKER, 'image', 'rm', image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+
+
+def process_managed_delivery(db, job_id):
+    import artifact_publication, managed_delivery, managed_rollout
+    if artifact_publication.pending(db, job_id):
+        return False
+    worker_id = 'worker-' + str(os.getpid())
+    with control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists():
+            return False
+        try:
+            managed_delivery.prepare(db, job_id)
+            claim = managed_delivery.claim(db, job_id, worker_id, lease_seconds=300)
+            if claim is None:
+                outcome = managed_delivery.public(db, job_id)
+                if outcome['status'] == 'succeeded':
+                    set_status(db, job_id, 'succeeded', 'Managed containers were updated and runtime health verified.')
+                elif outcome['status'] in ('failed', 'recovery-required'):
+                    set_status(db, job_id, 'failed', 'Managed delivery requires runtime reconciliation.')
+                return False
+            for item in claim['services']:
+                if item['state'] != 'pending': continue
+                def authorize():
+                    managed_delivery.renew_claim(db, job_id, worker_id, lease_seconds=300)
+                try:
+                    binding = managed_rollout.rollout(db, str(job_id)+'-'+item['service_id'], item,
+                        docker=DOCKER, compose=COMPOSE, authorize=authorize)
+                    managed_delivery.complete_service(db, job_id, worker_id, item['service_id'], binding)
+                except managed_rollout.RolloutError as error:
+                    restored = getattr(error, 'restored_binding', None)
+                    if restored is not None:
+                        managed_delivery.rollback_service(db, job_id, worker_id, item['service_id'], restored)
+                    managed_delivery.fail(db, job_id, worker_id, recovery_required=restored is None)
+                    set_status(db, job_id, 'failed', 'Runtime verification failed. '+
+                        ('The previous image was restored and verified.' if restored is not None else 'Runtime reconciliation is required.'))
+                    return False
+            outcome = managed_delivery.public(db, job_id)
+            if outcome['status'] != 'succeeded':
+                raise ValueError('Managed delivery did not verify all selected containers.')
+            set_status(db, job_id, 'succeeded', 'Managed containers were updated and runtime health verified.')
+            try: prune_managed_previous_images(db, job_id)
+            except (ValueError, OSError, subprocess.TimeoutExpired):
+                db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',
+                    (job_id,time.time(),'cleanup-pending','Unused image cleanup could not complete. Runtime deployment remains verified.'))
+            return True
+        except (ValueError, OSError, KeyError):
+            try: managed_delivery.fail(db, job_id, worker_id, recovery_required=True)
+            except ValueError:
+                managed_delivery.abandon_unstarted(db, job_id)
+            set_status(db, job_id, 'failed', 'Managed target changed or runtime reconciliation is required. Deployment was not marked successful.')
+            return False
+
+
+def resume_managed_deliveries(db):
+    import job_target, artifact_publication
+    artifact_publication.initialize(db)
+    for row in db.execute("SELECT jobs.id FROM jobs JOIN artifact_publications p ON p.job_id=jobs.id WHERE jobs.status IN ('deploying','interrupted') AND p.status='succeeded'").fetchall():
+        try:
+            target = job_target.load(db, row['id'])
+            if target['recipe'].get('schema_kind') == 'managed-build':
+                process_managed_delivery(db, row['id'])
+        except (ValueError, KeyError, TypeError):
+            set_status(db, row['id'], 'failed', 'Managed delivery target could not be verified. Runtime reconciliation is required.')
+
+
 def process_service_once(db):
     """Serialize provisioning with deployments and direct container operations."""
     import managed_services
@@ -764,6 +853,7 @@ def main():
             try:
                 import artifact_publication
                 artifact_publication.process(db, inspect_artifact_image)
+                resume_managed_deliveries(db)
                 process_service_once(db)
                 job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()
                 if job:

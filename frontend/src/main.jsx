@@ -1586,6 +1586,10 @@ function BuildDialog({ context, onClose }) {
   const buildAllowed=legacy?!!p.build_ready:!!target?.capabilities?.build?.enabled;
   const deployAllowed=legacy?!!p.build_ready:!!target?.capabilities?.deploy?.enabled;
   const allowed=mode==='deploy'?deployAllowed:buildAllowed;
+  const managedDeploy=target?.capabilities?.deploy?.kind==='managed-build';
+  const useBuildSource=!!target?.build_source?.source_revision&&(mode==='validate'||managedDeploy);
+  const managedServiceCount=target?.services?.filter(service=>service.State==='running').length || 0;
+  const stoppedServiceCount=(target?.services?.length || 0)-managedServiceCount;
   const disabledReason=!environment?'This historical run has no verified target. Open its project and choose an environment for a new build.':scoped?(mode==='deploy'?target?.capabilities?.deploy?.reason:target?.capabilities?.build?.reason):!p.build_ready?'Build definitions are not configured.':'';
   function choose(value){setBranch(value||'');setSelection(value?{branch:value,sha:b.branches[value]}:null);setRequestId(crypto.randomUUID());}
   return <Dialog open fullWidth maxWidth="sm" onClose={()=>!busy&&onClose()} aria-labelledby="build-dialog-title">
@@ -1598,10 +1602,11 @@ function BuildDialog({ context, onClose }) {
       {!b.fresh&&<Typography color="text.secondary">Waiting for current branch observations.</Typography>}
       <BranchPicker disabled={locked||targetLoading||!environment} options={Object.keys(b.branches).sort()} value={branch||null} onChange={(_,value)=>choose(value)} label="Build branch" error={!!branch&&!b.branches[branch]} helperText={branch&&!b.branches[branch]?'Choose an available branch.':undefined} onRefresh={()=>api('action',{action:'refresh-branches',project:context.project}).catch(error=>setError(error.message))}/>
       <Box><Typography color="text.secondary" fontSize={12}>Commit to build</Typography><Typography component="code" sx={{overflowWrap:'anywhere',fontSize:12}}>{selection?.sha||'Select a branch'}</Typography></Box>
-      {scoped&&target&&<Typography color="text.secondary" fontSize={13}>Environment revision {target.environment.revision} · {mode==='validate'&&target.build_source?.source_revision?'Source revision '+target.build_source.source_revision:'Recipe '+(target.environment.recipe_revision || 'not configured')}<Hint label="About the build target">This request pins the reviewed environment and build configuration. Later settings changes require a new review.</Hint></Typography>}
+      {scoped&&target&&<Typography color="text.secondary" fontSize={13}>Environment revision {target.environment.revision} · {useBuildSource?'Source revision '+target.build_source.source_revision:'Recipe '+(target.environment.recipe_revision || 'not configured')}<Hint label="About the build target">This request pins the reviewed environment and build configuration. Later settings changes require a new review.</Hint></Typography>}
+      {scoped&&target&&!targetLoading&&((managedDeploy&&deployAllowed&&mode==='deploy')||(!deployAllowed&&allowed))&&<Typography color="text.secondary" fontSize={13}>{managedDeploy&&deployAllowed?`Deployment updates ${managedServiceCount} running managed ${managedServiceCount===1?'service':'services'} in ${environmentLabel}.${stoppedServiceCount?` ${stoppedServiceCount} stopped ${stoppedServiceCount===1?'service stays':'services stay'} unchanged.`:''}`:target.capabilities?.deploy?.reason}</Typography>}
       {changed&&<Alert severity="warning">The branch changed. Review the latest commit.</Alert>}
       {retry&&<Typography color="text.secondary" fontSize={13}>Uses the latest branch commit and the reviewed configuration for the original environment.</Typography>}
-      <RadioGroup value={mode} onChange={event=>{setMode(event.target.value);setRequestId(crypto.randomUUID());}}><FormControlLabel value="deploy" control={<Radio disabled={locked||targetLoading||!deployAllowed}/>} label="Build, test & deploy"/><FormControlLabel value="validate" control={<Radio disabled={locked||targetLoading||!buildAllowed}/>} label="Build & test only"/></RadioGroup>
+      <RadioGroup value={mode} onChange={event=>{setMode(event.target.value);setRequestId(crypto.randomUUID());}}><FormControlLabel value="deploy" control={<Radio disabled={locked||targetLoading||!deployAllowed}/>} label={scoped?`Build, test & deploy to ${environmentLabel}`:"Build, test & deploy"}/><FormControlLabel value="validate" control={<Radio disabled={locked||targetLoading||!buildAllowed}/>} label="Build & test only"/></RadioGroup>
     </Stack></DialogContent>
     <DialogActions>
       {!environment&&<Button onClick={()=>{onClose();navigate('project/'+encodeURIComponent(context.project));}}>Open project</Button>}
@@ -1611,7 +1616,7 @@ function BuildDialog({ context, onClose }) {
       <Button variant="contained" disabled={busy||(!submitted&&(!allowed||targetLoading||!!targetError||!selection?.sha||!b.fresh||!!changed||!b.branches[branch]))} onClick={async()=>{
         if(requestLock.current)return;requestLock.current=true;setBusy(true);setError('');
         try {
-          const reviewedTarget=scoped?{environment,project_revision:target.project.revision,environment_revision:target.environment.revision,...(mode==='validate'&&target.build_source?.source_revision?{source_revision:target.build_source.source_revision}:{recipe_revision:target.environment.recipe_revision})}:{environment};
+          const reviewedTarget=scoped?{environment,project_revision:target.project.revision,environment_revision:target.environment.revision,...(useBuildSource?{source_revision:target.build_source.source_revision}:{recipe_revision:target.environment.recipe_revision})}:{environment};
           const payload=submitted||buildPayload({project:context.project,branch,sha:selection.sha,mode,retry,requestId,target:reviewedTarget});
           setSubmitted(payload);const result=await api('action',payload);notify(result.message);onClose();navigate('job/'+result.job_id);refresh().catch(()=>{});
         }catch(error){setError(error.message);if(error.status&&error.status<500)setSubmitted(null);}

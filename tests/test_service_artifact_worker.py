@@ -13,9 +13,10 @@ class ArtifactWorkerTests(unittest.TestCase):
             run.assert_called_once_with([worker.DOCKER, 'image', 'inspect', 'web:commit-4'], capture=True)
 
     def test_cleanup_protects_service_sources_and_never_force_deletes(self):
-        protected, unused = 'sha256:' + 'a' * 64, 'sha256:' + 'b' * 64
+        protected, unused, rollback = 'sha256:' + 'a' * 64, 'sha256:' + 'b' * 64, 'sha256:' + 'c' * 64
         with patch('artifact_publication.pending', return_value=False), patch('managed_services.protected_images', return_value=[protected]), \
-             patch.object(worker, 'run', return_value=protected+'\n'+unused+'\nnot-an-id\n'), \
+             patch('managed_delivery.protected_images', return_value={rollback}), \
+             patch.object(worker, 'run', return_value=protected+'\n'+unused+'\n'+rollback+'\nnot-an-id\n'), \
              patch.object(worker.subprocess, 'run') as remove:
             worker.prune_job_images('db', 4)
             remove.assert_called_once_with([worker.DOCKER, 'image', 'rm', unused],

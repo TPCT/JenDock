@@ -58,9 +58,16 @@ def _profile(target, template_id):
 
 def _source(db, job_id):
     row = db.execute('SELECT * FROM jobs WHERE id=?', (job_id,)).fetchone()
-    if row is None or row['status'] not in ('validated', 'succeeded'):
+    if row is None:
         raise ValueError('A successful verified build is required for a service artifact.')
     target = job_target.load(db, job_id)
+    if row['status'] not in ('validated', 'succeeded'):
+        publication = None
+        if target['recipe'].get('schema_kind') == 'managed-build' and db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_publications'").fetchone():
+            publication = db.execute('SELECT recipe_digest FROM artifact_publications WHERE job_id=?', (job_id,)).fetchone()
+        if publication is None or publication['recipe_digest'] != digest(target['recipe']):
+            raise ValueError('A successful verified build is required for a service artifact.')
     if any(target[key] != row[key] for key in ('project', 'branch', 'sha', 'mode')):
         raise ValueError('The build source differs from its immutable target.')
     return target
@@ -104,7 +111,7 @@ def protected_images(db):
     images = set()
     for row in db.execute('SELECT DISTINCT project FROM service_artifacts'):
         images.update(item['image'] for item in catalog(db, row['project']))
-    for row in db.execute('SELECT document FROM service_definitions'):
+    for row in db.execute('SELECT d.document FROM service_definitions d JOIN managed_services s ON s.definition_id=d.id'):
         images.add(json.loads(row['document'])['artifact']['image'])
     return images
 
@@ -120,8 +127,9 @@ def catalog(db, project):
             ORDER BY source.created DESC,source.id DESC,artifact.created DESC,artifact.id DESC''', (project,)):
         try: artifact = artifact_for_service(db, project, row['id'])
         except ValueError: continue
-        if artifact['template_id'] in selected: continue
-        selected.add(artifact['template_id'])
+        identity = (artifact['template_id'], artifact['source_environment'])
+        if identity in selected: continue
+        selected.add(identity)
         result.append({'id': artifact['template_id'], 'revision': artifact['template_revision'], 'label': artifact['template_id'],
                        'artifact_id': artifact['id'], 'image': artifact['image'], 'image_name': artifact['image_name'],
                        'source_job': artifact['source_job'], 'source_sha': artifact['source_sha'],

@@ -188,6 +188,25 @@ def read(db, project, environment):
         build_source = build_profiles.get(db, project, environment)
         if build_source['source_revision'] is not None:
             delivery['build'] = {'enabled': True, 'reason': ''}
+        if build_source['source_revision'] is not None and selected_recipe and selected_recipe.get('managed_environment') == {'project': project, 'environment': environment}:
+            managed_reason = ''
+            try:
+                import managed_delivery
+                selection = managed_delivery.capture(db, project, environment)
+                if stale or not complete or state != 'verified':
+                    raise ValueError('Refresh and reconcile container ownership before deploying.')
+                running = [item for item in selection['services'] if item['state'] == 'pending']
+                if not running:
+                    raise ValueError('Start this environment explicitly before deploying; build-only is available.')
+                observed_by_id = {item.get('ID'): item for item in services}
+                for item in selection['services']:
+                    observed = observed_by_id.get(item['binding']['container_id'])
+                    expected_state = 'running' if item['state'] == 'pending' else 'exited'
+                    if observed is None or (observed.get('State') != 'running') != (expected_state != 'running'):
+                        raise ValueError('Container state changed. Reconcile this environment before deploying.')
+            except ValueError as error:
+                managed_reason = str(error)
+            delivery['deploy'] = {'enabled': not managed_reason, 'reason': managed_reason, 'kind': 'managed-build'}
         result = {
             'build_source': build_source,
             'project': {key: record[key] for key in ('id', 'label', 'repository', 'revision')},

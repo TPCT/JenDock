@@ -75,7 +75,16 @@ def capture(project, environment, repository, repository_id, branch, sha, mode,
         raise ValueError('Unclassified legacy targets have no environment revision.')
     if not isinstance(recipe, dict) or not recipe:
         raise ValueError('A configured private recipe is required.')
-    if recipe.get('schema_kind') == 'artifact-build':
+    if recipe.get('schema_kind') == 'managed-build':
+        if mode != 'deploy' or environment == 'legacy-unclassified':
+            raise ValueError('Managed delivery requires an explicit deployment environment.')
+        import build_profiles, managed_delivery
+        source = dict(recipe); selection = source.pop('managed_target', None); source['schema_kind'] = 'artifact-build'
+        build_profiles.validate_recipe(source)
+        managed_delivery.validate_target(selection)
+        if any(selection[key] != value for key,value in (('project',project),('environment',environment),('environment_revision',environment_revision))):
+            raise ValueError('Managed selection identity differs from source target.')
+    elif recipe.get('schema_kind') == 'artifact-build':
         if mode != 'validate' or environment == 'legacy-unclassified':
             raise ValueError('Source build profiles only support explicit environment build validation.')
         import build_profiles
@@ -121,7 +130,7 @@ def matches(target, candidate):
 
 def _public(target):
     result = {key: target[key] for key in PUBLIC_FIELDS}
-    if target['recipe'].get('schema_kind') == 'artifact-build':
+    if target['recipe'].get('schema_kind') in ('artifact-build','managed-build'):
         result['source_revision'] = target['recipe_revision']
     return result
 

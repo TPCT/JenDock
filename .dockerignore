@@ -35,3 +35,6 @@ frontend/dist
 !artifact_publication.py
 
 !build_profiles.py
+
+!managed_delivery.py
+!managed_rollout.py

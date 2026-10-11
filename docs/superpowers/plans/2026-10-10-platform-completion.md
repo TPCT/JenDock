@@ -54,3 +54,9 @@ Current coordinated slice (same checkout, no production mutations):
 - Root: HTTP/worker integration, artifact publication and retention, shared capacity enforcement and end-to-end acceptance.
 
 Product decision: a Python HTTP fixture is test data only. The product must offer real project build artifacts, not substitute a dummy application for service provisioning. User-supplied arbitrary images/commands are not the trusted build-source contract. A missing verified artifact remains visible until the real build publisher supplies one. Mixed adopted/managed environments require a verified ownership transition; no legacy manifest is modified by inference.
+
+## Managed delivery integration — 2026-10-11
+
+Source onboarding checkpoint dd0cf02 is committed and verified locally. Active slice adds an immutable managed-build selection with exact service definitions/bindings/resources, successful-build evidence separate from final deployment, worker runtime verification and bounded old-image restoration. Source-only validation remains isolated. No implicit provisioning or waking stopped peers; both environments may run concurrently.
+
+Review findings already addressed: nested non-reentrant worker lock, managed dispatch falling into legacy migration path, source artifact validity after rollout failure, image catalog masking across environments, Compose create unsupported flag, and binding CAS requiring replacement image/digest. Actual Docker replacement/health rollback/direct resource caps/peer isolation passed. Full build-to-deploy worker fixture and integration review are ongoing. Interrupted ambiguous mutations require explicit reconciliation; automatic journal reconciliation and its UI remain open. No production rollout or completion claim.

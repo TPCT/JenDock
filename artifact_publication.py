@@ -27,8 +27,10 @@ def record(db, job_id, recipe, images, *, status=None, detail=None):
     initialize(db)
     with registry.transaction(db):
         if status is not None:
-            if status not in ('validated', 'succeeded'): raise ValueError('Invalid successful source state.')
-            set_status(db, job_id, status, detail)
+            if status not in ('validated', 'succeeded', 'deploying'): raise ValueError('Invalid successful source state.')
+            if status == 'deploying' and recipe.get('schema_kind') != 'managed-build':
+                raise ValueError('Only a pinned managed build can await runtime verification.')
+            set_status(db, job_id, status, detail or 'Verified build artifact publication recorded.')
         refs, fingerprint = registry.canonical(images), services.digest(recipe)
         old = db.execute('SELECT * FROM artifact_publications WHERE job_id=?', (job_id,)).fetchone()
         if old:
