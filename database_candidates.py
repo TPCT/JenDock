@@ -104,7 +104,10 @@ def _resolve(db, project, environment, reference, inventory, resolver, now):
     if not isinstance(rows,list) or len(rows)>1000:
         _fail('inventory_limit')
     env = registry.get_environment(db, project, environment)
-    recipe_row = db.execute('SELECT document FROM registry_recipes WHERE id=? AND project=?', (env['recipe_revision'], project)).fetchone()
+    import adopted_workloads
+    retained = adopted_workloads.get(db, project, environment)
+    recipe_id = retained['recipe_revision'] if retained else env['recipe_revision']
+    recipe_row = db.execute('SELECT document FROM registry_recipes WHERE id=? AND project=?', (recipe_id, project)).fetchone()
     if not recipe_row: _fail('registered_owner_required')
     group = json.loads(recipe_row['document']).get('compose_project')
     matches=[]

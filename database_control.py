@@ -4,6 +4,8 @@ These operations save unverified configuration; they never grant query authority
 The caller must authenticate the Unix peer before dispatching this module.
 """
 import database_bindings as bindings
+import migration_credentials
+import migration_bindings
 from database_auth import ConsoleAuthority, MCPAuthority
 from application_operations import OperationError
 
@@ -22,6 +24,19 @@ FIELDS = {
     'database-binding-disable': {'binding_id', 'expected_revision'},
 }
 
+FIELDS.update({
+    'database-migration-credential-get': {'credential_id'},
+    'database-migration-credentials': {'limit','cursor'},
+    'database-migration-credential-save': {'values','expected_revision','credential_id','request_id'},
+    'database-migration-credential-revoke': {'credential_id','expected_revision'},
+    'database-migration-binding-current': set(),
+    'database-migration-binding-get': {'binding_id'},
+    'database-migration-binding-save': {'values','expected_revision','binding_id','request_id'},
+    'database-migration-binding-disable': {'binding_id','expected_revision'},
+})
+SAVE_ACTIONS=('database-credential-save','database-binding-save',
+              'database-migration-credential-save','database-migration-binding-save')
+
 
 def execute(db, body, *, credentials_file=None, key_path=None, inspection_factory=None):
     if not isinstance(body, dict) or body.get('action') not in FIELDS:
@@ -29,7 +44,7 @@ def execute(db, body, *, credentials_file=None, key_path=None, inspection_factor
     action = body['action']
     if set(body) - {'action', 'project', 'environment', 'authentication'} - FIELDS[action]:
         raise OperationError('invalid_input', 'Unexpected database operation fields.', 400)
-    if action in ('database-credential-save','database-binding-save') and not body.get('request_id'):
+    if action in SAVE_ACTIONS and not body.get('request_id'):
         raise OperationError('invalid_input','A request ID is required to save database configuration.',400)
     envelope = body.get('authentication')
     if isinstance(envelope,dict) and envelope.get('kind')=='mcp':
@@ -40,7 +55,24 @@ def execute(db, body, *, credentials_file=None, key_path=None, inspection_factor
         authority = ConsoleAuthority(db,envelope,credentials_file)
     args = (db, authority.principal, body.get('project'), body.get('environment'))
     options = {'revalidate': authority.recheck}
-    if action in ('database-options','database-preview','database-accept','database-read'):
+    if action == 'database-migration-credential-get':
+        result={'credential':migration_credentials.get_credential(*args,body.get('credential_id'),**options)}
+    elif action == 'database-migration-credentials':
+        result={'credentials':migration_credentials.list_credentials(*args,limit=body.get('limit',25),cursor=body.get('cursor'),**options)}
+    elif action == 'database-migration-credential-save':
+        result={'credential':migration_credentials.save_credential(*args,body.get('values'),expected_revision=body.get('expected_revision'),key_path=key_path,credential_id=body.get('credential_id'),request_id=body.get('request_id'),**options)}
+    elif action == 'database-migration-credential-revoke':
+        result={'credential':migration_credentials.revoke_credential(*args,body.get('credential_id'),expected_revision=body.get('expected_revision'),**options)}
+    elif action == 'database-migration-binding-current':
+        rows=migration_bindings.list_bindings(*args,**options)
+        result={'binding':rows[0] if rows else None}
+    elif action == 'database-migration-binding-get':
+        result={'binding':migration_bindings.get_binding(*args,body.get('binding_id'),**options)}
+    elif action == 'database-migration-binding-save':
+        result={'binding':migration_bindings.save_binding(*args,body.get('values'),expected_revision=body.get('expected_revision'),binding_id=body.get('binding_id'),request_id=body.get('request_id'),**options)}
+    elif action == 'database-migration-binding-disable':
+        result={'binding':migration_bindings.disable_binding(*args,body.get('binding_id'),expected_revision=body.get('expected_revision'),**options)}
+    elif action in ('database-options','database-preview','database-accept','database-read'):
         if inspection_factory is None:raise OperationError('unavailable','Database inspection is not configured.',503)
         inspector=inspection_factory(db,authority)
         target=(body.get('project'),body.get('environment'))
@@ -69,12 +101,12 @@ def execute(db, body, *, credentials_file=None, key_path=None, inspection_factor
     else:
         result = {'binding': bindings.disable_binding(*args, body.get('binding_id'),
             expected_revision=body.get('expected_revision'), **options)}
-    if action in ('database-credential-save','database-binding-save'):
+    if action in SAVE_ACTIONS:
         # Save returns a durable receipt, including on replay; current state can
         # have changed since that receipt was first committed.
         result['state_requires_reload']=True
-    if action in ('database-credentials','database-bindings'):
-        rows=result['credentials' if action=='database-credentials' else 'bindings']
+    if action in ('database-credentials','database-bindings','database-migration-credentials'):
+        rows=result['credentials' if action in ('database-credentials','database-migration-credentials') else 'bindings']
         result['next_cursor']=rows[-1]['id'] if len(rows)==body.get('limit',25) else None
     authority.recheck()
     return result

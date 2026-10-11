@@ -95,7 +95,7 @@ class BuildBoundaryTests(unittest.TestCase):
         self.job['mode'] = 'deploy'; self.recipe['schema_kind'] = 'managed-build'
         self.recipe['managed_target'] = {'pinned': True}
         self.tracked += 'prisma/schema.prisma\n'
-        with patch('managed_delivery.load_target', return_value={'services': [{'definition': {'artifact': {}}}]}), patch.object(worker, 'schema_change_paths', DETECT):
+        with patch('migration_jobs.optional', return_value=None), patch('managed_delivery.load_target', return_value={'services': [{'definition': {'artifact': {}}}]}), patch.object(worker, 'schema_change_paths', DETECT):
             with self.assertRaisesRegex(worker.StepFailure, 'runner is unsupported'):
                 self.execute(False)
         self.assertFalse(any(call[0] == worker.DOCKER for call in self.calls))

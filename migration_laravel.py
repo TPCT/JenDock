@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from migration_plan import MigrationPlan, PlanError
+from migration_plan import MigrationPlan, PlanError, planning_remaining
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ def php_ast(path, source):
     php=shutil.which('php')
     if not php:_fail(path,None,'Trusted PHP runtime is unavailable')
     try:
-        result=subprocess.run([php,'-d','memory_limit=64M',str(root/'migration-parser/parse.php'),str(root/'.runtime/migration-parser-vendor')],input=source.encode(),capture_output=True,timeout=10)
+        result=subprocess.run([php,'-d','memory_limit=64M',str(root/'migration-parser/parse.php'),str(root/'.runtime/migration-parser-vendor')],input=source.encode(),capture_output=True,timeout=min(10,planning_remaining()))
         if len(result.stdout)>8388608:_fail(path,None,'PHP AST exceeds bound')
         document=json.loads(result.stdout)
         if result.returncode or 'error' in document:
@@ -216,10 +216,11 @@ def parse_laravel(path,source,*,include_operations=True):
 
 
 def laravel_plan(sources,ledger=(),applied_hashes=None):
-    if not isinstance(sources,dict) or not 1<=len(sources)<=1000 or any(not isinstance(k,str) or not isinstance(v,str) for k,v in sources.items()):raise PlanError('Expected a bounded migration source mapping')
+    if not isinstance(sources,dict) or not 0<=len(sources)<=1000 or any(not isinstance(k,str) or not isinstance(v,str) for k,v in sources.items()):raise PlanError('Expected a bounded migration source mapping')
     if sum(len(source.encode()) for source in sources.values())>16777216:raise PlanError('Migration source set exceeds bound')
     records={}
     for path,source in sorted(sources.items()):
+        planning_remaining()
         record=parse_laravel(path,source,include_operations=False)
         if record[0] in records:_fail(path,None,'Duplicate Laravel migration name')
         records[record[0]]=record

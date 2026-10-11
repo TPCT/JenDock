@@ -54,6 +54,9 @@ def readiness(recipe, services, observation, binding, environment):
 
 def public_job(db, row):
     result = dict(row)
+    import migration_status
+    migration = migration_status.public_status(db, row['id'])
+    if migration is not None: result['migration'] = migration
     try:
         result['target'] = job_target.public(db, row['id'])
         result['target_state'] = 'pinned'

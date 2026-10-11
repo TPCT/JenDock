@@ -22,6 +22,12 @@ def resolve(db, project, group, service, files):
     rows = db.execute('''SELECT e.project,e.name,e.revision,e.recipe_revision,
         r.document,r.digest FROM registry_environments e LEFT JOIN registry_recipes r
         ON r.id=e.recipe_revision AND r.project=e.project WHERE e.recipe_revision IS NOT NULL''')
+    import adopted_workloads
+    rows=list(rows)
+    for owner in adopted_workloads.all_owners(db):
+        if any(r['project']==owner['project'] and r['name']==owner['environment'] and r['recipe_revision']==owner['recipe_revision'] for r in rows):continue
+        rows.append({'project':owner['project'],'name':owner['environment'],'revision':owner['revision'],
+                     'recipe_revision':owner['recipe_revision'],'document':registry.canonical(owner['recipe']),'digest':owner['recipe_digest']})
     for row in rows:
         try:
             recipe = json.loads(row['document'])

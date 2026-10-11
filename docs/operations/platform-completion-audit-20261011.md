@@ -94,3 +94,56 @@ rotation/revocation and durable save receipts; this is not yet a published UI/AP
 or an integrated migration stage. See cleanup-recovery-20261011.md for the actual
 Docker untagged-image deletion/retry proof and the Laravel acceptance note for
 real engine evidence. Production still runs the separately verified baseline.
+
+## Migration integration review follow-through
+
+The optional helper protocol, durable job capture/coordinator and environment
+configuration UI are now implemented locally. The actual helper fixture passed
+PostgreSQL/Laravel/Alembic apply, reconciliation and no-op checks with exact cleanup
+and unchanged peer containers. This is helper acceptance, not whole-pipeline proof.
+
+The combined managed-delivery fixture initially exposed a recipe ownership
+conflict. A separately pinned, immutable adopted-workload association now retains
+the verified database owner alongside a managed application recipe. Independent
+review found and fixed pre-effect acceptance after unrelated recipe rebinding,
+and false ambiguity between the default PostgreSQL database and client evidence.
+The normal PostgreSQL-only adoption path now records trusted engine observation.
+
+The corrected actual fixture exited successfully: normal collect/preview/adopt,
+managed provisioning, SQLite reconnect, enqueue, actual Docker build/test/image
+publication, helper migration and healthy application rollout. A subsequent run
+verified no pending migrations; a lost commit response reconciled without replay;
+interruption before apply caused no database mutation. Business sentinels and the
+separate production fixture survived. Exact cleanup preserved all preexisting
+peers. Only Git transport was simulated with immutable local fixture sources.
+Evidence: `/tmp/live-managed-migration.log`, session 91211, exit 0.
+This does not prove application database connectivity: the fixture's HTTP app
+returns a fixed body. Managed application database network/configuration binding
+is still required; no manual network attachment was used to mask that gap.
+
+The real HTTP/Unix configuration browser fixture saved and reread an enabled
+Laravel binding; switching environments now uses unsaved-change protection.
+The fixture ended normally and its disposable local UI journal row was removed.
+Migration run status exposes only bounded file paths and verified journal digests.
+A stopped pre-execution run displays Not run, while uncertain execution remains
+unresolved even when its parent run is terminal. Four backend status tests and
+98 frontend tests passed; frontend build passed with the existing bundle warning.
+Actual desktop and 390x844 mobile browser review verified terminal Not run,
+unresolved recovery, Files dialog wrapping and Close behavior. Disposable UI rows
+were removed exactly. Screenshots are in
+`/tmp/deploy-monitor-migration-status-evidence/`. The backend suite in the existing
+MCP virtual environment passed 1145 tests on the final frozen source; system Python alone lacked required MCP
+and PostgreSQL dependencies and was not the valid full-suite runtime.
+
+`compose.migration.yml` supplies the same helper image ID to receiver and worker
+and the existing vault key to the worker only. Actual Compose rendering combined
+with `compose.database.yml` verified one read-only, no-create key mount. Independent
+review passed. See migration-runtime-setup.md. No production update occurred.
+
+The final receiver/worker/MCP builds passed. Every packaged Python module was
+hashed against the frozen checkout (38, 63 and 39 modules respectively), and
+network-disabled, read-only import smoke checks passed in all three images:
+
+- receiver: `sha256:b40efa46358a4a02832647be3554aa4aba2e19d251e26cf5fd043f129f5279c3`
+- worker: `sha256:86115bde2c89fb712ed4db71addd6630e0b5c98c7705cb429617f07083e8282a`
+- MCP: `sha256:c21863d080ed96126e36ecbd2c00be29627e62e6c2ebaf3a7fb0f05909ade74e`

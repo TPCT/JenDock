@@ -112,7 +112,14 @@ configuration, not a new native Certbot installation.
 - Signed GitHub raw payloads must match repository ID, full name and saved branch.
   Recent delivery IDs deduplicate; newer pushes supersede only pending webhook jobs.
 - Builds bind an immutable commit and verify the chosen branch head again before
-  cutover. Migration changes stop for review. No database migration is run here.
+  cutover. Managed deployments with a configured environment migration binding
+  run supported PostgreSQL migrations automatically through the pinned helper.
+  The immutable plan and ledger are verified before application cutover; ambiguous
+  results enter recovery without replaying writes. Unconfigured or unsupported
+  migration changes fail with a diagnostic, not an approval gate. See
+  [migration runtime setup](docs/operations/migration-runtime-setup.md) for the
+  required Compose override and current support boundaries. Complete combined
+  database/application runtime acceptance is still in progress.
 - Each job uses unique image tags; retrying the same commit cannot overwrite a
   running tag. Source is cloned inside a temporary worker volume directory and
   erased afterwards. No host application source mounts, release folders, worktrees

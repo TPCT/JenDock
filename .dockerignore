@@ -83,3 +83,23 @@ frontend/dist
 !image_cleanup.py
 
 !database_target.py
+!Dockerfile.migration
+!migration_protocol.py
+!migration_helper_entry.py
+!migration_plan.py
+!migration_laravel.py
+!migration_postgres.py
+!migration_laravel_postgres.py
+!migration-parser/
+!migration-parser/composer.json
+!migration-parser/composer.lock
+!migration-parser/parse.php
+
+!migration_status.py
+!migration_jobs.py
+!migration_bindings.py
+!migration_credentials.py
+!migration_coordinator.py
+!migration_runner.py
+
+!adopted_workloads.py

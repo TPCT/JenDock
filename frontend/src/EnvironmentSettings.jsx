@@ -18,6 +18,7 @@ import {
   Typography,
 } from "@mui/material";
 import Field from "./Field";
+import MigrationSettings from "./MigrationSettings";
 import Hint from "./Hint";
 import { Refresh } from "./icons";
 
@@ -43,6 +44,8 @@ export default function EnvironmentSettings({
   linkedProject,
 }) {
   const [project, setProject] = useState(null);
+  const [migrationDirty, setMigrationDirty] = useState(false);
+  const [migrationPending, setMigrationPending] = useState(false);
   const [drafts, setDrafts] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -115,13 +118,13 @@ export default function EnvironmentSettings({
     setProject(linkedProject);
   }, [linkedProject, id]);
   useEffect(() => {
-    onDirty(dirty);
+    onDirty(dirty || migrationDirty);
     return () => onDirty(false);
-  }, [dirty, onDirty]);
+  }, [dirty, migrationDirty, onDirty]);
   useEffect(() => {
-    onPending(!!busy);
+    onPending(!!busy || migrationPending);
     return () => onPending(false);
-  }, [busy, onPending]);
+  }, [busy, migrationPending, onPending]);
 
   useEffect(() => {
     setSubmitted(false);
@@ -353,6 +356,15 @@ export default function EnvironmentSettings({
           </Button>
         </Stack>
       </Stack>
+
+      <MigrationSettings
+        key={`${id}:${environment}`}
+        api={api}
+        project={id}
+        environment={environment}
+        onDirty={setMigrationDirty}
+        onPending={setMigrationPending}
+      />
 
       <Dialog
         open={confirmReload}

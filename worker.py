@@ -418,8 +418,14 @@ def build_artifacts(db, job, project, validate_only):
         tracked = run(['git', 'ls-files'], cwd=source, capture=True).splitlines()
         if any(Path(path).name in ('.env', 'id_rsa', 'id_ed25519') for path in tracked):
             raise StepFailure('A sensitive configuration file was found in Git. Build stopped before copying the context.')
+        migration_record = None
         if managed:
-            check_managed_migration_capability(source, sha, managed_selection, tracked)
+            import migration_jobs
+            migration_record = migration_jobs.optional(db, job['id'])
+            if migration_record and migration_record['target']['binding'] is not None:
+                migration_jobs.authorize(db, job['id'])
+            else:
+                check_managed_migration_capability(source, sha, managed_selection, tracked)
         images = {}
         for spec in recipe['images']:
             try:
@@ -454,6 +460,9 @@ def build_artifacts(db, job, project, validate_only):
                 if re.fullmatch('[a-f0-9]{64}', identifier):
                     subprocess.run([DOCKER, 'rm', '-f', identifier], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         if managed:
+            if migration_record and migration_record['target']['binding'] is not None:
+                migration_jobs.save_sources(db, job['id'], migration_jobs.collect_sources(
+                    source, migration_record['target']['binding']['definition']))
             complete_build(db, job['id'], project['recipe'], images, 'deploying',
                            'Source and isolated tests passed. Publishing artifacts before managed runtime verification.')
             # The idle worker dispatches the durable rollout after releasing
@@ -799,6 +808,45 @@ def prune_managed_previous_images(db, job_id):
     return remove_cleanup_images(candidates & existing - protected)
 
 
+def process_managed_migration(db, job_id, authorize, *, recovery=False):
+    """Called under control.LOCK, never a SQLite transaction."""
+    import migration_jobs, migration_bindings, migration_coordinator
+    migration_jobs.initialize(db)
+    if not db.execute('SELECT 1 FROM job_migration_targets WHERE job_id=?', (job_id,)).fetchone():
+        # Historical jobs predate this contract; never attach a newly configured
+        # database authority to them retroactively.
+        import job_target
+        target = job_target.load(db, job_id)
+        if migration_bindings.capture(db, target['project'], target['environment']) is not None:
+            raise ValueError('Historical job has no pinned migration target.')
+        return True
+    record = migration_jobs.load(db, job_id)
+    if record['target']['binding'] is None: return True
+    if recovery and record['state'] in ('captured', 'source-ready', 'planned', 'failed'):
+        # No apply intent, or reconciliation proved no commit. Recovery may
+        # observe unchanged containers and release this failed delivery. It
+        # must not initiate migrations while recovering an interrupted run.
+        return True
+    from database_candidates import resolve
+    from database_inventory import DockerInventory
+    from migration_runner import MigrationHelper
+    socket = os.environ.get('DOCKER_HOST', 'unix:///run/docker-isolation.sock')
+    inventory = DockerInventory(docker=DOCKER, socket=socket, timeout=8)
+    def candidate(project, environment, reference, **options):
+        return resolve(db, project, environment, reference, inventory=inventory,
+                       provenance_resolver=control.review_compose, **options)
+    directory = STATE / 'migration-helper'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    helper = MigrationHelper(docker=DOCKER, socket=socket,
+        image=os.environ.get('MIGRATION_HELPER_IMAGE'), state_dir=directory)
+    # Exact owned leftover helpers are terminated before inspecting the ledger;
+    # ambiguous creation remains fenced rather than starting another executor.
+    helper.reconcile_pending()
+    verified = migration_coordinator.process(db, job_id, helper=helper,
+        resolve_candidate=candidate, key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE'), authorize=authorize)
+    return verified or (recovery and migration_jobs.load(db, job_id)['state'] == 'failed')
+
+
 def process_managed_delivery(db, job_id):
     import artifact_publication, managed_delivery, managed_rollout
     if artifact_publication.pending(db, job_id):
@@ -817,6 +865,10 @@ def process_managed_delivery(db, job_id):
                 elif outcome['status'] in ('failed', 'recovery-required'):
                     set_status(db, job_id, 'failed', 'Managed delivery requires runtime reconciliation.')
                 return False
+            def migration_authorize():
+                managed_delivery.renew_claim(db, job_id, worker_id, lease_seconds=300)
+            if not process_managed_migration(db, job_id, migration_authorize):
+                raise ValueError('Migration execution has not been verified.')
             for item in claim['services']:
                 if item['state'] != 'pending': continue
                 def authorize():
@@ -868,6 +920,10 @@ def recover_managed_deliveries(db):
             def authorize():
                 managed_delivery.renew_recovery(db, job_id, worker_id, lease_seconds=300)
                 return managed_delivery.authorize_recovery(db, job_id, worker_id)
+            try:
+                if not process_managed_migration(db, job_id, authorize, recovery=True): continue
+            except (ValueError, OSError, KeyError, TypeError):
+                continue
             for item in plan['services']:
                 try:
                     observed = managed_rollout.reconcile(db, str(job_id)+'-'+item['service_id'], item,

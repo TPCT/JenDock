@@ -33,6 +33,9 @@ def check_registered(db, candidate):
     """Recheck registry revisions against a resolved snapshot without credentials."""
     project=registry.get_project(db,candidate['project'])
     env=registry.get_environment(db,candidate['project'],candidate['environment'])
+    import adopted_workloads
+    retained=adopted_workloads.get(db,candidate['project'],candidate['environment'])
+    revision=retained['recipe_revision'] if retained else env['recipe_revision']
     if (project['revision']!=candidate['project_revision'] or env['revision']!=candidate['environment_revision']
-            or env['recipe_revision']!=candidate['recipe_revision']):
+            or revision!=candidate['recipe_revision']):
         raise TargetError('Registered database ownership changed.')

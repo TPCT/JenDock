@@ -772,8 +772,7 @@ function App() {
                       const params = new URLSearchParams(location.hash.split("?")[1] || "");
                       params.set("environment", environment);
                       const next = "project/" + encodeURIComponent(id) + "?" + params.toString();
-                      history.replaceState(null, "", "#" + next);
-                      setRoute(next);
+                      navigate(next);
                     }} />
                 ) : page === "container" ? (
                   <ContainerPage

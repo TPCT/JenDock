@@ -47,19 +47,21 @@ def collect(docker, command):
         image_name = row['Config'].get('Image', '').rsplit('/', 1)[-1].split(':')[0]
         if 'postgres' in image_name: engine = 'pgsql'
         elif image_name in ('mysql', 'mariadb'): engine = 'mysql'
-        directory, port = None, None
+        directory, port, direct_database = None, None, None
         if engine and row['State']['Running']:
-            script = ('exec psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" -Atc "SELECT current_setting(\'data_directory\'), current_setting(\'port\')"'
+            script = ('exec psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" -Atc "SELECT current_setting(\'data_directory\'), current_setting(\'port\'), current_database()"'
                       if engine == 'pgsql' else 'MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-$MARIADB_ROOT_PASSWORD}" exec mariadb -uroot -Nse "SELECT @@datadir, @@port"')
             try:
                 output = command([docker, 'exec', row['Id'], 'sh', '-c', script]).strip().replace('|', '\t').split('\t')
-                if len(output) == 2 and output[0].startswith('/'):
+                if len(output) in (2,3) and output[0].startswith('/'):
                     directory, port = posixpath.normpath(output[0]), int(output[1])
+                    if engine == 'pgsql' and len(output)==3 and 1<=len(output[2])<=128 and not any(ord(c)<32 for c in output[2]):direct_database=output[2]
             except Exception:
                 # No stderr, command output or credential value becomes evidence.
                 directory, port = None, None
         result.append({'id': row['Id'], 'name': row['Name'].lstrip('/'), 'image_id': row['Image'],
                        'database_data_directory': directory, 'database_port': port,
+                       'direct_database': {'engine':'pgsql','database':direct_database,'port':port} if direct_database is not None else None,
                        'running': bool(row['State']['Running']), 'compose_project': labels.get('com.docker.compose.project'),
                        'compose_service': labels.get('com.docker.compose.service'),
                        'compose_files': labels.get('com.docker.compose.project.config_files', '').split(','),
@@ -178,10 +180,22 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
             raise ValueError('Compose verification does not match the observed invocation.')
         service_provenance[row['compose_service']] = proof
     databases = []
+    direct_databases = []
     member_ids = {r['id'] for r in members}
     for row in members:
         engine, host, database, port = _endpoint(row)
         if not host and not database:
+            direct=row.get('direct_database')
+            if direct is None:continue
+            if (not isinstance(direct,dict) or set(direct)!={'engine','database','port'} or direct['engine']!='pgsql'
+                    or not isinstance(direct['database'],str) or not 1<=len(direct['database'])<=128
+                    or any(ord(c)<32 for c in direct['database']) or type(direct['port']) is not int or not 1<=direct['port']<=65535
+                    or direct['port']!=row.get('database_port') or not row.get('database_data_directory') or not row.get('running')):
+                raise ValueError('Direct database engine identity is unavailable.')
+            storage=_storage(row,row['database_data_directory'])
+            if not storage:raise ValueError('Database container has no verified persistent storage.')
+            direct_databases.append({'client':row['id'],'container_id':row['id'],'host':row['name'],
+                              'engine':direct['engine'],'database':direct['database'],'port':direct['port'],'storage':storage})
             continue
         if engine == 'sqlite':
             storage = _storage(row, database or '')
@@ -203,6 +217,8 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None):
             raise ValueError('Database container has no verified persistent storage.')
         databases.append({'client': row['id'], 'engine': engine, 'host': host, 'port': port, 'database': database,
                           'container_id': database_row['id'], 'storage': storage})
+    referenced={d.get('container_id') for d in databases}
+    databases.extend(d for d in direct_databases if d['container_id'] not in referenced)
     identities = {(d.get('container_id'), d.get('port'), d['database']) for d in databases if d.get('container_id')}
     for other in rows:
         if other['id'] in member_ids: continue
@@ -251,4 +267,6 @@ def adopt(db, project, environment, fingerprint, inventory, actor, *, now=None, 
         db.execute('UPDATE registry_projects SET legacy_binding=?,revision=revision+1,updated=? WHERE id=?', (environment, time.time(), project))
         db.execute('UPDATE registry_environments SET state=?,recipe_revision=?,revision=revision+1 WHERE project=? AND name=?', (evidence['state'], recipe_id, project, environment))
         db.execute('INSERT INTO workload_adoptions VALUES(?,?,?,?,?,?)', (project, environment, fingerprint, registry.canonical(evidence), actor, time.time()))
+        import adopted_workloads
+        adopted_workloads.retain(db, project, environment)
         return registry.get_project(db, project)

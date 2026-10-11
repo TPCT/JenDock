@@ -1,5 +1,7 @@
 """Parse declarative Alembic upgrades without importing or executing project code."""
 import ast
+import contextvars
+import time
 from dataclasses import dataclass
 import hashlib
 import json
@@ -8,6 +10,15 @@ import re
 
 class PlanError(ValueError):
     pass
+
+
+PLANNING_DEADLINE=contextvars.ContextVar('migration_planning_deadline',default=None)
+def planning_remaining():
+    deadline=PLANNING_DEADLINE.get()
+    if deadline is None:return 10.0
+    remaining=deadline-time.monotonic()
+    if remaining<=0:raise PlanError('Migration planning deadline exceeded')
+    return remaining
 
 
 @dataclass(frozen=True)
@@ -194,13 +205,14 @@ def alembic_plan(sources, current_heads=(), applied_hashes=None):
     Migration tuple: revision, parents, dependencies, labels, path, source_sha256,
     operations. Operations contain only tuples/scalars; no executable source.
     """
-    if not isinstance(sources,dict) or not 1<=len(sources)<=1000:raise PlanError('A bounded source mapping is required')
+    if not isinstance(sources,dict) or not 0<=len(sources)<=1000:raise PlanError('A bounded source mapping is required')
     if any(not isinstance(path,str) or not isinstance(source,str) for path,source in sources.items()):raise PlanError('Source paths and documents must be strings')
     if sum(len(source.encode()) for source in sources.values())>16777216:raise PlanError('Migration source set exceeds bound')
     if not isinstance(current_heads,(tuple,list)):raise PlanError('Database ledger heads must be a sequence')
     if applied_hashes is not None and not isinstance(applied_hashes,dict):raise PlanError('Applied hashes must be a mapping')
     records={};labels={}
     for path,source in sorted(sources.items()):
+        planning_remaining()
         record=parse_alembic(path,source,include_operations=False)
         if record[0] in records:raise PlanError(f'{path}:1: Duplicate revision')
         records[record[0]]=record

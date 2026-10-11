@@ -11,6 +11,7 @@ import artifact_publication
 import managed_delivery
 import managed_rollout
 import worker
+import migration_jobs
 
 
 class ManagedWorkerTests(unittest.TestCase):
@@ -39,6 +40,7 @@ class ManagedWorkerTests(unittest.TestCase):
         item = {'service_id': 'service', 'state': 'pending'}
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(artifact_publication, 'pending', return_value=False))
+            stack.enter_context(patch.object(worker, 'process_managed_migration', return_value=True))
             stack.enter_context(patch.object(managed_delivery, 'prepare'))
             stack.enter_context(patch.object(managed_delivery, 'claim', return_value={'services':[item]}))
             stack.enter_context(patch.object(managed_delivery, 'public', return_value={'status':'succeeded'}))
@@ -62,9 +64,22 @@ class ManagedWorkerTests(unittest.TestCase):
             worker.resume_managed_deliveries(db)
         self.assertEqual([call.args[1] for call in process.call_args_list], [1, 2])
 
+    def test_unverified_migration_blocks_first_container_replacement(self):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(artifact_publication, 'pending', return_value=False))
+            stack.enter_context(patch.object(managed_delivery, 'prepare'))
+            stack.enter_context(patch.object(managed_delivery, 'claim', return_value={'services':[{'service_id':'service','state':'pending'}]}))
+            stack.enter_context(patch.object(worker, 'process_managed_migration', return_value=False))
+            rollout=stack.enter_context(patch.object(managed_rollout,'rollout'))
+            stack.enter_context(patch.object(managed_delivery,'fail'))
+            stack.enter_context(patch.object(worker,'set_status'))
+            self.assertFalse(worker.process_managed_delivery('db',4))
+            rollout.assert_not_called()
+
     def test_metadata_cas_failure_never_claims_success(self):
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(artifact_publication, 'pending', return_value=False))
+            stack.enter_context(patch.object(worker, 'process_managed_migration', return_value=True))
             stack.enter_context(patch.object(managed_delivery, 'prepare'))
             stack.enter_context(patch.object(managed_delivery, 'claim', return_value={'services':[{'service_id':'service','state':'pending'}]}))
             stack.enter_context(patch.object(managed_rollout, 'rollout', return_value={'id':'replacement'}))
@@ -87,7 +102,7 @@ class ManagedSourceCompletionTests(unittest.TestCase):
         self.job['mode'] = 'deploy'
         self.recipe['schema_kind'] = 'managed-build'
         self.recipe['managed_target'] = {'pinned': True}
-        with patch.object(managed_delivery, 'load_target', return_value={'services': [{'definition': {'artifact': {'source_sha': 'a'*40}}}]}), patch.object(worker, 'schema_change_paths', return_value=[]), patch.object(worker, 'process_managed_delivery', side_effect=AssertionError('Nested runtime dispatch')):
+        with patch.object(migration_jobs, 'optional', return_value=None), patch.object(managed_delivery, 'load_target', return_value={'services': [{'definition': {'artifact': {'source_sha': 'a'*40}}}]}), patch.object(worker, 'schema_change_paths', return_value=[]), patch.object(worker, 'process_managed_delivery', side_effect=AssertionError('Nested runtime dispatch')):
             self.execute(False)
         self.mocks[3].assert_called_once()
         self.assertEqual(self.mocks[3].call_args.args[4], 'deploying')

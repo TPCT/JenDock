@@ -35,6 +35,7 @@ import { activeStates, retryStates, statusLabel, date } from "./model.js";
 import { englishMessage } from "./legacyMessages.js";
 import { environmentLabel, managedDeliverySummary } from "./managedDelivery.js";
 import { cleanupStatus } from "./cleanupStatus.js";
+import MigrationStatus from "./MigrationStatus.jsx";
 import "./RunDetail.css";
 
 const cancellable = [
@@ -364,6 +365,7 @@ export default function RunDetail({
           Based on run #{job.retry_of}
         </Button>
       )}
+      <MigrationStatus key={job.id} record={job.migration} runStatus={job.status} />
       {cleanup && (
         <Box sx={{ mt: "var(--space-panel)" }} role="status">
           {cleanup.pending ? <Alert severity="info"><strong>{cleanup.label}</strong> · {cleanup.detail}</Alert>

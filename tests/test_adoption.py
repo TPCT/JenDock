@@ -31,6 +31,22 @@ class AdoptionTests(unittest.TestCase):
     def preview(self):
         return adoption.preview(self.db, 'app', 'production', self.inventory, now=1001)
 
+    def test_direct_default_database_does_not_override_client_database(self):
+        self.rows[1]['direct_database']={'engine':'pgsql','database':'postgres','port':5432}
+        evidence=self.preview()
+        self.assertEqual(len(evidence['databases']),1)
+        self.assertEqual(evidence['databases'][0]['database'],'business')
+
+    def test_direct_database_without_application_endpoint_is_retained(self):
+        self.rows[0]['database_endpoint']={}
+        self.rows[1]['direct_database']={'engine':'pgsql','database':'business','port':5432}
+        evidence=self.preview()
+        self.assertEqual(len(evidence['databases']),1)
+        self.assertEqual(evidence['databases'][0]['container_id'],self.rows[1]['id'])
+        self.assertEqual(evidence['databases'][0]['database'],'business')
+        self.rows[1]['direct_database']['port']=9999
+        with self.assertRaises(ValueError):self.preview()
+
     def test_adoption_preserves_preferences_other_environment_and_deploy_services(self):
         registry.update_environment(self.db, 'app', 'production', 1, {'branch': 'production', 'automatic': False})
         before = registry.get_environment(self.db, 'app', 'development')

@@ -57,6 +57,44 @@ class DatabaseControlFlowTests(unittest.TestCase):
     def save(self):return self.action('database-credential-save',values={'username':'inspect_user','password':'private-db-password'},expected_revision=0)['credential']
     def payload(self):return {'action':'database-credential-save','request_id':uuid.uuid4().hex,'project':'app','environment':'development','authentication':{'kind':'console','session_digest':self.digest},'values':{'username':'inspect_user','password':'private-db-password'},'expected_revision':0}
 
+    def test_migration_configuration_over_real_http_and_unix(self):
+        self.assertIsNone(self.action('database-migration-binding-current')['binding'])
+        values={'username':'migrator','password':'private-migration-password'}
+        first=self.action('database-migration-credential-save',values=values,expected_revision=0,request_id='migration-http-001')
+        self.assertTrue(first['state_requires_reload'])
+        self.assertEqual(first,self.action('database-migration-credential-save',values=values,expected_revision=0,request_id='migration-http-001'))
+        credential=first['credential']
+        self.assertEqual(self.action('database-migration-credential-get',credential_id=credential['id'])['credential'],credential)
+        self.assertEqual(self.action('database-migration-credentials')['credentials'],[credential])
+        self.assertEqual(self.action('database-credentials')['credentials'],[])
+        definition={'engine':'postgresql','adapter_version':1,'ownership':{'kind':'adopted-compose','reference':'db','revision':1},'database_name':'app','database_port':5432,'secret_id':credential['id'],'secret_revision':1,'framework':'laravel','grammar':'laravel12-stock-postgresql-v1','migration_paths':['database/migrations'],'ledger_schema':'public'}
+        saved=self.action('database-migration-binding-save',values=definition,expected_revision=0)
+        self.assertTrue(saved['state_requires_reload']);binding=saved['binding']
+        self.assertEqual(binding['status'],'configured');self.assertFalse(binding['verified'])
+        self.assertEqual(self.action('database-migration-binding-current')['binding'],binding)
+        self.assertEqual(self.action('database-migration-binding-get',binding_id=binding['id'])['binding'],binding)
+        with self.assertRaises(HTTPError) as wrong_environment:
+            self.post('/_deploy/api/action',{'action':'database-migration-binding-get','project':'app','environment':'production','binding_id':binding['id']})
+        wrong_environment.exception.close()
+        self.action('database-migration-credential-revoke',credential_id=credential['id'],expected_revision=1)
+        self.assertEqual(self.action('database-migration-binding-current')['binding']['status'],'credential-stale')
+        disabled=self.action('database-migration-binding-disable',binding_id=binding['id'],expected_revision=1)['binding']
+        self.assertEqual(disabled['status'],'disabled')
+        self.assertNotIn(values['password'],json.dumps([first,saved,disabled]))
+
+    def test_migration_save_failure_outcome_and_closed_fields(self):
+        for _ in range(2):
+            with self.assertRaises(HTTPError) as caught:
+                self.action('database-migration-credential-save',values={'username':'migrator','password':'private'},expected_revision=1,request_id='migration-rejected-001')
+            self.assertEqual(json.load(caught.exception)['outcome'],'not_committed')
+            caught.exception.close()
+        self.assertEqual(self.action('database-migration-credentials')['credentials'],[])
+        with self.assertRaises(HTTPError) as invalid:self.action('database-migration-binding-current',unexpected=True)
+        invalid.exception.close()
+        from database_control import execute
+        with self.assertRaises(ValueError):
+            execute(self.f.db,{'action':'database-migration-binding-current','project':'app','environment':'development','authentication':{'kind':'mcp','token':'unused'}})
+
     def test_credential_lookup_is_current_scoped_and_secret_free(self):
         credential=self.save()
         self.assertEqual(self.action('database-credential-get',credential_id=credential['id'])['credential'],credential)

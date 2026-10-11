@@ -25,6 +25,7 @@ class RecoveryScannerTests(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, 'STATE', Path(self.tmp.name)))
         self.stack.enter_context(patch.object(worker.control, 'JOURNAL', Path(self.tmp.name)/'journal.json'))
         self.stack.enter_context(patch.object(managed_delivery, 'initialize'))
+        self.stack.enter_context(patch.object(worker, 'process_managed_migration', return_value=True))
         self.claim = self.stack.enter_context(patch.object(managed_delivery, 'claim_recovery', return_value={'services': [{'service_id':'a'}, {'service_id':'b'}]}))
         self.observe = self.stack.enter_context(patch.object(managed_rollout, 'reconcile', return_value={'outcome':'verified-new','binding':{'id':'verified'}}))
         self.finish = self.stack.enter_context(patch.object(managed_delivery, 'finish_recovery', return_value={'status':'succeeded'}))

@@ -114,6 +114,9 @@ def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor
         job_id = cursor.lastrowid
         if target is not None:
             job_target.store(db, job_id, target)
+            if target['recipe'].get('schema_kind') == 'managed-build':
+                import os, migration_jobs
+                migration_jobs.capture(db, job_id, project, environment, os.environ.get('MIGRATION_HELPER_IMAGE'))
         assert_target_identity(db, job_id, target_identity)
         if actor == 'github':
             candidates = db.execute("SELECT id FROM jobs WHERE project=? AND branch=? AND actor='github' AND status='queued' AND id<>?", (project, branch, job_id)).fetchall()
@@ -126,10 +129,20 @@ def enqueue(db, delivery, project, sha, enabled, branch='', mode='deploy', actor
             artifact_guard = ' AND id NOT IN (SELECT job_id FROM service_artifacts)'
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifact_publications'").fetchone():
             artifact_guard += " AND id NOT IN (SELECT job_id FROM artifact_publications WHERE status!='succeeded')"
+        migration_tables = bool(db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_migrations'").fetchone())
+        if migration_tables:
+            artifact_guard += " AND id NOT IN (SELECT job_id FROM job_migrations WHERE state NOT IN ('not-configured','verified','failed'))"
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_migration_targets'").fetchone():
+                artifact_guard += " AND id NOT IN (SELECT t.job_id FROM job_migration_targets t LEFT JOIN job_migrations m ON m.job_id=t.job_id WHERE m.job_id IS NULL)"
         db.execute("DELETE FROM jobs WHERE updated<? AND status NOT IN ('queued','validation-queued','building','testing','deploying','recovering')" + artifact_guard,
                    (now - 30 * 86400,))
         db.execute('DELETE FROM events WHERE job_id NOT IN (SELECT id FROM jobs)')
         db.execute('DELETE FROM job_targets WHERE job_id NOT IN (SELECT id FROM jobs)')
+        if migration_tables:
+            import migration_jobs
+            migration_jobs.initialize(db)
+            db.execute("DELETE FROM job_migration_targets WHERE job_id NOT IN (SELECT id FROM jobs) AND job_id IN (SELECT job_id FROM job_migrations WHERE state IN ('not-configured','verified','failed'))")
+            db.execute("DELETE FROM job_migrations WHERE job_id NOT IN (SELECT id FROM jobs) AND state IN ('not-configured','verified','failed')")
         db.execute('COMMIT')
         return job_id, True
     except BaseException:

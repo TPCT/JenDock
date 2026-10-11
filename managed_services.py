@@ -257,8 +257,12 @@ def ensure_environment_eligible(db, project, environment):
         row=db.execute('SELECT document,digest FROM registry_recipes WHERE id=? AND project=?',(env['recipe_revision'],project)).fetchone()
         if row is None: raise ValueError('Environment ownership evidence is unavailable.')
         recipe=json.loads(row['document'])
-        if digest(recipe)!=row['digest'] or recipe.get('managed_environment')!={'project':project,'environment':environment}:
-            raise ValueError('This environment belongs to an existing non-managed workload.')
+        if digest(recipe)!=row['digest']:raise ValueError('Environment ownership evidence is invalid.')
+        if recipe.get('managed_environment')!={'project':project,'environment':environment}:
+            import adopted_workloads
+            retained=adopted_workloads.get(db,project,environment)
+            if (retained is not None and retained['recipe_revision'] != env['recipe_revision']) or not adopted_workloads.database_only(db,project,environment):
+                raise ValueError('This environment belongs to an existing non-managed workload.')
     return env
 
 
@@ -266,6 +270,10 @@ def accept(db, project, environment, definition, operation_id):
     """Caller owns BEGIN IMMEDIATE and authorization; returns queued record."""
     if not db.in_transaction: raise ValueError('Service acceptance requires an atomic application transaction.')
     env = ensure_environment_eligible(db, project, environment)
+    import adopted_workloads
+    if env['recipe_revision'] is not None:
+        current=json.loads(db.execute('SELECT document FROM registry_recipes WHERE id=?',(env['recipe_revision'],)).fetchone()['document'])
+        if 'managed_environment' not in current:adopted_workloads.retain(db,project,environment)
     if db.execute('SELECT count(*) FROM managed_services WHERE project=? AND environment=?', (project, environment)).fetchone()[0] >= 100:
         raise ValueError('This environment already has the maximum 100 managed services, including pending operations.')
     if env['revision'] != definition['environment_revision']:
@@ -402,8 +410,12 @@ def finish(db, operation_id, worker, binding, state):
         env=registry.get_environment(db,definition['project'],definition['environment'])
         if env['recipe_revision'] is not None:
             current=db.execute('SELECT document FROM registry_recipes WHERE id=? AND project=?',(env['recipe_revision'],definition['project'])).fetchone()
-            if current is None or json.loads(current['document']).get('managed_environment') != {'project':definition['project'],'environment':definition['environment']}:
-                raise ValueError('Environment ownership changed during provisioning.')
+            if current is None:raise ValueError('Environment ownership changed during provisioning.')
+            if json.loads(current['document']).get('managed_environment') != {'project':definition['project'],'environment':definition['environment']}:
+                import adopted_workloads
+                retained=adopted_workloads.get(db,definition['project'],definition['environment'])
+                if not retained or retained['recipe_revision']!=env['recipe_revision'] or not adopted_workloads.database_only(db,definition['project'],definition['environment']):
+                    raise ValueError('Environment ownership changed during provisioning.')
         from compose_identity import ordered_files
         files = list(ordered_files(binding.get('compose_files')))
         db.execute('INSERT INTO service_bindings VALUES(?,?,?)', (definition['service_id'], registry.canonical(binding), time.time()))
