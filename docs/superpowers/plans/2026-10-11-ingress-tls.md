@@ -86,3 +86,13 @@ challenge-config upgrade; host/worker renewal scheduling and explicit uncertain
 process recovery; actual two-environment and full domain-worker acceptance;
 production compatibility, rollout, and public-provider verification. This
 checkpoint does not establish those outcomes or complete the platform goal.
+
+### External verification follow-through
+
+A bounded external verifier, schema-3 route proof endpoint, read-only worker
+checks, automatic 30-second rechecks, 60-second Ready expiry and UI expiry gate
+are implemented. Real Nginx hostname proof/addition acceptance passed. See
+`docs/operations/external-domain-verification-20261011.md` for evidence and the
+remaining combined HTTPS/worker acceptance, legacy upgrade and post-delivery
+proof-generation/authority gaps. These do not replace the remaining renewal,
+redirect, two-environment and production requirements above.

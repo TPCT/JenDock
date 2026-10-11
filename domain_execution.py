@@ -13,8 +13,8 @@ import application_operations as ops
 import cloudflare_dns
 import registry
 
-PHASES=('dns-preview','gateway','grant','stage','activate','dns','awaiting-tls','certificate','stage-tls','activate-tls','origin-verified')
-STATES=('queued','running','failed','reconciliation-required','awaiting-adoption','awaiting-tls','awaiting-external')
+PHASES=('dns-preview','gateway','grant','stage','activate','dns','awaiting-tls','certificate','stage-tls','activate-tls','origin-verified','external')
+STATES=('queued','running','failed','reconciliation-required','awaiting-adoption','awaiting-tls','awaiting-external','ready')
 
 @dataclass(frozen=True)
 class Claim:
@@ -147,8 +147,10 @@ def resume(db,principal,project,environment,operation_id):
     with registry.transaction(db):
         operation,_=_resume_authority(db,principal,project,environment,operation_id,'domains:create')
         row=_row(db,operation_id)
-        if row['state'] not in ('failed','reconciliation-required','awaiting-tls'):raise ValueError('Domain operation is not awaiting recovery.')
+        if row['state'] not in ('failed','reconciliation-required','awaiting-tls','awaiting-external','ready'):raise ValueError('Domain operation is not awaiting recovery.')
         journal=json.loads(row['journal']);journal['recovery_requested']=True
+        if row['state'] in ('awaiting-external','ready'):
+            db.execute("UPDATE domain_executions SET phase='external' WHERE operation_id=?",(operation_id,))
         db.execute('INSERT INTO domain_execution_events(operation_id,event,subject,previous_credential_id,credential_id,created) VALUES(?,?,?,?,?,?)',(operation_id,'resume',principal.subject_id,operation['credential_id'],principal.credential_id,time.time()))
         # Same owner may explicitly replace revoked execution authority; no old grant is reused.
         db.execute('UPDATE ingress_operations SET credential_id=?,status=? WHERE id=?',(principal.credential_id,'queued',operation_id))
@@ -208,21 +210,31 @@ def public_status(db,operation_id):
                 or any(not re.fullmatch('[a-f0-9]{64}',str(tls[k])) for k in ('generation','fingerprint','digest'))):raise ValueError('Recorded TLS verification is invalid.')
         _tls_evidence(stage,operation['route_id'],operation_id,cert,('staged','active'))
         tls_evidence={'status':'origin-verified' if tls['not_after']>time.time() else 'expired','evidence':'recorded','observed_at':tls['observed'],'live_checked':False,'fingerprint':tls['fingerprint'],'not_after':tls['not_after']}
+    import domain_external_flow
+    ready,external=domain_external_flow.projection(db,operation,definition,journal,row['state'],row['phase'])
+    if ready:
+        tls_evidence['status']='verified'
+        origin_evidence['status']='verified'
+    public_state='ready' if ready else ('verification-required' if row['state']=='ready' else row['state'])
     return {'id':operation_id,'route_id':operation['route_id'],'project':definition['project'],'environment':definition['environment'],
-            'status':row['state'],'phase':row['phase'],'updated_at':row['updated'],'error_code':row['error_code'],
+            'status':public_state,'phase':row['phase'],'updated_at':row['updated'],'error_code':row['error_code'],
             'dns':dns_evidence,'origin':origin_evidence,
-            'tls':tls_evidence,'ready':False,**ingress.executor_status(db),
-            'next_action':{'awaiting-adoption':'review-dns-adoption','reconciliation-required':'resume','failed':'review-and-resume','awaiting-tls':'resume','awaiting-external':'verify-external'}.get(row['state']),
+            'tls':tls_evidence,'external':external,'ready':ready,'runtime_verification':'verified' if ready else 'pending',**ingress.executor_status(db),
+            'next_action':{'awaiting-adoption':'review-dns-adoption','reconciliation-required':'resume','failed':'review-and-resume','awaiting-tls':'resume','awaiting-external':'resume','verification-required':'resume'}.get(public_state),
             'adoption_preview':journal.get('dns_preview') if row['state']=='awaiting-adoption' else None}
 
 
-def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=None,provider_transport=None,lease_seconds=300):
+def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=None,provider_transport=None,lease_seconds=300,external_verifier=None):
     """Execute one bounded phase; caller owns the non-reentrant control lock.
 
     gateway(db,definition,operation_id,authorize=callback,reconcile=bool) must
     use persisted runtime identity and return a freshly verified gateway binding.
     """
     if db.in_transaction:raise ValueError('Domain effects require an independent database connection without an open transaction.')
+    if external_verifier is not None:
+        import domain_external_flow
+        initialize(db)
+        domain_external_flow.schedule(db)
     claim=claim_next(db,worker_id,lease_seconds)
     if claim is None:return False
     journal=json.loads(_row(db,claim.operation_id)['journal']);phase=_row(db,claim.operation_id)['phase']
@@ -311,7 +323,16 @@ def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=N
             journal['tls_verified']={'digest':verified['digest'],'generation':cert['generation'],'fingerprint':cert['fingerprint'],'not_after':cert['not_after'],'observed':time.time()}
         elif phase=='origin-verified':
             journal.pop('pending_effect',None);journal.pop('recovery_requested',None)
-            _commit(db,claim,journal,state='awaiting-external',resolve_principal=resolve_principal)
+            _commit(db,claim,journal,phase='external' if external_verifier is not None else phase,state='queued' if external_verifier is not None else 'awaiting-external',resolve_principal=resolve_principal)
+            return True
+        elif phase=='external':
+            if external_verifier is None:raise ValueError('Public verification capability is unavailable.')
+            import domain_external_flow
+            journal['external_verified']=domain_external_flow.observe(db,definition,operation,journal,gateway=gateway,
+                host_client=host_client,verify=external_verifier,key_path=key_path,provider_transport=provider_transport,authorize=authorize)
+            journal['external_recheck_at']=time.time()+domain_external_flow.RECHECK_SECONDS
+            journal.pop('pending_effect',None);journal.pop('recovery_requested',None)
+            _commit(db,claim,journal,state='ready',resolve_principal=resolve_principal)
             return True
         else:raise ValueError('Domain phase is unavailable.')
         journal.pop('pending_effect',None);journal.pop('recovery_requested',None)
@@ -324,6 +345,13 @@ def process_once(db,*,worker_id,gateway,host_client,key_path,resolve_principal=N
     except Exception:
         # Retain the pre-effect intent even if the response or commit was lost.
         persisted=json.loads(_row(db,claim.operation_id)['journal'])
+        if phase=='external':
+            persisted.pop('pending_effect',None)
+            persisted.pop('external_verified',None)
+            persisted['external_recheck_at']=time.time()+30
+            try:_commit(db,claim,persisted,state='awaiting-external',error_code='external_unverified',resolve_principal=resolve_principal,authorize=False)
+            except ValueError:pass
+            return True
         try:_commit(db,claim,persisted,state='reconciliation-required' if persisted.get('pending_effect') else 'failed',error_code='phase_unverified',resolve_principal=resolve_principal,authorize=False)
         except ValueError:pass  # A stale worker cannot change the new lease's state.
     return True

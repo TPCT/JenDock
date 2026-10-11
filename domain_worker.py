@@ -33,6 +33,35 @@ class Gateway:
         self.docker, self.compose = docker, compose
         self.host_client, self.image, self.resources = host_client, image, resources
 
+    def readiness(self, db, definition, *, authorize):
+        """Observe an existing gateway and backend without provisioning or waking it."""
+        import ingress_bindings
+        import ingress_route_generations
+        authorize()
+        row = db.execute('SELECT * FROM ingress_runtime_intents WHERE project=? AND environment=?',
+                         (definition['project'], definition['environment'])).fetchone()
+        if not row or row['phase'] != 'verified':
+            raise ValueError('Verified gateway ownership is required.')
+        gateway = json.loads(row['definition'])
+        if (ingress_runtime.digest(gateway) != row['digest'] or Path(row['root']) != self.root.resolve()
+                or gateway['schema_version'] < 3):
+            raise ValueError('An owned proof-enabled gateway is required.')
+        binding = ingress_runtime.verify_gateway(db, gateway, root=self.root, docker=self.docker,
+                                                compose=self.compose, authorize=authorize)
+        routes = ingress_bindings.current_routes(db, gateway)
+        matching = [route for route in routes if route['hostname'] == definition['hostname']]
+        if len(matching) != 1 or matching[0]['service_id'] != definition['service_id'] or matching[0]['http_endpoint'] != definition['http_endpoint']:
+            raise ValueError('Current application route identity differs.')
+        effective = dict(gateway, routes=routes)
+        ingress_runtime._wait_http(effective, self.docker, binding['container_id'], authorize)
+        ingress_runtime.verify_gateway(db, gateway, root=self.root, docker=self.docker,
+                                       compose=self.compose, authorize=authorize)
+        authorize()
+        route = matching[0]
+        return {'gateway_id': binding['container_id'], 'backend_id': route['container_id'],
+                'proof_token': ingress_runtime.route_proof_token(definition['project'], definition['environment'], route),
+                'observed_at': time.time()}
+
     def __call__(self, db, definition, operation_id, *, authorize, reconcile=False):
         authorize()
         ingress_runtime.initialize(db)

@@ -19,7 +19,7 @@ def head(db,d):
         if row:
             if row['gateway_digest']!=digest(d) or type(row['generation']) is not int or row['generation']<1:raise ValueError('Effective gateway generation identity changed.')
             return {'generation':row['generation'],'routes':json.loads(row['routes'])}
-    if d.get('schema_version')==2 and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_runtime_intents'").fetchone():
+    if d.get('schema_version') in (2,3) and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_runtime_intents'").fetchone():
         if db.execute('SELECT 1 FROM ingress_runtime_intents WHERE project=? AND environment=?',(d['project'],d['environment'])).fetchone():
             raise ValueError('Effective gateway generation evidence is missing.')
     return {'generation':1,'routes':copy.deepcopy(d['routes'])}
@@ -45,3 +45,17 @@ def operation(db,operation_id):
 def phase(db,operation_id,expected,target):
     result=db.execute('UPDATE ingress_route_operations SET phase=? WHERE operation_id=? AND phase=?',(target,operation_id,expected))
     if result.rowcount!=1:raise ValueError('Gateway route operation changed concurrently.')
+
+
+def route_proof_token(project, environment, route):
+    import registry
+    import build_profiles
+    import re
+    registry.identifier(project)
+    if environment not in registry.ENVIRONMENTS or not isinstance(route,dict) or set(route)!={'hostname','service_id','definition_id','definition_digest','container_id','alias','http_endpoint'}:raise ValueError('Invalid route proof identity.')
+    if not isinstance(route['hostname'],str) or len(route['hostname'])>253 or not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+',route['hostname']):raise ValueError('Normalized route hostname required.')
+    if any(not re.fullmatch('[a-f0-9]{64}',str(route[key])) for key in ('container_id','definition_digest')):raise ValueError('Pinned backend identity required.')
+    if any(not isinstance(route[key],str) or not 1<=len(route[key])<=100 for key in ('service_id','definition_id')):raise ValueError('Pinned service identity required.')
+    if not isinstance(route['alias'],str) or not re.fullmatch(re.escape(environment)+r'-[a-z][a-z0-9-]{0,47}',route['alias']):raise ValueError('Owned backend alias required.')
+    build_profiles.validate_http_endpoint(route['http_endpoint'])
+    return digest({'schema':1,'project':project,'environment':environment,'route':route})

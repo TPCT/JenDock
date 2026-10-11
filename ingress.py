@@ -272,7 +272,7 @@ def get_route(db,principal,project,environment,route_id):
     if operation and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_executions'").fetchone() and db.execute('SELECT 1 FROM domain_executions WHERE operation_id=?',(operation['id'],)).fetchone():
         import domain_execution
         execution=domain_execution.public_status(db,operation['id'])
-        public.update({key:execution[key] for key in ('status','phase','dns','origin','tls','next_action','executor_available','executor')})
+        public.update({key:execution[key] for key in ('status','phase','dns','origin','tls','external','ready','runtime_verification','next_action','executor_available','executor')})
     _authorize(db,principal,'domains:read',project,environment)
     return public
 

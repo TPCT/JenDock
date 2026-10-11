@@ -4,7 +4,7 @@ import Field from './Field.jsx';
 import Hint from './Hint.jsx';
 import {Refresh} from './icons.jsx';
 import {creationSessionStorage} from './projectCreationStorage.js';
-import {adoptionRequest,blankDomain,canOpenDomain,domainExecutorMessage,domainProblems,domainRequest,domainScope,domainStatus,domainStorageKey,domainTime,domainValues,restoreDomainRequest,saveDomainRequest} from './domains.js';
+import {adoptionRequest,blankDomain,canOpenDomain,domainDisplayStatus,domainExecutorMessage,domainProblems,domainRequest,domainScope,domainStatus,domainStorageKey,domainTime,domainValues,restoreDomainRequest,saveDomainRequest} from './domains.js';
 
 function Evidence({value,label}) {
   const evidence=typeof value==='object'&&value?value:{status:'unverified'};
@@ -21,6 +21,9 @@ export default function Domains({project,environment,username,active,api,onDirty
   const [detail,setDetail]=useState(null),[operation,setOperation]=useState(null),[detailOpen,setDetailOpen]=useState(false),[operationError,setOperationError]=useState('');
   const [adoption,setAdoption]=useState(null),[recordId,setRecordId]=useState('');
   const alive=useRef(true),sequence=useRef(0), refreshing=useRef(false), callbacks=useRef({onDirty,onPending});callbacks.current={onDirty,onPending};
+  const [,setEvidenceClock]=useState(0);
+  const hasReadyEvidence=routes.some(route=>route.ready)||operation?.ready;
+  useEffect(()=>{if(!active||!hasReadyEvidence)return;const timer=setInterval(()=>setEvidenceClock(value=>value+1),1000);return()=>clearInterval(timer);},[active,hasReadyEvidence]);
   const label=environment==='production'?'Production':'Development';
   const dirty=!!request || JSON.stringify(draft)!==JSON.stringify(blankDomain());
   useEffect(()=>{callbacks.current.onDirty?.(dirty);return()=>callbacks.current.onDirty?.(false);},[dirty]);
@@ -120,7 +123,7 @@ export default function Domains({project,environment,username,active,api,onDirty
       {!options.origins?.length&&<Alert severity="info">The installation’s public origin address has not been configured.</Alert>}
     </Stack>}
     {loading&&!options?<Stack direction="row" spacing={1} alignItems="center" sx={{py:2}} role="status"><CircularProgress size={18}/><Typography>Loading domains…</Typography></Stack>:!routes.length&&!error?<Box className="domains-empty"><Typography fontWeight={600}>No {label.toLowerCase()} domains</Typography><Typography color="text.secondary" fontSize={13} sx={{mt:1}}>Connect a hostname to an eligible application. DNS, origin, and TLS checks are tracked separately.</Typography></Box>:routes.length?<Box component="ul" className="domain-list">{routes.map(row=><Box component="li" className="domain-row" key={row.id}>
-      <Box className="domain-identity"><Button className="domain-name" onClick={()=>openDetail(row)} disabled={busy}>{row.hostname}</Button><Typography color="text.secondary" fontSize={12}>{options?.services?.find(x=>x.id===row.service_id)?.name||'Application '+row.service_id}</Typography><Typography fontSize={12} sx={{mt:.5}}>{domainStatus(row.status)}</Typography></Box>
+      <Box className="domain-identity"><Button className="domain-name" onClick={()=>openDetail(row)} disabled={busy}>{row.hostname}</Button><Typography color="text.secondary" fontSize={12}>{options?.services?.find(x=>x.id===row.service_id)?.name||'Application '+row.service_id}</Typography><Typography fontSize={12} sx={{mt:.5}}>{domainDisplayStatus(row)}</Typography></Box>
       <Box component="dl" className="domain-evidence-grid"><Evidence label="DNS" value={row.dns}/><Evidence label="Origin" value={row.origin}/><Evidence label="TLS" value={row.tls}/></Box>
       <Button onClick={()=>openDetail(row)} disabled={busy}>View details</Button>
     </Box>)}</Box>:null}
@@ -145,7 +148,7 @@ export default function Domains({project,environment,username,active,api,onDirty
       <DialogContent dividers><Stack spacing={2}>
         {operationError&&<Alert severity="error" action={<Button disabled={busy} onClick={()=>openDetail(detail)}>Reload</Button>}>{operationError}</Alert>}
         {busy&&!operation&&<Typography role="status">Loading operation…</Typography>}
-        {shown&&<><Stack direction="row" alignItems="center" useFlexGap flexWrap="wrap" gap={1}><Chip size="small" label={domainStatus(shown.status)}/>{shown.phase&&<Typography fontSize={13}>Current step: {domainStatus(shown.phase)}</Typography>}</Stack><Typography color="text.secondary" fontSize={12}>Operation updated: {domainTime(operation?.updated_at)}</Typography><Box component="dl" className="domain-evidence-grid"><Evidence label="DNS" value={shown.dns}/><Evidence label="Origin" value={shown.origin}/><Evidence label="TLS" value={shown.tls}/></Box></>}
+        {shown&&<><Stack direction="row" alignItems="center" useFlexGap flexWrap="wrap" gap={1}><Chip size="small" label={domainDisplayStatus(shown)}/>{shown.phase&&<Typography fontSize={13}>Current step: {domainStatus(shown.phase)}</Typography>}</Stack><Typography color="text.secondary" fontSize={12}>Operation updated: {domainTime(operation?.updated_at)}</Typography><Box component="dl" className="domain-evidence-grid"><Evidence label="DNS" value={shown.dns}/><Evidence label="Origin" value={shown.origin}/><Evidence label="TLS" value={shown.tls}/><Evidence label="Public access" value={shown.external}/></Box></>}
         {operation?.error_code&&<Alert severity="warning">The operation needs attention: {domainStatus(operation.error_code)}. Review the recorded state before resuming.</Alert>}
         {(operation?.status==='awaiting-tls'||operation?.next_action==='configure-tls')&&<Alert severity="info">HTTP origin setup is complete. Origin TLS configuration is still required; this domain is not ready for verified HTTPS access.</Alert>}
         {operation?.status==='awaiting-external'&&<Alert severity="info">Origin HTTPS is verified. Public application verification is still pending; this domain is not ready for verified external access.</Alert>}
@@ -153,7 +156,7 @@ export default function Domains({project,environment,username,active,api,onDirty
         {adoption?<><Typography>The existing DNS record will become managed by this domain operation. Review its identity and the proposed settings before adopting it.</Typography><Autocomplete options={adoption.adoption_preview?.records||[]} value={adoption.adoption_preview?.records?.find(x=>x.id===recordId)||null} getOptionLabel={x=>`${x.type} · ${x.name} · ${x.content||'Target unavailable'}`} isOptionEqualToValue={(a,b)=>a.id===b.id} disabled={busy} onChange={(_,v)=>setRecordId(v?.id||'')} renderInput={params=><Field {...params} label="Existing DNS record" required/>}/>{adoption.adoption_preview?.records?.filter(x=>x.id===recordId).map(record=><Box className="domain-preview" key={record.id}><Typography fontSize={13}>Existing: {record.type} {record.name} → {record.content||'Target unavailable'}</Typography><Typography fontSize={13}>Proxy: {record.proxied?'On':'Off'} · TTL: {record.ttl===1?'Automatic':record.ttl+' seconds'}</Typography><Typography color="text.secondary" fontSize={12} sx={{overflowWrap:'anywhere'}}>Record ID: {record.id}</Typography><Typography fontSize={13} sx={{mt:1}}>Proposed: {detail?.dns_type} {detail?.hostname} → {detail?.target}</Typography></Box>)}</>:operation?.next_action==='review-dns-adoption'&&<Alert severity="warning">An existing DNS record was found. Review it before allowing this operation to manage it.</Alert>}
         {canOpenDomain(shown)&&detail?.hostname&&<Link href={`https://${detail.hostname}`} target="_blank" rel="noopener">Open application</Link>}
       </Stack></DialogContent>
-      <DialogActions><Button disabled={busy} onClick={()=>adoption?setAdoption(null):setDetailOpen(false)}>{adoption?'Cancel review':'Close'}</Button>{adoption?<Button variant="contained" disabled={busy||!recordId} onClick={()=>advance(true)}>Adopt selected DNS record</Button>:operation?.next_action==='review-dns-adoption'?<Button variant="contained" disabled={busy||!!operationError} onClick={()=>{setAdoption(JSON.parse(JSON.stringify(operation)));setRecordId('');}}>Review DNS record</Button>:['resume','review-and-resume'].includes(operation?.next_action)?<Button variant="contained" disabled={busy||!!operationError} onClick={()=>advance()}>Resume connection</Button>:null}</DialogActions>
+      <DialogActions><Button disabled={busy} onClick={()=>adoption?setAdoption(null):setDetailOpen(false)}>{adoption?'Cancel review':'Close'}</Button>{adoption?<Button variant="contained" disabled={busy||!recordId} onClick={()=>advance(true)}>Adopt selected DNS record</Button>:operation?.next_action==='review-dns-adoption'?<Button variant="contained" disabled={busy||!!operationError} onClick={()=>{setAdoption(JSON.parse(JSON.stringify(operation)));setRecordId('');}}>Review DNS record</Button>:['resume','review-and-resume'].includes(operation?.next_action)?<Button variant="contained" disabled={busy||!!operationError} onClick={()=>advance()}>{operation?.phase==='external'?'Verify again':'Resume connection'}</Button>:null}</DialogActions>
     </Dialog>
   </section>;
 }

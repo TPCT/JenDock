@@ -42,7 +42,7 @@ export function adoptionRequest(project,environment,operation,recordId) {
 }
 export const domainStatus = value => String(value||'unverified').replaceAll('-',' ').replace(/^./,c=>c.toUpperCase());
 export function domainTime(value) {return Number.isFinite(value)&&value>0?new Date(value*1000).toLocaleString('en-GB'):'Observation time unavailable';}
-export function canOpenDomain(route) {return route?.ready===true&&route?.tls?.status==='verified'&&route?.origin?.status==='verified'&&route?.dns?.status==='verified';}
+export function canOpenDomain(route, now=Date.now()/1000) {return route?.ready===true&&route?.tls?.status==='verified'&&route?.origin?.status==='verified'&&route?.dns?.status==='verified'&&route?.external?.status==='verified'&&Number.isFinite(route.external.expires_at)&&route.external.expires_at>now;}
 
 export function domainExecutorMessage(value) {
   const executor=value?.executor;
@@ -56,3 +56,5 @@ export function domainExecutorMessage(value) {
   if (executor.configured===false) return 'Domain worker configuration is missing or invalid.';
   return 'The domain worker cannot currently reach the host routing service.';
 }
+
+export function domainDisplayStatus(route, now=Date.now()/1000) {return route?.status==='ready'&&!canOpenDomain(route,now)?'Verification required':domainStatus(route?.status);}

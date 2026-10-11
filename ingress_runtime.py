@@ -58,7 +58,7 @@ def _names(d):return d['environment']+'-ingress',d['project']+'-'+d['environment
 
 def _validate(d):
     fields={'schema_version','project','environment','operation_id','image','image_id','port','resources','application_network_id','application_network_name','routes'}
-    if not isinstance(d,dict) or set(d)!=fields or type(d['schema_version']) is not int or d['schema_version'] not in (1,2):raise GatewayError('Invalid gateway definition.')
+    if not isinstance(d,dict) or set(d)!=fields or type(d['schema_version']) is not int or d['schema_version'] not in (1,2,3):raise GatewayError('Invalid gateway definition.')
     registry.identifier(d['project'])
     if d['environment'] not in registry.ENVIRONMENTS or not isinstance(d['operation_id'],str) or not re.fullmatch('[A-Za-z0-9-]{16,100}',d['operation_id']):raise GatewayError('Invalid gateway owner.')
     if not isinstance(d['image'],str) or not re.fullmatch(IMAGE_PATTERN,d['image']) or not re.fullmatch('sha256:[a-f0-9]{64}',str(d['image_id'])):raise GatewayError('A pinned nginx-unprivileged image is required.')
@@ -82,6 +82,27 @@ def _validate(d):
     return d
 
 
+ROUTE_PROOF_PATH='/.well-known/deploy-monitor/route-proof'
+
+
+def route_proof_token(project, environment, route):
+    try: return generations.route_proof_token(project, environment, route)
+    except ValueError as error: raise GatewayError(str(error)) from None
+
+
+def expected_route_proof(definition, hostname):
+    """Expected proof for exact supplied immutable pins, never a health verdict.
+
+    Callers verifying current readiness must supply current_routes(db, definition)
+    and independently verify runtime/backend health. Old config fails after drift.
+    """
+    d=_validate(definition)
+    if d['schema_version']<3:raise GatewayError('Gateway proof requires an explicit owned configuration upgrade.')
+    route=next((route for route in d['routes'] if route['hostname']==hostname),None)
+    if route is None:raise GatewayError('Exact configured proof hostname is required.')
+    return route_proof_token(d['project'],d['environment'],route)
+
+
 def render_nginx(definition, *, generation_token=None):
     d=_validate(definition)
     lines=['worker_processes 1;','pid /tmp/nginx.pid;','error_log stderr warn;','events { worker_connections 128; }',
@@ -92,12 +113,15 @@ def render_nginx(definition, *, generation_token=None):
         'server { listen 8080 default_server; server_name _; return 421; }']
     for index,route in enumerate(d['routes']):
         lines.extend([f'upstream backend_{index} {{ zone backend_{index} 32k; server {route["alias"]}:{route["http_endpoint"]["port"]} resolve; }}',
-            f'server {{ listen 8080; server_name {route["hostname"]};', 'location / {',
+            f'server {{ listen 8080; server_name {route["hostname"]};',
+            *([f'location = {ROUTE_PROOF_PATH} {{', 'default_type text/plain;', 'add_header Cache-Control "no-store" always;', f'return 200 "{expected_route_proof(d,route["hostname"])}";', '}'] if d['schema_version']>=3 else []),
+            'location / {',
+            *(['proxy_hide_header '+name+';' for name in ('X-Deploy-Monitor-Route','X-Deploy-Monitor-Route-Proof','X-Deploy-Monitor-Generation','X-Deploy-Monitor-Backend')] if d['schema_version']>=3 else []),
             f'proxy_set_header Host {route["hostname"]};','proxy_set_header X-Real-IP $remote_addr;',
             'proxy_set_header X-Forwarded-For $remote_addr;','proxy_set_header X-Forwarded-Proto $trusted_proto;',
             'proxy_set_header Forwarded "";','proxy_connect_timeout 3s;','proxy_read_timeout 15s;',
             f'proxy_pass http://backend_{index};','}','}'])
-    if d['schema_version']==2:
+    if d['schema_version']>=2:
         generation_token = generation_token or generations.token(d, {'generation':1,'routes':d['routes']})
         if not re.fullmatch('[a-f0-9]{64}',generation_token):raise GatewayError('Invalid configuration generation token.')
         lines[lines.index('server { listen 127.0.0.1:8081; server_name localhost; location = /healthz { return 200; } }')] = 'server { listen 127.0.0.1:8081; server_name localhost; location = /healthz { return 200; } location = /generation { return 200 "'+generation_token+'"; } }'
@@ -112,9 +136,9 @@ def gateway_manifest(definition,config_path,transport_id):
     return {'services':{service:{'image':d['image'],'user':'101:101','read_only':True,'cap_drop':['ALL'],
         'security_opt':['no-new-privileges:true'],'pids_limit':128,'mem_limit':str(d['resources']['memory_mib'])+'m',
         'memswap_limit':str(d['resources']['memory_mib'])+'m','cpus':d['resources']['cpu'],
-        'entrypoint':['nginx'],'command':['-c',('/etc/nginx/ingress/nginx.conf' if d['schema_version']==2 else '/etc/nginx/ingress.conf'),'-g','daemon off;'],
+        'entrypoint':['nginx'],'command':['-c',('/etc/nginx/ingress/nginx.conf' if d['schema_version']>=2 else '/etc/nginx/ingress.conf'),'-g','daemon off;'],
         'labels':_labels(d,'gateway'),'healthcheck':{'test':HEALTHCHECK,'interval':'2s','timeout':'2s','retries':3,'start_period':'1s'},'tmpfs':['/tmp:rw,nosuid,noexec,size=16777216,mode=1777'],
-        'volumes':[{'type':'bind','source':str(Path(config_path).parent if d['schema_version']==2 else config_path),'target':('/etc/nginx/ingress' if d['schema_version']==2 else '/etc/nginx/ingress.conf'),'read_only':True}],
+        'volumes':[{'type':'bind','source':str(Path(config_path).parent if d['schema_version']>=2 else config_path),'target':('/etc/nginx/ingress' if d['schema_version']>=2 else '/etc/nginx/ingress.conf'),'read_only':True}],
         'ports':[{'target':8080,'published':str(d['port']),'host_ip':'127.0.0.1','protocol':'tcp'}],
         'networks':{'application':{},'transport':{}},'restart':'no'}},
         'networks':{'application':{'external':True,'name':d['application_network_name']},'transport':{'external':True,'name':transport}}}
@@ -166,7 +190,7 @@ def prepare_gateway(db,project,environment,operation_id,routes,*,image,resources
         backend,current=_backend(db,project,environment,route['service_id'],docker)
         if network and network['Id']!=current['Id']:raise GatewayError('Route applications must share this exact private environment network.')
         network=current;backend_routes.append(dict(backend,hostname=route['hostname']))
-    definition={'schema_version':2,'project':project,'environment':environment,'operation_id':operation_id,
+    definition={'schema_version':3,'project':project,'environment':environment,'operation_id':operation_id,
         'image':image,'image_id':inspected['Id'],'port':reservation['port'],'resources':copy.deepcopy(resources),
         'application_network_id':network['Id'],'application_network_name':network['Name'],
         'routes':sorted(backend_routes,key=lambda row:row['hostname'])}
@@ -225,7 +249,7 @@ def _paths(root,d,create=False):
         if create:directory.mkdir(mode=0o755,exist_ok=True)
         elif not directory.is_dir():raise GatewayError('Gateway configuration directory is missing.')
     path=directory/'compose.json'
-    if d['schema_version']==2:
+    if d['schema_version']>=2:
         directory=directory/'config'
         if directory.is_symlink():raise GatewayError('Gateway config directory cannot be a symlink.')
         if create:directory.mkdir(mode=0o755,exist_ok=True)
@@ -251,13 +275,13 @@ def _gateway(row,d,config,path,network,*,expected=None,running=True):
     if (expected and row['Id']!=expected or row['Name'].lstrip('/')!=d['project']+'-'+service+'-1'
         or row['Image']!=d['image_id'] or any((cfg.get('Labels') or {}).get(k)!=v for k,v in labels.items())
         or cfg.get('Healthcheck',{}).get('Test')!=HEALTHCHECK
-        or cfg.get('User')!='101:101' or cfg.get('Entrypoint')!=['nginx'] or cfg.get('Cmd')!=['-c',('/etc/nginx/ingress/nginx.conf' if d['schema_version']==2 else '/etc/nginx/ingress.conf'),'-g','daemon off;']
+        or cfg.get('User')!='101:101' or cfg.get('Entrypoint')!=['nginx'] or cfg.get('Cmd')!=['-c',('/etc/nginx/ingress/nginx.conf' if d['schema_version']>=2 else '/etc/nginx/ingress.conf'),'-g','daemon off;']
         or host.get('Privileged') or not host.get('ReadonlyRootfs') or host.get('CapAdd') or host.get('CapDrop')!=['ALL']
         or host.get('SecurityOpt')!=['no-new-privileges:true'] or host.get('PidsLimit')!=128
         or host.get('Memory')!=d['resources']['memory_mib']*1048576 or host.get('MemorySwap')!=host.get('Memory')
         or host.get('NanoCpus')!=round(d['resources']['cpu']*1e9) or host.get('PortBindings')!=ports
         or host.get('Devices') or host.get('DeviceRequests') or host.get('PidMode') or host.get('IpcMode') not in ('private','')
-        or len(mounts)!=1 or mounts[0].get('Type')!='bind' or mounts[0].get('Source')!=str(config.parent if d['schema_version']==2 else config) or mounts[0].get('Destination')!=('/etc/nginx/ingress' if d['schema_version']==2 else '/etc/nginx/ingress.conf') or mounts[0].get('RW')
+        or len(mounts)!=1 or mounts[0].get('Type')!='bind' or mounts[0].get('Source')!=str(config.parent if d['schema_version']>=2 else config) or mounts[0].get('Destination')!=('/etc/nginx/ingress' if d['schema_version']>=2 else '/etc/nginx/ingress.conf') or mounts[0].get('RW')
         or set(host.get('Tmpfs') or {})!={'/tmp'} or set((host.get('Tmpfs') or {}).get('/tmp','').split(','))!={'rw','nosuid','noexec','size=16777216','mode=1777'} or set(networks)!={d['application_network_name'],_names(d)[1]}
         or networks.get(d['application_network_name'],{}).get('NetworkID') not in ({d['application_network_id']} if running else {d['application_network_id'],''})
         or networks.get(_names(d)[1],{}).get('NetworkID') not in ({network['Id']} if running else {network['Id'],''})
@@ -374,7 +398,7 @@ def apply_gateway(db,definition,*,root,docker,compose,authorize):
             authorize();_recheck_backends(db,d,docker);_application_membership(db,d,docker,actual['Id']);journal['start_started']=True;_save(db,d,root,journal,'start-intent')
             _command([docker,'start',actual['Id']])
         _wait_http(dict(d,routes=ingress_bindings.current_routes(db,d)),docker,actual['Id'],authorize)
-        if d['schema_version']==2:_verify_generation(docker,actual['Id'],generations.token(d,generations.head(db,d)))
+        if d['schema_version']>=2:_verify_generation(docker,actual['Id'],generations.token(d,generations.head(db,d)))
         binding=verify_gateway(db,d,root=root,docker=docker,compose=compose,authorize=authorize)
         ingress_ports.bind(db,d['project'],d['environment'],d['operation_id'],binding['container_id'])
         import ingress_capacity
@@ -431,7 +455,7 @@ def _verify_generation(docker,container_id,token):
 
 def verify_gateway(db,definition,*,root,docker,compose=None,authorize=lambda:None,check_backends=True):
     binding=_verify_gateway(db,definition,root=root,docker=docker,compose=compose,authorize=authorize,check_backends=check_backends)
-    if definition['schema_version']==2:
+    if definition['schema_version']>=2:
         _verify_generation(docker,binding['container_id'],generations.token(definition,generations.head(db,definition)))
     return binding
 
@@ -439,7 +463,7 @@ def verify_gateway(db,definition,*,root,docker,compose=None,authorize=lambda:Non
 def prepare_route_addition(db,definition,operation_id,route,*,root,docker,authorize):
     """Caller holds the same worker control lock used by managed delivery."""
     d=_validate(definition);authorize()
-    if d['schema_version']!=2:raise GatewayError('Existing single-file gateway requires explicit verified migration before route addition.')
+    if d['schema_version']<2:raise GatewayError('Existing single-file gateway requires explicit verified migration before route addition.')
     if not isinstance(operation_id,str) or not re.fullmatch('[A-Za-z0-9-]{16,100}',operation_id):raise GatewayError('Invalid route operation identity.')
     if not isinstance(route,dict) or set(route)!={'hostname','service_id'}:raise GatewayError('Only hostname and managed service identity may be supplied.')
     generations.initialize(db)

@@ -4,6 +4,7 @@ All runtime effects and exact cleanup remain owned by live_ingress_runtime.main.
 No provider, deployed application, host Apache, or production effects.
 """
 import json
+import http.client
 from pathlib import Path
 import uuid
 from unittest.mock import patch
@@ -11,6 +12,25 @@ import live_ingress_runtime as fixture
 import ingress_runtime as runtime
 import ingress_bindings
 import ingress_route_generations as generations
+
+
+def verify_public_proofs(db,definition,port):
+    assert definition['schema_version']==3
+    tokens={}
+    for route in ingress_bindings.current_routes(db,definition):
+        client=http.client.HTTPConnection('127.0.0.1',port,timeout=5)
+        try:
+            client.request('GET',runtime.ROUTE_PROOF_PATH,headers={'Host':route['hostname']})
+            response=client.getresponse();body=response.read(4096)
+            expected=runtime.route_proof_token(definition['project'],definition['environment'],route).encode()
+            assert response.status==200 and body==expected and len(body)==64
+            assert response.getheader('Content-Type')=='text/plain'
+            assert response.getheader('Cache-Control')=='no-store'
+            tokens[route['hostname']]=body.decode()
+        finally:client.close()
+    assert len(set(tokens.values()))==len(tokens),'Different hostnames must not share proof tokens'
+    assert fixture.request(port,'unknown.fixture.test',runtime.ROUTE_PROOF_PATH)[0]==421
+    return tokens
 
 
 def acceptance(db,docker,apps,ports):
@@ -21,6 +41,7 @@ def acceptance(db,docker,apps,ports):
     production=fixture.identity(fixture.inspect(docker,apps['production']['binding']['container_id']))
     production_routes=ingress_bindings.capture(db,fixture.PROJECT,'production',apps['production']['id'])
     initial=generations.head(db,d);events=[]
+    proof_before=verify_public_proofs(db,d,ports['development'])
     original=runtime._command
     for hostname,lost in [('added.development.fixture.test',False),('lost-reply.development.fixture.test',True)]:
         operation=str(uuid.uuid4());signals=[]
@@ -49,12 +70,14 @@ def acceptance(db,docker,apps,ports):
         assert fixture.identity(fixture.inspect(docker,prior['container_id']))==gateway_before
         assert fixture.identity(fixture.inspect(docker,apps['production']['binding']['container_id']))==production
         assert ingress_bindings.capture(db,fixture.PROJECT,'production',apps['production']['id'])==production_routes
+        proof_now=verify_public_proofs(db,d,ports['development'])
+        assert all(proof_now[host]==token for host,token in proof_before.items())
         current=generations.head(db,d)
         runtime._verify_generation(docker,prior['container_id'],generations.token(d,current))
         for application in apps.values():assert not fixture.inspect(docker,application['binding']['container_id'])['HostConfig']['PortBindings']
         events.append({'hostname':hostname,'generation':current['generation'],'gateway_id':prior['container_id'],
                        'port':ports['development'],'one_actual_reload':True,'lost_reply_reconciled':lost,
-                       'old_routes_unchanged':True,'generation_http_verified':True,'backends_private':True})
+                       'old_routes_unchanged':True,'generation_http_verified':True,'backends_private':True,'public_proof_exact_body_headers':True,'hostname_proofs_distinct':True,'prior_proofs_preserved':True})
     assert generations.head(db,d)['generation']==initial['generation']+2
     # A real nginx -t failure restores the old file without a reload. Explicit
     # worker reconciliation refreshes the candidate and preserves the failed attempt.
@@ -92,7 +115,8 @@ def acceptance(db,docker,apps,ports):
     fixture.wait_body(ports['development'],hostname,fixture.PROJECT+':development:v1')
     assert fixture.identity(fixture.inspect(docker,prior['container_id']))==gateway_before
     assert generations.head(db,d)['generation']==initial['generation']+3
-    return {'sequential_additions':events,'sibling_environment_unchanged':True,
+    verify_public_proofs(db,d,ports['development'])
+    return {'public_proof_schema':3,'unknown_host_proof_rejected':True,'sequential_additions':events,'sibling_environment_unchanged':True,
             'actual_invalid_candidate_aborted':True,'normal_retry_refused':True,
             'explicit_worker_resume_verified':True,'aborted_attempt_history_retained':True,'retry_single_reload':True}
 

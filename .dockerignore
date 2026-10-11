@@ -56,3 +56,6 @@ frontend/dist
 !ingress_route_generations.py
 !ingress_host_transport.py
 !ingress_host_service.py
+
+!domain_external_flow.py
+!ingress_external.py

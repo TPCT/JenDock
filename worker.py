@@ -908,7 +908,8 @@ def process_domain_once(db):
         gateway = domain_worker.Gateway(root=control.ROOT / 'managed-ingress',
             docker=DOCKER, compose=COMPOSE, host_client=client,
             image=settings['image'], resources=settings['resources'])
-        return domain_execution.process_once(db, worker_id='worker-' + str(os.getpid()),
+        import ingress_external
+        return domain_execution.process_once(db, external_verifier=ingress_external.verify, worker_id='worker-' + str(os.getpid()),
             gateway=gateway, host_client=client,
             key_path=os.environ.get('INTEGRATION_KEY_FILE', '/config/integrations.key'))
 
