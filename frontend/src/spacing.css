@@ -30,7 +30,7 @@
 .release-band > div > span { margin-bottom: var(--space-inline); }
 .performance-section { margin-top: var(--space-section); padding-top: var(--space-panel); }
 .unassigned-workload { margin-top: var(--space-section); padding-top: var(--space-panel); }
-.empty-state { padding: var(--space-panel); text-align: center; }
+.empty-state { padding: var(--space-group) var(--space-panel); text-align: center; }
 .empty-state-description { max-width: 72ch; margin-inline: auto !important; }
 .empty-state-description { margin-top: var(--space-inline) !important; font-size: 14px !important; }
 .directory-row, .deployment-row { padding: var(--space-group) var(--space-panel); gap: var(--space-group); }
@@ -118,3 +118,12 @@
 .workspace-main .section-heading .MuiTypography-h6 { line-height: 1.5; }
 .versions-title { display: flex; align-items: center; gap: var(--space-tight); }
 .workspace-main .empty-state-description { line-height: 1.5; }
+
+/* Shared list insets align headers, values and actions across workspace screens. */
+.table-head, .service-line { column-gap: var(--space-group); padding-inline: var(--space-panel); }
+.service-name, .service-actions { gap: var(--space-inline); }
+.health-caption { margin-top: var(--space-tight); }
+.empty-state + .service-versions { margin-top: var(--space-panel); }
+@media (max-width: 800px) {
+  .service-line { padding-inline: var(--space-group); }
+}
