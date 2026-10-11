@@ -21,7 +21,7 @@ class MigrationError(ValueError):
         super().__init__('Migration could not complete: '+code+'.')
 
 
-RESERVED={'alembic_version','deploy_monitor_migration_hashes'}
+RESERVED={'alembic_version','deploy_monitor_migration_hashes','migrations','deploy_monitor_laravel_hashes'}
 TYPES={'integer','bigint','smallint','boolean','text','date','timestamp'}
 OIDS={'integer':23,'bigint':20,'smallint':21,'boolean':16,'text':25,'date':1082,'timestamp':1114,'varchar':1043}
 
@@ -42,12 +42,15 @@ def column(value, *, additive=False):
     if kind[0]=='varchar':
         if len(kind)!=2 or type(kind[1]) is not int or not 1<=kind[1]<=1048576:raise MigrationError('invalid_operation')
         sqltype='varchar('+str(kind[1])+')'
+    elif kind[0]=='timestamp' and len(kind)==2:
+        if type(kind[1]) is not int or not 0<=kind[1]<=6:raise MigrationError('invalid_operation')
+        sqltype='timestamp('+str(kind[1])+')'
     elif len(kind)==1 and kind[0] in TYPES:sqltype=kind[0]
     else:raise MigrationError('invalid_operation')
     return name,kind,nullable,primary,sqltype
 
 
-def compile_operation(operation):
+def compile_operation(operation,*,autoincrement_columns=None):
     if type(operation) is not tuple or len(operation)<4:raise MigrationError('invalid_operation')
     action,schema,table=operation[:3]
     if schema!='public' or table in RESERVED:raise MigrationError('unsupported_schema')
@@ -58,15 +61,19 @@ def compile_operation(operation):
         parsed=[column(c) for c in columns]
         if len({c[0] for c in parsed})!=len(parsed):raise MigrationError('invalid_operation')
         primary=[c[0] for c in parsed if c[3]]
+        eligible={c[0] for c in parsed if c[3] and len(primary)==1 and c[1][0] in ('integer','bigint','smallint')}
+        if autoincrement_columns is not None and (type(autoincrement_columns) is not tuple or any(not isinstance(n,str) for n in autoincrement_columns) or len(set(autoincrement_columns))!=len(autoincrement_columns) or not set(autoincrement_columns)<=eligible):raise MigrationError('invalid_operation')
+        auto=eligible if autoincrement_columns is None else set(autoincrement_columns)
         parts=[]
         for name,kind,nullable,pk,sqltype in parsed:
             # SQLAlchemy PostgreSQL's implicit autoincrement applies only to a
             # single integer primary key, not every member of a composite key.
-            if pk and len(primary)==1 and kind[0] in ('integer','bigint','smallint'):
+            if name in auto:
                 sqltype={'integer':'SERIAL','bigint':'BIGSERIAL','smallint':'SMALLSERIAL'}[kind[0]]
             parts.append(identifier(name)+' '+sqltype+(' NOT NULL' if not nullable else ''))
         if primary:parts.append('PRIMARY KEY ('+','.join(map(identifier,primary))+')')
         return 'CREATE TABLE '+target+' ('+','.join(parts)+')'
+    if autoincrement_columns not in (None,()):raise MigrationError('invalid_operation')
     if action=='add_column' and len(operation)==4:
         name,kind,nullable,pk,sqltype=column(operation[3],additive=True)
         return 'ALTER TABLE '+target+' ADD COLUMN '+identifier(name)+' '+sqltype
@@ -136,15 +143,17 @@ class Executor:
         rows=[r for r in self._columns(c,oid) if r[0]==name]
         if len(rows)!=1:raise MigrationError('schema_verification_failed')
         actual=rows[0]
-        modifier=kind[1]+4 if kind[0]=='varchar' else -1
+        modifier=kind[1]+4 if kind[0]=='varchar' else kind[1] if kind[0]=='timestamp' and len(kind)==2 else -1
         if actual[1]!=OIDS[kind[0]] or actual[2]!=modifier or actual[3]!=(not nullable) or actual[4] or actual[5] or bool(actual[6])!=auto:
             raise MigrationError('schema_verification_failed')
         if auto:
-            owned=self._query(c,"SELECT 1 FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_class s ON s.oid=d.objid WHERE d.classid='pg_catalog.pg_class'::regclass AND d.refclassid='pg_catalog.pg_class'::regclass AND d.refobjid=%s AND d.refobjsubid=%s AND d.deptype='a' AND s.relkind='S'",(oid,actual[7]))
+            owned=self._query(c,"SELECT s.oid FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_class s ON s.oid=d.objid WHERE d.classid='pg_catalog.pg_class'::regclass AND d.refclassid='pg_catalog.pg_class'::regclass AND d.refobjid=%s AND d.refobjsubid=%s AND d.deptype='a' AND s.relkind='S'",(oid,actual[7]))
             if len(owned)!=1:raise MigrationError('schema_verification_failed')
+            exact_default=self._query(c,"SELECT 1 FROM pg_catalog.pg_attrdef a WHERE a.adrelid=%s AND a.adnum=%s AND pg_catalog.pg_get_expr(a.adbin,a.adrelid)=pg_catalog.format('nextval(%%L::regclass)',%s::oid::regclass::text) AND EXISTS(SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_attrdef'::regclass AND d.objid=a.oid AND d.refclassid='pg_catalog.pg_class'::regclass AND d.refobjid=%s AND d.deptype='n')",(oid,actual[7],owned[0][0],owned[0][0]))
+            if exact_default!=[(1,)]:raise MigrationError('schema_verification_failed')
 
-    def _operation(self,c,operation):
-        sql=compile_operation(operation);action,_,table=operation[:3]
+    def _operation(self,c,operation,*,autoincrement_columns=None):
+        sql=compile_operation(operation,autoincrement_columns=autoincrement_columns);action,_,table=operation[:3]
         prior=self._relation(c,table)
         if action=='create_table':
             if prior:raise MigrationError('schema_changed')
@@ -161,7 +170,7 @@ class Executor:
         if action=='create_table':
             expected=operation[3];primary=[v[0] for v in expected if v[3]]
             if [r[0] for r in self._columns(c,observed[0])]!=[v[0] for v in expected]:raise MigrationError('schema_verification_failed')
-            for value in expected:self._check_column(c,observed[0],value,auto=value[3] and len(primary)==1 and value[1][0] in ('integer','bigint','smallint'))
+            for value in expected:self._check_column(c,observed[0],value,auto=(value[3] and len(primary)==1 and value[1][0] in ('integer','bigint','smallint')) if autoincrement_columns is None else value[0] in autoincrement_columns)
             keys=self._query(c,"SELECT array_agg(a.attname ORDER BY u.position) FROM pg_catalog.pg_constraint k CROSS JOIN LATERAL unnest(k.conkey) WITH ORDINALITY u(number,position) JOIN pg_catalog.pg_attribute a ON a.attrelid=k.conrelid AND a.attnum=u.number WHERE k.conrelid=%s AND k.contype='p' GROUP BY k.oid",(observed[0],))
             if keys!=([(primary,)] if primary else []):raise MigrationError('schema_verification_failed')
         elif action=='add_column':self._check_column(c,observed[0],operation[3])
