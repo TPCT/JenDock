@@ -122,3 +122,14 @@ authorization failure, and distinguishes loading/errors from successful empty da
 It shares parent pending/dirty navigation protection. 77 frontend tests and the
 integrated Vite build passed. Browser acceptance and configuration/credential forms
 are still pending. This is not a complete database-management product release.
+
+### MySQL/MariaDB adapter work in progress
+
+A separate adapter module now implements the shared inspection protocol and a
+strict direct-grant classifier. Metadata uses supported direct read grants; rows
+require scoped SELECT and LOCK TABLES, use a qualified READ lock before fresh
+catalog checks, and support bounded ordinary InnoDB integer-primary-key pages.
+15 unit tests cover protocol, grant, cursor and lock ordering behavior. Actual
+MySQL/MariaDB SQL compatibility, DDL races and cleanup acceptance are still required.
+The module is not yet selected by the helper entrypoint, shipped in its image, or
+advertised as an accepted engine. Provisional version handling is not live support.
