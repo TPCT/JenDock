@@ -81,7 +81,10 @@ class MigrationTests(unittest.TestCase):
                 if args[:2] == ['git', 'diff']: return '' if fail_unlink else 'database/migrations/new.php'
                 if args[:2] == ['git', 'ls-files']: return 'Dockerfile\napp/Test.php'
                 if args[:2] == ['git', 'ls-remote']: return 'b' * 40 + '\trefs/heads/main'
-                if 'inspect' in args: return 'a' * 40
+                if 'inspect' in args:
+                    if '--format' in args: return 'a' * 40
+                    self.assertEqual(args, [worker.DOCKER, 'image', 'inspect', 'app:aaaaaaa'])
+                    return json.dumps([{'Id': 'sha256:'+'a'*64}])
                 if 'build' in args and fail_build: raise worker.StepFailure('Build failed')
                 if 'artisan' in args and fail_migration: raise worker.StepFailure('Migration failed')
                 return ''
@@ -99,7 +102,7 @@ class MigrationTests(unittest.TestCase):
                 return original_unlink(path, *args, **kwargs)
             with patch.object(Path, 'unlink', autospec=True, side_effect=unlink), patch('worker.STATE', root), patch('worker.run', side_effect=execute), \
                  patch('worker.containers', return_value=[{'Image': 'app:aaaaaaa'}]), \
-                 patch('worker.verify_runtime'), patch('worker.verify_target_ownership', side_effect=[{'c' * 64}, worker.StepFailure('Target changed')] if target_changed else None, return_value={'c' * 64}), patch('worker.subprocess.run'), \
+                 patch('worker.verify_runtime'), patch('worker.verify_target_ownership', side_effect=[{'c' * 64}, worker.StepFailure('Target changed')] if target_changed else None, return_value={'c' * 64}), patch('worker.subprocess.run', return_value=worker.subprocess.CompletedProcess([],0)), \
                  patch('worker.tempfile.TemporaryDirectory', side_effect=temporary):
                 if fail_build or fail_migration or target_changed:
                     with self.assertRaises(worker.StepFailure):

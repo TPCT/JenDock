@@ -3,6 +3,7 @@
 The receiver cannot reach Docker. The worker rechecks the configured branch and
 uses isolated test containers without production environment files or volumes.
 """
+import contextlib
 import fcntl
 import json
 import os
@@ -492,6 +493,10 @@ def deploy(db, job, project, validate_only=False):
             return
         # Detect schema differences separately from image build/test results.
         previous_images = sorted({e['Image'] for e in containers(recipe)})
+        # Persist exact old image IDs before replacement can remove their containers.
+        import image_cleanup
+        previous_ids = [inspect_artifact_image(reference) for reference in previous_images]
+        image_cleanup.enqueue(db, job['id'], 'legacy-images', images=previous_ids)
         revisions = set()
         for previous in previous_images:
             value = run([DOCKER, 'image', 'inspect', '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}', previous], capture=True).strip()
@@ -597,22 +602,7 @@ def deploy(db, job, project, validate_only=False):
             recover(db, journal)
             return
         complete_build(db, job['id'], recipe, images, 'succeeded', 'Deployment and runtime checks passed. ' + ('Pending development migrations were applied successfully.' if migration else 'No database migrations were run automatically.'))
-        # A previous successful build may still need its tags for a durable
-        # catalog retry, even after its old containers have been replaced.
-        if db.execute("SELECT 1 FROM artifact_publications WHERE status='pending' LIMIT 1").fetchone():
-            return
-        # No force, no volume pruning. Docker refuses images still referenced.
-        import managed_services
-        import managed_delivery
-        protected = set(managed_services.protected_images(db)) | managed_delivery.protected_images(db)
-        for old in previous_images:
-            if old not in images.values():
-                try:
-                    metadata = json.loads(run([DOCKER, 'image', 'inspect', old], capture=True))
-                except (StepFailure, ValueError):
-                    continue
-                if len(metadata) == 1 and metadata[0].get('Id') not in protected:
-                    subprocess.run([DOCKER, 'image', 'rm', old], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        process_cleanup(db, job_id=job['id'], kind='legacy-images', locked=True)
 
 
 def inspect_artifact_image(reference):
@@ -639,15 +629,65 @@ def prune_job_images(db, job_id):
     import managed_services
     import artifact_publication
     if artifact_publication.pending(db, job_id):
-        return
+        return False
     import managed_delivery
     protected = set(managed_services.protected_images(db)) | managed_delivery.protected_images(db)
     candidates = run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet',
                       '--filter', 'label=net.shiftcodes.job=' + str(job_id)], capture=True).splitlines()
-    for image_id in set(candidates) - protected:
-        if re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
-            subprocess.run([DOCKER, 'image', 'rm', image_id], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=60)
+    return remove_cleanup_images(set(candidates) - protected)
+
+
+def remove_cleanup_images(candidates):
+    # Bound one lease's image work; subsequent scans continue from live inventory.
+    images = sorted(image for image in candidates if re.fullmatch(r'sha256:[a-f0-9]{64}', image))
+    deadline = time.monotonic() + 120
+    for image in images[:20]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0: return False
+        result = subprocess.run([DOCKER, 'image', 'rm', image], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=min(10, remaining))
+        if result.returncode: raise StepFailure('Unused image cleanup is pending.')
+    return len(images) <= 20
+
+
+def prune_legacy_images(db, job_id):
+    import managed_services, managed_delivery, artifact_publication
+    row = db.execute('SELECT status FROM jobs WHERE id=?', (job_id,)).fetchone()
+    if row and row['status'] in ('queued','building','testing','deploying'): return False
+    if not row or row['status'] != 'succeeded': return True
+    artifact_publication.initialize(db)
+    if db.execute("SELECT 1 FROM artifact_publications WHERE status!='succeeded' LIMIT 1").fetchone(): return False
+    record = db.execute("SELECT images FROM image_cleanup WHERE job_id=? AND kind='legacy-images'", (job_id,)).fetchone()
+    candidates = set(json.loads(record['images']))
+    protected = managed_services.protected_images(db) | managed_delivery.protected_images(db)
+    existing = set(run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet'], capture=True).splitlines())
+    return remove_cleanup_images(candidates & existing - protected)
+
+
+def prune_build_cache(db, job_id):
+    result = subprocess.run([DOCKER, 'builder', 'prune', '-af'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+    if result.returncode: raise StepFailure('Build cache cleanup is pending.')
+
+
+def process_cleanup(db, *, job_id=None, kind=None, locked=False):
+    import image_cleanup
+    if db.in_transaction: return False
+    with contextlib.nullcontext() if locked else control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists(): return False
+        image_cleanup.reconcile_terminal_jobs(db)
+        return image_cleanup.process_once(db, {
+            'job-images': prune_job_images,
+            'previous-images': prune_managed_previous_images,
+            'build-cache': prune_build_cache,
+            'legacy-images': prune_legacy_images,
+        }, job_id=job_id, kind=kind)
+
+
+def schedule_cleanup(db, job_id, kind, *, locked=False):
+    import image_cleanup
+    image_cleanup.enqueue(db, job_id, kind)
+    process_cleanup(db, job_id=job_id, kind=kind, locked=locked)
 
 
 def observe(db):
@@ -742,13 +782,21 @@ def project_for_job(db, job):
 def prune_managed_previous_images(db, job_id):
     """Retire only superseded images from this verified managed target."""
     import job_target, managed_services, managed_delivery
+    job_target.initialize(db)
+    if db.execute('SELECT 1 FROM job_targets WHERE job_id=?', (job_id,)).fetchone() is None:
+        # Pre-target historical jobs cannot have an attributable managed prior image.
+        # Existing managed-delivery evidence makes a missing target corruption,
+        # which must remain visible/pending rather than be called inapplicable.
+        has_deliveries = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_deliveries'").fetchone()
+        if has_deliveries and db.execute('SELECT 1 FROM managed_deliveries WHERE job_id=?', (job_id,)).fetchone():
+            raise ValueError('Managed cleanup target is unavailable.')
+        return True
     target = job_target.load(db, job_id)
-    if target['recipe'].get('schema_kind') != 'managed-build': return
+    if target['recipe'].get('schema_kind') != 'managed-build': return True
     protected = managed_services.protected_images(db) | managed_delivery.protected_images(db)
     candidates = {item['definition']['artifact']['image'] for item in target['recipe']['managed_target']['services']}
-    for image in candidates - protected:
-        if re.fullmatch('sha256:[a-f0-9]{64}', image):
-            subprocess.run([DOCKER, 'image', 'rm', image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    existing = set(run([DOCKER, 'image', 'ls', '--no-trunc', '--quiet'], capture=True).splitlines())
+    return remove_cleanup_images(candidates & existing - protected)
 
 
 def process_managed_delivery(db, job_id):
@@ -789,10 +837,7 @@ def process_managed_delivery(db, job_id):
             if outcome['status'] != 'succeeded':
                 raise ValueError('Managed delivery did not verify all selected containers.')
             set_status(db, job_id, 'succeeded', 'Managed containers were updated and runtime health verified.')
-            try: prune_managed_previous_images(db, job_id)
-            except (ValueError, OSError, subprocess.TimeoutExpired):
-                db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',
-                    (job_id,time.time(),'cleanup-pending','Unused image cleanup could not complete. Runtime deployment remains verified.'))
+            schedule_cleanup(db, job_id, 'previous-images', locked=True)
             return True
         except (ValueError, OSError, KeyError):
             try: managed_delivery.fail(db, job_id, worker_id, recovery_required=True)
@@ -846,8 +891,7 @@ def recover_managed_deliveries(db):
             if old and (old['status'] != status or old['detail'] != detail):
                 set_status(db, job_id, status, detail)
             if status == 'succeeded':
-                try: prune_managed_previous_images(db, job_id)
-                except (ValueError, OSError, subprocess.TimeoutExpired): pass
+                schedule_cleanup(db, job_id, 'previous-images', locked=True)
     return changed
 
 
@@ -1010,6 +1054,7 @@ def main():
             try:
                 import artifact_publication
                 artifact_publication.process(db, inspect_artifact_image)
+                process_cleanup(db)
                 recover_managed_deliveries(db)
                 resume_managed_deliveries(db)
                 process_delivery_proof_once(db)
@@ -1045,9 +1090,8 @@ def main():
                         finally:
                             # Only this job's unreferenced images; never force
                             # delete a running image and never touch volumes.
-                            prune_job_images(db, job['id'])
-                            subprocess.run([DOCKER, 'builder', 'prune', '-af'],
-                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+                            schedule_cleanup(db, job['id'], 'job-images')
+                            schedule_cleanup(db, job['id'], 'build-cache')
             except (StepFailure, OSError):
                 snapshot(db, 'worker', {'state': 'unavailable', 'detail': 'Docker could not be observed. Previous observations are stale.'})
             time.sleep(5)

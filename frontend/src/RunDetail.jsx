@@ -34,6 +34,7 @@ import {
 import { activeStates, retryStates, statusLabel, date } from "./model.js";
 import { englishMessage } from "./legacyMessages.js";
 import { environmentLabel, managedDeliverySummary } from "./managedDelivery.js";
+import { cleanupStatus } from "./cleanupStatus.js";
 import "./RunDetail.css";
 
 const cancellable = [
@@ -168,6 +169,7 @@ export default function RunDetail({
       </Box>
     );
   const delivery = managedDeliverySummary(job);
+  const cleanup = cleanupStatus(job.cleanup);
   const runLabel = delivery?.label || statusLabel(job.status);
   const runIcon = delivery?.icon || job.status;
   const stages = recordedRunStages(job, events);
@@ -361,6 +363,12 @@ export default function RunDetail({
         >
           Based on run #{job.retry_of}
         </Button>
+      )}
+      {cleanup && (
+        <Box sx={{ mt: "var(--space-panel)" }} role="status">
+          {cleanup.pending ? <Alert severity="info"><strong>{cleanup.label}</strong> · {cleanup.detail}</Alert>
+            : <Typography color="text.secondary" fontSize={12}>{cleanup.label}</Typography>}
+        </Box>
       )}
       <div className="run-workspace">
         <aside className="run-sidebar" aria-label="Run summary">

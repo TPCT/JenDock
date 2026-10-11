@@ -63,6 +63,10 @@ def public_job(db, row):
         if db.execute('SELECT 1 FROM managed_deliveries WHERE job_id=?',(row['id'],)).fetchone():
             import managed_delivery
             result['managed_delivery'] = managed_delivery.public(db, row['id'])
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='image_cleanup'").fetchone():
+        result['cleanup'] = [dict(item) for item in db.execute(
+            "SELECT kind,state,attempts FROM image_cleanup WHERE job_id=? AND kind IN ('job-images','previous-images','build-cache','legacy-images') ORDER BY kind LIMIT 4",
+            (row['id'],))]
     return result
 
 

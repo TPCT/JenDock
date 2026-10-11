@@ -17,10 +17,10 @@ class ArtifactWorkerTests(unittest.TestCase):
         with patch('artifact_publication.pending', return_value=False), patch('managed_services.protected_images', return_value=[protected]), \
              patch('managed_delivery.protected_images', return_value={rollback}), \
              patch.object(worker, 'run', return_value=protected+'\n'+unused+'\n'+rollback+'\nnot-an-id\n'), \
-             patch.object(worker.subprocess, 'run') as remove:
+             patch.object(worker.subprocess, 'run', return_value=worker.subprocess.CompletedProcess([],0)) as remove:
             worker.prune_job_images('db', 4)
             remove.assert_called_once_with([worker.DOCKER, 'image', 'rm', unused],
-                stdout=worker.subprocess.DEVNULL, stderr=worker.subprocess.DEVNULL, timeout=60)
+                stdout=worker.subprocess.DEVNULL, stderr=worker.subprocess.DEVNULL, timeout=10)
 
 class ArtifactRetentionTests(unittest.TestCase):
     def test_enqueue_preserves_old_artifact_source_evidence_only(self):

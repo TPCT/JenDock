@@ -79,3 +79,5 @@ frontend/dist
 !database_inspection.py
 !database_inventory.py
 !database_helper.py
+
+!image_cleanup.py

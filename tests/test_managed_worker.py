@@ -45,7 +45,7 @@ class ManagedWorkerTests(unittest.TestCase):
             stack.enter_context(patch.object(managed_rollout, 'rollout', side_effect=lambda *a, **kw: events.append('runtime-verified') or {'id':'replacement'}))
             stack.enter_context(patch.object(managed_delivery, 'complete_service', side_effect=lambda *a: events.append('metadata-committed')))
             stack.enter_context(patch.object(worker, 'set_status', side_effect=lambda *a: events.append(a[2])))
-            stack.enter_context(patch.object(worker, 'prune_managed_previous_images', side_effect=lambda *a: events.append('cleanup')))
+            stack.enter_context(patch.object(worker, 'schedule_cleanup', side_effect=lambda *a, **kw: events.append('cleanup')))
             self.assertTrue(worker.process_managed_delivery('db', 4))
         self.assertEqual(events, ['runtime-verified', 'metadata-committed', 'succeeded', 'cleanup'])
 
