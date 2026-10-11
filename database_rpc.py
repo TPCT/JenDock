@@ -34,7 +34,7 @@ def request(payload, path='/state/control.sock'):
     if len(encoded) > 65536:
         raise ValueError('Database configuration request is too large.')
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(120 if payload.get('action') in ('database-preview','database-accept','database-read') else 15)
+        client.settimeout(120 if payload.get('action') in ('database-options','database-preview','database-accept','database-read') else 15)
         client.connect(path)
         if peer_uid(client) != expected_uid('DATABASE_WORKER_UID', 0):
             raise ValueError('Database control identity could not be verified.')

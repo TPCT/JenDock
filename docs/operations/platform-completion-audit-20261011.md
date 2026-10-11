@@ -29,7 +29,7 @@ of subsequent local commits. No server mutation was performed in this audit.
 | Automatic managed delivery | Immutable source/build/test/publication, rollout identity and recovery, health and protected image cleanup | Complete database migration stage and retryable cleanup recovery |
 | Production migrations | Explicit executor design; legacy path fails closed for unsupported schema operations | Trusted typed-operation executor, actual ledger, DB binding, locks, parser adapters, schema postverification |
 | Development migrations | Fixed Laravel pending migration command in legacy path | Verified DB binding and pending ledger; Alembic adapter; explicit development-only reset configuration |
-| Database inspection | Encrypted console configuration with real HTTP/Unix acceptance, private candidate resolver, namespace-pinned helper and PostgreSQL driver; actual two-environment catalog/row/DDL-race fixtures | Live ownership collection/preview acceptance, authenticated database reads, MCP and UI; MySQL/MariaDB; broader row types |
+| Database inspection | Encrypted configuration; actual authenticated HTTP/Unix/Docker/PostgreSQL two-environment browser configuration/acceptance/rows/revocation; durable rejected-save recovery; scoped MCP protocol reads; MySQL 8.4.11 and MariaDB 11.4.13 direct-adapter runtime acceptance | MCP-to-live-engine acceptance, MySQL/MariaDB helper/API/UI integration, broader row types, production rollout |
 | Scheduler/queue | Deployment queue and monitor scheduling exist | Workload-specific schedule and job adapters, actual queue depth/failed job/retry evidence |
 | Container tools | Identity-checked operations, logs, terminal, resource controls and read-only files | Role-specific DB/scheduler/queue tools; broader production acceptance |
 | Domains/TLS | Durable owned DNS/routing, TLS issuance/renewal, external proof freshness; actual local two-environment fixtures | Public provider/CA rollout, legacy routing/redirect, expired-serving recovery acceptance |
@@ -76,4 +76,4 @@ These are local builds; the verified production baseline above remains unchanged
 
 The next implementation contract is `../specs/database-inspector.md`, reviewed
 against both backend identity/permission boundaries and frontend workflows.
-A design document is not a working inspector; that implementation remains open.
+The PostgreSQL backend path now has real local runtime acceptance (see database-console-20261011.md). The broader inspector workflow and platform requirements remain open.

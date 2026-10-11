@@ -25,6 +25,7 @@ MAX_BODY = 1024 * 1024
 class Application:
     def __init__(self, config, database, credentials):
         self.integration_key = os.environ.get("INTEGRATION_KEY_FILE", "/config/integrations.key")
+        self.control_socket = os.environ.get('CONTROL_SOCKET','/state/control.sock')
         self.config = config
         self.database = database
         self.web_root = Path(os.environ.get('WEB_ROOT', str(Path(__file__).parent / 'web'))).resolve()
@@ -108,7 +109,9 @@ class Application:
                 try:
                     response=database_rpc.request(payload)
                     if not response['ok']:
-                        return response.get('status',409),{'error':response.get('error','Database operation failed.')}
+                        failure={'error':response.get('error','Database operation failed.'),'code':response.get('code','database_operation_failed')}
+                        if response.get('outcome')=='not_committed':failure['outcome']='not_committed'
+                        return response.get('status',409),failure
                     return 200,response['result']
                 except (OSError,ValueError,KeyError,TypeError):
                     return 503,{'error':'Database configuration is unavailable. Reload its saved state before retrying.'}
@@ -121,7 +124,8 @@ class Application:
                 import mcp_credentials
                 owner = operations.Principal(session['username'], 'console', frozenset({
                     'projects:read', 'projects:create', 'services:read', 'services:create',
-                    'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt'}))
+                    'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt',
+                    'databases:read', 'databases:data:read'}))
                 try:
                     if action == 'mcp-access-list':
                         return 200, {'credentials': mcp_credentials.list_credentials(db, owner),
@@ -278,7 +282,7 @@ class Application:
                 payload=dict(body,actor=session['username'],terminal_owner=session['token'])
                 try:
                     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
-                        client.settimeout(600);client.connect('/state/control.sock')
+                        client.settimeout(600);client.connect(self.control_socket)
                         client.sendall(json.dumps(payload).encode()+b'\n')
                         result=json.loads(client.makefile('rb').readline(1048576))
                     if not result['ok']:return 409,{'error':result['error']}

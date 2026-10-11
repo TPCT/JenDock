@@ -4,13 +4,15 @@ These operations save unverified configuration; they never grant query authority
 The caller must authenticate the Unix peer before dispatching this module.
 """
 import database_bindings as bindings
-from database_auth import ConsoleAuthority
+from database_auth import ConsoleAuthority, MCPAuthority
 from application_operations import OperationError
 
 FIELDS = {
+    'database-options': {'reference'},
     'database-preview': {'binding_id','expected_revision'},
     'database-accept': {'preview_id','request_id'},
     'database-read': {'binding_id','expected_revision','request'},
+    'database-credential-get': {'credential_id'},
     'database-credentials': {'limit','cursor'},
     'database-credential-save': {'values', 'expected_revision', 'credential_id', 'request_id'},
     'database-credential-revoke': {'credential_id', 'expected_revision'},
@@ -29,16 +31,25 @@ def execute(db, body, *, credentials_file=None, key_path=None, inspection_factor
         raise OperationError('invalid_input', 'Unexpected database operation fields.', 400)
     if action in ('database-credential-save','database-binding-save') and not body.get('request_id'):
         raise OperationError('invalid_input','A request ID is required to save database configuration.',400)
-    authority = ConsoleAuthority(db, body.get('authentication'), credentials_file)
+    envelope = body.get('authentication')
+    if isinstance(envelope,dict) and envelope.get('kind')=='mcp':
+        if action not in ('database-bindings','database-binding-get','database-read'):
+            raise OperationError('forbidden','MCP database access is read-only.',403)
+        authority = MCPAuthority(db,envelope,credentials_file)
+    else:
+        authority = ConsoleAuthority(db,envelope,credentials_file)
     args = (db, authority.principal, body.get('project'), body.get('environment'))
     options = {'revalidate': authority.recheck}
-    if action in ('database-preview','database-accept','database-read'):
+    if action in ('database-options','database-preview','database-accept','database-read'):
         if inspection_factory is None:raise OperationError('unavailable','Database inspection is not configured.',503)
         inspector=inspection_factory(db,authority)
         target=(body.get('project'),body.get('environment'))
-        if action=='database-preview':result=inspector.preview(*target,body.get('binding_id'),body.get('expected_revision'))
+        if action=='database-options':result=inspector.options(*target,body.get('reference'))
+        elif action=='database-preview':result=inspector.preview(*target,body.get('binding_id'),body.get('expected_revision'))
         elif action=='database-accept':result=inspector.accept(*target,body.get('preview_id'),body.get('request_id'))
         else:result=inspector.read(*target,body.get('binding_id'),body.get('expected_revision'),body.get('request'))
+    elif action == 'database-credential-get':
+        result = {'credential': bindings.get_credential(*args,body.get('credential_id'),**options)}
     elif action == 'database-credentials':
         result = {'credentials': bindings.list_credentials(*args, limit=body.get('limit',25),cursor=body.get('cursor'), **options)}
     elif action == 'database-credential-save':

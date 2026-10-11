@@ -320,6 +320,7 @@ function App() {
       const failure = Error(v.error || "Request failed.");
       failure.status = r.status;
       failure.code = v.code;
+      if (v.outcome === "not_committed") failure.outcome = "not_committed";
       throw failure;
     }
     return v;

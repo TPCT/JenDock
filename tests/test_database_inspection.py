@@ -139,6 +139,26 @@ class InspectionTests(unittest.TestCase):
             binding_id=self.binding['id'],expected_revision=1)
         self.assertIsNone(row['acceptance'])
 
+    def test_driver_errors_are_allowlisted_without_raw_diagnostics(self):
+        self.helper.response={'error':'unsupported_pagination'}
+        with self.assertRaises(inspection.InspectionError) as caught:self.preview()
+        self.assertEqual(caught.exception.code,'unsupported_pagination')
+        self.assertIn('primary key',str(caught.exception))
+        self.helper.response={'error':'private-password arbitrary driver trace'}
+        with self.assertRaises(inspection.InspectionError) as caught:self.preview()
+        self.assertNotIn('private-password',str(caught.exception))
+        self.assertEqual(caught.exception.code,'inspection_failed')
+
+    def test_configuration_options_are_scoped_and_do_not_connect_to_database(self):
+        result=self.service.options('app','development','web')
+        self.assertEqual(result['candidate']['container_id'],self.candidate['container_id'])
+        self.assertEqual(result['candidate']['recipe_revision'],self.candidate['recipe_revision'])
+        self.assertEqual(self.helper.calls,0)
+        with self.assertRaises(inspection.InspectionError):
+            self.service.options('app','development','other-service')
+        self.db.execute('DELETE FROM sessions')
+        with self.assertRaises(Exception):self.service.options('app','development','web')
+
     def test_no_private_payload_in_records(self):
         p=self.preview();self.accept(p)
         for table in ('database_previews','database_acceptances','database_accepted_bindings'):

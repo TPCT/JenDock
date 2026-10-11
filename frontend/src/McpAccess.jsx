@@ -352,6 +352,12 @@ export default function McpAccess({ api, onDirty, onPending }) {
                       "services:create": "Create services",
                       "services:start": "Start services",
                       "operations:read": "Read operations",
+                      "domains:read": "Read domains",
+                      "domains:create": "Create and recover domains",
+                      "domains:adopt": "Adopt domain DNS records",
+                      "databases:read": "Read accepted database metadata",
+                      "databases:data:read":
+                        "Read permitted database rows (requires metadata access)",
                     }[s],
                   ]),
                   "scopes",

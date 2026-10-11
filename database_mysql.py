@@ -219,7 +219,7 @@ class Inspector:
                 if action == 'table':
                     if after is not None:
                         raise DatabaseError('invalid_request')
-                    keys = self._query(c, 'SELECT k.CONSTRAINT_NAME,t.CONSTRAINT_TYPE,k.COLUMN_NAME,k.REFERENCED_TABLE_SCHEMA,k.REFERENCED_TABLE_NAME,k.REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.TABLE_CONSTRAINTS t ON t.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA AND t.TABLE_NAME=k.TABLE_NAME AND t.CONSTRAINT_NAME=k.CONSTRAINT_NAME WHERE BINARY k.TABLE_SCHEMA=BINARY %s AND BINARY k.TABLE_NAME=BINARY %s ORDER BY k.CONSTRAINT_NAME,k.ORDINAL_POSITION', (schema, table))
+                    keys = self._query(c, "SELECT k.CONSTRAINT_NAME,CASE WHEN k.REFERENCED_TABLE_NAME IS NOT NULL THEN 'FOREIGN KEY' WHEN BINARY k.CONSTRAINT_NAME=BINARY 'PRIMARY' THEN 'PRIMARY KEY' ELSE 'UNIQUE' END,k.COLUMN_NAME,k.REFERENCED_TABLE_SCHEMA,k.REFERENCED_TABLE_NAME,k.REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE k WHERE BINARY k.TABLE_SCHEMA=BINARY %s AND BINARY k.TABLE_NAME=BINARY %s ORDER BY k.CONSTRAINT_NAME,k.ORDINAL_POSITION", (schema, table))
                     grouped_keys = {}
                     for name, kind, column, rs, rt, rc in keys:
                         item = grouped_keys.setdefault(name, {'name': name, 'kind': {'PRIMARY KEY': 'p', 'UNIQUE': 'u', 'FOREIGN KEY': 'f'}.get(kind, '?'), 'columns': []})

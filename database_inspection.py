@@ -13,7 +13,29 @@ from application_operations import OperationError
 
 
 class InspectionError(ValueError):
-    pass
+    def __init__(self,message,code='inspection_failed'):
+        super().__init__(message)
+        self.code=code
+
+
+DRIVER_ERRORS={
+    'connection_failed':'Could not connect with this inspection account. Check the account and database availability.',
+    'timeout':'Database inspection timed out. Retry after the database is available.',
+    'permission_denied':'The inspection account cannot read this database object.',
+    'privileged_credential':'Use a dedicated read-only account without write or administrative grants.',
+    'row_policy_required':'Choose permitted columns in the binding before browsing rows.',
+    'unsupported_columns':'This table contains column types that the row inspector does not yet support.',
+    'unsupported_pagination':'Row browsing requires a supported single integer primary key.',
+    'unsupported_relation':'Row browsing is not supported for this relation type.',
+    'unsupported_schema_owner':'The schema ownership does not satisfy the inspection policy.',
+    'table_unavailable':'The selected table is unavailable. Reload the table list.',
+    'cursor_stale':'This page cursor is no longer valid. Reload from the first page.',
+    'identity_changed':'Database identity changed. Verify the binding again.',
+    'result_limit':'This result exceeds the inspection limit. Request a smaller page.',
+    'invalid_policy':'The saved inspection policy is invalid. Review its configuration.',
+    'invalid_request':'The inspection request is invalid. Reload and try again.',
+    'query_failed':'The database could not complete this inspection. Reload and try again.',
+}
 
 
 def initialize(db):
@@ -41,6 +63,17 @@ class InspectorService:
         self.resolve_candidate,self.helper=resolve_candidate,helper
         self.key_path,self.cursor_key=key_path,cursor_key
         initialize(db)
+
+    def options(self,project,environment,reference):
+        principal=self.authority.recheck()
+        bindings._authorize(self.db,principal,project,environment,'databases:manage',self.authority.recheck)
+        candidate=self.resolve_candidate(project,environment,reference,kind='adopted-compose')
+        if (candidate.get('project')!=project or candidate.get('environment')!=environment
+                or candidate.get('reference')!=reference):
+            raise InspectionError('Database ownership options changed. Reload the container.')
+        self.authority.recheck()
+        self._registered(candidate)
+        return {'candidate':candidates.public(candidate)}
 
     def _binding(self,project,environment,identifier,revision,scope='databases:manage'):
         bindings._revision(revision)
@@ -87,6 +120,10 @@ class InspectorService:
                 'definition':row['definition_digest'],'candidate':candidate['fingerprint']},'request':request}
         response=self.helper.inspect(candidate['container_id'],payload,revalidate=revalidate)
         revalidate(candidate['container_id'])
+        if isinstance(response,dict) and set(response)=={'error'}:
+            code=response['error']
+            if isinstance(code,str) and code in DRIVER_ERRORS:
+                raise InspectionError(DRIVER_ERRORS[code],code)
         if not isinstance(response,dict) or set(response)!={'result'}:
             raise InspectionError('Database connection or inspection policy could not be verified.')
         result=response['result']

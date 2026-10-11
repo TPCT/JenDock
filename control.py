@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 from application_operations import OperationError
-from database_bindings import BindingError
+from database_bindings import BindingError, SaveRejected
 from database_inspection import InspectionError
 from database_candidates import CandidateError
 from database_inventory import InventoryError
@@ -267,12 +267,20 @@ def execute(body, *, peer_uid=None):
     if isinstance(body.get('action'),str) and body['action'].startswith('database-'):
         import database_control
         import database_rpc
-        if peer_uid != database_rpc.expected_uid('DATABASE_RECEIVER_UID',65534):
+        envelope=body.get('authentication')
+        if isinstance(envelope,dict) and envelope.get('kind')=='mcp':
+            # MCP is disabled until an independent peer UID is explicitly configured.
+            if 'DATABASE_MCP_UID' not in os.environ:
+                raise ControlError('MCP database control is not configured.')
+            expected_peer=database_rpc.expected_uid('DATABASE_MCP_UID',-1)
+        else:
+            expected_peer=database_rpc.expected_uid('DATABASE_RECEIVER_UID',65534)
+        if peer_uid != expected_peer:
             raise ControlError('Database control peer is not authorized.')
         if not LOCK.acquire(blocking=False):raise ControlError('Another operation is running. Retry after it completes.')
         db=None
         try:
-            if body['action'] in ('database-preview','database-accept','database-read') and (JOURNAL.exists() or (Path(os.environ.get('STATE_DIR','/worker-state'))/'transaction.json').exists()):
+            if body['action'] in ('database-options','database-preview','database-accept','database-read') and (JOURNAL.exists() or (Path(os.environ.get('STATE_DIR','/worker-state'))/'transaction.json').exists()):
                 raise ControlError('Database inspection is unavailable while environment recovery is pending.')
             db=connect(DATABASE)
             return database_control.execute(db,body,key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE'),inspection_factory=database_inspector)
@@ -446,7 +454,11 @@ class Handler(socketserver.StreamRequestHandler):
             response={'ok':True,'result':result}
         except OperationError as error:
             response={'ok':False,'error':str(error),'status':error.status}
-        except (BindingError,InspectionError,CandidateError,InventoryError,HelperError) as error:
+        except InspectionError as error:
+            response={'ok':False,'error':str(error),'code':error.code,'status':409}
+        except SaveRejected as error:
+            response={'ok':False,'error':str(error),'status':409,'outcome':'not_committed'}
+        except (BindingError,CandidateError,InventoryError,HelperError) as error:
             response={'ok':False,'error':str(error),'status':409}
         except ControlError as error:response={'ok':False,'error':str(error)}
         except Exception:response={'ok':False,'error':'Container management is temporarily unavailable.'}

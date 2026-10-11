@@ -19,6 +19,11 @@ class BindingError(ValueError):
     pass
 
 
+class SaveRejected(BindingError):
+    """A committed tombstone guarantees this exact request cannot mutate later."""
+    outcome = "not_committed"
+
+
 def initialize(db):
     for sql in (
         'CREATE TABLE IF NOT EXISTS database_save_requests(owner TEXT NOT NULL,actor_kind TEXT NOT NULL,project TEXT NOT NULL,environment TEXT NOT NULL,action TEXT NOT NULL,request_id TEXT NOT NULL,payload BLOB NOT NULL,result TEXT NOT NULL,PRIMARY KEY(owner,actor_kind,project,environment,action,request_id))',
@@ -112,19 +117,51 @@ def _remember(db,context,payload,result,cipher=None):
     return result
 
 
-def save_credential(db,principal,project,environment,values,*,expected_revision,key_path,credential_id=None,revalidate=None,request_id=None):
-    _authorize(db,principal,project,environment,'databases:manage',revalidate);_revision(expected_revision);initialize(db)
-    if (not isinstance(values,dict) or set(values)!={'username','password'}
-            or any(not isinstance(values[k],str) or not 1<=len(values[k])<=4096 or '\x00' in values[k] for k in values)
-            or len(values['username'])>128 or any(ord(c)<32 for c in values['username'])):
-        raise BindingError('A bounded database username and password are required.')
-    context=_request_context(principal,project,environment,'credential-save',request_id)
-    payload={'values':values,'expected_revision':expected_revision,'credential_id':credential_id}
-    cipher=_cipher(key_path);identifier=_id(credential_id) if credential_id is not None else uuid.uuid4().hex
+def _save(db,principal,project,environment,context,payload,perform,*,cipher=None,revalidate=None):
+    """Serialize replay, mutation and durable rejection in one write transaction.
+
+    A missing receipt is never proof of noncommit. Rejections are persisted under
+    the same request key as success, after rolling back every attempted mutation.
+    Authorization/key failures and conflicting request payloads remain ambiguous.
+    """
+    if len(registry.canonical(payload).encode())>65536:
+        raise BindingError('Database save payload is too large.')
+    rejected=None
     with registry.transaction(db):
         _authorize(db,principal,project,environment,'databases:manage',revalidate)
-        replay=_replay(db,context,payload,cipher)
-        if replay is not None:return replay
+        result=_replay(db,context,payload,cipher)
+        if result is None:
+            db.execute('SAVEPOINT database_save_attempt')
+            try:
+                result=perform()
+            except BindingError as error:
+                db.execute('ROLLBACK TO database_save_attempt')
+                if context is None:raise
+                result={'_database_save_rejected':True,'error':str(error)}
+            finally:
+                db.execute('RELEASE database_save_attempt')
+            _remember(db,context,payload,result,cipher)
+        if result.get('_database_save_rejected') is True:
+            rejected=result['error']
+    # Expose final noncommit only after the tombstone transaction committed.
+    if rejected is not None:
+        _authorize(db,principal,project,environment,'databases:manage',revalidate)
+        raise SaveRejected(rejected)
+    return result
+
+
+def save_credential(db,principal,project,environment,values,*,expected_revision,key_path,credential_id=None,revalidate=None,request_id=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);initialize(db)
+    context=_request_context(principal,project,environment,'credential-save',request_id)
+    payload={'values':values,'expected_revision':expected_revision,'credential_id':credential_id}
+    cipher=_cipher(key_path)
+    def perform():
+        _revision(expected_revision)
+        if (not isinstance(values,dict) or set(values)!={'username','password'}
+                or any(not isinstance(values[k],str) or not 1<=len(values[k])<=4096 or '\x00' in values[k] for k in values)
+                or len(values['username'])>128 or any(ord(c)<32 for c in values['username'])):
+            raise BindingError('A bounded database username and password are required.')
+        identifier=_id(credential_id) if credential_id is not None else uuid.uuid4().hex
         prior=_credential(db,project,environment,identifier) if credential_id is not None else None
         if expected_revision!=(prior['revision'] if prior else 0):raise BindingError('Database credential revision changed.')
         revision=expected_revision+1;now=time.time()
@@ -134,7 +171,9 @@ def save_credential(db,principal,project,environment,values,*,expected_revision,
             db.execute('UPDATE database_credentials SET revision=?,enabled=1,ciphertext=?,updated=? WHERE id=?',(revision,ciphertext,now,identifier))
         else:db.execute('INSERT INTO database_credentials VALUES(?,?,?,?,?,?,?,?)',(identifier,project,environment,revision,1,ciphertext,now,now))
         _event(db,principal,project,environment,identifier,revision,'credential-saved')
-        return _remember(db,context,payload,_public_credential(_credential(db,project,environment,identifier)),cipher)
+        return _public_credential(_credential(db,project,environment,identifier))
+
+    return _save(db,principal,project,environment,context,payload,perform,cipher=cipher,revalidate=revalidate)
 
 
 def revoke_credential(db,principal,project,environment,credential_id,*,expected_revision,revalidate=None):
@@ -166,6 +205,11 @@ def _page(limit,cursor):
     if type(limit) is not int or not 1<=limit<=100:raise BindingError('Choose a page size between 1 and 100.')
     if cursor is not None:_id(cursor)
     return limit,cursor or ''
+
+
+def get_credential(db,principal,project,environment,credential_id,*,revalidate=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);initialize(db)
+    return _public_credential(_credential(db,project,environment,credential_id))
 
 
 def list_credentials(db,principal,project,environment,*,revalidate=None,limit=25,cursor=None):
@@ -233,14 +277,13 @@ def _public_binding(db,row):
 
 
 def save_binding(db,principal,project,environment,values,*,expected_revision,binding_id=None,revalidate=None,request_id=None):
-    _authorize(db,principal,project,environment,'databases:manage',revalidate);_revision(expected_revision);initialize(db)
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);initialize(db)
     context=_request_context(principal,project,environment,'binding-save',request_id)
     payload={'values':values,'expected_revision':expected_revision,'binding_id':binding_id}
-    definition=_definition(values,project,environment);identifier=_id(binding_id) if binding_id is not None else uuid.uuid4().hex
-    with registry.transaction(db):
-        _authorize(db,principal,project,environment,'databases:manage',revalidate)
-        replay=_replay(db,context,payload)
-        if replay is not None:return replay
+    def perform():
+        _revision(expected_revision)
+        definition=_definition(values,project,environment)
+        identifier=_id(binding_id) if binding_id is not None else uuid.uuid4().hex
         prior=_binding(db,project,environment,identifier) if binding_id is not None else None
         if expected_revision!=(prior['revision'] if prior else 0):raise BindingError('Database binding revision changed.')
         secret=_credential(db,project,environment,definition['secret_id'])
@@ -250,7 +293,9 @@ def save_binding(db,principal,project,environment,values,*,expected_revision,bin
         if prior:db.execute('UPDATE database_bindings SET revision=?,enabled=1,definition_id=?,updated=? WHERE id=?',(revision,definition_id,now,identifier))
         else:db.execute('INSERT INTO database_bindings VALUES(?,?,?,?,?,?,?,?)',(identifier,project,environment,revision,1,definition_id,now,now))
         _event(db,principal,project,environment,identifier,revision,'binding-saved')
-        return _remember(db,context,payload,_public_binding(db,_binding(db,project,environment,identifier)))
+        return _public_binding(db,_binding(db,project,environment,identifier))
+
+    return _save(db,principal,project,environment,context,payload,perform,revalidate=revalidate)
 
 
 def get_binding(db,principal,project,environment,binding_id,*,revalidate=None):

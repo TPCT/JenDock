@@ -13,6 +13,7 @@ export default function Field({
 }) {
   const generatedId = useId();
   const inputId = id || generatedId;
+  const labelId = InputLabelProps?.id || `${inputId}-label`;
   if (!label)
     return (
       <MuiTextField
@@ -31,7 +32,7 @@ export default function Field({
       <Typography
         component="label"
         htmlFor={inputId}
-        id={InputLabelProps?.id || `${inputId}-label`}
+        id={labelId}
         sx={{
           display: "block",
           fontSize: 13,
@@ -44,6 +45,16 @@ export default function Field({
       </Typography>
       <MuiTextField
         {...props}
+        slotProps={props.select ? {
+          ...props.slotProps,
+          select: (ownerState) => ({
+            ...props.SelectProps,
+            ...(typeof props.slotProps?.select === "function"
+              ? props.slotProps.select(ownerState)
+              : props.slotProps?.select),
+            labelId,
+          }),
+        } : props.slotProps}
         id={inputId}
         fullWidth
         size={props.size || "small"}

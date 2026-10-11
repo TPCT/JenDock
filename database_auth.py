@@ -75,3 +75,51 @@ class ConsoleAuthority:
 
     def __call__(self):
         return self.recheck()
+
+
+class MCPAuthority:
+    """Private bearer proof, freshly authenticated at every worker boundary.
+
+    The receiver's peer identity must already be checked. Never serialize this
+    object or its envelope into public responses or diagnostics.
+    """
+    __slots__ = ('_db', '_token', '_credentials_file', '_principal')
+
+    def __init__(self, db, envelope, credentials_file=None):
+        if (not isinstance(envelope,dict) or set(envelope)!={'kind','token'}
+                or envelope['kind']!='mcp' or not isinstance(envelope['token'],str)
+                or len(envelope['token'])>512):
+            raise _denied()
+        self._db=db;self._token=envelope['token'];self._credentials_file=credentials_file
+        self._principal=self._resolve()
+
+    @property
+    def principal(self):return self._principal
+
+    def _resolve(self):
+        import mcp_credentials
+        def owner(subject):
+            try:
+                path=self._credentials_file if self._credentials_file is not None else os.environ.get('CREDENTIALS_FILE')
+                if not path:raise ValueError()
+                with open(path,encoding='utf-8') as source:raw=source.read(65537)
+                if len(raw)>65536:raise ValueError()
+                value=json.loads(raw)
+                username=value.get('username') if isinstance(value,dict) else None
+                if (not isinstance(username,str) or not username.strip() or len(username)>120
+                        or any(ord(c)<32 or ord(c)==127 for c in username) or username!=subject):raise ValueError()
+                return Principal(username,'console',mcp_credentials.SCOPES)
+            except (OSError,ValueError,TypeError):return None
+        try:
+            principal=mcp_credentials.authenticate(self._db,self._token,owner_resolver=owner)
+            if (not principal.allowed_environments or not principal.allowed_projects
+                    or not principal.allowed_repository_ids or 'databases:read' not in principal.scopes):raise _denied()
+            return principal
+        except (ValueError,sqlite3.Error):raise _denied() from None
+
+    def recheck(self):
+        current=self._resolve()
+        if current!=self._principal:raise _denied()
+        return current
+
+    def __call__(self):return self.recheck()

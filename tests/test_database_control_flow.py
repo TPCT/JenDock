@@ -57,6 +57,17 @@ class DatabaseControlFlowTests(unittest.TestCase):
     def save(self):return self.action('database-credential-save',values={'username':'inspect_user','password':'private-db-password'},expected_revision=0)['credential']
     def payload(self):return {'action':'database-credential-save','request_id':uuid.uuid4().hex,'project':'app','environment':'development','authentication':{'kind':'console','session_digest':self.digest},'values':{'username':'inspect_user','password':'private-db-password'},'expected_revision':0}
 
+    def test_credential_lookup_is_current_scoped_and_secret_free(self):
+        credential=self.save()
+        self.assertEqual(self.action('database-credential-get',credential_id=credential['id'])['credential'],credential)
+        self.action('database-credential-revoke',credential_id=credential['id'],expected_revision=1)
+        current=self.action('database-credential-get',credential_id=credential['id'])['credential']
+        self.assertFalse(current['enabled']);self.assertEqual(current['revision'],2)
+        self.assertNotIn('private-db-password',json.dumps(current))
+        with self.assertRaises(HTTPError) as caught:
+            self.post('/_deploy/api/action',{'action':'database-credential-get','project':'app','environment':'production','credential_id':credential['id']})
+        with caught.exception as response:self.assertEqual(response.code,409)
+
     def test_http_socket_configuration_persists_unverified_without_secret_echo(self):
         credential=self.save();self.assertEqual(self.action('database-credentials')['credentials'],[credential])
         definition={'engine':'postgresql','adapter_version':1,'ownership':{'kind':'adopted-compose','reference':'web','revision':1},'database_name':'app','database_port':5432,'secret_id':credential['id'],'secret_revision':1,'allowed_schemas':['public'],'policy_revision':1}
@@ -151,7 +162,7 @@ class DatabaseControlFlowTests(unittest.TestCase):
         journal=Path(self.f.tmp.name)/'pending-environment.json'
         journal.write_text('{}')
         with patch.object(control,'JOURNAL',journal),patch.object(control,'database_inspector') as factory:
-            for action in ('database-preview','database-accept','database-read'):
+            for action in ('database-options','database-preview','database-accept','database-read'):
                 with self.assertRaises(HTTPError) as caught:self.action(action)
                 with caught.exception as response:
                     self.assertEqual(response.code,409)
@@ -165,3 +176,37 @@ class DatabaseControlFlowTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as caught:self.action('database-preview')
             with caught.exception as response:self.assertEqual(response.code,409)
             factory.assert_not_called()
+
+    def test_http_durable_rejection_outcome_and_committed_conflict_boundary(self):
+        values={'username':'inspector','password':'private-value'}
+        for _ in range(2):
+            with self.assertRaises(HTTPError) as caught:
+                self.action('database-credential-save',values=values,expected_revision=1,request_id='http-rejected-001')
+            with caught.exception as response:
+                body=json.load(response);self.assertEqual(response.code,409)
+            self.assertEqual(body['outcome'],'not_committed')
+            self.assertNotIn('private-value',json.dumps(body))
+        self.assertEqual(self.f.db.execute('SELECT COUNT(*) FROM database_credentials').fetchone()[0],0)
+        first=self.action('database-credential-save',values=values,expected_revision=0,request_id='http-committed-001')
+        with self.assertRaises(HTTPError) as caught:
+            self.action('database-credential-save',values=values,expected_revision=1,request_id='http-committed-001')
+        with caught.exception as response:body=json.load(response)
+        self.assertNotIn('outcome',body)
+        self.assertEqual(self.action('database-credential-save',values=values,expected_revision=0,request_id='http-committed-001'),first)
+
+    def test_http_postcommit_authorization_failure_never_claims_noncommit(self):
+        original=bindings._remember;credentials=self.credentials.read_text()
+        def remember(*args,**kwargs):
+            result=original(*args,**kwargs)
+            self.credentials.write_text('{"username":"replacement"}')
+            return result
+        for revision in (0,1):
+            self.credentials.write_text(credentials)
+            with patch.object(bindings,'_remember',side_effect=remember):
+                with self.assertRaises(HTTPError) as caught:
+                    self.action('database-credential-save',values={'username':'inspector','password':'private-value'},expected_revision=revision,request_id='http-auth-after-'+str(revision))
+            with caught.exception as response:
+                body=json.load(response);self.assertEqual(response.code,403)
+            self.assertNotIn('outcome',body)
+        self.assertEqual(self.f.db.execute('SELECT COUNT(*) FROM database_credentials').fetchone()[0],1)
+        self.assertEqual(self.f.db.execute('SELECT COUNT(*) FROM database_save_requests').fetchone()[0],2)

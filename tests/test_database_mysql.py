@@ -116,3 +116,16 @@ class GrantPatternTests(unittest.TestCase):
         catalog=[sql for sql,args in conn.statements if 'WHERE' in sql and 'information_schema' in sql]
         self.assertTrue(catalog)
         self.assertTrue(all('BINARY TABLE_SCHEMA=BINARY %s' in sql for sql in catalog))
+
+
+class CatalogPrivilegeTests(unittest.TestCase):
+    def test_keys_do_not_depend_on_nonselect_table_constraints(self):
+        class CatalogConnection(ScriptedConnection):
+            def execute(self, sql, args=()):
+                super().execute(sql,args)
+                if 'FROM information_schema.KEY_COLUMN_USAGE' in sql:
+                    # MariaDB hides TABLE_CONSTRAINTS from SELECT-only accounts.
+                    self.rows=[] if 'TABLE_CONSTRAINTS' in sql else [('PRIMARY','PRIMARY KEY','id',None,None,None),('parent_fk','FOREIGN KEY','text','app','parent','id')]
+        conn=CatalogConnection(version='11.4.8-MariaDB')
+        result=QueryTests().inspector(conn).inspect({'action':'table','schema':'app','table':'items'})
+        self.assertEqual({k['kind'] for k in result['data']['keys']},{'p','f'})

@@ -8,6 +8,8 @@ export const MCP_SCOPES = [
   "domains:read",
   "domains:create",
   "domains:adopt",
+  "databases:read",
+  "databases:data:read",
 ];
 export const freshMcpDraft = () => ({
   label: "",
@@ -59,10 +61,24 @@ export function mcpCredentialValues(draft, projects, now = Date.now()) {
   if (environments.some(([, e]) => !["development", "production"].includes(e)))
     throw new Error("Choose supported environments.");
   if (
-    draft.scopes.some((s) => s.startsWith("services:") || s.startsWith("domains:")) &&
+    draft.scopes.some(
+      (s) =>
+        s.startsWith("services:") ||
+        s.startsWith("domains:") ||
+        s.startsWith("databases:"),
+    ) &&
     !environments.length
   )
-    throw new Error("Choose exact environments for service or domain access.");
+    throw new Error(
+      "Choose exact environments for service, domain, or database access.",
+    );
+  if (
+    draft.scopes.includes("databases:data:read") &&
+    !draft.scopes.includes("databases:read")
+  )
+    throw new Error(
+      "Database row access also requires database metadata access.",
+    );
   return {
     label: draft.label.trim(),
     scopes: [...draft.scopes],

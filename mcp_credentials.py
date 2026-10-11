@@ -17,7 +17,7 @@ from application_operations import OperationError, Principal
 import registry
 
 SCOPES = frozenset({'projects:read', 'projects:create', 'services:read',
-                    'services:create', 'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt'})
+                    'services:create', 'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt', 'databases:read', 'databases:data:read'})
 _FIELDS = {'label', 'scopes', 'allowed_projects', 'allowed_repository_ids',
            'allowed_environments', 'expires_at'}
 
@@ -113,7 +113,8 @@ def _validate(owner, values, now):
     if not (scopes <= owner.scopes and _subset(projects, owner.allowed_projects)
             and _subset(repos, owner.allowed_repository_ids) and _subset(environments, owner.allowed_environments)):
         raise OperationError('forbidden', 'Credential permissions must stay within the console owner permissions.', 403)
-    if any(scope.startswith(('services:', 'domains:')) for scope in scopes) and not environments: _invalid()
+    if any(scope.startswith(('services:', 'domains:', 'databases:')) for scope in scopes) and not environments: _invalid()
+    if 'databases:data:read' in scopes and 'databases:read' not in scopes: _invalid()
     return label.strip(), scopes, projects, repos, environments, expiry
 
 

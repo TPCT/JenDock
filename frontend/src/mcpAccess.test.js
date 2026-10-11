@@ -76,3 +76,31 @@ test("missing repository identity, unregistered targets and unlimited lifetime f
     mcpCredentialValues({ ...draft(), lifetime: 0 }, projects),
   );
 });
+
+test("database grants require exact environments and explicit row plus metadata scopes", () => {
+  assert.equal(
+    freshMcpDraft().scopes.some((scope) => scope.startsWith("databases:")),
+    false,
+  );
+  assert.throws(
+    () =>
+      mcpCredentialValues(
+        { ...draft(), scopes: ["databases:read"], environments: [] },
+        projects,
+      ),
+    /exact environments/,
+  );
+  assert.throws(
+    () =>
+      mcpCredentialValues(
+        { ...draft(), scopes: ["databases:data:read"] },
+        projects,
+      ),
+    /metadata access/,
+  );
+  const scopes = ["databases:read", "databases:data:read"];
+  assert.deepEqual(
+    mcpCredentialValues({ ...draft(), scopes }, projects).scopes,
+    scopes,
+  );
+});

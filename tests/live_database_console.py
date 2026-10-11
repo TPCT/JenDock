@@ -1,10 +1,12 @@
 """Local disposable HTTP -> worker -> Docker -> PostgreSQL acceptance."""
+import argparse
 import contextlib
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socketserver
 import subprocess
 import sys
@@ -29,13 +31,20 @@ from database_inventory import DockerInventory
 from database_helper import InspectorHelper
 from database_inspection import InspectorService
 from server import Application,handler
-from store import connect
+from store import connect, snapshot
 
 
 def command(args,**kwargs):return subprocess.check_output(args,stderr=subprocess.DEVNULL,**kwargs).decode().strip()
 
 
 def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--browser-ready',type=Path,help='Private readiness JSON; release each environment with PATH.release (10 minute timeout).')
+    arguments=parser.parse_args()
+    ready=arguments.browser_ready.absolute() if arguments.browser_ready else None
+    release=Path(str(ready)+'.release') if ready else None
+    if ready and any(p.exists() or p.is_symlink() for p in (ready,release)):
+        raise ValueError('Browser readiness/release paths must not already exist.')
     docker=shutil.which('docker');socket=os.environ.get('DOCKER_HOST','unix:///var/run/docker.sock')
     def peer_snapshot():
         ids=command([docker,'ps','-aq','--no-trunc']).splitlines()
@@ -48,11 +57,12 @@ def main():
     before={identity for identity,row in before_peers.items() if row['running']}
     image=command([docker,'image','inspect','deploy-monitor-database-inspector:review','--format','{{.Id}}'])
     containers=[];networks=[];volumes=[];checks=[]
+    login_password=uuid.uuid4().hex if ready else 'fixture-login'
     try:
         with tempfile.TemporaryDirectory(prefix='database-console-') as temporary:
             root=Path(temporary);dbpath=root/'state.sqlite';db=connect(dbpath)
             try:
-                credential_file=root/'console.json';credential_file.write_text(json.dumps({'username':'owner','salt':'ab'*16,'password_hash':hashlib.pbkdf2_hmac('sha256',b'fixture-login',bytes.fromhex('ab'*16),260000).hex()}))
+                credential_file=root/'console.json';credential_file.write_text(json.dumps({'username':'owner','salt':'ab'*16,'password_hash':hashlib.pbkdf2_hmac('sha256',login_password.encode(),bytes.fromhex('ab'*16),260000).hex()}))
                 key=root/'key';key.write_bytes(Fernet.generate_key());key.chmod(0o600)
                 state=root/'helper';state.mkdir(mode=0o700)
                 cursor_key=Fernet.generate_key().decode()
@@ -69,6 +79,14 @@ def main():
                     stack.callback(lambda:(unix.shutdown(),unix.server_close(),ut.join()))
                     config=root/'projects.json';config.write_text('{}')
                     app=Application(config,dbpath,credential_file);app.secure=False;app.cookie_name='monitor_session'
+                    if ready:
+                        compose_cli=shutil.which('docker-compose') or next((str(p) for p in (Path.home()/'.docker/cli-plugins/docker-compose',Path('/usr/libexec/docker/cli-plugins/docker-compose'),Path('/usr/lib/docker/cli-plugins/docker-compose')) if p.is_file()),None)
+                        if not compose_cli:raise RuntimeError('A real Docker Compose executable is required for browser acceptance.')
+                        app.web_root=(Path(__file__).resolve().parents[1]/'frontend/dist').resolve()
+                        if not (app.web_root/'index.html').is_file():raise RuntimeError('Build frontend/dist before browser acceptance.')
+                        app.control_socket=sock
+                        for name,value in {'ROOT':root,'CONFIG':str(config),'DOCKER':docker,'COMPOSE':compose_cli,'JOURNAL':root/'environment-transaction.json'}.items():
+                            stack.enter_context(patch.object(control,name,value))
                     http=ThreadingHTTPServer(('127.0.0.1',0),handler(app));app.origin=f'http://127.0.0.1:{http.server_port}'
                     ht=threading.Thread(target=http.serve_forever,daemon=True);ht.start();stack.callback(lambda:(http.shutdown(),http.server_close(),ht.join()))
                     cookie=None;csrf=None
@@ -76,7 +94,7 @@ def main():
                         headers={'Origin':app.origin,'Content-Type':'application/json'}
                         if cookie:headers.update(Cookie=cookie,**{'X-CSRF-Token':csrf})
                         with urlopen(Request(app.origin+path,data=json.dumps(body).encode(),headers=headers),timeout=20) as response:return json.load(response),response.headers
-                    login,headers=post('/_deploy/api/login',{'username':'owner','password':'fixture-login'})
+                    login,headers=post('/_deploy/api/login',{'username':'owner','password':login_password})
                     cookie=headers['Set-Cookie'].split(';',1)[0];csrf=login['csrf']
                     for environment in ('development','production'):
                         suffix=uuid.uuid4().hex;project='fixture-'+environment;service='db-'+environment
@@ -110,7 +128,47 @@ def main():
                             except HTTPError as error:
                                 if name!='database-read':print(json.dumps({'action':name,'status':error.code,'response':json.loads(error.read())}),flush=True)
                                 raise
+                        if ready:
+                            def refresh_observed():
+                                # Project real observations into the collector's public snapshot contract.
+                                observed=[]
+                                for actual in json.loads(command([docker,'inspect',*containers])):
+                                    labels=actual['Config'].get('Labels') or {}
+                                    observed.append({'ID':actual['Id'],'Names':actual['Name'].lstrip('/'),'Image':actual['Config']['Image'],
+                                        'State':actual['State']['Status'],'Status':actual['State']['Status'],
+                                        'ComposeProject':labels.get('com.docker.compose.project'),
+                                        'ComposeService':labels.get('com.docker.compose.service'),
+                                        'ComposeConfigFiles':labels.get('com.docker.compose.project.config_files')})
+                                snapshot(db,'containers',observed)
+                                # The fixture's real Unix worker and collector must both be alive.
+                                # Publish this only after the actual observation completed successfully.
+                                snapshot(db,'worker',{'state':'running' if ut.is_alive() else 'stopped',
+                                    'external_monitor':False,'outbound_alerts':False})
+                            refresh_observed()
+                            actual_details=action('container-details',container=row['Name'].lstrip('/'))
+                            assert actual_details['container_id']==cid and actual_details['service']==service
+                            document={'url':app.origin,'username':'owner','password':login_password,'reader_username':'inspector',
+                                'reader_password':reader_password,'project':project,'environment':environment,'service':service,
+                                'container':row['Name'].lstrip('/'),'container_id':cid,'database':'fixture','release_path':str(release)}
+                            temporary_ready=ready.with_name(ready.name+'.'+uuid.uuid4().hex+'.tmp')
+                            descriptor=os.open(temporary_ready,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+                            with os.fdopen(descriptor,'w') as stream:json.dump(document,stream)
+                            os.replace(temporary_ready,ready)
+                            print(json.dumps({'browser_ready':str(ready),'environment':environment,'url':app.origin}),flush=True)
+                            deadline=time.monotonic()+600
+                            while not release.exists():
+                                if time.monotonic()>=deadline:raise TimeoutError('Browser fixture release deadline expired.')
+                                refresh_observed()
+                                time.sleep(2)
+                            release.unlink()
+                            checks.append({'environment':environment,'browser_hold_released':True})
                         save={'values':{'username':'inspector','password':reader_password},'expected_revision':0,'request_id':'credential-'+suffix}
+                        options=action('database-options',reference=service)['candidate']
+                        assert options['container_id']==cid and options['reference']==service
+                        assert options['project']==project and options['environment']==environment
+                        assert options['recipe_revision']==revision and options['database']=='fixture'
+                        assert options['port']==5432 and options['engine']=='postgresql'
+                        assert 'storage' not in options and 'password' not in options
                         credential=action('database-credential-save',**save)['credential'];assert action('database-credential-save',**save)['credential']==credential
                         values={'engine':'postgresql','adapter_version':1,'ownership':{'kind':'adopted-compose','reference':service,'revision':revision},'database_name':'fixture','database_port':5432,'secret_id':credential['id'],'secret_revision':1,'allowed_schemas':['public'],'policy_revision':1,'row_columns':{'public':{'sentinel':['id','value']}}}
                         binding=action('database-binding-save',values=values,expected_revision=0,request_id='binding-'+suffix)['binding'];assert binding['verified'] is False and binding['acceptance'] is None
@@ -137,12 +195,14 @@ def main():
                         assert next(v for v in action('database-bindings')['bindings'] if v['id']==binding['id'])['acceptance'] is None
                         try:action('database-read',**target,request=request);raise AssertionError('revoked credential read succeeded')
                         except HTTPError as error:assert error.code in (403,409);error.close()
-                        assert db.execute('SELECT count(*) FROM database_credentials WHERE project=?',(project,)).fetchone()[0]==1
+                        if not ready:assert db.execute('SELECT count(*) FROM database_credentials WHERE project=?',(project,)).fetchone()[0]==1
                         assert not list(state.iterdir()),'helper recovery files remain'
                         assert reader_password not in json.dumps([credential,binding,preview,accepted,first,second])
                         checks.append({'environment':environment,'http_unix_docker_postgres':True,'pages':[2,1],'response_scope_verified':True,'acceptance_reload_verified':True,'revocation_clears_acceptance':True,'revocation_denied':True,'replay_no_duplicate':True,'cluster_identity_verified':False})
             finally:db.close()
     finally:
+        if ready:ready.unlink(missing_ok=True)
+        if release:release.unlink(missing_ok=True)
         for cid in containers:subprocess.run([docker,'rm','-f','-v',cid],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
         for network in networks:subprocess.run([docker,'network','rm',network],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
         for volume in volumes:subprocess.run([docker,'volume','rm',volume],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
@@ -159,4 +219,10 @@ def main():
         assert not command([docker,'ps','-aq','--filter','label=net.shiftcodes.database-inspection']),'helper remained'
     print(json.dumps({'checks':checks,'helper_image':image,'cleanup':True}))
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    # A stopped interactive test must still execute exact resource cleanup.
+    # SIGKILL cannot be handled; SIGTERM should not strand a credential file or DB.
+    def terminate(signum, frame):
+        raise KeyboardInterrupt('Database browser fixture interrupted.')
+    signal.signal(signal.SIGTERM, terminate)
+    main()

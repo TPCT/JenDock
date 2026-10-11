@@ -109,3 +109,68 @@ class DatabaseBindingsTests(unittest.TestCase):
         for policy in ({'other':{'table':['id']}},{'public':{'table':['id','id']}},{'public':{'table':[]}},{'public':{'table':['x']*21}},{'public':{'table':'*'}},[]):
             with self.subTest(policy=policy),self.assertRaises(bindings.BindingError):
                 bindings.save_binding(self.db,self.principal,'app','development',dict(values,row_columns=policy),expected_revision=0)
+
+
+    def test_durable_credential_rejection_cannot_commit_when_cas_later_matches(self):
+        secret=self.secret()
+        request=dict(credential_id=secret['id'],expected_revision=2,request_id='reject-credential-001')
+        with self.assertRaises(bindings.SaveRejected) as failure:self.secret(**request)
+        self.assertEqual(failure.exception.outcome,'not_committed')
+        self.secret(credential_id=secret['id'],expected_revision=1)
+        with self.assertRaises(bindings.SaveRejected):self.secret(**request)
+        current=bindings.get_credential(self.db,self.principal,'app','development',secret['id'])
+        self.assertEqual(current['revision'],2)
+        row=self.db.execute('SELECT payload,result FROM database_save_requests WHERE request_id=?',(request['request_id'],)).fetchone()
+        self.assertNotIn(b'private-value',row['payload'])
+        self.assertNotIn('private-value',row['result'])
+        with self.assertRaises(bindings.BindingError) as conflict:self.secret(**dict(request,expected_revision=1))
+        self.assertNotIsInstance(conflict.exception,bindings.SaveRejected)
+
+    def test_committed_request_payload_conflict_never_reports_noncommit(self):
+        secret=self.secret(request_id='committed-credential-001')
+        with self.assertRaises(bindings.BindingError) as failure:
+            self.secret(request_id='committed-credential-001',expected_revision=1)
+        self.assertNotIsInstance(failure.exception,bindings.SaveRejected)
+        self.assertEqual(self.secret(request_id='committed-credential-001'),secret)
+
+    def test_binding_invalid_definition_and_cas_are_durable_rejections(self):
+        secret=self.secret();value=self.definition(secret)
+        for values in (dict(value,database_port=0),value):
+            request='invalid-binding-'+str(values['database_port'])
+            for _ in range(2):
+                with self.assertRaises(bindings.SaveRejected):
+                    bindings.save_binding(self.db,self.principal,'app','development',values,expected_revision=2,request_id=request)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM database_bindings').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM database_binding_definitions').fetchone()[0],0)
+
+    def test_postcommit_rejection_auth_failure_remains_ambiguous(self):
+        calls=[]
+        def check():
+            calls.append(self.db.in_transaction)
+            if len(calls)==3:raise bindings.BindingError('Database access changed. Authenticate again.')
+            return self.principal
+        with self.assertRaises(bindings.BindingError) as failure:
+            self.secret(expected_revision=1,request_id='rejected-auth-001',revalidate=check)
+        self.assertNotIsInstance(failure.exception,bindings.SaveRejected)
+        self.assertEqual(calls,[False,True,False])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM database_save_requests').fetchone()[0],1)
+
+    def test_overlapping_identical_rejections_share_one_durable_receipt(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from store import connect
+        barrier=threading.Barrier(2)
+        def attempt():
+            db=connect(self.f.path)
+            try:
+                barrier.wait(timeout=5)
+                try:
+                    bindings.save_credential(db,self.principal,'app','development',{'username':'inspector','password':'private-value'},expected_revision=1,key_path=self.key,request_id='overlap-rejection-001')
+                except bindings.SaveRejected as error:return error.outcome
+                self.fail('Invalid creation unexpectedly committed')
+            finally:db.close()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(lambda _:attempt(),range(2)))
+        self.assertEqual(results,['not_committed','not_committed'])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM database_save_requests').fetchone()[0],1)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM database_credentials').fetchone()[0],0)

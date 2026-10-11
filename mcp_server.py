@@ -24,6 +24,7 @@ import mcp_credentials
 import ingress
 
 _credential = ContextVar('mcp_credential')
+_database_bearer = ContextVar('mcp_database_bearer')
 SCOPES = {'project_list': 'projects:read', 'project_get': 'projects:read',
           'project_create': 'projects:create', 'service_list': 'services:read',
           'service_get': 'services:read', 'service_create': 'services:create',
@@ -32,7 +33,10 @@ SCOPES = {'project_list': 'projects:read', 'project_get': 'projects:read',
           'domain_options': 'domains:read', 'domain_list': 'domains:read',
           'domain_get': 'domains:read', 'domain_operation_status': 'domains:read',
           'domain_preview': 'domains:read', 'domain_create': 'domains:create',
-          'domain_resume': 'domains:create', 'domain_adopt': 'domains:adopt'}
+          'domain_resume': 'domains:create', 'domain_adopt': 'domains:adopt',
+          'database_bindings':'databases:read','database_binding_get':'databases:read',
+          'database_schemas':'databases:read','database_tables':'databases:read',
+          'database_table':'databases:read','database_rows':'databases:data:read'}
 MUTATING_TOOLS = frozenset({'project_create', 'service_create', 'domain_create', 'domain_resume', 'domain_adopt'})
 
 
@@ -80,6 +84,18 @@ SCHEMAS = {
 
 def select(value, keys):
     return {k: value[k] for k in keys if k in value}
+
+
+
+DATABASE_TOOLS = frozenset(name for name in SCOPES if name.startswith('database_'))
+DB_TARGET={'project_id':string(),'environment':ENV,'binding_id':{'type':'string','pattern':'^[a-f0-9]{32}$'},'expected_revision':REV}
+for _name,_extra,_required in (
+    ('database_schemas',{},[]),('database_tables',{'schema':string(128)},['schema']),
+    ('database_table',{'schema':string(128),'table':string(128)},['schema','table']),
+    ('database_rows',{'schema':string(128),'table':string(128)},['schema','table'])):
+    SCHEMAS[_name]=obj({**DB_TARGET,**_extra,'limit':PAGE['limit'],'cursor':string(8192)},list(DB_TARGET)+_required)
+SCHEMAS['database_bindings']=obj({'project_id':string(),'environment':ENV,'limit':{'type':'integer','minimum':1,'maximum':25},'cursor':{'type':'string','pattern':'^[a-f0-9]{32}$'}},['project_id','environment'])
+SCHEMAS['database_binding_get']=obj({k:v for k,v in DB_TARGET.items() if k!='expected_revision'},['project_id','environment','binding_id'])
 
 
 def public_project(value, principal=None):
@@ -132,9 +148,12 @@ def result(payload, error=False):
     return types.CallToolResult(content=[types.TextContent(type='text', text=encoded)], structuredContent=payload, isError=error)
 
 
-def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_resolver=None, enable_creation=False):
+def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_resolver=None, enable_creation=False, database_socket=None):
     if not allowed_hosts or any('*' in h for h in (*allowed_hosts, *allowed_origins)) or 'null' in allowed_origins:
         raise ValueError('Exact Host and Origin allowlists are required.')
+
+    if database_socket is not None and (not isinstance(database_socket,str) or not database_socket.startswith('/') or '\x00' in database_socket):
+        raise ValueError('An explicit local database worker socket is required.')
 
     # AnyIO propagates request ContextVars into each worker. Keep the limit
     # explicit instead of using the shared default executor's capacity.
@@ -151,13 +170,14 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
         return mcp_credentials.principal_for_credential(db, _credential.get(), owner_resolver=owner_resolver)
 
     def available(p):
-        return [name for name, scope in SCOPES.items() if scope in p.scopes and (enable_creation or name not in MUTATING_TOOLS)]
+        return [name for name, scope in SCOPES.items() if scope in p.scopes and (enable_creation or name not in MUTATING_TOOLS) and (name not in DATABASE_TOOLS or database_socket is not None)]
 
     def list_tools_sync():
         with connection() as db:
             p = principal(db)
             return types.ListToolsResult(tools=[types.Tool(name=name, inputSchema=SCHEMAS[name],
-                description=('Resume the existing operation; queued recovery waits for an available worker.' if name == 'domain_resume' else
+                description=('Read an already accepted database binding through fresh worker identity and credential checks. No SQL or credentials are accepted.' if name in DATABASE_TOOLS else
+                             'Resume the existing operation; queued recovery waits for an available worker.' if name == 'domain_resume' else
                              'Adopt the exact DNS record from the current preview for this existing operation.' if name == 'domain_adopt' else
                              'Create using a stable idempotency key. Service desired_state=running starts this service; queued is not success.'
                              if name in MUTATING_TOOLS else 'Read authorized public deployment information.'),
@@ -177,7 +197,23 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
                     return result({'error': {'code': 'invalid_input', 'field': '.'.join(map(str, errors[0].absolute_path)),
                                              'message': 'Check this field against the advertised tool schema.'}}, True)
                 name = params.name
-                if name == 'project_list':
+                if name in DATABASE_TOOLS:
+                    import database_rpc
+                    ops._service_authorize(db,p,SCOPES[name],a['project_id'],a['environment'])
+                    actions={'database_bindings':'database-bindings','database_binding_get':'database-binding-get'}
+                    body={'action':actions.get(name,'database-read'),'project':a['project_id'],'environment':a['environment'],
+                          'authentication':{'kind':'mcp','token':_database_bearer.get()}}
+                    if name=='database_bindings':body.update({k:a[k] for k in ('limit','cursor') if k in a})
+                    else:
+                        body['binding_id']=a['binding_id']
+                        if name!='database_binding_get':
+                            body['expected_revision']=a['expected_revision']
+                            body['request']={'action':name.removeprefix('database_'),**{k:a[k] for k in ('schema','table','limit','cursor') if k in a}}
+                    response=database_rpc.request(body,path=database_socket)
+                    if not response['ok']:raise ops.OperationError('not_available','Database read is unavailable.',403)
+                    if principal(db)!=p:raise ops.OperationError('not_available','Database access changed.',403)
+                    payload=response['result']
+                elif name == 'project_list':
                     values = ops.list_projects(db, p, limit=a.get('limit', 25), cursor=a.get('cursor'))
                     payload = {'projects': [public_project(v) for v in values['projects']], 'next_cursor': values['next_cursor']}
                 elif name == 'project_get': payload = public_project(ops.get_project(db, p, a['project_id']))
@@ -267,8 +303,11 @@ class BearerBoundary:
         bucket.append(now)
         while len(self.rates) > 4096: self.rates.popitem(last=False)
         token = _credential.set(p.credential_id)
+        bearer_context = _database_bearer.set(auth[7:])
         try: await self.app(scope, receive, send)
-        finally: _credential.reset(token)
+        finally:
+            _database_bearer.reset(bearer_context)
+            _credential.reset(token)
 
 
 def app_from_env():
@@ -276,4 +315,5 @@ def app_from_env():
     return create_app(os.environ['DEPLOY_DB'], os.environ['DEPLOY_KEY_PATH'],
                       allowed_hosts=os.environ['MCP_ALLOWED_HOSTS'].split(','),
                       allowed_origins=tuple(filter(None, os.getenv('MCP_ALLOWED_ORIGINS', '').split(','))),
-                      enable_creation=os.getenv('MCP_ENABLE_CREATION') == '1')
+                      enable_creation=os.getenv('MCP_ENABLE_CREATION') == '1',
+                      database_socket=os.getenv('MCP_DATABASE_SOCKET') or None)
