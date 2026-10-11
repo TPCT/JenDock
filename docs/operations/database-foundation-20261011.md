@@ -66,11 +66,12 @@ cleanup and preservation of pre-existing Docker peers. Two-connection regression
 verify RLS committed before the lock is rejected, and post-lock RLS/rename remain
 blocked through the row read and complete after transaction release.
 
-This is private driver/transport evidence, not HTTP or UI acceptance. No public
-HTTP/MCP database actions or Database UI are delivered yet. Binding candidate
-ownership/storage verification, principal-owned preview acceptance and idempotency,
-fresh worker session authentication, real policy resolution, and authenticated
-end-to-end reads remain required. MySQL/MariaDB adapters and general row type/key
+This driver evidence is not end-to-end row-read or UI acceptance. A subsequent
+console configuration slice now adds live worker authentication, save replay and
+HTTP/Unix configuration acceptance; see `database-console-20261011.md`. A private
+registered candidate resolver is also implemented. Live candidate collection,
+principal-owned preview acceptance, real policy resolution and authenticated
+end-to-end database reads remain required. Database UI and MCP reads remain open. MySQL/MariaDB adapters and general row type/key
 support remain part of the full product scope. No production deployment occurred.
 
 Local validation after this driver slice: 27 focused database tests and 955 backend

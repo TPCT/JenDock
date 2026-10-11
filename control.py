@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 
 import yaml
+from application_operations import OperationError
+from database_bindings import BindingError
 from compose_identity import ordered_files
 from store import connect, effective_projects, audit
 
@@ -236,8 +238,21 @@ def without_resource_limits(config,service):
     if not target.get('deploy',{}):target.pop('deploy',None)
     return result
 
-def execute(body):
+def execute(body, *, peer_uid=None):
     if not isinstance(body,dict):raise ControlError('Invalid operation request.')
+    if isinstance(body.get('action'),str) and body['action'].startswith('database-'):
+        import database_control
+        import database_rpc
+        if peer_uid != database_rpc.expected_uid('DATABASE_RECEIVER_UID',65534):
+            raise ControlError('Database control peer is not authorized.')
+        if not LOCK.acquire(blocking=False):raise ControlError('Another operation is running. Retry after it completes.')
+        db=None
+        try:
+            db=connect(DATABASE)
+            return database_control.execute(db,body,key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE'))
+        finally:
+            if db is not None:db.close()
+            LOCK.release()
     action=body.get('action');project=body.get('project');name=body.get('container');actor=body.get('actor','admin')
     if action in ('adoption-preview','adoption-save'):
         import adoption
@@ -393,14 +408,26 @@ def execute(body):
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
         self.connection.settimeout(10)
+        body=None
         try:
             line=self.rfile.readline(262145)
-            if len(line)>262144:raise ControlError('Request is too large.')
-            result=execute(json.loads(line))
+            if len(line)>262144 or not line.endswith(b'\n'):raise ControlError('Request is incomplete or too large.')
+            import database_rpc
+            body=database_rpc.decode(line)
+            if isinstance(body,dict) and isinstance(body.get('action'),str) and body['action'].startswith('database-') and len(line)>65536:
+                raise ControlError('Database request is too large.')
+            result=execute(body,peer_uid=database_rpc.peer_uid(self.connection))
             response={'ok':True,'result':result}
+        except OperationError as error:
+            response={'ok':False,'error':str(error),'status':error.status}
+        except BindingError as error:
+            response={'ok':False,'error':str(error),'status':409}
         except ControlError as error:response={'ok':False,'error':str(error)}
         except Exception:response={'ok':False,'error':'Container management is temporarily unavailable.'}
-        try:self.wfile.write(json.dumps(response).encode()+b'\n')
+        encoded=json.dumps(response,allow_nan=False).encode()+b'\n'
+        if isinstance(body,dict) and isinstance(body.get('action'),str) and body['action'].startswith('database-') and len(encoded)>262144:
+            encoded=b'{"ok":false,"error":"Response is too large. Request a smaller page.","status":413}\n'
+        try:self.wfile.write(encoded)
         except (BrokenPipeError,ConnectionResetError):pass
 
 def start():

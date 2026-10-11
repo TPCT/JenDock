@@ -99,6 +99,19 @@ class Application:
         db=connect(self.database)
         try:
             action=body.get('action')
+            if isinstance(action,str) and action.startswith('database-'):
+                import database_rpc
+                # Authentication fields are receiver-owned, never copied from input.
+                if set(body)&{'authentication','actor','terminal_owner'}:
+                    return 400,{'error':'Unexpected database authentication fields.'}
+                payload=dict(body,authentication={'kind':'console','session_digest':session['token']})
+                try:
+                    response=database_rpc.request(payload)
+                    if not response['ok']:
+                        return response.get('status',409),{'error':response.get('error','Database operation failed.')}
+                    return 200,response['result']
+                except (OSError,ValueError,KeyError,TypeError):
+                    return 503,{'error':'Database configuration is unavailable. Reload its saved state before retrying.'}
             if action=='logout':
                 db.execute('DELETE FROM sessions WHERE token=?',(session['token'],))
                 audit(db,session['username'],'logout')

@@ -21,6 +21,7 @@ class BindingError(ValueError):
 
 def initialize(db):
     for sql in (
+        'CREATE TABLE IF NOT EXISTS database_save_requests(owner TEXT NOT NULL,actor_kind TEXT NOT NULL,project TEXT NOT NULL,environment TEXT NOT NULL,action TEXT NOT NULL,request_id TEXT NOT NULL,payload BLOB NOT NULL,result TEXT NOT NULL,PRIMARY KEY(owner,actor_kind,project,environment,action,request_id))',
         'CREATE TABLE IF NOT EXISTS database_credentials(id TEXT PRIMARY KEY,project TEXT NOT NULL,environment TEXT NOT NULL,revision INTEGER NOT NULL,enabled INTEGER NOT NULL,ciphertext BLOB NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)',
         'CREATE TABLE IF NOT EXISTS database_binding_definitions(id TEXT PRIMARY KEY,document TEXT NOT NULL,digest TEXT NOT NULL,created REAL NOT NULL)',
         'CREATE TABLE IF NOT EXISTS database_bindings(id TEXT PRIMARY KEY,project TEXT NOT NULL,environment TEXT NOT NULL,revision INTEGER NOT NULL,enabled INTEGER NOT NULL,definition_id TEXT NOT NULL,created REAL NOT NULL,updated REAL NOT NULL)',
@@ -30,7 +31,8 @@ def initialize(db):
         db.execute(f"CREATE TRIGGER IF NOT EXISTS database_definition_immutable_{action.lower()} BEFORE {action} ON database_binding_definitions BEGIN SELECT RAISE(ABORT,'Database definitions are immutable'); END")
 
 
-def _authorize(db,principal,project,environment,scope):
+def _authorize(db,principal,project,environment,scope,revalidate=None):
+    if revalidate is not None and revalidate()!=principal:raise BindingError('Database access changed. Authenticate again.')
     ops._service_authorize(db,principal,scope,project,environment)
     ops.recheck_credential(db,principal)
 
@@ -76,15 +78,48 @@ def _event(db,principal,project,environment,identifier,revision,action):
         (project,environment,identifier,revision,action,principal.subject_id,time.time()))
 
 
-def save_credential(db,principal,project,environment,values,*,expected_revision,key_path,credential_id=None):
-    _authorize(db,principal,project,environment,'databases:manage');_revision(expected_revision);initialize(db)
+
+def _request_context(principal,project,environment,action,request_id):
+    if request_id is None:return None
+    if not isinstance(request_id,str) or not re.fullmatch('[A-Za-z0-9_.:-]{8,128}',request_id):raise BindingError('Invalid database request ID.')
+    return (principal.subject_id,principal.actor_kind,project,environment,action,request_id)
+
+
+def _replay(db,context,payload,cipher=None):
+    if context is None:return None
+    row=db.execute('SELECT payload,result FROM database_save_requests WHERE owner=? AND actor_kind=? AND project=? AND environment=? AND action=? AND request_id=?',context).fetchone()
+    if row is None:return None
+    try:
+        if cipher is not None:
+            saved=json.loads(cipher.decrypt(row['payload']))
+            if saved!={'purpose':'database-save-replay','context':list(context),'request':payload}:raise ValueError()
+        elif row['payload']!=_digest(payload):raise ValueError()
+        result=json.loads(row['result'])
+        if not isinstance(result,dict):raise ValueError()
+        return result
+    except (InvalidToken,ValueError,TypeError,KeyError):raise BindingError('Database request ID conflicts with its saved request or encryption key.') from None
+
+
+def _remember(db,context,payload,result,cipher=None):
+    if context is None:return result
+    saved=cipher.encrypt(registry.canonical({'purpose':'database-save-replay','context':list(context),'request':payload}).encode()) if cipher is not None else _digest(payload)
+    db.execute('INSERT INTO database_save_requests VALUES(?,?,?,?,?,?,?,?)',(*context,saved,registry.canonical(result)))
+    return result
+
+
+def save_credential(db,principal,project,environment,values,*,expected_revision,key_path,credential_id=None,revalidate=None,request_id=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);_revision(expected_revision);initialize(db)
     if (not isinstance(values,dict) or set(values)!={'username','password'}
             or any(not isinstance(values[k],str) or not 1<=len(values[k])<=4096 or '\x00' in values[k] for k in values)
             or len(values['username'])>128 or any(ord(c)<32 for c in values['username'])):
         raise BindingError('A bounded database username and password are required.')
+    context=_request_context(principal,project,environment,'credential-save',request_id)
+    payload={'values':values,'expected_revision':expected_revision,'credential_id':credential_id}
     cipher=_cipher(key_path);identifier=_id(credential_id) if credential_id is not None else uuid.uuid4().hex
     with registry.transaction(db):
-        _authorize(db,principal,project,environment,'databases:manage')
+        _authorize(db,principal,project,environment,'databases:manage',revalidate)
+        replay=_replay(db,context,payload,cipher)
+        if replay is not None:return replay
         prior=_credential(db,project,environment,identifier) if credential_id is not None else None
         if expected_revision!=(prior['revision'] if prior else 0):raise BindingError('Database credential revision changed.')
         revision=expected_revision+1;now=time.time()
@@ -94,13 +129,13 @@ def save_credential(db,principal,project,environment,values,*,expected_revision,
             db.execute('UPDATE database_credentials SET revision=?,enabled=1,ciphertext=?,updated=? WHERE id=?',(revision,ciphertext,now,identifier))
         else:db.execute('INSERT INTO database_credentials VALUES(?,?,?,?,?,?,?,?)',(identifier,project,environment,revision,1,ciphertext,now,now))
         _event(db,principal,project,environment,identifier,revision,'credential-saved')
-        return _public_credential(_credential(db,project,environment,identifier))
+        return _remember(db,context,payload,_public_credential(_credential(db,project,environment,identifier)),cipher)
 
 
-def revoke_credential(db,principal,project,environment,credential_id,*,expected_revision):
-    _authorize(db,principal,project,environment,'databases:manage');_revision(expected_revision);initialize(db)
+def revoke_credential(db,principal,project,environment,credential_id,*,expected_revision,revalidate=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);_revision(expected_revision);initialize(db)
     with registry.transaction(db):
-        _authorize(db,principal,project,environment,'databases:manage')
+        _authorize(db,principal,project,environment,'databases:manage',revalidate)
         row=_credential(db,project,environment,credential_id)
         if row['revision']!=expected_revision:raise BindingError('Database credential revision changed.')
         db.execute('UPDATE database_credentials SET revision=revision+1,enabled=0,updated=? WHERE id=?',(time.time(),credential_id))
@@ -122,9 +157,16 @@ def credential_for_use(db,project,environment,credential_id,revision,key_path):
     except (InvalidToken,TypeError,ValueError,KeyError):raise BindingError('Database credential cannot be resolved with its current identity and key.') from None
 
 
-def list_credentials(db,principal,project,environment):
-    _authorize(db,principal,project,environment,'databases:manage');initialize(db)
-    return [_public_credential(r) for r in db.execute('SELECT * FROM database_credentials WHERE project=? AND environment=? ORDER BY created,id',(project,environment))]
+def _page(limit,cursor):
+    if type(limit) is not int or not 1<=limit<=100:raise BindingError('Choose a page size between 1 and 100.')
+    if cursor is not None:_id(cursor)
+    return limit,cursor or ''
+
+
+def list_credentials(db,principal,project,environment,*,revalidate=None,limit=25,cursor=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);initialize(db)
+    limit,cursor=_page(limit,cursor)
+    return [_public_credential(r) for r in db.execute('SELECT * FROM database_credentials WHERE project=? AND environment=? AND id>? ORDER BY id LIMIT ?',(project,environment,cursor,limit))]
 
 
 def _definition(values,project,environment):
@@ -177,11 +219,15 @@ def _public_binding(db,row):
     return {k:row[k] for k in ('id','project','environment','revision','definition_id','created','updated')} | {'enabled':bool(row['enabled']),'definition':document,'definition_digest':saved['digest'],'status':status,'verified':False}
 
 
-def save_binding(db,principal,project,environment,values,*,expected_revision,binding_id=None):
-    _authorize(db,principal,project,environment,'databases:manage');_revision(expected_revision);initialize(db)
+def save_binding(db,principal,project,environment,values,*,expected_revision,binding_id=None,revalidate=None,request_id=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);_revision(expected_revision);initialize(db)
+    context=_request_context(principal,project,environment,'binding-save',request_id)
+    payload={'values':values,'expected_revision':expected_revision,'binding_id':binding_id}
     definition=_definition(values,project,environment);identifier=_id(binding_id) if binding_id is not None else uuid.uuid4().hex
     with registry.transaction(db):
-        _authorize(db,principal,project,environment,'databases:manage')
+        _authorize(db,principal,project,environment,'databases:manage',revalidate)
+        replay=_replay(db,context,payload)
+        if replay is not None:return replay
         prior=_binding(db,project,environment,identifier) if binding_id is not None else None
         if expected_revision!=(prior['revision'] if prior else 0):raise BindingError('Database binding revision changed.')
         secret=_credential(db,project,environment,definition['secret_id'])
@@ -191,23 +237,24 @@ def save_binding(db,principal,project,environment,values,*,expected_revision,bin
         if prior:db.execute('UPDATE database_bindings SET revision=?,enabled=1,definition_id=?,updated=? WHERE id=?',(revision,definition_id,now,identifier))
         else:db.execute('INSERT INTO database_bindings VALUES(?,?,?,?,?,?,?,?)',(identifier,project,environment,revision,1,definition_id,now,now))
         _event(db,principal,project,environment,identifier,revision,'binding-saved')
-        return _public_binding(db,_binding(db,project,environment,identifier))
+        return _remember(db,context,payload,_public_binding(db,_binding(db,project,environment,identifier)))
 
 
-def get_binding(db,principal,project,environment,binding_id):
-    _authorize(db,principal,project,environment,'databases:read');initialize(db)
+def get_binding(db,principal,project,environment,binding_id,*,revalidate=None):
+    _authorize(db,principal,project,environment,'databases:read',revalidate);initialize(db)
     return _public_binding(db,_binding(db,project,environment,binding_id))
 
 
-def list_bindings(db,principal,project,environment):
-    _authorize(db,principal,project,environment,'databases:read');initialize(db)
-    return [_public_binding(db,row) for row in db.execute('SELECT * FROM database_bindings WHERE project=? AND environment=? ORDER BY created,id',(project,environment))]
+def list_bindings(db,principal,project,environment,*,revalidate=None,limit=25,cursor=None):
+    _authorize(db,principal,project,environment,'databases:read',revalidate);initialize(db)
+    limit,cursor=_page(limit,cursor)
+    return [_public_binding(db,row) for row in db.execute('SELECT * FROM database_bindings WHERE project=? AND environment=? AND id>? ORDER BY id LIMIT ?',(project,environment,cursor,limit))]
 
 
-def disable_binding(db,principal,project,environment,binding_id,*,expected_revision):
-    _authorize(db,principal,project,environment,'databases:manage');_revision(expected_revision);initialize(db)
+def disable_binding(db,principal,project,environment,binding_id,*,expected_revision,revalidate=None):
+    _authorize(db,principal,project,environment,'databases:manage',revalidate);_revision(expected_revision);initialize(db)
     with registry.transaction(db):
-        _authorize(db,principal,project,environment,'databases:manage')
+        _authorize(db,principal,project,environment,'databases:manage',revalidate)
         row=_binding(db,project,environment,binding_id)
         if row['revision']!=expected_revision:raise BindingError('Database binding revision changed.')
         db.execute('UPDATE database_bindings SET revision=revision+1,enabled=0,updated=? WHERE id=?',(time.time(),binding_id))
