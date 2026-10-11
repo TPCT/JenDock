@@ -120,6 +120,8 @@ def _runs(db, project, environment):
 def read(db, project, environment):
     registry.initialize(db)
     job_target.initialize(db)
+    import build_profiles
+    build_profiles.initialize(db)
     registry.identifier(project)
     if not isinstance(environment, str) or environment not in registry.ENVIRONMENTS:
         raise ValueError('Choose Development or Production.')
@@ -184,7 +186,6 @@ def read(db, project, environment):
         runs, unassigned_runs = _runs(db, project, environment)
         from delivery_target import readiness
         delivery = readiness(selected_recipe, services, {'stale': stale, 'ownership_complete': complete}, {'state': state}, settings)
-        import build_profiles
         build_source = build_profiles.get(db, project, environment)
         if build_source['source_revision'] is not None:
             delivery['build'] = {'enabled': True, 'reason': ''}

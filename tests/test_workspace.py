@@ -29,6 +29,19 @@ class WorkspaceTests(unittest.TestCase):
         import workspace
         return workspace.read(self.db, 'app', environment)
 
+    def test_first_workspace_read_allows_concurrent_observation_write(self):
+        import build_profiles
+        from unittest.mock import patch
+        original=build_profiles.get
+        def interleaved(db, project, environment):
+            other=connect(Path(self.tmp.name)/'state.sqlite')
+            try:snapshot(other,'worker',{'state':'running','generation':2})
+            finally:other.close()
+            return original(db,project,environment)
+        with patch.object(build_profiles,'get',side_effect=interleaved):
+            self.assertEqual(self.read()['environment']['name'],'development')
+        self.assertIsNotNone(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='environment_build_profiles'").fetchone())
+
     def test_unclassified_legacy_is_separate_from_both_environments(self):
         for environment in ('development', 'production'):
             result = self.read(environment)

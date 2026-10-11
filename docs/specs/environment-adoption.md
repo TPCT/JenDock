@@ -94,4 +94,4 @@ Verification checkpoint: the configured local Python environment completed all
 1,335 backend tests. A separate reviewer independently ran 25 adoption/recovery
 checks and found no blocking regression. The initial system-Python run failed
 because psycopg, MCP and httpx2 were absent; the existing project environment
-required no installation. Browser dropped-response/reload acceptance remains open.
+required no installation. Browser accepted-result/HTTP-503 recovery and reload acceptance now passes for both environments; see `../operations/adoption-browser-acceptance-20261011.md`. Real transport-disconnect and browser storage-failure branches remain open.

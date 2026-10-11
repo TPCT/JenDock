@@ -106,7 +106,7 @@ export default function AdoptWorkload({
     };
   }, [open, project, environment, api, reload, selectionKey, uncertain, linked, storageError]);
   useEffect(() => {
-    onDirty(!linked && (uncertain || (draft.scope === scope && (draft.recipe_revision != null || draft.services != null))));
+    onDirty(!linked && !uncertain && draft.scope === scope && (draft.recipe_revision != null || draft.services != null));
     return () => onDirty(false);
   }, [uncertain, linked, onDirty, draft, scope]);
   useEffect(() => {

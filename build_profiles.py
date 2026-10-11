@@ -13,6 +13,9 @@ FIELDS = {'dockerfile', 'context', 'target', 'test_command', 'command', 'healthc
 
 def initialize(db):
     registry.initialize(db)
+    # A read snapshot must not upgrade to a writer just to repeat schema DDL.
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='environment_build_profiles'").fetchone():
+        return
     db.execute('''CREATE TABLE IF NOT EXISTS environment_build_profiles(
         project TEXT NOT NULL,environment TEXT NOT NULL,revision INTEGER NOT NULL,
         recipe_revision INTEGER NOT NULL,PRIMARY KEY(project,environment))''')

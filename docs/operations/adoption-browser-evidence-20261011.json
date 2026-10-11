@@ -1,0 +1,138 @@
+{
+  "boundary": "Browser via actual HTTP authentication, Unix control and SQLite; synthetic Docker inventory and 503 fault injection, no production",
+  "receipts": [
+    {
+      "project": "app",
+      "environment": "development",
+      "fingerprint": "bec35b221de2ec016e555bedfe455e3320b309d94a56ae1357de8d89ab228c90",
+      "actor": "fixture-owner"
+    },
+    {
+      "project": "app",
+      "environment": "production",
+      "fingerprint": "8e8f8c86b1aa5414f16125ade172bb50b5500a371a2b37014e2b075fa6c13242",
+      "actor": "fixture-owner"
+    }
+  ],
+  "requests": [
+    {
+      "action": "adoption-options",
+      "project": "app",
+      "environment": "production",
+      "status": 200
+    },
+    {
+      "action": "collect"
+    },
+    {
+      "action": "adoption-preview",
+      "project": "app",
+      "environment": "production",
+      "status": 200
+    },
+    {
+      "action": "adoption-options",
+      "project": "app",
+      "environment": "production",
+      "status": 200
+    },
+    {
+      "action": "collect"
+    },
+    {
+      "action": "adoption-preview",
+      "project": "app",
+      "environment": "production",
+      "services": [
+        "production-db"
+      ],
+      "status": 200
+    },
+    {
+      "action": "collect"
+    },
+    {
+      "action": "adoption-save",
+      "project": "app",
+      "environment": "production",
+      "fingerprint": "8e8f8c86b1aa5414f16125ade172bb50b5500a371a2b37014e2b075fa6c13242",
+      "services": [
+        "production-db"
+      ],
+      "status": 200
+    },
+    {
+      "action": "adoption-options",
+      "project": "app",
+      "environment": "development",
+      "status": 200
+    },
+    {
+      "action": "collect"
+    },
+    {
+      "action": "adoption-preview",
+      "project": "app",
+      "environment": "development",
+      "status": 409
+    },
+    {
+      "action": "adoption-options",
+      "project": "app",
+      "environment": "development",
+      "status": 200
+    },
+    {
+      "action": "collect"
+    },
+    {
+      "action": "adoption-preview",
+      "project": "app",
+      "environment": "development",
+      "services": [
+        "development-db"
+      ],
+      "status": 200
+    },
+    {
+      "action": "collect"
+    },
+    {
+      "action": "adoption-save",
+      "project": "app",
+      "environment": "development",
+      "fingerprint": "bec35b221de2ec016e555bedfe455e3320b309d94a56ae1357de8d89ab228c90",
+      "services": [
+        "development-db"
+      ],
+      "status": 200
+    },
+    {
+      "action": "adoption-save",
+      "project": "app",
+      "environment": "production",
+      "fingerprint": "8e8f8c86b1aa5414f16125ade172bb50b5500a371a2b37014e2b075fa6c13242",
+      "services": [
+        "production-db"
+      ],
+      "status": 200
+    },
+    {
+      "action": "adoption-save",
+      "project": "app",
+      "environment": "development",
+      "fingerprint": "bec35b221de2ec016e555bedfe455e3320b309d94a56ae1357de8d89ab228c90",
+      "services": [
+        "development-db"
+      ],
+      "status": 200
+    }
+  ],
+  "assertions": [
+    "two independent accepted receipts",
+    "each exact save repeated once after reload",
+    "no replacement preview after ambiguous outcome",
+    "selected services isolated per environment",
+    "both environments simultaneously pending and recovered independently"
+  ]
+}
