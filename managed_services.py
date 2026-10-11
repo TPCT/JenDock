@@ -252,6 +252,8 @@ def validate_definition(db, project, environment, values):
 
 
 def ensure_environment_eligible(db, project, environment):
+    import service_runtime_operations
+    if service_runtime_operations.pending(db,project,environment):raise ValueError('Runtime settings require reconciliation before environment changes.')
     env=registry.get_environment(db,project,environment)
     if env['recipe_revision'] is not None:
         row=db.execute('SELECT document,digest FROM registry_recipes WHERE id=? AND project=?',(env['recipe_revision'],project)).fetchone()
@@ -305,7 +307,8 @@ def get(db, service_id):
     if digest(document) != definition['digest']: raise ValueError('Service definition identity is inconsistent.')
     bound = db.execute('SELECT document FROM service_bindings WHERE service_id=?', (service_id,)).fetchone()
     binding = json.loads(bound['document']) if bound else None
-    return {**dict(row), 'definition': document, 'desired_state': document['desired_state'], 'binding': binding,
+    import managed_lifecycle
+    return {**dict(row), 'definition': document, 'desired_state': managed_lifecycle.desired(db,service_id,document['desired_state']), 'binding': binding,
             'container': {'id': binding['container_id'], 'name': binding['container_name'], 'evidence':'recorded', 'observed_at':binding.get('observed')} if binding else None}
 
 

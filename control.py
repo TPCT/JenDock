@@ -192,10 +192,78 @@ def restore_environment():
         finally:db.close()
     JOURNAL.unlink()
 
+
+def managed_runtime_service(db,project,container):
+    """Resolve only a registered managed binding, never infer from name prefixes."""
+    import managed_services
+    identifier=(container.get('Config',{}).get('Labels') or {}).get('net.shiftcodes.managed.service')
+    if not identifier:return None
+    try:row=managed_services.get(db,identifier)
+    except ValueError:raise ControlError('Managed service registration is unavailable.') from None
+    if row['project']!=project or not row.get('binding') or row['binding']['container_id']!=container['Id']:
+        raise ControlError('Managed service binding changed. Reconcile it before editing.')
+    return row
+
+
+def target_configuration(container,files,args):
+    if (container.get('_monitor_recipe') or {}).get('managed_environment'):
+        if len(files)!=1:raise ControlError('Managed services require one canonical manifest.')
+        try:return json.loads(files[0].read_text())
+        except (ValueError,OSError):raise ControlError('Managed service manifest is invalid.') from None
+    return configuration(args)
+
+
+def save_managed_environment(db,body,container,service):
+    import service_runtime
+    import service_runtime_operations
+    p,e=service['project'],service['environment']
+    def authorize():
+        if p not in effective_projects(db,CONFIG):raise ControlError('Project authority is unavailable.')
+        current=__import__('managed_services').get(db,service['id'])
+        if current['project']!=p or current['environment']!=e:raise ControlError('Service authority changed.')
+    key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE','')
+    # Preserve the editor's existing effective values, including image defaults;
+    # only explicitly submitted keys are changed and every value is encrypted.
+    pin=(service['definition'].get('runtime') or {}).get('database_attachment')
+    if pin is not None:
+        import application_database_bindings
+        reserved=application_database_bindings.recorded_environment_keys(db,p,e,service['id'],pin)
+        if set(body['changes']) & set(reserved):
+            raise ControlError('Database-managed variables must be edited through Application database settings.')
+    values=effective_environment(container);values.update(body['changes'])
+    service_runtime_operations.accept(db,body['request_id'],service['id'],values,
+        expected_container_id=container['Id'],key_path=key_path,authorize=authorize,request=body,
+        **({'database_attachment':body['database_attachment']} if 'database_attachment' in body else {}))
+    return service_runtime_operations.apply(db,body['request_id'],docker=DOCKER,compose=COMPOSE,authorize=authorize)
+
+def managed_lifecycle_action(db,body,container,service):
+    import managed_lifecycle
+    p,e=service['project'],service['environment']
+    def authorize():
+        if p not in effective_projects(db,CONFIG):raise ControlError('Project authority is unavailable.')
+        current=__import__('managed_services').get(db,service['id'])
+        if current['project']!=p or current['environment']!=e:raise ControlError('Service authority changed.')
+    managed_lifecycle.accept(db,body['request_id'],service['id'],body['action'].removeprefix('container-'),
+        expected_container_id=container['Id'],docker=DOCKER,authorize=authorize,request=body)
+    return managed_lifecycle.apply(db,body['request_id'],docker=DOCKER,authorize=authorize)
+
+
+def save_managed_resources(db,body,container,service,limits,transition):
+    import service_runtime_operations
+    p,e=service['project'],service['environment']
+    def authorize():
+        if p not in effective_projects(db,CONFIG):raise ControlError('Project authority is unavailable.')
+        current=__import__('managed_services').get(db,service['id'])
+        if current['project']!=p or current['environment']!=e:raise ControlError('Service authority changed.')
+    service_runtime_operations.accept(db,body['request_id'],service['id'],effective_environment(container),
+        expected_container_id=container['Id'],key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE',''),
+        authorize=authorize,resources=limits,resource_transition=transition)
+    return service_runtime_operations.apply(db,body['request_id'],docker=DOCKER,compose=COMPOSE,authorize=authorize)
+
 def details(project, name, _with_identity=False):
     c,service,files,args=inspect_target(project,name)
     image=json.loads(command([DOCKER,'image','inspect',c['Image']]))[0]
-    config=configuration(args)
+    config=target_configuration(c,files,args)
     owner=next((f for f in reversed(files) if service in (yaml.safe_load(f.read_text()) or {}).get('services',{})),None)
     if service not in config['services'] or owner is None:raise ControlError('Service configuration is incomplete.')
     env=effective_environment(c)
@@ -209,6 +277,22 @@ def details(project, name, _with_identity=False):
             'resources':resource_limits(c),
             'ports':c.get('NetworkSettings',{}).get('Ports',{}),
             'mounts':[{'type':m['Type'],'destination':m['Destination'],'read_only':not m['RW']} for m in c.get('Mounts',[])]}
+    metadata_db=connect(DATABASE)
+    try:
+        managed=managed_runtime_service(metadata_db,project,c)
+        if managed:
+            import service_runtime
+            result['managed_service_id']=managed['id']
+            result['runtime']=service_runtime.status(metadata_db,project,managed['environment'],managed['id'])
+            pin=(managed['definition'].get('runtime') or {}).get('database_attachment')
+            result['runtime']['database_attachment']=copy.deepcopy(pin)
+            result['runtime']['database_managed_variables']=[]
+            if pin is not None:
+                import application_database_bindings
+                result['runtime']['database_managed_variables']=application_database_bindings.recorded_environment_keys(
+                    metadata_db,project,managed['environment'],managed['id'],pin)
+
+    finally:metadata_db.close()
     if _with_identity:result['_actual']=c
     return result
 
@@ -353,13 +437,30 @@ def execute(body, *, peer_uid=None):
         previous=db.execute('SELECT status,detail,project,container,operation FROM control_runs WHERE request_id=?',(key,)).fetchone()
         if previous:
             if (previous['project'],previous['container'],previous['operation'])!=(project,name,action):raise ControlError('Operation ID belongs to a different request.')
+            if action in ('container-start','container-stop','container-restart'):
+                import managed_lifecycle
+                try:
+                    result=managed_lifecycle.replay_request(db,body)
+                    if result:return result
+                except ValueError as error:raise ControlError(str(error)) from None
+            if action=='environment-save':
+                import service_runtime_operations
+                try:
+                    result=service_runtime_operations.replay_request(db,body,key_path=os.environ.get('DATABASE_INSPECTION_KEY_FILE',''))
+                    if result:return result
+                except ValueError as error:raise ControlError(str(error)) from None
             return {'status':previous['status'],'message':previous['detail']}
         if JOURNAL.exists():raise ControlError('An environment recovery is pending. Resolve it before another operation.')
         c,service,files,args=inspect_target(project,name)
         if c['Id']!=body.get('container_id'):raise ControlError('The container was replaced. Reopen its details before making a change.')
+        managed=managed_runtime_service(db,project,c)
+        if managed:
+            import service_runtime_operations
+            if service_runtime_operations.pending(db,managed['project'],managed['environment']):raise ControlError('Runtime settings require reconciliation before further changes.')
         was_running=c['State']['Running']
         if action in ('environment-save','resource-apply','container-limits-save'):
-            if action=='environment-save':validate_changes(body.get('changes'))
+            if action=='environment-save':
+                if not (managed and 'database_attachment' in body and body.get('changes')=={}):validate_changes(body.get('changes'))
             elif action=='container-limits-save':
                 try:
                     limits=direct_limits.limits(body.get('limits'))
@@ -369,8 +470,8 @@ def execute(body, *, peer_uid=None):
                 from resource_policy import allocation
                 try:limits=allocation(db,project,body.get('environment'),name,body.get('policy_revision'))
                 except ValueError as error:raise ControlError(str(error))
-            assert_image(configuration(args),service,c['Image'])
-            if revision(files,c,configuration(args))!=body.get('revision'):raise ControlError('Configuration changed. Reopen the editor before saving.')
+            assert_image(target_configuration(c,files,args),service,c['Image'])
+            if revision(files,c,target_configuration(c,files,args))!=body.get('revision'):raise ControlError('Configuration changed. Reopen the editor before saving.')
         now=time.time()
         resource_transition=None
         if action=='container-limits-save':
@@ -380,6 +481,18 @@ def execute(body, *, peer_uid=None):
             db.execute('INSERT INTO control_runs(request_id,created,updated,actor,project,container,operation,status,detail) VALUES(?,?,?,?,?,?,?,?,?)',(key,now,now,actor,project,name,action,'running','Operation started.'))
         audit(db,actor,action,project,json.dumps({'container':name,'keys':sorted(body.get('changes',{}))}))
         try:
+            if managed and action in ('container-start','container-stop','container-restart'):
+                return managed_lifecycle_action(db,body,c,managed)
+            if action=='environment-save' and managed:
+                result=save_managed_environment(db,body,c,managed)
+                db.execute('UPDATE control_runs SET status=?,detail=?,updated=? WHERE request_id=?',
+                           (result['status'],result['message'],time.time(),key))
+                return result
+            if managed and action in ('resource-apply','container-limits-save'):
+                result=save_managed_resources(db,body,c,managed,limits,resource_transition)
+                db.execute('UPDATE control_runs SET status=?,detail=?,updated=? WHERE request_id=?',
+                           (result['status'],result['message'],time.time(),key))
+                return result
             if action=='resource-apply':
                 limits=allocation(db,project,body.get('environment'),name,body.get('policy_revision'))
             if action in ('environment-save','resource-apply','container-limits-save'):
@@ -432,7 +545,17 @@ def execute(body, *, peer_uid=None):
             if JOURNAL.exists():
                 try:restore_environment();message='The change failed. Previous environment and runtime state were restored.';status='rolled-back'
                 except Exception:message='Environment recovery needs attention. Further changes are blocked.';status='recovery-failed'
-            else:message='Operation failed. Check the current container state before retrying.';status='failed'
+            else:
+                message='Operation failed. Check the current container state before retrying.';status='failed'
+                if managed and action in ('container-start','container-stop','container-restart'):
+                    try:
+                        import managed_lifecycle
+                        result=managed_lifecycle.public(db,key);status=result['status'];message=result['message']
+                    except ValueError:pass
+                if managed and action in ('environment-save','resource-apply','container-limits-save'):
+                    try:
+                        result=service_runtime_operations.public(db,key);status=result['status'];message=result['message']
+                    except ValueError:pass
         db.execute('UPDATE control_runs SET status=?,detail=?,updated=? WHERE request_id=?',(status,message,time.time(),key))
         return {'status':status,'message':message}
     finally:

@@ -35,6 +35,8 @@ import ContainerLimits from "./ContainerLimits";
 import ContainerLogs from "./ContainerLogs";
 import ContainerFiles from "./ContainerFiles";
 import DatabaseInspector from "./DatabaseInspector";
+import ApplicationDatabaseSettings from "./ApplicationDatabaseSettings";
+import { restoreAttachmentOperation, attachmentOperationRecord, persistAttachmentOperation } from "./applicationRuntime.js";
 
 const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const showDate = (value) =>
@@ -107,6 +109,7 @@ export function containerOperationBody(operation, project, name) {
     revision: operation.revision,
     request_id: operation.requestId,
     ...(operation.changes ? { changes: operation.changes } : {}),
+    ...(operation.databaseAttachment ? { database_attachment: operation.databaseAttachment } : {}),
   };
 }
 const actionTitle = (operation) =>
@@ -137,6 +140,8 @@ function ContainerWorkspace({
   const [databaseOpen, setDatabaseOpen] = useState(false);
   const [databasePending, setDatabasePending] = useState(false);
   const [databaseDirty, setDatabaseDirty] = useState(false);
+  const [applicationDirty, setApplicationDirty] = useState(false);
+  const [applicationPending, setApplicationPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState(initialTab === "terminal" ? 2 : 0);
@@ -148,8 +153,10 @@ function ContainerWorkspace({
   const [search, setSearch] = useState("");
   const [newKey, setNewKey] = useState("");
   const [keyError, setKeyError] = useState("");
-  const [operation, setOperation] = useState(null);
+  const operationKey = `application-connection-operation:${project}:${selectedEnvironment}:${name}`;
+  const [operation, setOperation] = useState(() => { try { return restoreAttachmentOperation(sessionStorage.getItem(operationKey)); } catch { return null; } });
   const [pending, setPending] = useState(false);
+  const attachmentUnresolved = !!(operation?.databaseAttachment && operation.submitted && !operation.resolved);
   const [limitsDirty, setLimitsDirty] = useState(false);
   const [limitsPending, setLimitsPending] = useState(false);
   const [operationError, setOperationError] = useState("");
@@ -216,23 +223,23 @@ function ContainerWorkspace({
     };
   }, [project, name]);
   useEffect(() => {
-    dirtyRef.current?.(count > 0 || pending || limitsDirty || databaseDirty);
-  }, [count, pending, limitsDirty, databaseDirty]);
+    dirtyRef.current?.(count > 0 || pending || limitsDirty || databaseDirty || applicationDirty || applicationPending || attachmentUnresolved);
+  }, [count, pending, limitsDirty, databaseDirty, applicationDirty, applicationPending, attachmentUnresolved]);
   useEffect(() => {
-    pendingRef.current?.(pending || limitsPending || databasePending);
-  }, [pending, limitsPending, databasePending]);
+    pendingRef.current?.(pending || limitsPending || databasePending || applicationPending || attachmentUnresolved);
+  }, [pending, limitsPending, databasePending, applicationPending, attachmentUnresolved]);
   useEffect(() => {
     const protect = (event) => {
-      if (count || pending || limitsDirty || limitsPending || databaseDirty || databasePending) {
+      if (count || pending || limitsDirty || limitsPending || databaseDirty || databasePending || applicationDirty || applicationPending || attachmentUnresolved) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", protect);
     return () => window.removeEventListener("beforeunload", protect);
-  }, [count, pending, limitsDirty, limitsPending, databaseDirty, databasePending]);
+  }, [count, pending, limitsDirty, limitsPending, databaseDirty, databasePending, applicationDirty, applicationPending, attachmentUnresolved]);
   const reload = async () => {
-    if (count || pending || limitsDirty || limitsPending || databaseDirty || databasePending) return;
+    if (count || pending || limitsDirty || limitsPending || databaseDirty || databasePending || applicationDirty || applicationPending || attachmentUnresolved) return;
     setOperation(null);
     await load();
     try {
@@ -253,6 +260,7 @@ function ContainerWorkspace({
       );
       return;
     }
+    if (detail.runtime?.database_managed_variables?.includes(key)) { setKeyError("This variable is managed by the application database connection."); return; }
     if (has(detail.environment, key) || has(changes, key)) {
       setKeyError(
         "This variable already exists. Search for it to edit its value.",
@@ -271,7 +279,7 @@ function ContainerWorkspace({
     setSearch("");
   };
   const review = (kind) => {
-    if (unavailable || loading || pending || limitsDirty || limitsPending)
+    if (unavailable || loading || pending || limitsDirty || limitsPending || applicationDirty || applicationPending)
       return;
     if (kind !== "environment-save" && count) {
       setTab(1);
@@ -294,6 +302,27 @@ function ContainerWorkspace({
     });
     setOperationError("");
   };
+  const reviewAttachment = (pin) => {
+    if (unavailable || pending || count || limitsDirty || limitsPending || applicationDirty) return;
+    setOperation({kind:"environment-save",requestId:crypto.randomUUID(),containerId:detail.container_id,revision:detail.revision,changes:{},databaseAttachment:pin,submitted:false});
+    setOperationError("");
+  };
+  useEffect(() => {
+    try { if (operation?.databaseAttachment && operation.submitted && !operation.resolved) persistAttachmentOperation(sessionStorage,operationKey,operation); else if (operation?.resolved) sessionStorage.removeItem(operationKey); } catch { /* Server control_runs remains authoritative. */ }
+  }, [operation,operationKey]);
+  const recordedOperation = attachmentOperationRecord(data.control_runs, operation, project, name);
+  useEffect(() => {
+    if (!attachmentUnresolved || pending || !recordedOperation) return;
+    if (["failed", "rolled-back", "recovery-failed"].includes(recordedOperation.status)) {
+      setOperation(previous => ({...previous,resolved:true}));
+      setOperationError(recordedOperation.detail || "The connection was not applied.");
+      setNeedsInspection(true);
+    } else if (recordedOperation.status === "succeeded") {
+      try { sessionStorage.removeItem(operationKey); } catch {}
+      setOperation(null);setRefreshRequired(true);setRevealed({});
+      void load().then(() => refresh?.()).catch(() => {});
+    }
+  }, [attachmentUnresolved,pending,recordedOperation?.status,recordedOperation?.request_id]);
   const apply = async () => {
     if (
       !operation ||
@@ -302,6 +331,10 @@ function ContainerWorkspace({
       (!operation.submitted && unavailable)
     )
       return;
+    if (operation.databaseAttachment) {
+      try { persistAttachmentOperation(sessionStorage, operationKey, operation); }
+      catch { setOperationError("The browser could not retain the recovery ID. No request was sent. Enable session storage and retry."); return; }
+    }
     setPending(true);
     pendingRef.current?.(true);
     setOperationError("");
@@ -324,6 +357,7 @@ function ContainerWorkspace({
         setNeedsInspection(true);
         return;
       }
+      if (operation.databaseAttachment) { try { sessionStorage.removeItem(operationKey); } catch {} }
       setChanges({});
       setRevealed({});
       setOperation(null);
@@ -338,7 +372,7 @@ function ContainerWorkspace({
     } catch (failure) {
       if (mounted.current) {
         setOperationError(
-          `${failure.message} The result could not be confirmed. Retrying uses the same operation ID: a recorded result is returned, or the original operation runs if it never started. You can also close and inspect the service.`,
+          `${failure.message} The result could not be confirmed. Checking again uses the same operation ID: a recorded result is returned, or the original operation runs if it never started.${operation.databaseAttachment ? "" : " You can also close and inspect the service."}`,
         );
         setNeedsInspection(true);
       }
@@ -355,7 +389,7 @@ function ContainerWorkspace({
     unavailable ||
     pending ||
     limitsPending ||
-    limitsDirty;
+    limitsDirty || applicationDirty || applicationPending;
   const environment = detail ? { ...detail.environment, ...changes } : {};
   const keys = Object.keys(environment)
     .sort()
@@ -748,8 +782,12 @@ function ContainerWorkspace({
                 )}
               </>
             )}
-            {tab === 1 && (
-              <Box sx={{ maxWidth: 920 }}>
+            {(
+              <Box sx={{ maxWidth: 920, display: tab === 1 ? "block" : "none" }}>
+                {detail.managed_service_id && ["development", "production"].includes(selectedEnvironment) && <Box sx={{ mb: 3 }}>
+                  <ApplicationDatabaseSettings key={`${detail.managed_service_id}/${selectedEnvironment}`} api={api} project={project} environment={selectedEnvironment} serviceId={detail.managed_service_id} appliedAttachment={!attachmentUnresolved && detail.runtime?.desired && JSON.stringify(detail.runtime.desired) === JSON.stringify(detail.runtime.applied) ? detail.runtime.database_attachment : null} onApply={reviewAttachment} onDirty={setApplicationDirty} onPending={setApplicationPending} disabled={pending || limitsPending || !!operation || count > 0} />
+                  <Divider sx={{ mt: 3 }} />
+                </Box>}
                 <Typography color="text.secondary" sx={{ mb: 2 }}>
                   {detail.environment_scope}
                 </Typography>
@@ -809,14 +847,14 @@ function ContainerWorkspace({
                             : "password"
                         }
                         autoComplete="off"
-                        disabled={pending || limitsPending}
+                        disabled={pending || limitsPending || detail.runtime?.database_managed_variables?.includes(key)}
                         error={
                           has(changes, key) &&
                           (environment[key].includes("\x00") ||
                             environment[key].length > 32768)
                         }
                         helperText={
-                          has(changes, key)
+                          detail.runtime?.database_managed_variables?.includes(key) ? "Managed by the application database connection" : has(changes, key)
                             ? environment[key].includes("\x00") ||
                               environment[key].length > 32768
                               ? "Use at most 32,768 characters and no null characters."
@@ -1001,14 +1039,14 @@ function ContainerWorkspace({
       <Dialog
         open={!!operation}
         onClose={() => {
-          if (!pending) setOperation(null);
+          if (!pending && !attachmentUnresolved) setOperation(null);
         }}
         fullWidth
         maxWidth="sm"
         aria-labelledby="container-operation-title"
       >
         <DialogTitle id="container-operation-title">
-          {operation ? actionTitle(operation.kind) : ""}?
+          {operation?.databaseAttachment ? "Apply database connection" : operation ? actionTitle(operation.kind) : ""}?
         </DialogTitle>
         <DialogContent>
           <Typography sx={{ fontWeight: 600, overflowWrap: "anywhere", mb: 2 }}>
@@ -1019,7 +1057,7 @@ function ContainerWorkspace({
               ? "This recreates the service and briefly interrupts it if running. The previous configuration is restored if runtime checks fail."
               : "This changes the live container state. Other services may depend on this container."}
           </Typography>
-          {operation?.changes && (
+          {operation?.changes && Object.keys(operation.changes).length > 0 && (
             <>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Changed variables · values hidden
@@ -1042,6 +1080,7 @@ function ContainerWorkspace({
               {reason}
             </Alert>
           )}
+          {recordedOperation && <Alert severity={recordedOperation.status === "succeeded" ? "success" : "info"} sx={{my:2}}>Recorded operation: {recordedOperation.status}. {recordedOperation.detail}</Alert>}
           {operationError && (
             <Alert severity="error" sx={{ my: 2 }}>
               {operationError}
@@ -1062,7 +1101,7 @@ function ContainerWorkspace({
         <DialogActions>
           <Button
             color="inherit"
-            disabled={pending || limitsPending}
+            disabled={pending || limitsPending || attachmentUnresolved}
             onClick={() => setOperation(null)}
           >
             {operation?.submitted ? "Close" : "Cancel"}
@@ -1081,7 +1120,7 @@ function ContainerWorkspace({
               : operation?.resolved
                 ? "Operation finished"
                 : operation?.submitted
-                  ? "Retry same operation"
+                  ? operation?.databaseAttachment ? "Check same operation" : "Retry same operation"
                   : "Apply"}
           </Button>
         </DialogActions>

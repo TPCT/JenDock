@@ -331,7 +331,7 @@ export default function EnvironmentSettings({
           </Hint>
         </Box>
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
           <Button
             variant="contained"
             disabled={!!busy || !selectedDirty}

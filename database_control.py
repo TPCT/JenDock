@@ -6,6 +6,8 @@ The caller must authenticate the Unix peer before dispatching this module.
 import database_bindings as bindings
 import migration_credentials
 import migration_bindings
+import application_credentials
+import application_database_bindings
 from database_auth import ConsoleAuthority, MCPAuthority
 from application_operations import OperationError
 
@@ -34,7 +36,18 @@ FIELDS.update({
     'database-migration-binding-save': {'values','expected_revision','binding_id','request_id'},
     'database-migration-binding-disable': {'binding_id','expected_revision'},
 })
-SAVE_ACTIONS=('database-credential-save','database-binding-save',
+FIELDS.update({
+    'database-application-credential-get': {'credential_id'},
+    'database-application-credentials': {'limit','cursor'},
+    'database-application-credential-save': {'values','expected_revision','credential_id','request_id'},
+    'database-application-credential-revoke': {'credential_id','expected_revision'},
+    'database-application-bindings': {'limit','cursor'},
+    'database-application-binding-get': {'binding_id'},
+    'database-application-binding-save': {'values','expected_revision','binding_id','request_id'},
+    'database-application-binding-disable': {'binding_id','expected_revision'},
+})
+SAVE_ACTIONS=('database-application-credential-save','database-application-binding-save',
+              'database-credential-save','database-binding-save',
               'database-migration-credential-save','database-migration-binding-save')
 
 
@@ -55,7 +68,23 @@ def execute(db, body, *, credentials_file=None, key_path=None, inspection_factor
         authority = ConsoleAuthority(db,envelope,credentials_file)
     args = (db, authority.principal, body.get('project'), body.get('environment'))
     options = {'revalidate': authority.recheck}
-    if action == 'database-migration-credential-get':
+    if action == 'database-application-credential-get':
+        result={'credential':application_credentials.get_credential(*args,body.get('credential_id'),**options)}
+    elif action == 'database-application-credentials':
+        result={'credentials':application_credentials.list_credentials(*args,limit=body.get('limit',25),cursor=body.get('cursor'),**options)}
+    elif action == 'database-application-credential-save':
+        result={'credential':application_credentials.save_credential(*args,body.get('values'),expected_revision=body.get('expected_revision'),key_path=key_path,credential_id=body.get('credential_id'),request_id=body.get('request_id'),**options)}
+    elif action == 'database-application-credential-revoke':
+        result={'credential':application_credentials.revoke_credential(*args,body.get('credential_id'),expected_revision=body.get('expected_revision'),**options)}
+    elif action == 'database-application-bindings':
+        result={'bindings':application_database_bindings.list_bindings(*args,limit=body.get('limit',25),cursor=body.get('cursor'),**options)}
+    elif action == 'database-application-binding-get':
+        result={'binding':application_database_bindings.get_binding(*args,body.get('binding_id'),**options)}
+    elif action == 'database-application-binding-save':
+        result={'binding':application_database_bindings.save_binding(*args,body.get('values'),expected_revision=body.get('expected_revision'),binding_id=body.get('binding_id'),request_id=body.get('request_id'),**options)}
+    elif action == 'database-application-binding-disable':
+        result={'binding':application_database_bindings.disable_binding(*args,body.get('binding_id'),expected_revision=body.get('expected_revision'),**options)}
+    elif action == 'database-migration-credential-get':
         result={'credential':migration_credentials.get_credential(*args,body.get('credential_id'),**options)}
     elif action == 'database-migration-credentials':
         result={'credentials':migration_credentials.list_credentials(*args,limit=body.get('limit',25),cursor=body.get('cursor'),**options)}
@@ -105,8 +134,8 @@ def execute(db, body, *, credentials_file=None, key_path=None, inspection_factor
         # Save returns a durable receipt, including on replay; current state can
         # have changed since that receipt was first committed.
         result['state_requires_reload']=True
-    if action in ('database-credentials','database-bindings','database-migration-credentials'):
-        rows=result['credentials' if action in ('database-credentials','database-migration-credentials') else 'bindings']
+    if action in ('database-credentials','database-bindings','database-migration-credentials','database-application-credentials','database-application-bindings'):
+        rows=result['credentials' if action in ('database-credentials','database-migration-credentials','database-application-credentials') else 'bindings']
         result['next_cursor']=rows[-1]['id'] if len(rows)==body.get('limit',25) else None
     authority.recheck()
     return result

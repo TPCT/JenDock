@@ -103,3 +103,14 @@ frontend/dist
 !migration_runner.py
 
 !adopted_workloads.py
+
+!service_runtime.py
+!service_runtime_operations.py
+
+!runtime_proof_refresh.py
+
+!application_credentials.py
+!application_database_bindings.py
+!application_database_networks.py
+
+!managed_lifecycle.py

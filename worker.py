@@ -847,6 +847,17 @@ def process_managed_migration(db, job_id, authorize, *, recovery=False):
     return verified or (recovery and migration_jobs.load(db, job_id)['state'] == 'failed')
 
 
+def recover_runtime_settings(db):
+    import service_runtime_operations
+    with control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists():return
+        def authorize(project):
+            if project not in effective_projects(db,CONFIG):raise ValueError('Runtime project authority changed.')
+        import managed_lifecycle
+        managed_lifecycle.recover_pending(db,docker=DOCKER,authorize_project=authorize)
+        service_runtime_operations.recover_pending(db,docker=DOCKER,compose=COMPOSE,authorize_project=authorize)
+
+
 def process_managed_delivery(db, job_id):
     import artifact_publication, managed_delivery, managed_rollout
     if artifact_publication.pending(db, job_id):
@@ -955,7 +966,10 @@ def process_delivery_proof_once(db):
     import ingress_proof_refresh
     with control.LOCK:
         if control.JOURNAL.exists() or (STATE / 'transaction.json').exists():return False
-        return ingress_proof_refresh.process_once(db,root=control.ROOT / 'managed-ingress',docker=DOCKER)
+        import runtime_proof_refresh
+        configured=runtime_proof_refresh.process_once(db,root=control.ROOT / 'managed-ingress',docker=DOCKER)
+        delivered=ingress_proof_refresh.process_once(db,root=control.ROOT / 'managed-ingress',docker=DOCKER)
+        return configured or delivered
 
 
 def resume_managed_deliveries(db):
@@ -1111,6 +1125,7 @@ def main():
                 import artifact_publication
                 artifact_publication.process(db, inspect_artifact_image)
                 process_cleanup(db)
+                recover_runtime_settings(db)
                 recover_managed_deliveries(db)
                 resume_managed_deliveries(db)
                 process_delivery_proof_once(db)

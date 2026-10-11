@@ -57,6 +57,56 @@ class DatabaseControlFlowTests(unittest.TestCase):
     def save(self):return self.action('database-credential-save',values={'username':'inspect_user','password':'private-db-password'},expected_revision=0)['credential']
     def payload(self):return {'action':'database-credential-save','request_id':uuid.uuid4().hex,'project':'app','environment':'development','authentication':{'kind':'console','session_digest':self.digest},'values':{'username':'inspect_user','password':'private-db-password'},'expected_revision':0}
 
+    def test_application_binding_over_real_http_unix_and_retained_ownership(self):
+        import test_application_database_bindings as application_fixtures
+        fixture=application_fixtures.AttachmentTests();fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        session=self.f.db.execute('SELECT * FROM sessions WHERE token=?',(self.digest,)).fetchone()
+        # Replace this isolated server fixture with the actual retained-owner
+        # model; keep the already authenticated browser session in that database.
+        fixture.db.backup(self.f.db)
+        self.f.db.execute('INSERT INTO sessions VALUES(?,?,?,?,?)',tuple(session))
+        def send(action,**values):
+            return self.post('/_deploy/api/action',dict(action='database-application-'+action,
+                project='example',environment='development',**values))[0]
+        credential=send('credential-save',values={'username':'app','password':'private-http-password'},
+            expected_revision=0,request_id='http-attachment-account')['credential']
+        values=dict(fixture.values,secret_id=credential['id'])
+        receipt=send('binding-save',values=values,expected_revision=0,request_id='http-attachment-create')
+        binding=receipt['binding']
+        self.assertEqual(send('binding-save',values=values,expected_revision=0,request_id='http-attachment-create'),receipt)
+        self.assertEqual(send('binding-get',binding_id=binding['id'])['binding'],binding)
+        self.assertEqual(send('bindings')['bindings'],[binding])
+        self.assertEqual(binding['application_status'],'not-observed')
+        send('credential-revoke',credential_id=credential['id'],expected_revision=1)
+        self.assertEqual(send('binding-get',binding_id=binding['id'])['binding']['status'],'credential-stale')
+        disabled=send('binding-disable',binding_id=binding['id'],expected_revision=1)['binding']
+        self.assertEqual(disabled['status'],'disabled')
+        self.assertNotIn('private-http-password',json.dumps([receipt,disabled]))
+
+    def test_application_credentials_over_real_http_and_unix(self):
+        values={'username':'application_user','password':'application-private-password'}
+        first=self.action('database-application-credential-save',values=values,expected_revision=0,request_id='application-http-001')
+        self.assertTrue(first['state_requires_reload'])
+        self.assertEqual(first,self.action('database-application-credential-save',values=values,expected_revision=0,request_id='application-http-001'))
+        credential=first['credential']
+        self.assertEqual(self.action('database-application-credential-get',credential_id=credential['id'])['credential'],credential)
+        page=self.action('database-application-credentials',limit=1)
+        self.assertEqual(page['credentials'],[credential]);self.assertEqual(page['next_cursor'],credential['id'])
+        self.assertEqual(self.action('database-application-credentials',limit=1,cursor=page['next_cursor'])['credentials'],[])
+        self.assertEqual(self.action('database-credentials')['credentials'],[])
+        self.assertEqual(self.action('database-migration-credentials')['credentials'],[])
+        self.assertEqual(self.action('database-application-bindings')['bindings'],[])
+        with self.assertRaises(HTTPError) as denied:
+            self.post('/_deploy/api/action',{'action':'database-application-credential-get','project':'app','environment':'production','credential_id':credential['id']})
+        denied.exception.close()
+        revoked=self.action('database-application-credential-revoke',credential_id=credential['id'],expected_revision=1)['credential']
+        self.assertFalse(revoked['enabled'])
+        self.assertNotIn(values['password'],json.dumps([first,page,revoked]))
+        from database_control import execute
+        with self.assertRaises(ValueError):
+            execute(self.f.db,{'action':'database-application-credentials','project':'app','environment':'development','authentication':{'kind':'mcp','token':'unused'}})
+
     def test_migration_configuration_over_real_http_and_unix(self):
         self.assertIsNone(self.action('database-migration-binding-current')['binding'])
         values={'username':'migrator','password':'private-migration-password'}

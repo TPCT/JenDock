@@ -164,7 +164,11 @@ def _backend(db,project,environment,service_id,docker,*,running=True):
     actual=_json([docker,'inspect',binding['container_id']])[0]
     path=Path(binding['compose_files'][0]);network_id=binding['network_ids'][0]
     effective=next((item.get('effective_resources') for item in managed_services.environment_definitions(db,project,environment) if item['id']==service_id),None)
-    service_provisioning._verify(actual,definition,service['operation_id'],binding['image_id'],network_id,binding['container_name'],path,effective)
+    import service_runtime
+    runtime_context=service_runtime.bound_context(db,definition)
+    database_network=runtime_context.attachment(definition,docker)
+    if binding.get('database_network')!=database_network:raise GatewayError('Backend database network identity changed.')
+    service_provisioning._verify(actual,definition,service['operation_id'],binding['image_id'],network_id,binding['container_name'],path,effective,runtime_context=runtime_context,docker=docker,database_network=database_network)
     if actual['Id']!=binding['container_id']:raise GatewayError('Backend container identity changed.')
     if running and (not actual['State']['Running'] or actual['State'].get('Health',{}).get('Status')!='healthy'):raise GatewayError('Application must already be running and healthy; ingress never starts it.')
     network=_json([docker,'network','inspect',network_id])[0]

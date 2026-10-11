@@ -197,3 +197,11 @@ test("terminal polling preserves Unicode characters across the input boundary", 
     1000,
   );
 });
+
+test('application attachment apply sends exact pin and empty generic changes with stable retry identity', () => {
+ const op={kind:'environment-save',containerId:'original',revision:'original-revision',requestId:'original-request',changes:{},databaseAttachment:{binding_id:'saved-binding',revision:3,digest:'saved-digest'}};
+ const payload=containerOperationBody(op,'example','web');
+ assert.deepEqual(payload.database_attachment,op.databaseAttachment);
+ assert.deepEqual(payload.changes,{});
+ assert.deepEqual(containerOperationBody({...op,submitted:true},'example','web'),payload);
+});

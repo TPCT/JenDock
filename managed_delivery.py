@@ -27,6 +27,8 @@ def initialize(db):
 
 def capture(db, project, environment, service_ids=None):
     initialize(db)
+    import service_runtime_operations
+    if service_runtime_operations.pending(db,project,environment):raise ValueError('Runtime settings require completion or reconciliation before delivery.')
     env = services.ensure_environment_eligible(db, project, environment)
     for pending in db.execute("SELECT document FROM managed_deliveries WHERE state IN ('queued','running','reconciling','recovery-required')"):
         previous = json.loads(pending['document'])

@@ -482,6 +482,7 @@ function App() {
           },
         },
       },
+      MuiStack: { defaultProps: { useFlexGap: true } },
       MuiTooltip: { defaultProps: { enterTouchDelay: 0 } },
       MuiAlert: {
         defaultProps: {

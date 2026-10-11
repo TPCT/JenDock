@@ -37,3 +37,21 @@ Screenshots are in `.runtime/spacing-review/`. These are visual acceptance of
 the local UI, not a claim of live operational or production deployment acceptance.
 Database inspection tables share the new theme, but their full live workflow was
 not rerun for this visual-only pass.
+
+
+## Final shared-component pass
+
+- Empty title/description spacing now uses an explicit 8px flex gap and 16px
+  inset rather than collapsing typography margins.
+- Shared MUI Stacks use `useFlexGap` to preserve consistent wrapping, including
+  dialog controls and responsive forms.
+- Sidebar insets and row spacing use the shared scale; mobile rows retain 44px
+  targets. Environment save/discard actions wrap in an 8px row.
+- Current browser pass inspected loaded project containers/Versions, settings,
+  project directory, deployment directory and run #27, global containers,
+  integrations and activity. Mobile 390x844 checked Versions and Add container
+  modal; document width/scroll width both 383px. This is a captured local preview,
+  not live production acceptance. Other operational dialogs inherit shared theme
+  styles but were not individually exercised this pass.
+- Screenshots: `/tmp/monitor-spacing-desktop-final.png` and
+  `/tmp/monitor-spacing-mobile-final.png`.

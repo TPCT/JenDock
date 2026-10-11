@@ -29,10 +29,10 @@ def initialize(db):
         document TEXT NOT NULL, updated REAL NOT NULL)''')
 
 
-def command(args, timeout=60):
+def command(args, timeout=60, *, environment=None):
     try:
         result = subprocess.run(args, capture_output=True, timeout=timeout,
-                                env={**os.environ, 'COMPOSE_IGNORE_ORPHANS': 'true'})
+                                env={**os.environ, **(environment or {}), 'COMPOSE_IGNORE_ORPHANS': 'true'})
     except (OSError, subprocess.TimeoutExpired):
         raise ProvisioningError('Container operation outcome is uncertain. Reconcile its journal before retrying.') from None
     if result.returncode:
@@ -56,11 +56,11 @@ def _escaped(value):
     return value.replace('$', '$$')
 
 
-def service_config(definition, operation_id, resources=None):
+def service_config(definition, operation_id, resources=None, *, runtime_context=None, database_network=None):
     artifact = definition['artifact']
     argv = artifact['command']
     resources = resources or definition['resources']
-    return {'image': artifact['image'], 'pull_policy': 'never',
+    result = {'image': artifact['image'], 'pull_policy': 'never',
             'entrypoint': [_escaped(argv[0])], 'command': [_escaped(value) for value in argv[1:]],
             'user': artifact['user'], 'read_only': True, 'cap_drop': ['ALL'],
             'security_opt': ['no-new-privileges:true'], 'pids_limit': 128,
@@ -72,6 +72,14 @@ def service_config(definition, operation_id, resources=None):
             'labels': _labels(definition, operation_id),
             'healthcheck': {'test': ['CMD', *[_escaped(value) for value in artifact['healthcheck']]],
                             'interval': '2s', 'timeout': '3s', 'retries': 10, 'start_period': '2s'}}
+    if definition.get('runtime'):
+        if runtime_context is None:raise ProvisioningError('Accepted runtime values require a private worker context.')
+        result['environment']=runtime_context.environment(definition)[0]
+    if (definition.get('runtime') or {}).get('database_attachment'):
+        if not database_network:raise ProvisioningError('A verified database bridge is required.')
+        result['networks']={'environment':{'priority':1000},database_network['name']:{'priority':0}}
+    elif database_network is not None:raise ProvisioningError('Unexpected database bridge.')
+    return result
 
 
 def _names(definition):
@@ -141,7 +149,12 @@ def _network(row, definition, expected_id=None):
         raise ProvisioningError('Environment network ownership or isolation differs. No network was reused.')
 
 
-def _verify(row, definition, operation_id, image_id, network_id, name, path, resources=None):
+def _verify(row, definition, operation_id, image_id, network_id, name, path, resources=None, *, runtime_context=None, docker=None, database_network=None):
+    if definition.get('runtime'):
+        if runtime_context is None or docker is None:raise ProvisioningError('Runtime verification requires current private authority.')
+        image = _json([docker, 'image', 'inspect', image_id])[0]
+        if image.get('Id') != image_id:raise ProvisioningError('Runtime image identity changed.')
+        runtime_context.verify(definition,row,image.get('Config',{}).get('Env'))
     config, host = row.get('Config', {}), row.get('HostConfig', {})
     labels = config.get('Labels') or {}
     expected = _labels(definition, operation_id)
@@ -150,6 +163,13 @@ def _verify(row, definition, operation_id, image_id, network_id, name, path, res
                      'com.docker.compose.project.config_files': str(path)})
     artifact = definition['artifact']; argv = artifact['command']; limits = resources or definition['resources']
     networks = row.get('NetworkSettings', {}).get('Networks', {})
+    expected_networks={_names(definition)[1]:network_id}
+    attachment=(definition.get('runtime') or {}).get('database_attachment')
+    if attachment:
+        if not database_network or database_network['binding_id']!=attachment['binding_id']:raise ProvisioningError('Accepted database network is unavailable.')
+        expected_networks[database_network['name']]=database_network['id']
+    elif database_network is not None:raise ProvisioningError('Unexpected database network identity.')
+    created=row.get('State',{}).get('Status')=='created' and not row.get('State',{}).get('Running')
     if (row.get('Name', '').lstrip('/') != name or row.get('Image') != image_id
             or any(labels.get(key) != value for key, value in expected.items())
             or config.get('Entrypoint') != [argv[0]] or (config.get('Cmd') or []) != argv[1:]
@@ -162,9 +182,9 @@ def _verify(row, definition, operation_id, image_id, network_id, name, path, res
             or host.get('Memory') != int(limits['memory_mib'] * 1024 * 1024)
             or host.get('MemorySwap') != int(limits['memory_mib'] * 1024 * 1024)
             or host.get('NanoCpus') != round(limits['cpu'] * 1_000_000_000) or host.get('PidsLimit') != 128
-            or set(networks) != {_names(definition)[1]}
+            or set(networks) != set(expected_networks)
             or host.get('NetworkMode') != _names(definition)[1]
-            or next(iter(networks.values()), {}).get('NetworkID') not in ({network_id, ''} if row.get('State', {}).get('Status') == 'created' and not row['State'].get('Running') else {network_id})):
+            or any(networks[name].get('NetworkID') not in ({identity,''} if created else {identity}) for name,identity in expected_networks.items())):
         raise ProvisioningError('Created container identity, configuration or isolation does not match the accepted definition.')
 
 
@@ -176,6 +196,11 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
     uncertain create/start is reconciled from exact identities, never repeated.
     """
     import managed_services
+    import service_runtime
+    runtime_context=service_runtime.Context(db,authorize)
+    descriptors={}
+    def config(d,o,r=None):return service_config(d,o,r,runtime_context=runtime_context,database_network=descriptors.get(_digest(d)))
+    def verify(*args):return _verify(*args,runtime_context=runtime_context,docker=docker,database_network=descriptors.get(_digest(args[1])))
     if not callable(authorize) or db.in_transaction:
         raise ProvisioningError('Provisioning requires exclusive worker authorization outside a transaction.')
     authorize()
@@ -205,17 +230,19 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
     service, network_name = _names(definition)
     name = definition['project'] + '-' + service + '-1'
     accepted = managed_services.environment_definitions(db, definition['project'], definition['environment'])
+    for entry in accepted:
+        d=entry['definition'];descriptors[_digest(d)]=runtime_context.attachment(d,docker,ensure=not bool(entry.get('binding')))
     services = {}
     refreshed_bindings = []
     for item in accepted:
         item_definition, item_operation = item['definition'], item['operation_id']
-        services[_names(item_definition)[0]] = service_config(item_definition, item_operation, item.get('effective_resources'))
+        services[_names(item_definition)[0]] = config(item_definition, item_operation, item.get('effective_resources'))
         if item.get('binding'):
             binding = item['binding']
             peer = _lookup(docker, 'container', binding['container_name'])
             if peer is None:
                 raise ProvisioningError('A previously managed container is missing. Reconcile it before adding another service.')
-            _verify(peer, item_definition, item_operation, binding['image_id'], binding['network_ids'][0],
+            verify(peer, item_definition, item_operation, binding['image_id'], binding['network_ids'][0],
                     binding['container_name'], path, item.get('effective_resources'))
             # Runtime state changes (for example a normal stop) do not require
             # container replacement. Refresh every fully verified observation;
@@ -225,7 +252,9 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
             refreshed_bindings.append((item_definition['service_id'], binding['container_id'], refreshed))
     expected = {'name': definition['project'], 'services': services,
                 'networks': {'environment': {'external': True, 'name': network_name}}}
-    if service not in services or services[service] != service_config(definition, operation_id):
+    for descriptor in descriptors.values():
+        if descriptor:expected['networks'][descriptor['name']]={'external':True,'name':descriptor['name']}
+    if service not in services or services[service] != config(definition, operation_id):
         raise ProvisioningError('Accepted service definition is missing from the managed environment.')
     if path.exists():
         previous = yaml.safe_load(path.read_text())
@@ -266,10 +295,13 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
         # exact candidate after the existing full application verification.
         candidate = _lookup(docker, 'container', name)
         if candidate is not None:
-            _verify(candidate, definition, operation_id, image_id, network['Id'], name, path)
+            verify(candidate, definition, operation_id, image_id, network['Id'], name, path)
             known.add(candidate['Id'])
 
     def verify_members(observed):
+        for entry in accepted:
+            d=entry['definition']
+            if runtime_context.attachment(d,docker)!=descriptors[_digest(d)]:raise ProvisioningError('Database network authority changed.')
         from ingress_runtime import verified_network_members
         gateways = verified_network_members(db, definition['project'], definition['environment'],
             docker=docker, application_network_id=network['Id'], authorize=authorize)
@@ -285,14 +317,14 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
             raise ProvisioningError('Container creation outcome is uncertain or the owned container disappeared. Recovery is required.')
         _persist(db, operation_id, digest, journal, 'create-intent')
         authorize()
-        command([compose, '-p', definition['project'], '-f', str(path), 'create', '--no-build', '--pull', 'never', '--no-recreate', service])
+        command([compose, '-p', definition['project'], '-f', str(path), 'create', '--no-build', '--pull', 'never', '--no-recreate', service], **({'environment':runtime_context.substitutions([entry['definition'] for entry in accepted])} if any(entry['definition'].get('runtime') for entry in accepted) else {}))
         actual = _lookup(docker, 'container', name)
         if actual is None: raise ProvisioningError('Created container could not be verified.')
     if actual is not None and not old and journal['phase'] != 'create-intent':
         raise ProvisioningError('Existing container has no creation journal. No resource was adopted.')
     if journal.get('container_id', actual['Id']) != actual['Id']:
         raise ProvisioningError('Owned container was replaced. Recovery is required.')
-    _verify(actual, definition, operation_id, image_id, network['Id'], name, path)
+    verify(actual, definition, operation_id, image_id, network['Id'], name, path)
     known.add(actual['Id'])
     resumed_start = phase in ('start-intent', 'verified')
     _persist(db, operation_id, digest, journal, phase if resumed_start else 'created', container_id=actual['Id'])
@@ -311,7 +343,7 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
         while True:
             authorize()
             actual = _json([docker, 'inspect', actual['Id']])[0]
-            _verify(actual, definition, operation_id, image_id, network['Id'], name, path)
+            verify(actual, definition, operation_id, image_id, network['Id'], name, path)
             if actual['State'].get('Running') and actual['State'].get('Health', {}).get('Status') == 'healthy': break
             if not actual['State'].get('Running') or time.monotonic() >= deadline:
                 raise ProvisioningError('Application health was not verified. The owned container and capacity remain reserved for recovery.')
@@ -320,7 +352,9 @@ def provision(db, operation_id, definition, *, root, docker, compose, authorize,
         raise ProvisioningError('Stopped creation unexpectedly ran. Recovery is required; it was not silently stopped.')
     authorize()
     _persist(db, operation_id, digest, journal, 'verified')
-    return {'container_id': actual['Id'], 'container_name': name, 'compose_project': definition['project'],
+    result = {'container_id': actual['Id'], 'container_name': name, 'compose_project': definition['project'],
             'compose_service': service, 'compose_files': [str(path)], 'image_id': image_id,
             'network_ids': [network['Id']], 'network_name': network_name, 'volume_ids': [],
             'state': definition['desired_state'], 'observed': time.time(), 'definition_digest': digest}
+    if descriptors[_digest(definition)]:result['database_network']=descriptors[_digest(definition)]
+    return result

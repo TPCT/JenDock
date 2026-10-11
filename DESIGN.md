@@ -88,7 +88,7 @@ current tracked branch.
 `frontend/src/spacing.css` owns the shared spacing scale: 8px between controls,
 12px within compact rows, 16px for panel padding and form groups, and 24px between
 sections. The workspace header and page share a 24px horizontal gutter on desktop
-and 16px on mobile. Empty states use 12px vertical / 16px horizontal padding and omit absent descriptions.
+and 16px on mobile. Empty states use 16px padding and an explicit 8px gap between title and description; absent descriptions render no gap.
 Tabs separate their content by 16px without an extra top gap. Dialog titles and
 content use 16px vertical padding; action footers use 12px and the same responsive
 horizontal gutter. Shared field labels remain 6px above inputs. Preserve 40px
@@ -110,7 +110,7 @@ in one row, with 12px before the list. Settings section headings use the shared
 
 Use 4px for closely related version metadata and helper text, 6px for label-to-input spacing, and the existing 8/12/16/24px scale for controls, rows, panels and sections. Version headings retain a dedicated reload column at narrow widths; descriptions wrap within their own column. Form helper messages align with the input edge. Compact run event spacing uses these same tokens.
 
-The empty containers group and Versions use a 16px section margin (28px from the empty content edge including its inset). Loading groups use the same 16px vertical panel padding across deferred screens and settings. Variables action dividers use 12px on each side. Release metadata uses flex gap without extra child margins; desktop dividers keep a 16px inner gutter, removed when stacked on mobile. Version description margins are scoped to the section so MUI injection order cannot reset the 4px gap.
+The empty containers group and Versions use a 16px section margin (32px from the empty content edge including its inset). Loading groups use the same 16px vertical panel padding across deferred screens and settings. Variables action dividers use 12px on each side. Release metadata uses flex gap without extra child margins; desktop dividers keep a 16px inner gutter, removed when stacked on mobile. Version description margins are scoped to the section so MUI injection order cannot reset the 4px gap.
 
 ## Operational spacing
 
@@ -122,3 +122,5 @@ from increasing every metadata line. Group a section hint with its title,
 leaving the description on its own normal text line. Version source actions
 use 24px desktop line height and preserve 40px mobile touch targets.
 Project tabs scroll with visible navigation controls at narrow widths.
+
+Shared MUI Stacks use flex gap, so wrapping does not retain a leading sibling margin. Environment save/discard actions use an 8px wrapping row. Navigation uses 16px shell insets, 12px row insets, 40px desktop rows and at least 44px mobile rows.

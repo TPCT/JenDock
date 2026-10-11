@@ -26,10 +26,11 @@ of subsequent local commits. No server mutation was performed in this audit.
 | --- | --- | --- |
 | Dynamic project/environment registry | `registry.py`, shared authenticated `application_operations.py`, registry-backed settings and immutable targets | Production import/adoption and public runtime verification |
 | UI and MCP creation | Shared operations, scoped credentials, verified artifacts, durable provisioning; local SDK/worker/console evidence in MCP acceptance docs | Production packaging/client acceptance; database/queue/scheduler role templates |
-| Automatic managed delivery | Immutable source/build/test/publication, rollout identity and recovery, health and protected image cleanup | Complete database migration stage; durable cleanup retry and actual untagged-image recovery now verified |
-| Production migrations | Explicit executor design; legacy path fails closed for unsupported schema operations | Alembic and Laravel PostgreSQL parsers/executors passed actual PHP/PG schema acceptance; environment binding, helper protocol and worker/ledger integration remain in progress |
-| Development migrations | Fixed Laravel pending migration command in legacy path | Verified DB binding and pending ledger; Alembic adapter; explicit development-only reset configuration |
+| Automatic managed delivery | Immutable source/build/test/publication, rollout identity and recovery, health and protected image cleanup; supported PostgreSQL migration-to-rollout fixture verified | Broader migration dialect support and production rollout |
+| Production migrations | Supported Alembic/Laravel PostgreSQL parsers and helper protocol, immutable environment binding, automatic worker/ledger integration, no-op and lost-response reconciliation verified locally | Broader migration syntax/dialects; production rollout and real application acceptance |
+| Development migrations | Supported PostgreSQL migration binding and pending ledger through the managed worker; legacy fixed Laravel command | Explicit development-only reset configuration and broader migration coverage |
 | Database inspection | Encrypted configuration; actual authenticated HTTP/Unix/Docker/PostgreSQL two-environment browser configuration/acceptance/rows/revocation; durable rejected-save recovery; scoped MCP protocol reads; MySQL 8.4.11 and MariaDB 11.4.13 direct-adapter and authenticated HTTP/Unix/helper acceptance; PostgreSQL official SDK-to-live-engine acceptance | MySQL/MariaDB full browser acceptance, broader row types, production rollout |
+| Application runtime/database connections | Immutable encrypted runtime settings, application account and attachment API; actual PostgreSQL app read/write/deploy/rollback/reconnect and browser Apply verified; stopped-DB/revoked-credential stop verified | Actual multi-application shared DB acceptance; MySQL/MariaDB application bindings; endpoint replacement; production rollout |
 | Scheduler/queue | Deployment queue and monitor scheduling exist | Workload-specific schedule and job adapters, actual queue depth/failed job/retry evidence |
 | Container tools | Identity-checked operations, logs, terminal, resource controls and read-only files | Role-specific DB/scheduler/queue tools; broader production acceptance |
 | Domains/TLS | Durable owned DNS/routing, TLS issuance/renewal, external proof freshness; actual local two-environment fixtures | Public provider/CA rollout, legacy routing/redirect, expired-serving recovery acceptance |
@@ -147,3 +148,81 @@ network-disabled, read-only import smoke checks passed in all three images:
 - receiver: `sha256:b40efa46358a4a02832647be3554aa4aba2e19d251e26cf5fd043f129f5279c3`
 - worker: `sha256:86115bde2c89fb712ed4db71addd6630e0b5c98c7705cb429617f07083e8282a`
 - MCP: `sha256:c21863d080ed96126e36ecbd2c00be29627e62e6c2ebaf3a7fb0f05909ade74e`
+
+## Application runtime configuration integration — current work
+
+Managed environment edits previously rewrote canonical JSON as YAML and failed
+to advance the managed definition/container identity. Regression tests now cover
+the durable same-image transition. Independent review found and corrected
+non-atomic runtime acceptance and stale control recovery receipts. These fixes
+are still undergoing integration; they are not a production completion claim.
+
+Application credentials and database attachments now have closed authenticated
+HTTP/Unix API actions. Sixteen transport tests pass, including encrypted account
+save/replay/current-state/revoke, retained ownership attachment save/get/list/disable,
+wrong-environment rejection, no secret echo and unchanged read-only MCP scope.
+Thirty-five application-domain tests pass. Configuration receipts explicitly
+report unobserved runtime application; saving a binding does not prove connectivity.
+
+The dedicated internal database bridge and immutable runtime revisions are in
+implementation/review. Actual application write/read, deployment/rollback/restart
+acceptance and complete browser applied-state acceptance remain required.
+
+Backend checkpoint during this integration: 1,190 tests passed in 42.956s.
+Subsequent network/runtime integration edits require fresh verification; this
+checkpoint does not establish their completion or production acceptance.
+
+Managed RAM/CPU edits now route through the same durable transition as encrypted
+runtime settings. Actual SQLite control tests verify policy/definition/binding
+commit on success and exact previous policy preservation on candidate failure;
+Docker effects in these two tests are scripted. Forty-one control-pattern tests
+passed at this checkpoint. Environment variable edits now reject attachment-managed
+keys rather than silently accepting values that the binding would override.
+
+A newly reproduced lifecycle regression remains open: direct managed Stop returns
+success after Docker stops, while the managed service/binding still report running.
+`tests/test_managed_lifecycle_regression.py` is intentionally failing until the
+identity-preserving lifecycle journal/projection is integrated. This means the
+current complete test suite is not green; the earlier 1,190-test checkpoint is not
+current completion evidence. Actual application/database Docker acceptance is
+running independently; no result is claimed before its process terminates.
+
+Actual application/database Docker run subsequently completed successfully with
+exact cleanup and peer preservation. See `application-runtime-acceptance-20261011.md`
+for the tested outcomes and remaining boundaries. Direct lifecycle repair and
+actual browser runtime Apply remain open.
+
+
+## Runtime acceptance and packaging review update
+
+The lifecycle state regression above is repaired locally. A fresh full backend
+suite passed 1,207 tests; two subsequently added isolated packaging tests also
+passed. Receiver/worker COPY lists now include managed_lifecycle; MCP inherits it.
+New images have not yet been verified for this source.
+
+Actual Docker fixture session 71026 exited 0. It verified PostgreSQL application
+read/write, settings persistence through replacement and image delivery, lost-result
+reconciliation and failed-health rollback, then stopped the database (both Docker
+EndpointIDs cleared), revoked the application account and disabled its binding.
+The exact registered app could still be stopped; a subsequent start was rejected.
+All nine runtime module hashes matched before/after. Exact cleanup preserved peers.
+Evidence: /tmp/live-application-database-stop.log.
+
+The separate authenticated browser Apply fixture also passed actual HTTP/Unix/Docker
+application and SQL persistence checks; see application-runtime-acceptance-20261011.md.
+These results supersede earlier open acceptance statements for those exact paths.
+Normal start/restart and resource changes still need equivalent actual Docker
+acceptance. Independent review found a lifecycle replay receipt mismatch gap;
+it is being repaired before final image build/acceptance. This is not production
+or full-platform completion.
+
+
+Final local runtime checkpoint: extended session15362 passed normal lifecycle,
+actual resource replacement, SQL preservation, revoked/stopped dependency checks
+and exact cleanup with matching source hashes. 1,210 backend and 106 frontend tests
+passed; all five Docker images passed build, packaged-source hash comparison and
+network-disabled read-only import checks. Image identities and evidence are recorded
+in application-runtime-acceptance-20261011.md. The prior failed run remains an
+unclassified intermittent outcome. Workload queue/scheduler capabilities are the
+next implementation contract in ../specs/workload-roles.md; that document is not
+an implementation claim. The full platform and production acceptance remain open.

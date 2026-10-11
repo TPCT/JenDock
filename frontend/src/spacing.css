@@ -30,9 +30,10 @@
 .release-band > div > span { margin-bottom: var(--space-inline); }
 .performance-section { margin-top: var(--space-section); padding-top: var(--space-panel); }
 .unassigned-workload { margin-top: var(--space-section); padding-top: var(--space-panel); }
-.empty-state { padding: var(--space-group) var(--space-panel); text-align: center; }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-inline); padding: var(--space-panel); text-align: center; }
+.empty-state > .MuiTypography-root { margin: 0; }
 .empty-state-description { max-width: 72ch; margin-inline: auto !important; }
-.empty-state-description { margin-top: var(--space-inline) !important; font-size: 14px !important; }
+.empty-state-description { margin-top: 0 !important; font-size: 14px !important; }
 .directory-row, .deployment-row { padding: var(--space-group) var(--space-panel); gap: var(--space-group); }
 .service-line { min-height: 64px; padding-block: var(--space-inline); }
 .event-row { padding-block: var(--space-panel); gap: var(--space-panel); }
@@ -126,4 +127,22 @@
 .empty-state + .service-versions { margin-top: var(--space-panel); }
 @media (max-width: 800px) {
   .service-line { padding-inline: var(--space-group); }
+}
+
+/* Navigation shares list insets; wrapped controls use gap instead of margins. */
+.nav-content { padding-inline: var(--space-panel); }
+.wordmark, .nav-label { padding-inline: var(--space-group); }
+.workspace-switch { padding: var(--space-group) var(--space-inline); gap: var(--space-inline); }
+.quick-find { margin: var(--space-panel) var(--space-group); }
+.nav-list, .project-nav { padding-block: var(--space-inline); }
+.nav-list .MuiListItemButton-root,
+.project-nav .MuiListItemButton-root { min-height: 40px; padding: var(--space-tight) var(--space-group); margin-bottom: var(--space-tight); }
+.nav-bottom { padding: var(--space-panel) var(--space-inline); }
+.nav-divider { margin: var(--space-panel) var(--space-inline); }
+.empty-state-description > .MuiButton-root { margin-inline-start: var(--space-inline); }
+.MuiDialogContent-root > .MuiStack-root { min-width: 0; }
+@media (max-width: 800px) {
+  .nav-list .MuiListItemButton-root,
+  .project-nav .MuiListItemButton-root { min-height: 44px; }
+  .environment-workspace-state { padding-block: var(--space-tight); }
 }
