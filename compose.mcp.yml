@@ -46,6 +46,8 @@ services:
       MCP_ALLOWED_HOSTS: monitoring.shiftcodes.net
       MCP_ALLOWED_ORIGINS: https://monitoring.shiftcodes.net
       MCP_ENABLE_CREATION: "1"
+      INGRESS_ENABLED: ${INGRESS_ENABLED:-0}
+      INGRESS_ORIGIN_IPV4: ${INGRESS_ORIGIN_IPV4:-}
     volumes:
       - state:/state
       - type: bind

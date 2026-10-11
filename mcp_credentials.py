@@ -17,7 +17,7 @@ from application_operations import OperationError, Principal
 import registry
 
 SCOPES = frozenset({'projects:read', 'projects:create', 'services:read',
-                    'services:create', 'services:start', 'operations:read', 'domains:read'})
+                    'services:create', 'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt'})
 _FIELDS = {'label', 'scopes', 'allowed_projects', 'allowed_repository_ids',
            'allowed_environments', 'expires_at'}
 

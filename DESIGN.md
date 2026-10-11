@@ -101,3 +101,9 @@ flex gap instead of combining sibling margins with gap. Field/action rows align
 the action with the input after the shared 20px label line and 6px label gap;
 helper errors remain below the input. Mobile directory details align to the
 20px icon plus the shared 8px row gap.
+
+Spacing follow-through: form groups use 16px across dialogs. Container detail
+dividers use 12px on each side; section boundaries do not combine 32px margins
+with nested padding. Version headings group title, description and reload action
+in one row, with 12px before the list. Settings section headings use the shared
+16px heading style and keep their hint alongside the title on narrow screens.

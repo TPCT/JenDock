@@ -4,7 +4,9 @@ import {MCP_SCOPES,freshMcpDraft,mcpCredentialValues} from './mcpAccess.js';
 
 test('domain reads are opt-in and require bounded environment selection',()=>{
   assert.ok(MCP_SCOPES.includes('domains:read'));
-  assert.ok(!MCP_SCOPES.includes('domains:create'));
+  assert.ok(MCP_SCOPES.includes('domains:create'));
+  assert.ok(MCP_SCOPES.includes('domains:adopt'));
+  assert.ok(!freshMcpDraft().scopes.some(scope=>scope.startsWith('domains:')));
   assert.ok(!freshMcpDraft().scopes.includes('domains:read'));
   const draft={...freshMcpDraft(),label:'Domain reader',scopes:['domains:read'],projects:['app']};
   const projects={app:{repository_id:12}};

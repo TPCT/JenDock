@@ -1,0 +1,11 @@
+.domains-section { min-width: 0; }
+.domains-empty { padding: var(--space-section) var(--space-panel); border: 1px solid var(--line); border-radius: 6px; text-align: center; }
+.domain-list { list-style: none; padding: 0; margin: 0; border: 1px solid var(--line); border-radius: 6px; }
+.domain-row { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr) auto; align-items: center; gap: var(--space-panel); padding: var(--space-panel); }
+.domain-row + .domain-row { border-top: 1px solid var(--line); }
+.domain-identity, .domain-evidence { min-width: 0; overflow-wrap: anywhere; }
+.domain-name.MuiButton-root { padding: 0; min-width: 0; justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
+.domain-evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-panel); margin: 0; }
+.domain-preview { padding: var(--space-panel); border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+@media (max-width: 800px) { .domain-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-group); padding: var(--space-group); } .domain-row > .MuiButton-root { justify-self: start; } .domain-evidence-grid { gap: var(--space-inline); } }
+@media (max-width: 420px) { .domain-evidence-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-group); } }

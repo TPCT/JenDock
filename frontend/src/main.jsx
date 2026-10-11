@@ -104,6 +104,8 @@ import {
 import "./style.css";
 import "./github.css";
 import "./spacing.css";
+import Domains from "./Domains.jsx";
+import "./Domains.css";
 const ContainerPage = deferredScreen(() => import("./ContainerPage.jsx"), "container");
 const RunDetail = deferredScreen(() => import("./RunDetail.jsx"), "deployment");
 const Telemetry = deferredScreen(() => import("./Telemetry.jsx"), "telemetry");
@@ -498,7 +500,7 @@ function App() {
       MuiDialogTitle: {
         styleOverrides: {
           root: ({ theme }) => ({
-            padding: "16px var(--space-page)",
+            padding: "var(--space-panel) var(--space-page)",
             borderBottom: `1px solid ${theme.palette.divider}`,
             flexShrink: 0,
             fontSize: 20,
@@ -509,8 +511,8 @@ function App() {
       MuiDialogContent: {
         styleOverrides: {
           root: {
-            padding: "16px var(--space-page)",
-            "&.MuiDialogContent-root": { paddingTop: 16 },
+            padding: "var(--space-panel) var(--space-page)",
+            "&.MuiDialogContent-root": { paddingTop: "var(--space-panel)" },
             overflowY: "auto",
           },
         },
@@ -518,7 +520,7 @@ function App() {
       MuiDialogActions: {
         styleOverrides: {
           root: ({ theme }) => ({
-            padding: "12px var(--space-page)",
+            padding: "var(--space-group) var(--space-page)",
             borderTop: `1px solid ${theme.palette.divider}`,
             flexShrink: 0,
             flexWrap: "wrap",
@@ -1234,8 +1236,9 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
   const [buildProfileDirty,setBuildProfileDirty]=useState(false),[buildProfilePending,setBuildProfilePending]=useState(false);
   const [workloadMenu, setWorkloadMenu] = useState(null);
   const [adoptionOpen,setAdoptionOpen]=useState(false), [adoptionDirty,setAdoptionDirty]=useState(false), [adoptionPending,setAdoptionPending]=useState(false), [adoptionEnvironment,setAdoptionEnvironment]=useState(environment);
-  const pending = settingsPending || resourcesPending || environmentsPending || adoptionPending || servicePending || buildProfilePending;
-  useEffect(() => { setDirty(settingsDirty || resourcesDirty || environmentsDirty || adoptionDirty || buildProfileDirty); return () => setDirty(false); }, [settingsDirty, resourcesDirty, environmentsDirty, adoptionDirty, buildProfileDirty, setDirty]);
+  const [domainsDirty,setDomainsDirty]=useState({}),[domainsPending,setDomainsPending]=useState({});
+  const pending = Object.values(domainsPending).some(Boolean) || settingsPending || resourcesPending || environmentsPending || adoptionPending || servicePending || buildProfilePending;
+  useEffect(() => { setDirty(settingsDirty || resourcesDirty || environmentsDirty || adoptionDirty || buildProfileDirty || Object.values(domainsDirty).some(Boolean)); return () => setDirty(false); }, [settingsDirty, resourcesDirty, environmentsDirty, adoptionDirty, buildProfileDirty, domainsDirty, setDirty]);
   useEffect(() => { setOperationPending(pending); return () => setOperationPending(false); }, [pending, setOperationPending]);
   useEffect(() => {
     let active = true; setLoading(true); setWorkspaceError("");
@@ -1265,10 +1268,11 @@ function ProjectPage({ id, environment: requestedEnvironment = "development", in
       <div className="environment-workspace-state"><Typography fontSize={13} color="text.secondary">{loading && !current ? "Loading…" : status.replaceAll("-"," ").replace(/^./, letter => letter.toUpperCase())}</Typography><Hint label="About this environment">All workspace tabs apply to the selected environment. Existing containers are included only after their ownership is verified.</Hint></div>
     </div>
     {workspaceError && <Alert severity="error" sx={{mt:2}} action={<Button onClick={()=>setReload(value=>value+1)}>Retry</Button>}>{workspaceError}</Alert>}
-    <Tabs value={tab} onChange={(_,value)=>{setTab(value); onTabChange?.(["overview", "containers", "deployments", "settings"][value]);}} className="project-tabs" aria-label={`${environmentLabel} workspace`}><Tab label="Overview"/><Tab label="Containers"/><Tab label="Deployments"/><Tab label="Settings"/></Tabs>
+    <Tabs value={tab} onChange={(_,value)=>{setTab(value); onTabChange?.(["overview", "containers", "deployments", "settings", "domains"][value]);}} className="project-tabs" aria-label={`${environmentLabel} workspace`}><Tab label="Overview"/><Tab label="Containers"/><Tab label="Deployments"/><Tab label="Settings"/><Tab label="Domains"/></Tabs>
     <Box sx={{display:tab===3?"block":"none"}}><EnvironmentSettings key={id} id={id} linkedProject={linkedProject} environment={environment} api={api} branches={Object.keys(branchState(data,id).branches || {})} BranchControl={BranchPicker} onDirty={setEnvironmentsDirty} onPending={setEnvironmentsPending} onSaved={()=>setReload(value=>value+1)}/><BuildProfile id={id} environment={environment} active={tab===3} api={api} onDirty={setBuildProfileDirty} onPending={setBuildProfilePending} onSaved={async()=>{setReload(value=>value+1);const result=await api('action',{action:'registry-get',project:id});setLinkedProject(result.project);await refresh();}}/><Box sx={{borderTop:1,borderColor:'divider',pt:2}}><Button color="inherit" onClick={openBudgets}>Project budgets</Button><Hint label="About project budgets">These budgets cover both environments. Saved allocations are policy settings, not proof of container ownership or applied runtime limits.</Hint></Box></Box>
     {['development','production'].map(target=><Box key={target} sx={{display:tab===1&&environment===target?'block':'none'}}><ServiceCreation project={id} environment={target} username={username} active={tab===1&&environment===target} api={api} navigate={navigate} onPending={setServicePending} onChanged={async()=>{await refresh();setReload(value=>value+1);}}/></Box>)}
-    {tab!==3 && loading && !current ? <Typography role="status" sx={{py:3}}>Loading {environmentLabel.toLowerCase()} workspace…</Typography> : tab===0 ? <>
+    {['development','production'].map(target=><Box key={'domains:'+target} sx={{display:tab===4&&environment===target?'block':'none'}}><Domains key={id+':'+target} project={id} environment={target} username={username} active={tab===4&&environment===target} api={api} onDirty={value=>setDomainsDirty(previous=>previous[target]===value?previous:{...previous,[target]:value})} onPending={value=>setDomainsPending(previous=>previous[target]===value?previous:{...previous,[target]:value})} onContainers={()=>{setTab(1);onTabChange?.('containers');}} onIntegrations={()=>navigate('integrations')}/></Box>)}
+    {tab!==3 && tab!==4 && loading && !current ? <Typography role="status" sx={{py:3}}>Loading {environmentLabel.toLowerCase()} workspace…</Typography> : tab===0 ? <>
       <div className="release-band"><div><span>Last verified deployment</span><strong><code>{deployed?.sha?.slice(0,9)||"Not recorded"}</code><small>{deployed?date(deployed.updated):environmentLabel}</small></strong></div><div><span>Deployment branch</span><strong><Branch sx={{fontSize:14}}/>{current?.environment?.branch || "Unavailable"}<small>{current?.environment?.automatic?"Automatic preference on":"Automatic preference off"}</small></strong></div><div><span>Latest run</span><strong>{latest?<><Status value={latest.status}/><Button size="small" onClick={()=>navigate("job/"+latest.id)}>View run<Arrow sx={{fontSize:13,ml:.5}}/></Button></>:"No runs recorded"}</strong></div></div>
       <div className="section-heading"><Typography variant="h6">Containers <span className="count">{containers.length}</span></Typography><Button onClick={()=>{setTab(1);onTabChange?.("containers");}}>View containers</Button></div>{containerList}
       <Box sx={{mt:3,display:'flex',alignItems:'center',gap:1}}><Button variant="outlined" disabled={loading || pending || !!workspaceError || !(current?.capabilities?.build?.enabled || current?.capabilities?.deploy?.enabled)} onClick={()=>openBuild(id,null,{environment,branch:current.environment.branch,project_revision:current.project.revision,environment_revision:current.environment.revision,recipe_revision:current.environment.recipe_revision,build_source:current.build_source,deploy_enabled:!!current.capabilities?.deploy?.enabled})}>{`Build ${environmentLabel.toLowerCase()}`}</Button><Typography color="text.secondary" fontSize={13}>{current?.capabilities?.build?.reason || (!current?.capabilities?.build?.enabled ? "Environment deployment is not configured." : "")}</Typography></Box>
@@ -1597,7 +1601,7 @@ function BuildDialog({ context, onClose }) {
   function choose(value){setBranch(value||'');setSelection(value?{branch:value,sha:b.branches[value]}:null);setRequestId(crypto.randomUUID());}
   return <Dialog open fullWidth maxWidth="sm" onClose={()=>!busy&&onClose()} aria-labelledby="build-dialog-title">
     <DialogTitle id="build-dialog-title">{retry?'Retry run #'+retry.id:'New build'}<Typography color="text.secondary" fontSize={13} sx={{mt:1}}>{p.label||context.project} · {environmentLabel}</Typography></DialogTitle>
-    <DialogContent dividers><Stack spacing={3}>
+    <DialogContent dividers><Stack spacing={2}>
       {error&&<Alert severity="error">{error}{submitted&&' Checking again keeps the original request and target.'}</Alert>}
       {targetError&&<Alert severity="error">{targetError}</Alert>}
       {targetLoading&&<Typography role="status">Inspecting {environment} target…</Typography>}
@@ -1658,7 +1662,7 @@ function ServicesPage() {
               .includes(q),
           );
         return items.length ? (
-          <Box key={id} sx={{ mb: 4 }}>
+          <Box key={id} sx={{ mb: "var(--space-section)" }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
               {p.label || id}
             </Typography>
@@ -1766,13 +1770,13 @@ function Overview() {
         <span>{active.length} active / queued runs</span>
       </div>
       {active.length > 0 && (
-        <Box sx={{ mb: 4 }}>
+        <Box sx={{ mb: "var(--space-section)" }}>
           <Typography variant="h6">Active deployments</Typography>
           <RunList jobs={active} />
         </Box>
       )}
       {issues.length > 0 && (
-        <Box sx={{ mb: 4 }}>
+        <Box sx={{ mb: "var(--space-section)" }}>
           <Typography variant="h6">Needs attention</Typography>
           <RunList jobs={issues} />
         </Box>

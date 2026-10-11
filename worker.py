@@ -855,6 +855,64 @@ def process_service_once(db):
         return True
 
 
+def observe_domain_executor(db, settings, client):
+    """At most one bounded, read-only host capability probe per 30 seconds."""
+    import hashlib
+    fingerprint=hashlib.sha256(json.dumps(settings,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    previous=db.execute("SELECT updated,value FROM snapshots WHERE name='ingress-worker'").fetchone()
+    if previous:
+        try:
+            value=json.loads(previous['value'])
+            if (type(previous['updated']) in (int,float) and 0<=time.time()-previous['updated']<30
+                    and isinstance(value,dict) and value.get('configuration_digest')==fingerprint
+                    and value.get('configured') is True):
+                if value.get('state')=='available':return
+                if value.get('state')=='unavailable':
+                    unavailable=True
+                else:unavailable=False
+            else:unavailable=False
+        except (ValueError,TypeError):unavailable=False
+        if unavailable:raise ValueError('Domain host capability is unavailable.')
+    try:
+        evidence=client.call('available_ports',{})
+        ports=evidence.get('ports') if isinstance(evidence,dict) else None
+        observed=evidence.get('observed') if isinstance(evidence,dict) else None
+        if (not isinstance(ports,list) or len(ports)>4096 or any(type(port) is not int or not 1024<=port<=65535 for port in ports)
+                or len(set(ports))!=len(ports) or type(observed) not in (int,float) or not 0<=time.time()-observed<=30):
+            raise ValueError('Host capability observation is invalid.')
+    except Exception:
+        snapshot(db,'ingress-worker',{'state':'unavailable','configured':True,'configuration_digest':fingerprint})
+        raise ValueError('Domain host capability is unavailable.') from None
+    snapshot(db,'ingress-worker',{'state':'available','configured':True,'configuration_digest':fingerprint})
+
+
+def process_domain_once(db):
+    """Run one domain phase under the same lock as delivery and direct controls."""
+    import domain_worker
+    import domain_execution
+    from ingress_host_transport import HostClient
+    try:
+        settings = domain_worker.configuration()
+    except (ValueError,TypeError,OSError):
+        snapshot(db,'ingress-worker',{'state':'unavailable','configured':False})
+        raise ValueError('Domain worker configuration is unavailable.') from None
+    if settings is None:
+        snapshot(db,'ingress-worker',{'state':'disabled','configured':False})
+        return False
+    with control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists():
+            snapshot(db,'ingress-worker',{'state':'blocked','configured':True})
+            return False
+        client = HostClient(settings['socket'], expected_server_uid=0, timeout=60)
+        observe_domain_executor(db,settings,client)
+        gateway = domain_worker.Gateway(root=control.ROOT / 'managed-ingress',
+            docker=DOCKER, compose=COMPOSE, host_client=client,
+            image=settings['image'], resources=settings['resources'])
+        return domain_execution.process_once(db, worker_id='worker-' + str(os.getpid()),
+            gateway=gateway, host_client=client,
+            key_path=os.environ.get('INTEGRATION_KEY_FILE', '/config/integrations.key'))
+
+
 def main():
     STATE.mkdir(exist_ok=True)
     Path('/work').mkdir(exist_ok=True)
@@ -905,6 +963,10 @@ def main():
                 recover_managed_deliveries(db)
                 resume_managed_deliveries(db)
                 process_service_once(db)
+                try:
+                    process_domain_once(db)
+                except (ValueError, OSError):
+                    pass  # process_domain_once already recorded sanitized configuration/helper evidence.
                 job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()
                 if job:
                     validation = job['status'] == 'validation-queued'

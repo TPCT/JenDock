@@ -653,7 +653,7 @@ function ContainerWorkspace({
                     </React.Fragment>
                   ))}
                 </Box>
-                <Divider sx={{ my: 4 }} />
+                <Divider sx={{ my: "var(--space-group)" }} />
                 <Typography variant="h6" sx={{ mb: 2 }}>
                   Persistent mounts
                 </Typography>
@@ -696,7 +696,7 @@ function ContainerWorkspace({
                     No mounts are configured for this container.
                   </Typography>
                 )}
-                <Divider sx={{ my: 4 }} />
+                <Divider sx={{ my: "var(--space-group)" }} />
                 <Typography variant="h6" sx={{ mb: 2 }}>
                   Ports
                 </Typography>

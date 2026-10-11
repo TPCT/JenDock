@@ -83,7 +83,7 @@ def _preview_digest(definition,records):return _digest({'definition':_digest(def
 
 def preview(db,route_id,key_path,*,transport=None,authorize):
     initialize(db);definition,records=_records(db,route_id,key_path,transport or request,lambda:authorize('read'))
-    return {'route_id':route_id,'preview_digest':_preview_digest(definition,records),'records':[{k:v for k,v in row.items() if k in ('id','name','type','ttl','proxied')} for row in records],
+    return {'route_id':route_id,'preview_digest':_preview_digest(definition,records),'records':[{k:v for k,v in row.items() if k in ('id','name','type','ttl','proxied') or (k=='content' and row['type'] in ('A','AAAA','CNAME'))} for row in records],
             'dns':'observed','ready':False,'origin':'unverified','tls':'unverified','adoption_required':bool(records) and not db.execute('SELECT 1 FROM ingress_dns_ownership WHERE route_id=?',(route_id,)).fetchone()}
 
 def _payload(definition,marker):return {'name':definition['hostname'],'type':definition['dns_type'],'content':definition['target'],'proxied':definition['proxied'],'ttl':definition['ttl'],'comment':marker}

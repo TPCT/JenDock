@@ -51,3 +51,8 @@ frontend/dist
 !ingress.py
 
 !cloudflare_dns.py
+!domain_execution.py
+!domain_worker.py
+!ingress_route_generations.py
+!ingress_host_transport.py
+!ingress_host_service.py

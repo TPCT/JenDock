@@ -3,6 +3,7 @@ import copy
 import hashlib
 import json
 import re
+import ingress_route_generations as generations
 
 
 def _canonical(value):return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
@@ -29,14 +30,15 @@ def seed(db,definition):
         backends[backend['service_id']]=backend
     for sid,backend in backends.items():db.execute('INSERT INTO ingress_backend_bindings VALUES(?,?,?,?,?,?)',(*key,sid,digest,1,_canonical(backend)))
 
-def capture(db,project,environment,service_id):
+def capture(db,project,environment,service_id,*,allow_pending=False):
+    if not allow_pending and generations.pending(db,project,environment):raise ValueError("Gateway route addition is pending; finish recovery before delivery.")
     expected=False;expected_digest=None;accepted=[]
     if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_runtime_intents'").fetchone():
         intent=db.execute('SELECT definition,digest FROM ingress_runtime_intents WHERE project=? AND environment=?',(project,environment)).fetchone()
         if intent:
             definition=json.loads(intent['definition'])
             if _digest(definition)!=intent['digest']:raise ValueError('Gateway route intent changed.')
-            accepted=[route for route in definition['routes'] if route['service_id']==service_id]
+            accepted=[route for route in generations.head(db,definition)['routes'] if route['service_id']==service_id]
             expected=bool(accepted)
             expected_digest=intent['digest']
     if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_binding_sets'").fetchone():
@@ -108,8 +110,8 @@ def current_routes(db,definition):
     if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_binding_sets'").fetchone():
         head=db.execute('SELECT gateway_digest FROM ingress_binding_sets WHERE project=? AND environment=?',(definition['project'],definition['environment'])).fetchone()
     if head and head['gateway_digest']!=_digest(definition):raise ValueError('Gateway route configuration changed.')
-    for route in definition['routes']:
-        snapshot=capture(db,definition['project'],definition['environment'],route['service_id'])
+    for route in generations.head(db,definition)['routes']:
+        snapshot=capture(db,definition['project'],definition['environment'],route['service_id'],allow_pending=True)
         if head and snapshot is None:raise ValueError('Current route evidence is missing.')
         if snapshot:
             preflight(snapshot,alias=route['alias'],http_endpoint=route['http_endpoint'])

@@ -65,3 +65,11 @@
   .directory-row > span.directory-environments { padding-left: var(--directory-indent); gap: var(--space-panel); }
   .directory-row > svg:last-child { right: var(--space-inline); }
 }
+
+/* Empty content is one compact group; its next section owns the outer gap. */
+.empty-state-description { text-wrap: pretty; }
+.versions-description .MuiIconButton-root { flex-shrink: 0; }
+@media (max-width: 800px) {
+  .section-heading { flex-wrap: wrap; }
+  .version-row { padding: var(--space-group); }
+}

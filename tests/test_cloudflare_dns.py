@@ -8,7 +8,7 @@ import test_ingress as fixtures
 class DNSOwnershipTests(unittest.TestCase):
     def setUp(self):
         self.fixture=fixtures.IngressTests();self.fixture.setUp();self.db=self.fixture.db
-        self.route=self.fixture.accept()['route']['id'];self.records=[];self.writes=[];self.lost=False;self.fail=False
+        self.route=self.fixture.accept()['route']['id'];self.records=[];self.writes=[];self.lost=False;self.provider_fail=False
         self.token=patch.object(dns.integrations,'credential_for_use',return_value='fixture-secret-token');self.token.start()
         self.actions=[]
     def tearDown(self):self.token.stop();self.fixture.tearDown()
@@ -18,7 +18,7 @@ class DNSOwnershipTests(unittest.TestCase):
         if method=='GET' and '/dns_records' not in path:return {'success':True,'result':{'id':'b'*32,'name':'example.test','status':'active','account':{'id':'a'*32}}}
         if method=='GET':return {'success':True,'result':copy.deepcopy(self.records),'result_info':{'page':1,'total_pages':1}}
         self.writes.append((method,path,copy.deepcopy(body)))
-        if self.fail:raise TimeoutError('fixture-secret-token')
+        if self.provider_fail:raise TimeoutError('fixture-secret-token')
         if method=='POST':self.records.append(dict(body,id='c'*32))
         else:
             self.assertEqual(path.rsplit('/',1)[1],self.records[0]['id']);self.records[0].update(body)
@@ -35,14 +35,15 @@ class DNSOwnershipTests(unittest.TestCase):
         intent=self.db.execute('SELECT * FROM ingress_dns_intents').fetchone()
         self.assertEqual(self.records[0]['comment'],intent['marker']);self.assertEqual(intent['state'],'verified')
     def test_uncertain_absent_result_never_retries_or_adopts_foreign_match(self):
-        preview=self.preview();self.fail=True
+        preview=self.preview();self.provider_fail=True
         with self.assertRaises(dns.DNSError):self.apply(preview)
-        self.fail=False;self.records=[self.foreign()]
+        self.provider_fail=False;self.records=[self.foreign()]
         with self.assertRaises(dns.DNSError):self.apply(preview)
         self.assertEqual(len(self.writes),1)
         self.assertEqual(self.db.execute('SELECT count(*) FROM ingress_dns_ownership').fetchone()[0],0)
     def test_explicit_adoption_and_owned_updates_use_exact_id(self):
         self.records=[self.foreign()];preview=self.preview()
+        self.assertEqual(preview['records'][0]['content'],'192.0.2.10')
         with self.assertRaises(dns.DNSError):self.apply(preview)
         self.assertEqual(self.writes,[])
         self.apply(preview,adopt='d'*32);self.assertIn('adopt',self.actions)

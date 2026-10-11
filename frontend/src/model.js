@@ -117,5 +117,5 @@ export function projectReturnRoute(project, environment) {
 }
 
 export function projectTabIndex(tab) {
-  return Math.max(0, ['overview', 'containers', 'deployments', 'settings'].indexOf(tab));
+  return Math.max(0, ['overview', 'containers', 'deployments', 'settings', 'domains'].indexOf(tab));
 }

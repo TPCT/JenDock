@@ -209,10 +209,10 @@ export default function EnvironmentSettings({
     }
   };
   return (
-    <Stack spacing={2} sx={{ pb: 2, maxWidth: 900, minWidth: 0 }}>
+    <Stack spacing={2} sx={{ pb: "var(--space-group)", maxWidth: 900, minWidth: 0 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Box>
-          <Typography component="h2" variant="h5" sx={{ display: "inline" }}>
+        <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+          <Typography component="h2" variant="h6">
             {names[environment]} deployment
           </Typography>
           <Hint label="About environment settings">

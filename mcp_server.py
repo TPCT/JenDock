@@ -30,8 +30,10 @@ SCOPES = {'project_list': 'projects:read', 'project_get': 'projects:read',
           'service_templates': 'services:create',
           'operation_status': 'operations:read',
           'domain_options': 'domains:read', 'domain_list': 'domains:read',
-          'domain_get': 'domains:read', 'domain_operation_status': 'domains:read'}
-MUTATING_TOOLS = frozenset({'project_create', 'service_create'})
+          'domain_get': 'domains:read', 'domain_operation_status': 'domains:read',
+          'domain_preview': 'domains:read', 'domain_create': 'domains:create',
+          'domain_resume': 'domains:create', 'domain_adopt': 'domains:adopt'}
+MUTATING_TOOLS = frozenset({'project_create', 'service_create', 'domain_create', 'domain_resume', 'domain_adopt'})
 
 
 def string(n=120): return {'type': 'string', 'minLength': 1, 'maxLength': n}
@@ -49,7 +51,16 @@ DEFINITION = obj({'name': string(48), 'artifact_id': string(), 'template_id': st
                                     'cpu': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 1024}}, ['memory_mib', 'cpu']),
                   'desired_state': {'type': 'string', 'enum': ['stopped', 'running'], 'default': 'stopped'}},
                  ['name', 'artifact_id', 'template_id', 'template_revision', 'environment_revision', 'policy_revision', 'resources'])
+DOMAIN_VALUES = {'service_id': string(100), 'hostname': string(253), 'zone_id': {'type':'string','pattern':'^[a-f0-9]{32}$'},
+                 'dns_type': {'type':'string','enum':['A','AAAA','CNAME']}, 'target': string(253), 'proxied': {'type':'boolean'},
+                 'ttl': {'type':'integer','minimum':1,'maximum':86400}}
+DOMAIN_PINS = {key: ({'type':'string','pattern':'^[a-f0-9]{64}$'} if key in ('preview_fingerprint','expected_origin_revision') else
+                    {'type':['integer','null'],'minimum':0} if key == 'expected_source_revision' else {'type':'integer','minimum':0}) for key in ingress.PINS}
 SCHEMAS = {
+    'domain_preview': obj({'project_id':string(),'environment':ENV,'values':obj(DOMAIN_VALUES,DOMAIN_VALUES)}, ['project_id','environment','values']),
+    'domain_create': obj({'project_id':string(),'environment':ENV,'values':obj({**DOMAIN_VALUES,**DOMAIN_PINS},list(DOMAIN_VALUES)+list(DOMAIN_PINS)),'idempotency_key':KEY}, ['project_id','environment','values','idempotency_key']),
+    'domain_resume': obj({'project_id':string(),'environment':ENV,'operation_id':string(32)}, ['project_id','environment','operation_id']),
+    'domain_adopt': obj({'project_id':string(),'environment':ENV,'operation_id':string(32),'record_id':{'type':'string','pattern':'^[a-f0-9]{32}$'},'preview_digest':{'type':'string','pattern':'^[a-f0-9]{64}$'}}, ['project_id','environment','operation_id','record_id','preview_digest']),
     'domain_options': obj({'project_id': string(), 'environment': ENV}, ['project_id', 'environment']),
     'domain_list': obj({'project_id': string(), 'environment': ENV, 'limit': PAGE['limit'], 'cursor': {'type': 'string', 'pattern': '^[a-f0-9]{32}$'}}, ['project_id', 'environment']),
     'domain_get': obj({'project_id': string(), 'environment': ENV, 'route_id': string(32)}, ['project_id', 'environment', 'route_id']),
@@ -146,7 +157,9 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
         with connection() as db:
             p = principal(db)
             return types.ListToolsResult(tools=[types.Tool(name=name, inputSchema=SCHEMAS[name],
-                description=('Create using a stable idempotency key. Service desired_state=running starts this service; queued is not success.'
+                description=('Resume the existing operation; queued recovery waits for an available worker.' if name == 'domain_resume' else
+                             'Adopt the exact DNS record from the current preview for this existing operation.' if name == 'domain_adopt' else
+                             'Create using a stable idempotency key. Service desired_state=running starts this service; queued is not success.'
                              if name in MUTATING_TOOLS else 'Read authorized public deployment information.'),
                 annotations=types.ToolAnnotations(readOnlyHint=name not in MUTATING_TOOLS, destructiveHint=False,
                                                   idempotentHint=True, openWorldHint=name in MUTATING_TOOLS))
@@ -173,6 +186,12 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
                 elif name == 'service_get': payload = public_service(ops.get_service(db, p, a['service_id']))
                 elif name == 'operation_status': payload = ops.operation_status(db, p, a['operation_id'], after_event=a.get('after_event', 0), limit=a.get('limit', 25))
                 elif name == 'domain_options': payload = ingress.domain_options(db, p, a['project_id'], a['environment'])
+                elif name == 'domain_preview': payload = ingress.preview(db, p, a['project_id'], a['environment'], a['values'])
+                elif name == 'domain_create': payload = ingress.accept(db, p, a['project_id'], a['environment'], a['values'], a['idempotency_key'], enqueue_execution=True)
+                elif name in ('domain_resume','domain_adopt'):
+                    import domain_execution
+                    if name == 'domain_resume':payload = domain_execution.resume(db,p,a['project_id'],a['environment'],a['operation_id'])
+                    else:payload = domain_execution.approve_adoption(db,p,a['project_id'],a['environment'],a['operation_id'],a['record_id'],a['preview_digest'])
                 elif name == 'domain_list': payload = ingress.list_routes(db, p, a['project_id'], a['environment'], limit=a.get('limit', 25), cursor=a.get('cursor'))
                 elif name == 'domain_get': payload = ingress.get_route(db, p, a['project_id'], a['environment'], a['route_id'])
                 elif name == 'domain_operation_status': payload = ingress.get_operation(db, p, a['project_id'], a['environment'], a['operation_id'])

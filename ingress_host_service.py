@@ -6,13 +6,16 @@ SQLite connection and must be invoked on that connection's owning thread.
 
 
 class HostService:
-    def __init__(self, adapter, issuer):
+    def __init__(self, adapter, issuer, *, available_ports=None):
         if issuer.adapter is not adapter:
             raise ValueError('Host issuer and service must share the same adapter')
         callback = issuer.authorize_route
         if not callable(callback) or not callable(issuer.issue):
             raise ValueError('Host issuer requires authorization and issuance capabilities')
         self._authorization_callback = callback
+        if available_ports is not None and not callable(available_ports):
+            raise ValueError("Host port provider must be callable")
+        self._available_ports = available_ports
         self.adapter = adapter
         self.issuer = issuer
         self.adapter.authorize_route = callback
@@ -46,3 +49,11 @@ class HostService:
     def recover(self, request):
         self._check_authorization()
         return self.adapter.recover(request)
+
+    def available_ports(self, request):
+        self._check_authorization()
+        if not isinstance(request, dict) or request:
+            raise ValueError('Host port discovery accepts no arguments')
+        if self._available_ports is None:
+            raise ValueError('Host port observation is not configured')
+        return self._available_ports()

@@ -108,7 +108,7 @@ class Application:
                 import mcp_credentials
                 owner = operations.Principal(session['username'], 'console', frozenset({
                     'projects:read', 'projects:create', 'services:read', 'services:create',
-                    'services:start', 'operations:read', 'domains:read'}))
+                    'services:start', 'operations:read', 'domains:read', 'domains:create', 'domains:adopt'}))
                 try:
                     if action == 'mcp-access-list':
                         return 200, {'credentials': mcp_credentials.list_credentials(db, owner),
@@ -137,13 +137,24 @@ class Application:
                     return 200,{'connection':connection,'message':message}
                 except integrations.IntegrationError as error:
                     return 409,{'error':str(error)}
-            if action in ('domain-options', 'domain-list', 'domain-get', 'domain-operation'):
+            if action in ('domain-options', 'domain-list', 'domain-get', 'domain-operation', 'domain-preview', 'domain-create', 'domain-resume', 'domain-adopt'):
                 import application_operations as operations
                 import ingress
                 ensure_registry(db, self.config)
-                principal = operations.Principal(session['username'], 'console', frozenset({'domains:read'}))
+                principal = operations.Principal(session['username'], 'console', frozenset({'domains:read', 'domains:create', 'domains:adopt'}))
                 try:
                     project, environment = body.get('project'), body.get('environment')
+                    if action == 'domain-preview':
+                        return 200, ingress.preview(db, principal, project, environment, body.get('values'))
+                    if action == 'domain-create':
+                        return 202, ingress.accept(db, principal, project, environment, body.get('values'), body.get('request_id'), enqueue_execution=True)
+                    if action in ('domain-resume', 'domain-adopt'):
+                        import domain_execution
+                        if action == 'domain-resume':
+                            result = domain_execution.resume(db, principal, project, environment, body.get('operation_id'))
+                        else:
+                            result = domain_execution.approve_adoption(db, principal, project, environment, body.get('operation_id'), body.get('record_id'), body.get('preview_digest'))
+                        return 202, {'operation': result}
                     if action == 'domain-options':
                         return 200, ingress.domain_options(db, principal, project, environment)
                     if action == 'domain-list':

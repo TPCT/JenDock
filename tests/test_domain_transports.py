@@ -70,7 +70,7 @@ class DomainMCPTests(unittest.IsolatedAsyncioTestCase):
         async with streamable_http_client('http://testserver/_deploy/mcp',http_client=self.http) as (read,write):
             async with ClientSession(read,write) as client:
                 await client.discover();tools=(await client.list_tools()).tools
-                self.assertEqual({tool.name for tool in tools},{'domain_options','domain_list','domain_get','domain_operation_status'})
+                self.assertEqual({tool.name for tool in tools},{'domain_options','domain_list','domain_get','domain_operation_status','domain_preview'})
                 self.assertTrue(all(tool.annotations.read_only_hint for tool in tools))
                 options=await client.call_tool('domain_options',{'project_id':'sample','environment':'development'})
                 self.assertFalse(options.is_error);self.assertFalse(options.structured_content['executor_available'])
@@ -90,5 +90,5 @@ class DomainMCPTests(unittest.IsolatedAsyncioTestCase):
         tools=(await self.post()).json()['result']['tools']
         self.assertFalse(any(tool['name'].startswith('domain_') for tool in tools))
         with self.assertRaises(ValueError):mcp_credentials.create(self.db,self.owner,{'label':'Unbounded domains','scopes':['domains:read'],'allowed_projects':['sample'],'allowed_repository_ids':[12],'allowed_environments':[],'expires_at':time.time()+3600})
-        self.assertNotIn('domains:create',mcp_credentials.SCOPES)
-        self.assertEqual(mcp_server.MUTATING_TOOLS,{'project_create','service_create'})
+        self.assertIn('domains:create',mcp_credentials.SCOPES)
+        self.assertTrue({'project_create','service_create','domain_create','domain_resume','domain_adopt'} <= mcp_server.MUTATING_TOOLS)

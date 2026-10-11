@@ -227,7 +227,7 @@ export default function IntegrationsPage({
               border: 1,
               borderColor: "divider",
               borderRadius: 1,
-              p: { xs: 2, sm: 3 },
+              p: "var(--space-panel)",
               minWidth: 0,
             }}
           >
@@ -357,7 +357,7 @@ export default function IntegrationsPage({
         </DialogTitle>
         <DialogContent dividers>
           {draft && (
-            <Stack spacing={3}>
+            <Stack spacing={2}>
               {error && (
                 <Alert severity="error" sx={{ overflowWrap: "anywhere" }}>
                   {error}

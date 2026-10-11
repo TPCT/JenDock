@@ -207,8 +207,8 @@ export default function ContainerLimits({
   return (
     <Box
       sx={{
-        my: 3,
-        py: 2,
+        my: "var(--space-section)",
+        py: "var(--space-group)",
         borderTop: 1,
         borderBottom: 1,
         borderColor: "divider",
@@ -289,7 +289,7 @@ export default function ContainerLimits({
               </Stack>
             ))}
           {draft && (
-            <Stack spacing={3}>
+            <Stack spacing={2}>
               <Box>
                 <Typography fontWeight={600} sx={{ overflowWrap: "anywhere" }}>
                   {name}

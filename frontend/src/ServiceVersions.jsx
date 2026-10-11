@@ -43,14 +43,16 @@ export default function ServiceVersions({ project, environment, api, navigate, r
     return () => { generation.current += 1; };
   }, [load, refreshKey]);
   return <section className="service-versions" aria-label={`${label} versions`} aria-busy={loading}>
-    <div className="section-heading">
+    <div className="section-heading versions-heading">
+      <div className="versions-heading-copy">
       <Typography component="h2" variant="h6">Versions</Typography>
-      <Tooltip title="Reload versions"><span><IconButton size="small" disabled={loading} onClick={() => load()} aria-label={`Reload ${label.toLowerCase()} versions`}><Refresh /></IconButton></span></Tooltip>
-    </div>
     <Typography className="versions-description" color="text.secondary" fontSize={13}>
       <span>Recorded images published for {label.toLowerCase()}.</span>
       <Hint label="About version records">Service associations reflect saved definitions and bindings, not a live container inspection. Open a container above to inspect its observed image and state. Historical images may have been pruned and are not guaranteed to remain available.</Hint>
     </Typography>
+      </div>
+      <Tooltip title="Reload versions"><span><IconButton size="small" disabled={loading} onClick={() => load()} aria-label={`Reload ${label.toLowerCase()} versions`}><Refresh /></IconButton></span></Tooltip>
+    </div>
     {error && <Alert severity="error" action={<Button onClick={() => load(failedCursor)}>Retry</Button>}>{error}</Alert>}
     {!!versions.length && <ol className="version-list">
       {versions.map(version => <li key={version.artifact_id} className="version-row">

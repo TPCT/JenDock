@@ -6,6 +6,8 @@ export const MCP_SCOPES = [
   "services:start",
   "operations:read",
   "domains:read",
+  "domains:create",
+  "domains:adopt",
 ];
 export const freshMcpDraft = () => ({
   label: "",

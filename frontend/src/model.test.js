@@ -145,6 +145,7 @@ test('container navigation preserves explicit environment and terminal tab witho
 test('same-project route changes resolve the requested workspace tab', async () => {
   const {projectReturnRoute, projectTabIndex} = await import('./model.js');
   assert.equal(projectTabIndex('settings'), 3);
+  assert.equal(projectTabIndex('domains'), 4);
   const next = projectReturnRoute('aic-website', 'development');
   const query = new URLSearchParams(next.split('?')[1]);
   assert.equal(query.get('environment'), 'development');

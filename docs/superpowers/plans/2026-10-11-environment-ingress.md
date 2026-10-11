@@ -203,3 +203,18 @@ Acceptance: sequential A then B; unchanged gateway/port and A availability; inva
 candidate preserving A; lost reload reply; stale generation; concurrent delivery;
 restart recovery; unchanged sibling environment. Initial batched routes do not
 prove this capability.
+
+### Domain execution checkpoint — 2026-10-11
+
+Sequential gateway additions now retain generation journals, verify active
+configuration and recover accepted reloads without duplicate signals. Explicit
+retry of a proven pre-signal abort preserves previous attempt evidence. HTTP/MCP
+submission and the Domains UI use the same accepted intent, leased worker and
+host authority. Real local Apache/gateway/provider-adapter orchestration and
+recovery acceptance is recorded in
+`docs/operations/domain-orchestration-acceptance-20261011.md`.
+
+New domain creation requires fresh worker/helper availability; a configuration
+flag alone is no longer availability proof. TLS is not implemented: operations
+stop honestly at awaiting-tls. The next implementation contract is
+`2026-10-11-ingress-tls.md`; whole-platform work remains open.

@@ -118,12 +118,41 @@ def preview(db,principal,project,environment,values):
     collision=db.execute('SELECT 1 FROM ingress_routes WHERE hostname=?',(settings['hostname'],)).fetchone()
     if collision:raise _error('hostname_reserved','This hostname is already reserved by a managed domain.')
     pins={'expected_'+key:definition[key] for key in ('project_revision','environment_revision','source_revision','policy_revision','integration_revision','origin_revision')}
-    return {'definition':definition,'preview_fingerprint':_digest(definition),**pins,'dns_live_checked':False,'provider_ownership':'unchecked','executor_available':False,'runtime_verification':'pending','status':'preview','dns':'unverified','origin':'unverified','tls':'unverified','ready':False}
+    return {'definition':definition,'preview_fingerprint':_digest(definition),**pins,'dns_live_checked':False,'provider_ownership':'unchecked',**executor_status(db),'runtime_verification':'pending','status':'preview','dns':'unverified','origin':'unverified','tls':'unverified','ready':False}
 
-def accept(db,principal,project,environment,values,idempotency_key):
+def execution_enabled():
+    return os.environ.get('INGRESS_ENABLED') == '1'
+
+
+def executor_status(db):
+    """Bounded read of worker evidence; availability is not route readiness."""
+    enabled=execution_enabled()
+    executor={'enabled':enabled,'configured':False,'state':'disabled' if not enabled else 'unobserved','observed_at':None,'stale':True}
+    row=db.execute("SELECT updated,value FROM snapshots WHERE name='ingress-worker'").fetchone() if db.execute("SELECT 1 FROM sqlite_master WHERE name='snapshots' AND type='table'").fetchone() else None
+    if row:
+        try:
+            if not isinstance(row['value'],str) or len(row['value'])>4096:raise ValueError()
+            value=json.loads(row['value']);observed=row['updated']
+            if not isinstance(value,dict) or type(value.get('configured')) is not bool or value.get('state') not in ('disabled','available','unavailable','blocked') or type(observed) not in (int,float) or not 0<observed<=time.time():raise ValueError()
+            stale=time.time()-observed>90
+            executor.update(configured=value['configured'],observed_at=observed,stale=stale,
+                            state='disabled' if not enabled else 'stale' if stale else value['state'])
+        except (ValueError,TypeError):
+            executor['state']='disabled' if not enabled else 'invalid-observation'
+    return {'executor_available':enabled and executor['configured'] and executor['state']=='available' and not executor['stale'],'executor':executor}
+
+
+def _require_executor(db):
+    if not executor_status(db)['executor_available']:raise _error('executor_unavailable','The domain worker has no recent available observation. Existing operations remain available for review and recovery.')
+
+
+def accept(db,principal,project,environment,values,idempotency_key,*,enqueue_execution=False):
     _authorize(db,principal,'domains:create',project,environment);settings=_values(values,accepting=True)
     if not isinstance(idempotency_key,str) or not re.fullmatch('[A-Za-z0-9-]{16,100}',idempotency_key):raise _error('invalid_request_id','Use a stable domain request ID.',400)
     initialize(db);fingerprint=_digest({'project':project,'environment':environment,'values':dict(values,**settings)})
+    if enqueue_execution:
+        import domain_execution
+        domain_execution.initialize(db)
     with registry.transaction(db):
         _authorize(db,principal,'domains:create',project,environment)
         replay=db.execute('SELECT fingerprint,result,route_id FROM ingress_operations WHERE subject=? AND request_key=?',(principal.subject_id,idempotency_key)).fetchone()
@@ -135,7 +164,13 @@ def accept(db,principal,project,environment,values,idempotency_key):
             if _digest(accepted)!=evidence['digest']:raise _error('route_unavailable','Accepted domain evidence changed.')
             source_environment=accepted.get('source_environment')
             if principal.allowed_environments is not None and source_environment in registry.ENVIRONMENTS and (project,source_environment) not in principal.allowed_environments:raise _error('forbidden','Source environment is not permitted.',403)
-            return json.loads(replay['result'])
+            result=json.loads(replay['result'])
+            if enqueue_execution:
+                if not db.execute('SELECT 1 FROM domain_executions WHERE operation_id=?',(result['operation']['id'],)).fetchone():_require_executor(db)
+                domain_execution.enqueue(db,result['operation']['id'])
+                result['operation']=domain_execution.public_status(db,result['operation']['id'])
+            return result
+        if enqueue_execution:_require_executor(db)
         definition=_definition(db,principal,project,environment,settings,'domains:create')
         if values['preview_fingerprint']!=_digest(definition) or any(values['expected_'+key]!=definition[key] for key in ('project_revision','environment_revision','source_revision','policy_revision','integration_revision','origin_revision')):raise _error('stale_preview','Domain evidence changed. Refresh the preview before accepting.')
         route_id=uuid.uuid4().hex;definition_id=uuid.uuid4().hex;operation_id=uuid.uuid4().hex;now=time.time()
@@ -145,6 +180,9 @@ def accept(db,principal,project,environment,values,idempotency_key):
         except sqlite3.IntegrityError:raise _error('hostname_reserved','This hostname is already reserved by a managed domain.') from None
         db.execute('INSERT INTO ingress_definitions VALUES(?,?,?,?)',(definition_id,registry.canonical(definition),_digest(definition),now))
         db.execute('INSERT INTO ingress_operations VALUES(?,?,?,?,?,?,?,?,?)',(operation_id,principal.subject_id,principal.credential_id,idempotency_key,fingerprint,route_id,'pending-provisioning',registry.canonical(result),now))
+        if enqueue_execution:
+            domain_execution.enqueue(db,operation_id)
+            result['operation']=domain_execution.public_status(db,operation_id)
         return result
 
 
@@ -186,7 +224,7 @@ def domain_options(db,principal,project,environment):
             'origins':[{'dns_type':kind,'target':target} for kind,target in sorted(origins.items())],
             'project_revision':project_row['revision'],'environment_revision':env['revision'],'source_revision':source['source_revision'] if source else None,
             'policy_revision':policy['revision'],'integration_revision':connection['revision'] if connection else 0,'origin_revision':origin_revision,
-            'integration_status':integration_state,'origin_status':origin_state,'dns_live_checked':False,'executor_available':False,
+            'integration_status':integration_state,'origin_status':origin_state,'dns_live_checked':False,**executor_status(db),
             'defaults':{'proxied':True,'ttl':1},'ready':False}
 
 
@@ -228,7 +266,13 @@ def get_route(db,principal,project,environment,route_id):
     public.update(id=row['id'],project=project,environment=environment,definition_id=row['definition_id'],revision=row['revision'],
                   status=row['status'] if row['status'] in ('accepted','active','failed','recovery-required') else 'unknown',ready=False,
                   dns=_dns_evidence(db,route_id,definition),origin={'status':'unverified','evidence':'none'},tls={'status':'unverified','evidence':'none'},
-                  runtime_verification='pending',executor_available=False)
+                  runtime_verification='pending',**executor_status(db))
+    operation=db.execute('SELECT id FROM ingress_operations WHERE route_id=? ORDER BY created DESC LIMIT 1',(route_id,)).fetchone()
+    public['operation_id']=operation['id'] if operation else None
+    if operation and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_executions'").fetchone() and db.execute('SELECT 1 FROM domain_executions WHERE operation_id=?',(operation['id'],)).fetchone():
+        import domain_execution
+        execution=domain_execution.public_status(db,operation['id'])
+        public.update({key:execution[key] for key in ('status','phase','dns','origin','tls','next_action','executor_available','executor')})
     _authorize(db,principal,'domains:read',project,environment)
     return public
 
@@ -257,6 +301,10 @@ def get_operation(db,principal,project,environment,operation_id):
         accepted=json.loads(row['result']);record=accepted['route']
         if accepted['operation']['id']!=row['id'] or any(record[k]!=route[k] for k in ('id','project','environment','hostname','definition_id')):raise ValueError()
     except (ValueError,TypeError,KeyError):raise _error('route_integrity','Stored domain operation identity is inconsistent.') from None
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='domain_executions'").fetchone() and db.execute('SELECT 1 FROM domain_executions WHERE operation_id=?',(operation_id,)).fetchone():
+        import domain_execution
+        execution=domain_execution.public_status(db,operation_id)
+        if execution is not None:return execution
     return {'id':row['id'],'route_id':row['route_id'],'project':project,'environment':environment,
             'status':row['status'] if row['status'] in ('pending-provisioning','running','failed','recovery-required','succeeded') else 'unknown',
-            'dns':route['dns'],'origin':route['origin'],'tls':route['tls'],'ready':False,'executor_available':False,'runtime_verification':'pending'}
+            'dns':route['dns'],'origin':route['origin'],'tls':route['tls'],'ready':False,**executor_status(db),'runtime_verification':'pending'}

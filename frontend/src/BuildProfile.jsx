@@ -154,11 +154,12 @@ function EnvironmentProfile({
         sx={{
           borderTop: 1,
           borderColor: "divider",
-          py: 2,
+          py: "var(--space-panel)",
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 2,
+          gap: "var(--space-group)",
         }}
       >
         <Box>

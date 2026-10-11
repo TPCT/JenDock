@@ -320,7 +320,7 @@ export default function ServiceCreation({
         direction="row"
         justifyContent="space-between"
         alignItems="center"
-        sx={{ mb: 2 }}
+        sx={{ mb: "var(--space-group)", gap: "var(--space-group)", flexWrap: "wrap" }}
       >
         <Typography variant="h6">{label} containers</Typography>
         <Button

@@ -17,7 +17,7 @@ from ingress_host_service import HostService
 
 MAX_FRAME = 65536
 METHODS = frozenset({'stage_http', 'activate_http', 'inspect', 'verify', 'recover'})
-SERVICE_METHODS = METHODS | {'issue_grant'}
+SERVICE_METHODS = METHODS | {'issue_grant', 'available_ports'}
 ERRORS = frozenset({'unauthorized', 'invalid_request', 'operation_failed'})
 
 
@@ -152,6 +152,7 @@ class HostServer:
                             elif method == 'activate_http': result = self.adapter.activate_http(envelope['request'])
                             elif method == 'recover': result = self.adapter.recover(envelope['request'])
                             elif method == 'issue_grant' and isinstance(self.adapter, HostService): result = self.adapter.issue_grant(envelope['request'])
+                            elif method == 'available_ports' and isinstance(self.adapter, HostService): result = self.adapter.available_ports(envelope['request'])
                             else: raise ValueError('Unsupported host capability')
                             response = {'ok':True, 'result':result}
                             if len(json.dumps(response, allow_nan=False).encode()) > MAX_FRAME: raise ValueError('Oversized response')

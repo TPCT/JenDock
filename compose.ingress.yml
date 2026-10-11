@@ -1,0 +1,34 @@
+# Opt in only after the host helper has been configured and verified.
+# Combine with compose.yml; add compose.mcp.yml when exposing MCP.
+services:
+  receiver:
+    environment:
+      INGRESS_ENABLED: "1"
+      INGRESS_ORIGIN_IPV4: ${INGRESS_ORIGIN_IPV4:?Set the verified public origin IPv4}
+      INTEGRATION_KEY_FILE: /config/integrations.key
+    volumes:
+      - type: bind
+        source: ${DEPLOY_INTEGRATION_KEY_FILE:?Set the existing integration key file}
+        target: /config/integrations.key
+        read_only: true
+        bind: {create_host_path: false}
+  worker:
+    environment:
+      INGRESS_ENABLED: "1"
+      INGRESS_ORIGIN_IPV4: ${INGRESS_ORIGIN_IPV4:?Set the verified public origin IPv4}
+      INGRESS_GATEWAY_IMAGE: ${INGRESS_GATEWAY_IMAGE:?Set a verified pinned gateway image}
+      INGRESS_HOST_SOCKET: /run/deploy-monitor-ingress/host.sock
+      INTEGRATION_KEY_FILE: /config/integrations.key
+      INGRESS_GATEWAY_MEMORY_MIB: ${INGRESS_GATEWAY_MEMORY_MIB:-32}
+      INGRESS_GATEWAY_CPU: ${INGRESS_GATEWAY_CPU:-0.1}
+    volumes:
+      - type: bind
+        source: ${INGRESS_HOST_SOCKET_DIRECTORY:?Set the existing host helper socket directory}
+        target: /run/deploy-monitor-ingress
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DEPLOY_INTEGRATION_KEY_FILE:?Set the existing integration key file}
+        target: /config/integrations.key
+        read_only: true
+        bind: {create_host_path: false}

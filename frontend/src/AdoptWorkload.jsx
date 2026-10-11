@@ -134,7 +134,7 @@ export default function AdoptWorkload({
         </Hint>
       </DialogTitle>
       <DialogContent dividers>
-        <Stack spacing={3}>
+        <Stack spacing={2}>
           <Typography fontWeight={600} sx={{ overflowWrap: "anywhere" }}>
             {project} · {title}
           </Typography>
