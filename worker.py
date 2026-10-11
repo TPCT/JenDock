@@ -624,13 +624,55 @@ def inspect_artifact_image(reference):
 def complete_build(db, job_id, recipe, images, status, detail):
     import artifact_publication
     artifact_publication.record(db, job_id, recipe, images, status=status, detail=detail)
-    artifact_publication.process(db, inspect_artifact_image, job_id)
+    process_artifact_publications(db, job_id)
 
 
 def publish_service_artifacts(db, job_id, recipe, images):
     import artifact_publication
     artifact_publication.record(db, job_id, recipe, images)
-    return artifact_publication.process(db, inspect_artifact_image, job_id)
+    return process_artifact_publications(db, job_id)
+
+
+def process_artifact_publications(db, job_id=None):
+    """One trusted verification path for completion and durable idle recovery."""
+    import artifact_publication
+
+    def verify_role(document):
+        # This dependency is worker configuration, never source, webhook or API input.
+        return workload_verifier().verify(db, document)
+
+    return artifact_publication.process(db, inspect_artifact_image, job_id,
+                                        verify_role=verify_role)
+
+
+def workload_verifier():
+    from workload_artifact_verifier import WorkloadArtifactVerifier
+    return WorkloadArtifactVerifier(
+        docker=DOCKER, socket=os.environ.get('DOCKER_HOST', 'unix:///var/run/docker.sock'),
+        postgres_image=os.environ.get('WORKLOAD_POSTGRES_IMAGE', ''),
+        state_dir=STATE / 'workload-verification')
+
+
+def recover_workload_verifications(db):
+    """Recover owned effects independently of whether their source job is retried."""
+    if not (STATE / 'workload-verification').exists():
+        return
+    try:
+        with control.LOCK:
+            workload_verifier().recover_pending(db)
+    except (ValueError, OSError):
+        # Keep journals and cleanup fenced. Never store Docker output or credentials.
+        snapshot(db, 'workload-verifier', {'state': 'recovery-required',
+                 'detail': 'Workload verification cleanup needs attention.'})
+
+
+def workload_cleanup_pending():
+    if not (STATE / 'workload-verification').exists():
+        return False
+    try:
+        return workload_verifier().has_pending_cleanup()
+    except (ValueError, OSError):
+        return True
 
 
 def prune_job_images(db, job_id):
@@ -684,6 +726,7 @@ def process_cleanup(db, *, job_id=None, kind=None, locked=False):
     if db.in_transaction: return False
     with contextlib.nullcontext() if locked else control.LOCK:
         if control.JOURNAL.exists() or (STATE / 'transaction.json').exists(): return False
+        if workload_cleanup_pending(): return False
         image_cleanup.reconcile_terminal_jobs(db)
         return image_cleanup.process_once(db, {
             'job-images': prune_job_images,
@@ -1123,7 +1166,8 @@ def main():
         while True:
             try:
                 import artifact_publication
-                artifact_publication.process(db, inspect_artifact_image)
+                recover_workload_verifications(db)
+                process_artifact_publications(db)
                 process_cleanup(db)
                 recover_runtime_settings(db)
                 recover_managed_deliveries(db)

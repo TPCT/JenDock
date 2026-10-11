@@ -141,21 +141,33 @@ def _role_evidence(artifact):
 
 def verify_role_artifact(db,project,artifact_id,*,verify):
     """Worker-only seam: trusted isolated verifier, never a request-provided assertion."""
+    if db.in_transaction:raise ValueError('Role verification cannot run inside a transaction.')
     artifact=artifact_for_service(db,project,artifact_id)
     if 'workload' not in artifact:raise ValueError('The selected artifact has no workload role.')
     if not callable(verify):raise ValueError('Trusted role capability verification is required.')
     evidence=verify(copy.deepcopy(artifact))
+    _validate_role_evidence(artifact,evidence)
+    with registry.transaction(db):
+        if artifact_for_service(db,project,artifact_id)!=artifact:raise ValueError('Role artifact changed during verification.')
+        _insert_role_evidence(db,artifact,evidence)
+    return role_capability(db,artifact)
+
+
+def _validate_role_evidence(artifact,evidence):
     expected=_role_evidence(artifact)
     if not isinstance(evidence,dict) or registry.canonical(evidence)!=registry.canonical(expected):
         raise ValueError('Role capability evidence does not match the immutable artifact.')
-    with registry.transaction(db):
-        if artifact_for_service(db,project,artifact_id)!=artifact:raise ValueError('Role artifact changed during verification.')
-        old=db.execute('SELECT * FROM service_role_verifications WHERE artifact_id=?',(artifact_id,)).fetchone()
-        document=registry.canonical(expected)
-        if old:
-            if old['artifact_digest']!=artifact['digest'] or old['document']!=document:raise ValueError('Stored role capability evidence is inconsistent.')
-        else:db.execute('INSERT INTO service_role_verifications VALUES(?,?,?,?)',(artifact_id,artifact['digest'],document,time.time()))
-    return role_capability(db,artifact)
+    return registry.canonical(expected)
+
+
+def _insert_role_evidence(db,artifact,evidence):
+    """Internal validated insert; caller owns the artifact/publication transaction."""
+    if not db.in_transaction:raise ValueError('Role evidence requires an atomic publication transaction.')
+    document=_validate_role_evidence(artifact,evidence)
+    old=db.execute('SELECT * FROM service_role_verifications WHERE artifact_id=?',(artifact['id'],)).fetchone()
+    if old:
+        if old['artifact_digest']!=artifact['digest'] or old['document']!=document:raise ValueError('Stored role capability evidence is inconsistent.')
+    else:db.execute('INSERT INTO service_role_verifications VALUES(?,?,?,?)',(artifact['id'],artifact['digest'],document,time.time()))
 
 
 def role_capability(db,artifact):

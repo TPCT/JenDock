@@ -1,7 +1,9 @@
 # Workload image capability verification
 
-Status: implementation proposal; the build hook and candidate-image acceptance are
-not implemented. This does not establish runtime readiness.
+Status: isolated verifier and publication hook implemented; direct real-image queue
+and scheduler verification and the real publication path passed.
+The source-owned fixture environment extension below remains proposed. Artifact
+verification does not establish runtime readiness.
 Date: 2026-10-11. Extends [Workload roles](workload-roles.md).
 
 ## Current verified code boundaries
@@ -10,22 +12,25 @@ Date: 2026-10-11. Extends [Workload roles](workload-roles.md).
 source-owned test argv in a hardened container with `--network none`.
 `worker.complete_build` records durable publication intent and calls
 `artifact_publication.process`; the idle worker retries that same publication path.
-Publication currently resolves Docker image IDs and publishes profiles. It does not
-invoke `managed_services.verify_role_artifact`.
+Publication resolves Docker image IDs, invokes the worker-owned verifier outside
+SQLite transactions and atomically publishes every artifact and its role evidence.
+The immediate and idle paths share `worker.process_artifact_publications`.
 
 Role acceptance, provisioning and delivery require an immutable
 `service_role_verifications` record. The existing worker-only callback seam compares
 closed evidence with the artifact, but it does not itself prove who measured that
 evidence. A callback returning the expected dictionary is a unit-test fixture, not
-production verification. The missing implementation is the trusted measuring runner
-and its integration in both publication paths.
+production verification. `workload_artifact_verifier.py` now implements the trusted
+measuring runner, durable cleanup and independent package verification. Actual
+candidate/fixture execution is recorded separately from unit-test evidence.
 
 The package's `deploy-monitor:protocol` capability request bootstraps the application's
 own Laravel installation and requires PostgreSQL plus the instrumentation tables.
 The present `workload-instrumentation/tests/live_laravel.py` uses a host PHP fixture
 application and a disposable PostgreSQL container. It establishes package behavior,
-not compatibility of a built application image. Its mutable PostgreSQL image tag is
-not an acceptable production verifier dependency pin.
+not compatibility of a built application image. `tests/live_workload_artifact.py`
+adds real candidate-image acceptance using immutable PHP/PostgreSQL image IDs. The
+older package fixture's mutable PostgreSQL tag is not used by the new verifier.
 
 ## Trust anchor: independently measured package bytes
 
@@ -172,10 +177,12 @@ whole build/deployment Ready because the isolated fixture passed.
 
 ## Required next implementation and real acceptance
 
-Implement the verifier, journal/recovery, trusted package manifest and pinned dependency
-configuration first, then the publication hook. Build a real Laravel candidate image
-with the reviewed package and run the normal queued build/publication path. Do not stop
-at the existing host-PHP fixture or mocked evidence callback.
+The verifier, journal/recovery, trusted package manifest, pinned dependency settings
+and publication hook are implemented. `tests/live_workload_artifact.py` verified a
+real Laravel candidate and real pinned build-profile/job publication with the actual
+verifier callback. It does not fetch GitHub source or exercise the entire worker
+queued-build loop. See `../operations/workload-artifact-acceptance-20261011.md` for
+the exact evidence and outstanding runtime/failure acceptance.
 
 Prove exact package tampering rejection, false echoed digest rejection, changed image
 ID rejection, unsupported bootstrap failure, output/timeout bounds, lost create/start

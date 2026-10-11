@@ -42,8 +42,9 @@ def record(db, job_id, recipe, images, *, status=None, detail=None):
                        (job_id, refs, fingerprint, 'pending', 'Service artifact publication is pending.'))
 
 
-def process(db, inspect, job_id=None):
+def process(db, inspect, job_id=None, *, verify_role=None):
     """Resolve all images before one atomic batch; failures remain durable/retryable."""
+    if db.in_transaction:raise ValueError('Artifact verification cannot run inside a transaction.')
     initialize(db)
     rows = db.execute("SELECT * FROM artifact_publications WHERE status='pending'" +
                       (' AND job_id=?' if job_id is not None else ' AND (attempted IS NULL OR attempted<?)'),
@@ -69,12 +70,27 @@ def process(db, inspect, job_id=None):
                     'healthcheck': profile['healthcheck'], 'user': profile['user'],
                     **({'http_endpoint': copy.deepcopy(profile['http_endpoint'])} if 'http_endpoint' in profile else {}),
                     **({'workload':copy.deepcopy(profile['workload'])} if 'workload' in profile else {})})
+            evidence={}
+            for document in documents:
+                if 'workload' in document:
+                    if not callable(verify_role):raise ValueError('Trusted role verification is required.')
+                    observed=verify_role(copy.deepcopy(document))
+                    services._validate_role_evidence(document,observed)
+                    evidence[services.digest(document)]=copy.deepcopy(observed)
             with registry.transaction(db):
-                if services._source(db, identifier)['fingerprint'] != target['fingerprint']: raise ValueError('Source mismatch')
+                if services._source(db, identifier)!=target: raise ValueError('Source mismatch')
+                current=db.execute('SELECT * FROM artifact_publications WHERE job_id=?',(identifier,)).fetchone()
+                if current['image_refs']!=row['image_refs'] or current['recipe_digest']!=row['recipe_digest']:raise ValueError('Publication intent changed')
+                if current['status']=='succeeded':continue
+                if current['status']!='pending':raise ValueError('Publication state changed')
                 for document in documents:
                     fingerprint = services.digest(document)
                     db.execute('INSERT OR IGNORE INTO service_artifacts VALUES(?,?,?,?,?,?)',
                                (str(uuid.uuid4()), target['project'], identifier, registry.canonical(document), fingerprint, time.time()))
+                    saved=db.execute('SELECT * FROM service_artifacts WHERE project=? AND digest=?',(target['project'],fingerprint)).fetchone()
+                    if not saved or saved['document']!=registry.canonical(document) or saved['job_id']!=identifier:raise ValueError('Artifact identity differs')
+                    if 'workload' in document:
+                        services._insert_role_evidence(db,dict(document,id=saved['id'],digest=fingerprint),evidence[fingerprint])
                 db.execute("UPDATE artifact_publications SET status='succeeded',detail=? WHERE job_id=?",
                            ('All service artifacts were published.', identifier))
                 db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',
@@ -83,7 +99,8 @@ def process(db, inspect, job_id=None):
             # Never persist upstream output, image configuration or exception values.
             detail = 'Service artifact publication failed; automatic retry is pending.'
             with registry.transaction(db):
-                previous = db.execute('SELECT detail FROM artifact_publications WHERE job_id=?', (identifier,)).fetchone()
+                previous = db.execute('SELECT status,detail FROM artifact_publications WHERE job_id=?', (identifier,)).fetchone()
+                if previous['status']=='succeeded':continue
                 db.execute("UPDATE artifact_publications SET detail=? WHERE job_id=?", (detail, identifier))
                 if previous['detail'] != detail:
                     db.execute('INSERT INTO events(job_id,created,status,detail) VALUES(?,?,?,?)',

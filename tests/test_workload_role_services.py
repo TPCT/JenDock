@@ -18,14 +18,17 @@ from test_workload_role_profiles import role_values
 class WorkloadRoleServicesTests(unittest.TestCase):
     def setUp(self):
         self.f=fixtures.ManagedServiceTests();self.f.setUp();self.addCleanup(self.f.tearDown);self.db=self.f.db
-    def publish(self,role='scheduler'):
+    def publish(self,role='scheduler',verified=True):
         template='laravel-scheduler-v1' if role=='scheduler' else 'laravel-database-queue-v1'
         recipe=copy.deepcopy(self.f.recipe)
         recipe['service_profiles'][template]=build_profiles.role_profile(template,role_values(role),'app','65534:65534')
         target=job_target.capture('app','legacy-unclassified','TPCT/app',12,'main','e'*40,'validate',1,recipe,project_revision=1)
         job,_=enqueue(self.db,'role-'+role,'app','e'*40,True,'main','validate',target_factory=lambda db:target)
         artifact_publication.record(self.db,job,recipe,{'app':'build:immutable'},status='validated')
-        self.assertTrue(artifact_publication.process(self.db,lambda ref:'sha256:'+'e'*64,job))
+        if verified:
+            self.assertTrue(artifact_publication.process(self.db,lambda ref:'sha256:'+'e'*64,job,verify_role=services._role_evidence))
+        else:
+            services.publish_artifact(self.db,job,template,'sha256:'+'e'*64)
         artifact=next(services.artifact_for_service(self.db,'app',row['id']) for row in self.db.execute('SELECT id FROM service_artifacts WHERE job_id=?',(job,)) if services.artifact_for_service(self.db,'app',row['id'])['template_id']==template)
         return artifact
     def definition(self,artifact,environment='development',name='scheduler'):
@@ -42,7 +45,7 @@ class WorkloadRoleServicesTests(unittest.TestCase):
         definition=self.definition(artifact,name='queue')
         self.assertEqual(definition['artifact']['workload'],artifact['workload'])
     def test_declared_package_is_not_capability_evidence(self):
-        artifact=self.publish()
+        artifact=self.publish(verified=False)
         values=dict(self.f.values,artifact_id=artifact['id'],template_id=artifact['template_id'])
         with self.assertRaises(ValueError):services.validate_definition(self.db,'app','development',values)
         expected=services._role_evidence(artifact)

@@ -40,6 +40,7 @@ services:
       retries: 3
     environment:
       DOCKER_HOST: unix:///run/docker-isolation.sock
+      WORKLOAD_POSTGRES_IMAGE: ${WORKLOAD_POSTGRES_IMAGE:-}
       PROJECTS_FILE: /policy/projects.json
       CREDENTIALS_FILE: /config/credentials.json
       GIT_SSH_COMMAND: ssh -i /credentials/id_rsa -o Hostname=ssh.github.com -p 443 -o HostKeyAlias=github.com -o ConnectTimeout=10 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/credentials/known_hosts
