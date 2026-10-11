@@ -98,9 +98,11 @@ MySQL/MariaDB engine through a private fixed-query helper, in addition to resolv
 Docker/Compose, storage and ownership identity. This is an application credential
 probe, independent of separately configured read-only inspection credentials.
 The helper connects through the database container's loopback namespace; this
-does not prove grants from the application's bridge address. Do not promote this
-slice as completed runtime support until real application-network read/write,
-replacement, restart and revoked-stop acceptance are implemented.
+does not prove grants from the application's bridge address by itself. Subsequent
+real Python HTTP application acceptance verifies application-network read/write,
+replacement/restart rejection and revoked-stop behavior for both engines; see
+`../operations/application-mysql-runtime-acceptance-20261011.md`. Laravel workloads,
+browser flows and repository-triggered delivery retain separate acceptance gaps.
 
 Current evidence: 1,338 backend tests, 124 frontend tests, and frontend build pass.
 New tests cover both dialects' private URL escaping/field mapping, foreign endpoint

@@ -116,24 +116,36 @@ def collect(docker, command):
                 except ValueError:
                     endpoint[key] = {'unparseable': True}
         engine = None
-        image_name = row['Config'].get('Image', '').rsplit('/', 1)[-1].split(':')[0]
+        image_name = row['Config'].get('Image', '').split('@', 1)[0].rsplit('/', 1)[-1].split(':')[0]
         if 'postgres' in image_name: engine = 'pgsql'
         elif image_name in ('mysql', 'mariadb'): engine = 'mysql'
         directory, port, direct_database = None, None, None
         if engine and row['State']['Running']:
-            script = ('exec psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" -Atc "SELECT current_setting(\'data_directory\'), current_setting(\'port\'), current_database()"'
-                      if engine == 'pgsql' else 'MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-$MARIADB_ROOT_PASSWORD}" exec mariadb -uroot -Nse "SELECT @@datadir, @@port"')
+            selected_database = None
+            if engine == 'pgsql':
+                script = 'exec psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" -Atc "SELECT current_setting(\'data_directory\'), current_setting(\'port\'), current_database()"'
+            else:
+                # Fixed SQL; database/password remain quoted container environment
+                # values, never shell-interpolated source or host process arguments.
+                client = 'mariadb' if image_name == 'mariadb' else 'mysql'
+                database_variable = '${MARIADB_DATABASE:-$MYSQL_DATABASE}' if client == 'mariadb' else '${MYSQL_DATABASE:-$MARIADB_DATABASE}'
+                password_variable = '${MARIADB_ROOT_PASSWORD:-$MYSQL_ROOT_PASSWORD}' if client == 'mariadb' else '${MYSQL_ROOT_PASSWORD:-$MARIADB_ROOT_PASSWORD}'
+                selected_database = (values.get('MARIADB_DATABASE') or values.get('MYSQL_DATABASE')) if client == 'mariadb' else (values.get('MYSQL_DATABASE') or values.get('MARIADB_DATABASE'))
+                script = 'database="'+database_variable+'"; set --; if [ -n "$database" ]; then set -- "--database=$database"; fi; MYSQL_PWD="'+password_variable+'" exec '+client+' -uroot -Nse "SELECT @@datadir, @@port, DATABASE()" "$@"'
             try:
-                output = command([docker, 'exec', row['Id'], 'sh', '-c', script]).strip().replace('|', '\t').split('\t')
+                raw = command([docker, 'exec', row['Id'], 'sh', '-c', script]).strip()
+                output = (raw.replace('|', '\t') if engine == 'pgsql' else raw).split('\t')
                 if len(output) in (2,3) and output[0].startswith('/'):
                     directory, port = posixpath.normpath(output[0]), int(output[1])
-                    if engine == 'pgsql' and len(output)==3 and 1<=len(output[2])<=128 and not any(ord(c)<32 for c in output[2]):direct_database=output[2]
+                    if not 1 <= port <= 65535:raise ValueError()
+                    if len(output)==3 and 1<=len(output[2])<=(128 if engine=='pgsql' else 64) and not any(ord(c)<32 or ord(c)==127 for c in output[2]):
+                        if engine == 'pgsql' or (selected_database and output[2] == selected_database):direct_database=output[2]
             except Exception:
                 # No stderr, command output or credential value becomes evidence.
                 directory, port = None, None
         result.append({'id': row['Id'], 'name': row['Name'].lstrip('/'), 'image_id': row['Image'],
                        'database_data_directory': directory, 'database_port': port,
-                       'direct_database': {'engine':'pgsql','database':direct_database,'port':port} if direct_database is not None else None,
+                       'direct_database': {'engine':engine,'database':direct_database,'port':port} if direct_database is not None else None,
                        'running': bool(row['State']['Running']), 'compose_project': labels.get('com.docker.compose.project'),
                        'compose_service': labels.get('com.docker.compose.service'),
                        'compose_files': labels.get('com.docker.compose.project.config_files', '').split(','),
@@ -272,9 +284,9 @@ def preview(db, project, environment, inventory, *, now=None, resolver=None, ser
         if not host and not database:
             direct=row.get('direct_database')
             if direct is None:continue
-            if (not isinstance(direct,dict) or set(direct)!={'engine','database','port'} or direct['engine']!='pgsql'
-                    or not isinstance(direct['database'],str) or not 1<=len(direct['database'])<=128
-                    or any(ord(c)<32 for c in direct['database']) or type(direct['port']) is not int or not 1<=direct['port']<=65535
+            if (not isinstance(direct,dict) or set(direct)!={'engine','database','port'} or direct['engine'] not in ('pgsql','mysql','mariadb')
+                    or not isinstance(direct['database'],str) or not 1<=len(direct['database'])<=(128 if direct['engine']=='pgsql' else 64)
+                    or any(ord(c)<32 or ord(c)==127 for c in direct['database']) or type(direct['port']) is not int or not 1<=direct['port']<=65535
                     or direct['port']!=row.get('database_port') or not row.get('database_data_directory') or not row.get('running')):
                 raise ValueError('Direct database engine identity is unavailable.')
             storage=_storage(row,row['database_data_directory'])

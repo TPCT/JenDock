@@ -20,8 +20,10 @@ current runtime evidence instead of restarting implemented work.
   injected-response boundaries.
 - MySQL/MariaDB application definitions and field mappings now exist. The live
   fixed-query engine helper passed real-engine checks; see
-  `application-identity-acceptance-20261011.md`. Complete application-network
-  runtime and cutover acceptance remain outstanding.
+  `application-identity-acceptance-20261011.md`. Subsequent real two-environment
+  application-network runtime acceptance passed on both engines; see
+  `application-mysql-runtime-acceptance-20261011.md`. Artifact bootstrap is
+  synthetic, so repository-triggered build/migration/cutover remains outstanding.
 
 ## Build attempt and artifact boundary
 
@@ -45,11 +47,10 @@ was recreated. Do not report these attempts as successful image builds.
 3. Remaining adoption recovery browser cases: unavailable/corrupt storage,
    logout/owner isolation and an actual transport disconnect. The bounded
    committed-but-lost-response/reload/two-environment browser slice is complete.
-4. MySQL/MariaDB application runtime acceptance and migration support. Application
-   bindings now support those engines with independent identity probes;
-   `migration_bindings.py` still accepts PostgreSQL only. Actual application-bridge
-   grants/read-write, database restart/replacement and revoked-stop evidence is
-   still needed. Discovery must correctly use each engine's installed client.
+4. MySQL/MariaDB migration and Laravel queue/scheduler support. Application
+   bindings and real Python HTTP application runtime now pass both-engine
+   acceptance; `migration_bindings.py` still accepts PostgreSQL only. Discovery
+   now uses each engine's installed client and authenticated database name.
 5. Explicit Development-only fresh/refresh configuration and isolated execution.
    Production destructive database operations must remain prohibited.
 6. Public Cloudflare/CA/ingress activation, intended MCP client/TLS and deployed
