@@ -222,3 +222,18 @@ class RolloutTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unknown container'): self.deliver()
         self.assertEqual(self.reconcile()['outcome'], 'unknown')
         self.assertEqual(self.replacement_count, 0)
+
+    def test_incompatible_gateway_endpoint_fails_before_docker_mutation(self):
+        import ingress_bindings
+        with patch.object(ingress_bindings,'preflight',side_effect=ValueError('incompatible endpoint')):
+            with self.assertRaisesRegex(ValueError,'incompatible endpoint'):self.deliver()
+        self.assertEqual(self.replacement_count,0)
+        self.assertEqual(self.calls,[])
+
+    def test_reconcile_fingerprint_excludes_only_committed_route_snapshot(self):
+        self.item.update(state='pending',ingress_snapshot=None)
+        result=self.deliver()
+        self.item.update(state='succeeded',verified_binding=result,ingress_current=None)
+        self.assertEqual(self.reconcile()['outcome'],'verified-new')
+        self.item['ingress_snapshot']={'changed':'original intent'}
+        self.assertEqual(self.reconcile()['outcome'],'unknown')

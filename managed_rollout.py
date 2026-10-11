@@ -42,6 +42,11 @@ def rollout(db, operation_id, item, *, docker, compose, authorize, health_timeou
         raise RolloutError('Recorded rollout requires reconciliation; mutations are never repeated automatically.')
     old, binding = item['definition'], item['binding']
     new, resources = item['next_definition'], item['resources']
+    import ingress_bindings
+    snapshot = item.get('ingress_current', item.get('ingress_snapshot'))
+    if ingress_bindings.capture(db, old['project'], old['environment'], old['service_id']) != snapshot:
+        raise RolloutError('Gateway route identity changed before rollout.')
+    ingress_bindings.preflight(snapshot, alias=binding['compose_service'], http_endpoint=new['artifact'].get('http_endpoint'))
     for key in ('project', 'environment', 'name', 'service_id'):
         if old[key] != new[key]: raise RolloutError('Rollout cannot change service ownership.')
     if managed_services.artifact_for_service(db, old['project'], item['artifact']['id']) != item['artifact'] or new['artifact'] != item['artifact']:
@@ -195,6 +200,7 @@ def reconcile(db, operation_id, item, *, docker, authorize):
         journal = json.loads(record['document']) if record else None
         original_item = copy.deepcopy(item)
         original_item.pop('verified_binding', None)
+        original_item.pop('ingress_current', None)
         if original_item.get('state') in ('succeeded', 'rolled-back', 'unchanged'):
             original_item['state'] = 'pending'
         if record and record['fingerprint'] != managed_services.digest(original_item):

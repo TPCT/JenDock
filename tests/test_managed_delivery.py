@@ -232,3 +232,119 @@ class ManagedDeliveryTests(unittest.TestCase):
         self.assertEqual(result['status'],'succeeded')
         self.assertEqual(services.get(self.db,peer)['state'],'stopped')
         delivery.capture(self.db,'app','development')
+
+    def test_gateway_snapshot_is_captured_and_fenced_before_completion(self):
+        from types import SimpleNamespace
+        current=services.get(self.db,self.sid)
+        snapshot={'generation':1,'backend':{'container_id':'c'*64,'definition_id':current['definition_id'],
+                  'definition_digest':services.digest(current['definition'])}}
+        api=SimpleNamespace(capture=lambda *a:copy.deepcopy(snapshot),preflight=lambda *a,**k:None)
+        with patch.dict('sys.modules',{'ingress_bindings':api}):
+            plan=self.plan()
+            self.assertEqual(plan['services'][0]['ingress_snapshot'],snapshot)
+            snapshot['generation']=2
+            with self.assertRaisesRegex(ValueError,'route.*changed'):
+                delivery.complete_service(self.db,self.job,'worker',self.sid,self.replacement())
+            self.assertEqual(services.get(self.db,self.sid)['binding'],self.binding)
+
+    def test_gateway_incompatible_endpoint_rejected_before_plan_acceptance(self):
+        from types import SimpleNamespace
+        current=services.get(self.db,self.sid)
+        snapshot={'generation':1,'backend':{'container_id':'c'*64,'definition_id':current['definition_id'],
+                  'definition_digest':services.digest(current['definition'])}}
+        api=SimpleNamespace(capture=lambda *a:snapshot,
+            preflight=lambda *a,**k:(_ for _ in ()).throw(ValueError('incompatible endpoint')))
+        with patch.dict('sys.modules',{'ingress_bindings':api}):
+            with self.assertRaisesRegex(ValueError,'incompatible endpoint'):delivery.prepare(self.db,self.job)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM managed_deliveries').fetchone()[0],0)
+
+    def test_gateway_appearing_after_no_route_capture_blocks_claim(self):
+        from types import SimpleNamespace
+        api=SimpleNamespace(capture=lambda *a:None,preflight=lambda *a,**k:None)
+        with patch.dict('sys.modules',{'ingress_bindings':api}):
+            delivery.prepare(self.db,self.job)
+            api.capture=lambda *a:{'generation':1}
+            with self.assertRaisesRegex(ValueError,'route.*changed'):delivery.claim(self.db,self.job,'worker')
+
+    def seed_gateway(self, service_ids=None):
+        import ingress_bindings
+        endpoint={'port':8080,'health_path':'/health'}
+        service_ids=service_ids or [self.sid]
+        routes=[]
+        for sid in service_ids:
+            current=services.get(self.db,sid)
+            definition=copy.deepcopy(current['definition']);definition['artifact']['http_endpoint']=endpoint
+            did=current['definition_id']+'-http'
+            self.db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)',(did,registry.canonical(definition),services.digest(definition),time.time()))
+            self.db.execute('UPDATE managed_services SET definition_id=? WHERE id=?',(did,sid))
+            binding=dict(current['binding'],definition_digest=services.digest(definition),image_id=definition['artifact']['image'])
+            self.db.execute('UPDATE service_bindings SET document=? WHERE service_id=?',(registry.canonical(binding),sid))
+            if sid==self.sid:self.binding=binding
+            routes.append({'hostname':sid+'.example.test','service_id':sid,'definition_id':did,
+                'definition_digest':services.digest(definition),'container_id':current['binding']['container_id'],
+                'alias':current['binding']['compose_service'],'http_endpoint':endpoint})
+        # Two hostnames share the selected service's one current evidence row.
+        routes.append(dict(routes[0],hostname='alternate.example.test'))
+        gateway={'project':'app','environment':'development','routes':routes}
+        ingress_bindings.initialize(self.db)
+        with registry.transaction(self.db):ingress_bindings.seed(self.db,gateway)
+        self.target['recipe']['managed_target']=delivery.capture(self.db,'app','development')
+        artifact=dict(self.fixture.artifact,source_job=self.job,source_environment='development',image='sha256:'+'d'*64,http_endpoint=endpoint)
+        self.artifact_patch.stop()
+        self.artifact_patch=patch('managed_delivery.services.artifact_for_service',return_value=artifact);self.artifact_patch.start()
+        return gateway
+
+    def test_real_route_cas_commits_with_binding_and_preserves_sibling(self):
+        import ingress_bindings
+        peer,_=self.add_peer();gateway=self.seed_gateway([self.sid,peer])
+        before=ingress_bindings.capture(self.db,'app','development',peer)
+        self.plan();replacement=self.replacement()
+        delivery.complete_service(self.db,self.job,'worker',self.sid,replacement)
+        current=services.get(self.db,self.sid)
+        snapshot=ingress_bindings.capture(self.db,'app','development',self.sid)
+        self.assertEqual(snapshot['generation'],2)
+        self.assertEqual(snapshot['backend']['definition_id'],current['definition_id'])
+        self.assertEqual(snapshot['backend']['container_id'],replacement['container_id'])
+        self.assertEqual(ingress_bindings.capture(self.db,'app','development',peer),before)
+        routes=ingress_bindings.current_routes(self.db,gateway)
+        self.assertEqual({r['container_id'] for r in routes if r['service_id']==self.sid},{replacement['container_id']})
+        delivery.authorize_claim(self.db,self.job,'worker')
+
+    def test_real_route_cas_failure_rolls_back_application_changes(self):
+        import ingress_bindings
+        self.seed_gateway();self.plan()
+        original=services.get(self.db,self.sid)
+        with patch.object(ingress_bindings,'advance',side_effect=ValueError('route CAS conflict')):
+            with self.assertRaisesRegex(ValueError,'CAS conflict'):
+                delivery.complete_service(self.db,self.job,'worker',self.sid,self.replacement())
+        self.assertEqual(services.get(self.db,self.sid),original)
+        self.assertEqual(ingress_bindings.capture(self.db,'app','development',self.sid)['generation'],1)
+        self.assertEqual(delivery._load(self.db,self.job)[1]['services'][0]['state'],'pending')
+
+    def test_real_route_rollback_updates_restored_container_identity(self):
+        import ingress_bindings
+        self.seed_gateway();self.plan()
+        old=services.get(self.db,self.sid)['definition_id']
+        delivery.rollback_service(self.db,self.job,'worker',self.sid,dict(self.binding,container_id='e'*64,observed=time.time()))
+        snapshot=ingress_bindings.capture(self.db,'app','development',self.sid)
+        self.assertEqual(snapshot['generation'],2)
+        self.assertEqual(snapshot['backend']['definition_id'],old)
+        self.assertEqual(snapshot['backend']['container_id'],'e'*64)
+        delivery.authorize_claim(self.db,self.job,'worker')
+
+    def test_real_route_partial_recovery_repeats_known_service_without_conflict(self):
+        import ingress_bindings
+        peer,_=self.add_peer();self.seed_gateway([self.sid,peer]);self.recovery()
+        replacement=self.replacement()
+        result=delivery.finish_recovery(self.db,self.job,'recover',{self.sid:{'outcome':'new','binding':replacement}})
+        self.assertEqual(result['status'],'recovery-required')
+        known=ingress_bindings.capture(self.db,'app','development',self.sid)
+        self.db.execute('UPDATE managed_deliveries SET recovery_attempted=0')
+        plan=delivery.claim_recovery(self.db,self.job,'second')
+        sibling=next(e for e in plan['services'] if e['service_id']==peer)
+        old=dict(sibling['binding'],observed=time.time())
+        result=delivery.finish_recovery(self.db,self.job,'second',{
+            self.sid:{'outcome':'new','binding':replacement},peer:{'outcome':'old','binding':old}})
+        self.assertEqual(result['status'],'failed')
+        self.assertEqual(ingress_bindings.capture(self.db,'app','development',self.sid)['backend'],known['backend'])
+        self.assertEqual(ingress_bindings.capture(self.db,'app','development',peer)['backend']['container_id'],old['container_id'])

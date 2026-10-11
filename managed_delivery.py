@@ -128,9 +128,19 @@ def _save(db, job_id, document, state):
 
 
 def _unchanged(db, entry):
+    import ingress_bindings
+    snapshot = ingress_bindings.capture(db, entry['definition']['project'], entry['definition']['environment'], entry['service_id'])
+    if snapshot != entry.get('ingress_current', entry.get('ingress_snapshot')):
+        raise ValueError('Gateway route identity changed after delivery preparation.')
     current = services.get(db, entry['service_id'])
     expected_id = entry['next_definition_id'] if entry['state'] == 'succeeded' else entry['definition_id']
     binding = entry.get('verified_binding', entry['binding']) if entry['state'] in ('succeeded','rolled-back','unchanged','skipped-stopped') else entry['binding']
+    if snapshot is not None:
+        backend = snapshot['backend']
+        if (backend['definition_id'] != current['definition_id']
+                or backend['definition_digest'] != services.digest(current['definition'])
+                or backend['container_id'] != binding['container_id']):
+            raise ValueError('Gateway route backend differs from the selected application binding.')
     if current['definition_id'] != expected_id or current['binding'] != binding or current['operation_id'] != entry['operation_id']:
         raise ValueError('Managed service identity changed after selection.')
     if entry['state'] != 'succeeded' and services.digest(current['definition']) != entry['definition_digest']:
@@ -151,6 +161,8 @@ def prepare(db, job_id):
         _environment_unchanged(db, selection)
         plan = dict(copy.deepcopy(selection), job_id=job_id)
         for entry in plan['services']:
+            import ingress_bindings
+            entry['ingress_snapshot'] = ingress_bindings.capture(db, plan['project'], plan['environment'], entry['service_id'])
             _unchanged(db, entry)
             if entry['state'] == 'skipped-stopped': continue
             found = []
@@ -162,6 +174,8 @@ def prepare(db, job_id):
             artifact = found[0]
             definition = dict(copy.deepcopy(entry['definition']), artifact=artifact, artifact_id=artifact['id'],
                               template_revision=artifact['template_revision'], resources=copy.deepcopy(entry['resources']), desired_state='running')
+            ingress_bindings.preflight(entry['ingress_snapshot'], alias=entry['binding']['compose_service'],
+                                      http_endpoint=artifact.get('http_endpoint'))
             entry.update(artifact=artifact, next_definition=definition, next_definition_id=str(uuid.uuid4()))
         state = 'queued' if any(item['state'] == 'pending' for item in plan['services']) else 'succeeded'
         db.execute('INSERT INTO managed_deliveries(job_id,document,state,worker,expires,updated) VALUES(?,?,?,?,?,?)', (job_id, registry.canonical(plan), state, None, None, time.time()))
@@ -207,6 +221,16 @@ def renew_claim(db, job_id, worker, lease_seconds=120):
         db.execute('UPDATE managed_deliveries SET expires=? WHERE job_id=? AND worker=?', (time.time()+lease_seconds, job_id, worker))
 
 
+def _advance_ingress(db, entry, definition_id, definition, binding):
+    """Caller atomically commits application binding and per-service route CAS."""
+    import ingress_bindings
+    snapshot = entry.get('ingress_current', entry.get('ingress_snapshot'))
+    ingress_bindings.advance(db, snapshot, definition_id=definition_id,
+        definition_digest=services.digest(definition), container_id=binding['container_id'],
+        alias=binding['compose_service'], http_endpoint=definition['artifact'].get('http_endpoint'))
+    entry['ingress_current'] = ingress_bindings.capture(db, definition['project'], definition['environment'], entry['service_id'])
+
+
 def complete_service(db, job_id, worker, service_id, verified_binding):
     with registry.transaction(db):
         plan = authorize_claim(db, job_id, worker)
@@ -227,6 +251,7 @@ def complete_service(db, job_id, worker, service_id, verified_binding):
                              (entry['next_definition_id'], 'running', now, service_id, entry['definition_id'])).rowcount
         if changed != 1: raise ValueError('Managed service changed during completion.')
         db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(verified_binding), now, service_id))
+        _advance_ingress(db, entry, entry['next_definition_id'], definition, verified_binding)
         entry.update(state='succeeded', verified_binding=copy.deepcopy(verified_binding))
         done = all(item['state'] in ('succeeded','skipped-stopped') for item in plan['services'])
         _save(db, job_id, plan, 'succeeded' if done else 'running')
@@ -277,6 +302,7 @@ def rollback_service(db, job_id, worker, service_id, verified_binding):
                 or not 0 <= time.time()-verified_binding['observed'] <= 90):
             raise ValueError('Verified restored binding is invalid.')
         db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(verified_binding),time.time(),service_id))
+        _advance_ingress(db, entry, entry['definition_id'], entry['definition'], verified_binding)
         entry.update(state='rolled-back',verified_binding=copy.deepcopy(verified_binding))
         _save(db,job_id,plan,'running')
     return public(db,job_id)
@@ -388,6 +414,7 @@ def finish_recovery(db, job_id, worker, outcomes):
                                  (target_id,binding['state'],time.time(),entry['service_id'],current_id)).rowcount
             if changed != 1: raise ValueError('Managed service changed during recovery.')
             db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(binding),time.time(),entry['service_id']))
+            _advance_ingress(db, entry, target_id, definition, binding)
             status = 'succeeded' if outcome == 'new' else ('skipped-stopped' if stopped else ('rolled-back' if entry['state'] == 'rolled-back' else 'unchanged'))
             entry.update(state=status, verified_binding=copy.deepcopy(binding))
             if outcome == 'old' and not stopped: any_old = True

@@ -16,6 +16,7 @@ import time
 import uuid
 
 import build_profiles
+import ingress_bindings
 import ingress_ports
 import managed_services
 import registry
@@ -169,16 +170,18 @@ def prepare_gateway(db,project,environment,operation_id,routes,*,image,resources
 
 
 def _recheck_backends(db,d,docker):
-    for route in d['routes']:
+    for route in ingress_bindings.current_routes(db,d):
         current,network=_backend(db,d['project'],d['environment'],route['service_id'],docker)
         if current!={k:v for k,v in route.items() if k!='hostname'} or network['Id']!=d['application_network_id']:raise GatewayError('Pinned route backend changed; explicitly reconcile its route definition.')
 
 
 def _save(db,d,root,journal,phase):
     initialize(db)
+    ingress_bindings.initialize(db)
     with registry.transaction(db):
         old=db.execute('SELECT * FROM ingress_runtime_intents WHERE project=? AND environment=?',(d['project'],d['environment'])).fetchone()
         if old and (old['digest']!=digest(d) or old['definition']!=registry.canonical(d) or old['root']!=str(root)):raise GatewayError('Gateway intent changed; immutable operation cannot be overwritten.')
+        ingress_bindings.seed(db,d)
         db.execute('INSERT OR REPLACE INTO ingress_runtime_intents VALUES(?,?,?,?,?,?,?,?,?)',
             (d['project'],d['environment'],d['operation_id'],registry.canonical(d),digest(d),str(root),registry.canonical(journal),phase,time.time()))
 

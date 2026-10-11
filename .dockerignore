@@ -47,3 +47,4 @@ frontend/dist
 !ingress_capacity.py
 !ingress_runtime.py
 !ingress_ports.py
+!ingress_bindings.py

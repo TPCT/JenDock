@@ -77,27 +77,29 @@ def compose_service(docker,compose,path,service,containers):
     return inspect(docker,identifier)
 
 
-def create_application(db,docker,compose,root,environment,body,image,containers,networks):
+def create_application(db,docker,compose,root,environment,body,image,containers,networks,name="ingress-fixture"):
     import application_operations as operations
     import job_target
     import managed_services
     import registry
     import resource_policy
     import service_provisioning
-    profile={'revision':2,'image_name':'fixture-http','command':app_command(body),
+    import build_profiles
+    profile={'revision':2,'image_name':PROJECT+'-'+environment,'command':app_command(body),
              'healthcheck':['python','-c',"import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080/',timeout=2).status==200"],
              'user':'65534:65534','http_endpoint':{'port':8080,'health_path':'/'}}
-    recipe={'compose_project':PROJECT,'compose_files':[str(root/'source.json')],'services':['fixture-http'],
-            'images':[{'name':'fixture-http'}],'service_profiles':{'fixture-http':profile}}
+    recipe=build_profiles._recipe(PROJECT,environment,{'dockerfile':'Dockerfile','context':'.','target':None,
+        'command':profile['command'],'healthcheck':profile['healthcheck'],'user':profile['user'],
+        'test_command':['python','-c','import http.server,urllib.request'], 'http_endpoint':profile['http_endpoint']})
     now=time.time()
     job=db.execute('INSERT INTO jobs(delivery,project,sha,created,updated,status,branch,mode,actor) VALUES(?,?,?,?,?,?,?,?,?)',
-        ('fixture-'+environment,PROJECT,'a'*40,now,now,'validated','main','validate','fixture')).lastrowid
+        ('fixture-'+environment+'-'+name,PROJECT,'a'*40,now,now,'validated','main','validate','fixture')).lastrowid
     target=job_target.capture(PROJECT,environment,'TPCT/deploy-monitor',12,'main','a'*40,'validate',1,recipe)
     job_target.store(db,job,target)
-    artifact=managed_services.publish_artifact(db,job,'fixture-http',image)
+    artifact=managed_services.publish_artifact(db,job,'application-v1',image)
     db.execute('INSERT INTO telemetry VALUES(?,?)',(time.time(),json.dumps({'memory_total':8*1024**3,'memory_used':0,'cpu_count':8})))
     principal=operations.Principal('fixture-owner','console',frozenset({'services:create','services:start','services:read','operations:read'}))
-    values={'name':'ingress-fixture','artifact_id':artifact['id'],'template_id':'fixture-http','template_revision':2,
+    values={'name':name,'artifact_id':artifact['id'],'template_id':'application-v1','template_revision':2,
             'environment_revision':registry.get_environment(db,PROJECT,environment)['revision'],
             'policy_revision':resource_policy.read(db,PROJECT)['revision'],'resources':{'memory_mib':64,'cpu':.25},'desired_state':'running'}
     accepted=operations.create_service(db,principal,operations.service_input(PROJECT,environment,values),str(uuid.uuid4()))
@@ -111,6 +113,69 @@ def create_application(db,docker,compose,root,environment,body,image,containers,
     assert row['State']['Running'] and not row['HostConfig']['PortBindings']
     assert len(row['NetworkSettings']['Networks'])==1
     return saved
+
+
+def deliver_application(db,docker,compose,root,service,image,body,containers,*,recover=False,unhealthy=False):
+    """Use normal durable delivery/CAS APIs; route tables are never written here."""
+    import artifact_publication
+    import build_profiles
+    import job_target
+    import managed_delivery
+    import managed_rollout
+    import managed_services
+    import registry
+    selection=managed_delivery.capture(db,PROJECT,'development',[service['id']])
+    recipe=build_profiles._recipe(PROJECT,'development',{'dockerfile':'Dockerfile','context':'.','target':None,
+        'command':app_command(body),'healthcheck':['python','-c',"import urllib.request;assert urllib.request.urlopen('http://127.0.0.1:8080/',timeout=2).status==200"],
+        'user':'65534:65534','test_command':['python','-c','import http.server,urllib.request'],
+        'http_endpoint':{'port':8080,'health_path':'/'}})
+    if unhealthy:recipe['service_profiles']['application-v1']['healthcheck']=['python','-c','raise SystemExit(1)']
+    recipe.update(schema_kind='managed-build',managed_target=selection)
+    now=time.time();sha=uuid.uuid4().hex+'12345678'
+    job=db.execute('INSERT INTO jobs(delivery,project,sha,created,updated,status,branch,mode,actor) VALUES(?,?,?,?,?,?,?,?,?)',
+        (str(uuid.uuid4()),PROJECT,sha,now,now,'testing','main','deploy','fixture')).lastrowid
+    target=job_target.capture(PROJECT,'development','TPCT/deploy-monitor',12,'main',sha,'deploy',1,recipe,
+        project_revision=registry.get_project(db,PROJECT)['revision'],environment_revision=selection['environment_revision'])
+    job_target.store(db,job,target)
+    # Real isolated fixture validation precedes trusted worker publication.
+    command([docker,'run','--rm','--network','none','--read-only','--user','65534:65534',image,
+             'python','-c','import http.server,urllib.request'])
+    artifact_publication.record(db,job,recipe,{PROJECT+'-development':image},status='deploying',detail='Synthetic source verified for actual runtime acceptance.')
+    assert artifact_publication.process(db,lambda reference:json.loads(command([docker,'image','inspect',reference]))[0]['Id'],job)
+    managed_delivery.prepare(db,job)
+    lease='fixture-delivery'
+    plan=managed_delivery.claim(db,job,lease,lease_seconds=120)
+    assert plan and len(plan['services'])==1
+    item=plan['services'][0];operation=str(job)+'-'+service['id']
+    try:
+        binding=managed_rollout.rollout(db,operation,item,docker=docker,compose=compose,
+            authorize=lambda:managed_delivery.renew_claim(db,job,lease,lease_seconds=120),health_timeout=35)
+        assert not unhealthy,'Deliberately unhealthy image must not complete'
+    except managed_rollout.RolloutError as error:
+        assert unhealthy and error.restored_binding is not None,str(error)
+        binding=error.restored_binding
+        assert binding['container_id']!=service['binding']['container_id']
+        assert binding['definition_digest']==service['binding']['definition_digest']
+
+    containers.discard(service['binding']['container_id']);containers.add(binding['container_id'])
+    if unhealthy:
+        managed_delivery.rollback_service(db,job,lease,service['id'],binding)
+        result=managed_delivery.fail(db,job,lease,recovery_required=False)
+    elif recover:
+        # Simulate the supported failure boundary after Docker succeeded and
+        # its durable journal exists but before application/route metadata CAS.
+        managed_delivery.fail(db,job,lease,recovery_required=True)
+        recovery=managed_delivery.claim_recovery(db,job,'fixture-recovery',lease_seconds=120)
+        assert recovery
+        item=recovery['services'][0]
+        outcome=managed_rollout.reconcile(db,operation,item,docker=docker,
+            authorize=lambda:managed_delivery.renew_recovery(db,job,'fixture-recovery',lease_seconds=120))
+        assert outcome['outcome']=='verified-new',outcome
+        result=managed_delivery.finish_recovery(db,job,'fixture-recovery',{service['id']:{'outcome':'new','binding':outcome['binding']}})
+    else:
+        result=managed_delivery.complete_service(db,job,lease,service['id'],binding)
+    assert result['status']==('failed' if unhealthy else 'succeeded'),result
+    return managed_services.get(db,service['id']),job
 
 
 def main():
@@ -142,14 +207,18 @@ def main():
             registry.create_project(db,PROJECT,{'repository':'TPCT/deploy-monitor','repository_id':12})
             resource_policy.save(db,PROJECT,0,{'budget':{'memory_mib':512,'cpu':2},'environments':{
                 env:{'budget':{'memory_mib':256,'cpu':1},'services':{}} for env in registry.ENVIRONMENTS}})
-            apps={};gateways={};definitions={};ports={}
+            apps={};gateways={};definitions={};ports={};same_env_peer=None
             for env in registry.ENVIRONMENTS:
                 body=PROJECT+':'+env+':v1'
                 apps[env]=create_application(db,docker,compose,root,env,body,image,containers,networks)
+                routes=[{'hostname':env+'.fixture.test','service_id':apps[env]['id']}]
+                if env=='development':
+                    same_env_peer=create_application(db,docker,compose,root,env,PROJECT+':development:peer',image,containers,networks,name='ingress-peer')
+                    routes.append({'hostname':'peer.development.fixture.test','service_id':same_env_peer['id']})
                 op=str(uuid.uuid4());gateway_operations.append(op);port=free_port();ports[env]=port
                 ingress_ports.reserve(db,PROJECT,env,op,first=port,last=port,occupied_ports=set())
                 ingress_capacity.reserve(db,PROJECT,env,op,{'memory_mib':64,'cpu':.25},resource_policy.read(db,PROJECT)['revision'])
-                definition=ingress_runtime.prepare_gateway(db,PROJECT,env,op,routes=[{'hostname':env+'.fixture.test','service_id':apps[env]['id']}],
+                definition=ingress_runtime.prepare_gateway(db,PROJECT,env,op,routes=routes,
                     image=GATEWAY_IMAGE,resources={'memory_mib':64,'cpu':.25},docker=docker)
                 definitions[env]=definition
                 binding=ingress_runtime.apply_gateway(db,definition,root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
@@ -187,6 +256,43 @@ def main():
                 command([docker,'update','--memory','64m','--memory-swap','64m',selected_gateway])
             ingress_runtime.verify_gateway(db,definitions['development'],root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
             report['resource_drift_rejected']=True
+            import ingress_bindings
+            import managed_services
+            same_env_peer_before=identity(inspect(docker,same_env_peer['binding']['container_id']))
+            same_env_route_before=ingress_bindings.capture(db,PROJECT,'development',same_env_peer['id'])
+            production_route_before=ingress_bindings.capture(db,PROJECT,'production',apps['production']['id'])
+            report['durable_route_transitions']=[]
+            original_generation=ingress_bindings.capture(db,PROJECT,'development',apps['development']['id'])
+            for version,recover,unhealthy in [('v2',False,False),('v3',True,False),('bad-health',False,True)]:
+                previous=ingress_bindings.capture(db,PROJECT,'development',apps['development']['id'])
+                apps['development'],job=deliver_application(db,docker,compose,root,apps['development'],image,PROJECT+':development:'+version,containers,recover=recover,unhealthy=unhealthy)
+                current=ingress_bindings.capture(db,PROJECT,'development',apps['development']['id'])
+                assert current['generation']==previous['generation']+1
+                assert current['backend']['container_id']==apps['development']['binding']['container_id']
+                assert current['backend']['definition_id']==apps['development']['definition_id']
+                if unhealthy:
+                    assert current['backend']['definition_id']==previous['backend']['definition_id']
+                    assert current['backend']['container_id']!=previous['backend']['container_id']
+                verified=ingress_runtime.verify_gateway(db,definitions['development'],root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
+                replay=ingress_runtime.apply_gateway(db,definitions['development'],root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
+                assert verified['container_id']==replay['container_id']==gateways['development']['container_id']
+                wait_body(ports['development'],'development.fixture.test',PROJECT+':development:'+('v3' if unhealthy else version))
+                wait_body(ports['development'],'peer.development.fixture.test',PROJECT+':development:peer')
+                wait_body(ports['production'],'production.fixture.test',PROJECT+':production:v1')
+                stale_target=current['backend'] if current['generation']>original_generation['generation']+1 else original_generation['backend']
+                with registry.transaction(db):
+                    try:
+                        ingress_bindings.advance(db,original_generation,**{key:stale_target[key] for key in ('definition_id','definition_digest','container_id','alias','http_endpoint')})
+                    except ValueError:pass
+                    else:raise AssertionError('Stale route generation must not restore old backend pins')
+                assert ingress_bindings.capture(db,PROJECT,'development',apps['development']['id'])==current
+                assert ingress_bindings.capture(db,PROJECT,'development',same_env_peer['id'])==same_env_route_before
+                assert ingress_bindings.capture(db,PROJECT,'production',apps['production']['id'])==production_route_before
+                assert identity(inspect(docker,same_env_peer['binding']['container_id']))==same_env_peer_before
+                report['durable_route_transitions'].append({'kind':'verified-health-rollback' if unhealthy else 'pre-CAS-recovery' if recover else 'normal-completion',
+                    'job_id':job,'old_generation':previous['generation'],'generation':current['generation'],
+                    'container_id':current['backend']['container_id'],'restored_original_definition':unhealthy,
+                    'strong_verify_passed':True,'gateway_replay_preserved_id':True,'stale_generation_rejected':True,'sibling_route_preserved':True})
             production_before=identity(inspect(docker,apps['production']['binding']['container_id']))
             production_gateway_before=identity(inspect(docker,gateways['production']['container_id']))
             import managed_services
@@ -205,7 +311,7 @@ def main():
             refreshed=dict(old,container_id=new_row['Id'],observed=time.time())
             managed_services.refresh_binding(db,application['id'],old['container_id'],refreshed)
             command([docker,'rm','-f',blocker]);containers.discard(blocker)
-            wait_body(ports['development'],'development.fixture.test',PROJECT+':development:v1',timeout=30)
+            wait_body(ports['development'],'development.fixture.test',PROJECT+':development:v3',timeout=30)
             assert inspect(docker,gateways['development']['container_id'])['Id']==gateways['development']['container_id']
             try:
                 ingress_runtime.verify_gateway(db,definitions['development'],root=root/'managed',docker=docker,compose=compose,authorize=lambda:None)
@@ -229,29 +335,43 @@ def main():
             assert identity(inspect(docker,gateways['production']['container_id']))==production_gateway_before
             report['sibling_environment_unchanged']=True
         finally:
-            # Recover exact operation-owned IDs if Docker succeeded before the
-            # runtime returned a binding. This is fixture teardown, not recovery.
-            for operation in gateway_operations:
-                label='net.shiftcodes.ingress.operation='+operation
-                containers.update(command([docker,'ps','--no-trunc','-aq','--filter','label='+label]).split())
-                networks.update(command([docker,'network','ls','--no-trunc','-q','--filter','label='+label]).split())
-            if sys.exc_info()[0] is not None:
-                evidence=[]
-                for identifier in containers:
-                    evidence.append({'container':inspect(docker,identifier),'logs':subprocess.run([docker,'logs',identifier],capture_output=True,text=True,timeout=10).stderr})
-                (runtime/'ingress-runtime-failure.json').write_text(json.dumps(evidence,indent=2))
-            if db.execute("SELECT 1 FROM sqlite_master WHERE name='managed_services'").fetchone():
-                for saved in db.execute('SELECT operation_id FROM managed_services'):
-                    containers.update(command([docker,'ps','--no-trunc','-aq','--filter','label=net.shiftcodes.managed.operation='+saved['operation_id']]).split())
-            for env in registry.ENVIRONMENTS:
-                networks.update(command([docker,'network','ls','--no-trunc','-q','--filter','name=^'+PROJECT+'-'+env+'-managed$',
-                    '--filter','label=net.shiftcodes.managed.project='+PROJECT,'--filter','label=net.shiftcodes.managed.environment='+env]).split())
-            # Remove exact known IDs only; never compose down or prune this product.
-            for identifier in containers:
-                command([docker,'rm','-f',identifier])
-            for identifier in networks:
-                command([docker,'network','rm',identifier])
-            db.close()
+            # Discovery and diagnostics may fail; teardown still runs for every
+            # exact ID already captured. Never compose down or prune the product.
+            try:
+                for operation in gateway_operations:
+                    label='net.shiftcodes.ingress.operation='+operation
+                    containers.update(command([docker,'ps','--no-trunc','-aq','--filter','label='+label]).split())
+                    networks.update(command([docker,'network','ls','--no-trunc','-q','--filter','label='+label]).split())
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='managed_services'").fetchone():
+                    for saved in db.execute('SELECT operation_id FROM managed_services'):
+                        containers.update(command([docker,'ps','--no-trunc','-aq','--filter','label=net.shiftcodes.managed.operation='+saved['operation_id']]).split())
+                for env in registry.ENVIRONMENTS:
+                    networks.update(command([docker,'network','ls','--no-trunc','-q','--filter','name=^'+PROJECT+'-'+env+'-managed$',
+                        '--filter','label=net.shiftcodes.managed.project='+PROJECT,'--filter','label=net.shiftcodes.managed.environment='+env]).split())
+                if sys.exc_info()[0] is not None:
+                    try:
+                        evidence=[]
+                        for identifier in containers:
+                            inspected=subprocess.run([docker,'inspect',identifier],capture_output=True,text=True,timeout=10)
+                            if inspected.returncode==0:
+                                evidence.append({'container':json.loads(inspected.stdout)[0],'logs':subprocess.run([docker,'logs',identifier],capture_output=True,text=True,timeout=10).stderr})
+                        (runtime/'ingress-runtime-failure.json').write_text(json.dumps(evidence,indent=2))
+                    except Exception:
+                        pass  # Diagnostic output must never prevent exact teardown.
+            finally:
+                cleanup_errors=[]
+                try:
+                    for kind,identifiers in [('container',containers),('network',networks)]:
+                        for identifier in identifiers:
+                            try:
+                                args=['rm','-f',identifier] if kind=='container' else ['network','rm',identifier]
+                                command([docker,*args])
+                            except Exception:
+                                cleanup_errors.append((kind,identifier))
+                finally:
+                    db.close()
+                assert peer_snapshot(docker)==baseline,'Existing project peers changed during failed or successful execution'
+                if cleanup_errors:raise RuntimeError('Exact fixture cleanup failed: '+repr(cleanup_errors))
         assert peer_snapshot(docker)==baseline,'Existing project peers changed'
         report['peers_unchanged']=True
         report['cleanup_verified']=not any(command([docker,'ps','--no-trunc','-aq','--filter','id='+identifier]).strip() for identifier in containers)
