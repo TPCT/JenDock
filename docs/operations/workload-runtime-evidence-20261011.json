@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "candidate_image": "sha256:2670a4d3422f2faf26b5fc1872fe6361efaecbaf154ee730d87131091d5f675c",
+  "postgres_image": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+  "source_hashes": {
+    "adoption.py": "b9f446aea0a98ea0a5040bde2ff86d0c39e7e37ea4418080334907e06481440c",
+    "adopted_workloads.py": "71e0281ed4d6a00fdc42092865a00e9de05028f2ae30a8262217a71d17dfd99e",
+    "database_candidates.py": "8b5bf6d6646429dfa1e56c149adbeb2b31e3d54edba34e83f757b862d5555b4e",
+    "service_provisioning.py": "96ec43d1ecb6d4ffa26ad4f0b40374bda679ac388ba648af327d754cd878794f",
+    "service_runtime_operations.py": "78fa236f971e53578192c0bcfb5b10b11341de4899805b872c21168487c0be32",
+    "managed_lifecycle.py": "05d6f00e66822ea68112e17b37e8e050faf58b262056ccb5c19224fcc313bf66",
+    "workload_control.py": "78678e3628ebae0bdce5f2735d76fb68846de41a8684c36859bdc9f98e890b31",
+    "workload_transport.py": "6297ad9348a14c9a338b151f461782762a111585cdd21b1a053c5717ed5227ec",
+    "workload_operations.py": "87d5836af9ce53b30fdc104a82ea624c63757136fb13273b7441c6bbff210ae9",
+    "workload_artifact_verifier.py": "d4e38f6554654e3ab2f76c6da355324dc5f654bd87671c478a87457c6aa23ae3",
+    "application_database_networks.py": "298606b52b5d01ff394c1cda5bfe1e7c19772950789c162df39257f7730dd7c0"
+  },
+  "actual_two_environment_runtime": true,
+  "queue_consumption_failure_retry": true,
+  "scheduler_recurring_history": true,
+  "disjoint_environment_networks": true,
+  "development_stop_production_continues": true,
+  "exact_cleanup": true,
+  "peers_unchanged": true,
+  "candidate_retained": true
+}

@@ -21,8 +21,8 @@ def peers(docker):
     ids=run([docker,'ps','-aq','--no-trunc']).split()
     return {x['Id']:(x['Image'],x['State']['Running']) for x in json.loads(run([docker,'inspect',*ids]))} if ids else {}
 
-def build(docker):
-    existing=subprocess.run([docker,'image','inspect',TAG],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+def build(docker,tag=TAG):
+    existing=subprocess.run([docker,'image','inspect',tag],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
     if existing:raise RuntimeError('Review image tag already exists; pass its immutable --image for verification instead of overwriting it.')
     run([docker,'image','inspect',BASE])
     nonce=uuid.uuid4().hex
@@ -34,8 +34,8 @@ def build(docker):
         shutil.copy2(ROOT/'workload-instrumentation/composer.json',package/'composer.json')
         (root/'bootstrap/cache').mkdir();(root/'storage/framework/views').mkdir(parents=True);(root/'storage/logs').mkdir()
         run(['composer','dump-autoload','--no-scripts','--no-plugins','--no-interaction'],cwd=root)
-        run([docker,'build','--network','none','--label','com.docker.compose.project=deploy-monitor','--label','net.shiftcodes.workload-candidate='+nonce,'-t',TAG,str(root)],timeout=300)
-    row=json.loads(run([docker,'image','inspect',TAG]))[0]
+        run([docker,'build','--network','none','--label','com.docker.compose.project=deploy-monitor','--label','net.shiftcodes.workload-candidate='+nonce,'-t',tag,str(root)],timeout=300)
+    row=json.loads(run([docker,'image','inspect',tag]))[0]
     assert row['Config']['Labels']['net.shiftcodes.workload-candidate']==nonce
     return row['Id'],nonce
 
