@@ -8,6 +8,8 @@ export const MCP_SCOPES = [
   "domains:read",
   "domains:create",
   "domains:adopt",
+  "workloads:read",
+  "workloads:retry",
   "databases:read",
   "databases:data:read",
 ];
@@ -65,12 +67,13 @@ export function mcpCredentialValues(draft, projects, now = Date.now()) {
       (s) =>
         s.startsWith("services:") ||
         s.startsWith("domains:") ||
-        s.startsWith("databases:"),
+        s.startsWith("databases:") ||
+        s.startsWith("workloads:"),
     ) &&
     !environments.length
   )
     throw new Error(
-      "Choose exact environments for service, domain, or database access.",
+      "Choose exact environments for service, domain, database, or workload access.",
     );
   if (
     draft.scopes.includes("databases:data:read") &&
@@ -79,6 +82,8 @@ export function mcpCredentialValues(draft, projects, now = Date.now()) {
     throw new Error(
       "Database row access also requires database metadata access.",
     );
+  if (draft.scopes.includes("workloads:retry") && !draft.scopes.includes("workloads:read"))
+    throw new Error("Retry access also requires workload read access.");
   return {
     label: draft.label.trim(),
     scopes: [...draft.scopes],

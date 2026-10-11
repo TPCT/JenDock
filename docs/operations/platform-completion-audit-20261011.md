@@ -349,3 +349,61 @@ Final source checkpoint: all 1,279 backend tests passed in 47.755 seconds
 (/tmp/workload-final-suite.log); 61 focused workload tests and 3 packaging checks
 also passed. Existing test ResourceWarnings remain. The image import/hash probes
 completed successfully and all build/test process handles exited 0.
+
+## Workload MCP and target discovery follow-through
+
+Workload tools now share the console controller over the same bounded private RPC:
+workload_targets, workload_role_details, queue_failures, scheduler_history,
+queue_retry and workload_operation. MCP_WORKLOAD_SOCKET explicitly selects the
+worker socket; WORKLOAD_MCP_UID on the worker must match the actual MCP process
+UID and WORKLOAD_WORKER_UID on the client verifies its peer (default worker UID0).
+Database scopes/socket are unrelated. Existing tokens/default scopes are unchanged;
+new tokens need explicit workloads:read and additionally workloads:retry to retry.
+The latter is a potentially destructive, non-read-only tool because business effects
+may repeat. It is separate from MCP_ENABLE_CREATION, which gates project/service/
+domain creation, not a separately granted failed-job retry. No deployment approval
+queue is added.
+
+Target discovery provides original project/environment/service/container/definition
+pins from registered evidence, artifact_verified separately, and always
+runtime_observed:false. It does not execute a probe or call recorded state live
+health. Pages scan a bounded number of services; an empty items list with a non-null
+next_cursor must be continued. Missing binding identity yields target:null.
+
+The official MCP SDK/ASGI -> actual Unix worker tests establish discovery, scoped
+read, explicit retry grants, foreign-environment/unknown-field rejection, peer
+rejection, credential separation, lost-response receipt-only recovery and output
+suppression after revocation or owner rotation. The tests still simulate Docker
+and target verification; they are not real Laravel-container acceptance. The
+registry/controller/transport integration separately verifies populated target
+projection with real SQLite and synthetic Docker replies.
+
+Independent review identified an ambiguous-status usability gap. Only a received,
+closed, validated queue.retry unsupported response with a pinned implementation's
+pre-enqueue/rollback rejection code now records terminal rejected. Allowlisted
+codes: failure_changed, unsupported_payload, unsupported_retry_policy,
+request_conflict, unregistered_queue. Replay/reconciliation of rejected operations
+never calls the adapter. Transport errors, dependency errors, timeout, absent
+receipt and rejection codes during receipt reads remain recovery-required. The
+operation never generates a new request ID. A new nullable reason column is added
+without deleting existing operation evidence.
+
+Independent read-only reviews found no new permission or duplicate-enqueue blocker.
+The role-panel controller/browser flow, build verifier, enabling the private peer
+channels in accepted deployment configuration, and actual two-environment
+Docker/Laravel/PG acceptance remain open. No production mutation occurred.
+
+Final checkpoint: 1,287 backend tests passed (51.564s), 114 frontend tests and Vite
+build passed. Evidence: /tmp/workload-mcp-full-suite.log,
+/tmp/workload-mcp-ui-tests.log, /tmp/workload-mcp-ui-build.log. Existing test
+ResourceWarnings and Vite bundle-size warnings remain. Six actual SDK workload
+flow tests passed; focused workload suite totals69. All process handles exited0.
+
+Fresh image proof (/tmp/workload-mcp-image-proof.log) verified all packaged sources
+and isolated read-only/network-disabled imports for all five images:
+receiver 4f0a2df2894a261656f549dccb30cd9d0b367572a86d0f2428c39dd5e5ade98d;
+worker 8e7d4bad0a5dca10336a8c212fc09d3d104b7dbd8bdadfc48de4017cdeea85b2;
+MCP 185f49332ed33f9f6a16c44eb231de5f20bb98919ba3616e31d13972d6ecd8bf.
+Database/migration identities unchanged. The three superseded untagged images
+from the preceding checkpoint were removed without force after reference checks;
+volumes and active/stopped container images were preserved.

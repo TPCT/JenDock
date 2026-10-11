@@ -104,3 +104,11 @@ test("database grants require exact environments and explicit row plus metadata 
     scopes,
   );
 });
+
+test("workload grants are explicit, environment scoped and retry requires read", () => {
+  assert.equal(freshMcpDraft().scopes.some((s) => s.startsWith("workloads:")), false);
+  assert.throws(() => mcpCredentialValues({ ...draft(), scopes: ["workloads:read"], environments: [] }, projects), /exact environments/);
+  assert.throws(() => mcpCredentialValues({ ...draft(), scopes: ["workloads:retry"] }, projects), /workload read/);
+  const scopes = ["workloads:read", "workloads:retry"];
+  assert.deepEqual(mcpCredentialValues({ ...draft(), scopes }, projects).scopes, scopes);
+});

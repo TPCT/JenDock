@@ -123,7 +123,7 @@ class Application:
                     return 200,response['result']
                 except (OSError,ValueError,KeyError,TypeError):
                     return 503,{'error':'Database configuration is unavailable. Reload its saved state before retrying.'}
-            if action in ('workload-role-details','queue-failures','scheduler-history','queue-retry','workload-operation'):
+            if action in ('workload-targets','workload-role-details','queue-failures','scheduler-history','queue-retry','workload-operation'):
                 import workload_rpc
                 if set(body)&{'authentication','actor','terminal_owner'}:
                     return 400,{'error':'Unexpected workload authentication fields.','code':'invalid_input'}

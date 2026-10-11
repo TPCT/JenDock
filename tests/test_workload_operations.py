@@ -48,6 +48,27 @@ class RetryTests(unittest.TestCase):
   def absent(r,g):
    self.assertEqual(r['operation'],'queue.receipt');return dict(protocol=1,status='ok',scope=r['scope'],observed_at='2026-10-11T00:00:00Z',result=dict(request_id=r['request_id'],status='absent'))
   self.assertEqual(w.reconcile(self.db,'owner',op,authorize=self.auth,transport=absent)['status'],'recovery-required')
+ def test_definitive_adapter_rejection_is_terminal_and_safe(self):
+  for code in ('failure_changed','unsupported_payload','unsupported_retry_policy','request_conflict','unregistered_queue'):
+   self.request['request_id']='rejected-'+code.replace('_','-')
+   op=self.accept()['operation_id'];calls=[]
+   def rejected(r,g):
+    g();calls.append(r['operation']);return dict(protocol=1,status='unsupported',observed_at='2026-10-11T00:00:00Z',error={'code':code})
+   result=w.dispatch(self.db,'owner',op,authorize=self.auth,transport=rejected)
+   self.assertEqual((result['status'],result['reason']),('rejected',code));self.assertNotIn('receipt',result)
+   self.assertEqual(w.dispatch(self.db,'owner',op,authorize=self.auth,transport=rejected),result)
+   self.assertEqual(w.reconcile(self.db,'owner',op,authorize=self.auth,transport=rejected),result)
+   self.assertEqual(self.accept(),result);self.assertEqual(calls,['queue.retry'])
+ def test_unknown_errors_and_receipt_rejections_remain_uncertain(self):
+  for status,code in [('error','dependency_unavailable'),('error','failure_changed'),('unsupported','observation_timeout')]:
+   self.request['request_id']='unknown-'+status+'-'+code
+   op=self.accept()['operation_id']
+   def unknown(r,g):return dict(protocol=1,status=status,observed_at='2026-10-11T00:00:00Z',error={'code':code})
+   result=w.dispatch(self.db,'owner',op,authorize=self.auth,transport=unknown)
+   self.assertEqual(result['status'],'recovery-required');self.assertNotIn('reason',result)
+   def receipt_error(r,g):
+    self.assertEqual(r['operation'],'queue.receipt');return dict(protocol=1,status='unsupported',observed_at='2026-10-11T00:00:00Z',error={'code':'failure_changed'})
+   self.assertEqual(w.reconcile(self.db,'owner',op,authorize=self.auth,transport=receipt_error)['status'],'recovery-required')
  def test_original_target_projection_and_package_field_bounds(self):
   op=self.accept();self.assertEqual(op['target'],{k:v for k,v in self.request.items() if k!='request_id'})
   for change in ({'queue':'with.dot'},{'queue':'q'*81},{'connection_id':'not-valid'},{'connection_id':'1name'}):

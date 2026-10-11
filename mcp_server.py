@@ -37,7 +37,9 @@ SCOPES = {'project_list': 'projects:read', 'project_get': 'projects:read',
           'database_bindings':'databases:read','database_binding_get':'databases:read',
           'database_schemas':'databases:read','database_tables':'databases:read',
           'database_table':'databases:read','database_rows':'databases:data:read'}
-MUTATING_TOOLS = frozenset({'project_create', 'service_create', 'domain_create', 'domain_resume', 'domain_adopt'})
+WORKLOAD_TOOLS = frozenset({'workload_targets','workload_role_details','queue_failures','scheduler_history','queue_retry','workload_operation'})
+SCOPES.update({name: 'workloads:retry' if name == 'queue_retry' else 'workloads:read' for name in WORKLOAD_TOOLS})
+MUTATING_TOOLS = frozenset({'project_create', 'service_create', 'domain_create', 'domain_resume', 'domain_adopt', 'queue_retry'})
 
 
 def string(n=120): return {'type': 'string', 'minLength': 1, 'maxLength': n}
@@ -80,6 +82,29 @@ SCHEMAS = {
                            'idempotency_key': KEY}, ['project_id', 'environment', 'definition', 'idempotency_key']),
     'operation_status': obj({'operation_id': string(), 'after_event': {'type':'integer', 'minimum':0, 'maximum':9223372036854775807, 'default':0}, 'limit': PAGE['limit']}, ['operation_id']),
 }
+
+
+# Exact runtime pins: no SQL, credentials, payloads or request-selected commands.
+WORKLOAD_TARGET = {'project_id': string(64), 'environment': ENV,
+    'service_id': {'type':'string','pattern':'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'},
+    'container_id': {'type':'string','pattern':'^[a-f0-9]{64}$'},
+    'definition_digest': {'type':'string','pattern':'^[a-f0-9]{64}$'},
+    'adapter_revision': {'type':'integer','const':1}}
+WORKLOAD_QUEUE = {'type':'string','pattern':'^[A-Za-z0-9_-]{1,80}$'}
+WORKLOAD_CONNECTION = {'type':'string','pattern':'^[A-Za-z_][A-Za-z0-9_]{0,62}$'}
+WORKLOAD_KEY = {'type':'string','pattern':'^[A-Za-z0-9_-]{16,80}$'}
+SCHEMAS['workload_targets'] = obj({'project_id': string(64), 'environment': ENV, 'limit': PAGE['limit'], 'cursor': WORKLOAD_TARGET['service_id']}, ['project_id', 'environment'])
+SCHEMAS['workload_role_details'] = obj(WORKLOAD_TARGET, WORKLOAD_TARGET)
+SCHEMAS['queue_failures'] = obj({**WORKLOAD_TARGET, 'connection_id': WORKLOAD_CONNECTION,
+    'queue': WORKLOAD_QUEUE, 'limit': PAGE['limit'], 'cursor': string(1024)}, [*WORKLOAD_TARGET, 'connection_id', 'queue'])
+SCHEMAS['scheduler_history'] = obj({**WORKLOAD_TARGET, 'registry_revision': WORKLOAD_TARGET['definition_digest'],
+    'limit': PAGE['limit'], 'cursor': string(1024)}, [*WORKLOAD_TARGET, 'registry_revision'])
+SCHEMAS['queue_retry'] = obj({**WORKLOAD_TARGET, 'request_id': WORKLOAD_KEY,
+    'connection_id': WORKLOAD_CONNECTION, 'queue': WORKLOAD_QUEUE,
+    'failed_job_id': WORKLOAD_TARGET['service_id'], 'failure_revision': WORKLOAD_TARGET['definition_digest']},
+    [*WORKLOAD_TARGET,'request_id','connection_id','queue','failed_job_id','failure_revision'])
+SCHEMAS['workload_operation'] = obj({**{k:WORKLOAD_TARGET[k] for k in ('project_id','environment','service_id')},
+    'request_id': WORKLOAD_KEY}, ['project_id','environment','service_id','request_id'])
 
 
 def select(value, keys):
@@ -148,12 +173,15 @@ def result(payload, error=False):
     return types.CallToolResult(content=[types.TextContent(type='text', text=encoded)], structuredContent=payload, isError=error)
 
 
-def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_resolver=None, enable_creation=False, database_socket=None):
+def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_resolver=None, enable_creation=False, database_socket=None, workload_socket=None):
     if not allowed_hosts or any('*' in h for h in (*allowed_hosts, *allowed_origins)) or 'null' in allowed_origins:
         raise ValueError('Exact Host and Origin allowlists are required.')
 
     if database_socket is not None and (not isinstance(database_socket,str) or not database_socket.startswith('/') or '\x00' in database_socket):
         raise ValueError('An explicit local database worker socket is required.')
+
+    if workload_socket is not None and (not isinstance(workload_socket,str) or not workload_socket.startswith('/') or '\x00' in workload_socket):
+        raise ValueError('An explicit local workload worker socket is required.')
 
     # AnyIO propagates request ContextVars into each worker. Keep the limit
     # explicit instead of using the shared default executor's capacity.
@@ -170,18 +198,22 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
         return mcp_credentials.principal_for_credential(db, _credential.get(), owner_resolver=owner_resolver)
 
     def available(p):
-        return [name for name, scope in SCOPES.items() if scope in p.scopes and (enable_creation or name not in MUTATING_TOOLS) and (name not in DATABASE_TOOLS or database_socket is not None)]
+        return [name for name, scope in SCOPES.items() if scope in p.scopes and (enable_creation or name not in MUTATING_TOOLS or name == 'queue_retry') and (name not in DATABASE_TOOLS or database_socket is not None) and (name not in WORKLOAD_TOOLS or workload_socket is not None and 'workloads:read' in p.scopes)]
 
     def list_tools_sync():
         with connection() as db:
             p = principal(db)
             return types.ListToolsResult(tools=[types.Tool(name=name, inputSchema=SCHEMAS[name],
-                description=('Read an already accepted database binding through fresh worker identity and credential checks. No SQL or credentials are accepted.' if name in DATABASE_TOOLS else
+                description=('List registered workload targets for an exact environment. Returned pins identify the accepted definition; runtime_observed=false is not live health. Use these target fields in workload_role_details.' if name == 'workload_targets' else
+                             'Retry one exact failed job using a stable request_id. Business effects may repeat; after an uncertain reply use workload_operation with the original ID. Never generate a replacement ID automatically.' if name == 'queue_retry' else
+                             'Read the original retry receipt without dispatching another job.' if name == 'workload_operation' else
+                             'Read scoped queue/scheduler observations from the exact registered workload. This never starts a container.' if name in WORKLOAD_TOOLS else
+                             'Read an already accepted database binding through fresh worker identity and credential checks. No SQL or credentials are accepted.' if name in DATABASE_TOOLS else
                              'Resume the existing operation; queued recovery waits for an available worker.' if name == 'domain_resume' else
                              'Adopt the exact DNS record from the current preview for this existing operation.' if name == 'domain_adopt' else
                              'Create using a stable idempotency key. Service desired_state=running starts this service; queued is not success.'
                              if name in MUTATING_TOOLS else 'Read authorized public deployment information.'),
-                annotations=types.ToolAnnotations(readOnlyHint=name not in MUTATING_TOOLS, destructiveHint=False,
+                annotations=types.ToolAnnotations(readOnlyHint=name not in MUTATING_TOOLS, destructiveHint=name == 'queue_retry',
                                                   idempotentHint=True, openWorldHint=name in MUTATING_TOOLS))
                 for name in available(p)])
 
@@ -212,6 +244,16 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
                     response=database_rpc.request(body,path=database_socket)
                     if not response['ok']:raise ops.OperationError('not_available','Database read is unavailable.',403)
                     if principal(db)!=p:raise ops.OperationError('not_available','Database access changed.',403)
+                    payload=response['result']
+                elif name in WORKLOAD_TOOLS:
+                    import workload_rpc
+                    ops._service_authorize(db,p,'workloads:read',a['project_id'],a['environment'])
+                    if name == 'queue_retry':ops._service_authorize(db,p,'workloads:retry',a['project_id'],a['environment'])
+                    body={k:v for k,v in a.items() if k!='project_id'}
+                    body.update(action=name.replace('_','-'),project=a['project_id'],authentication={'kind':'mcp','token':_database_bearer.get()})
+                    response=workload_rpc.request(body,path=workload_socket)
+                    if not response['ok']:raise ops.OperationError('workload_unavailable','Workload operation is unavailable. Recover the original request before retrying.',409)
+                    if principal(db)!=p:raise ops.OperationError('not_available','Workload access changed.',403)
                     payload=response['result']
                 elif name == 'project_list':
                     values = ops.list_projects(db, p, limit=a.get('limit', 25), cursor=a.get('cursor'))
@@ -316,4 +358,5 @@ def app_from_env():
                       allowed_hosts=os.environ['MCP_ALLOWED_HOSTS'].split(','),
                       allowed_origins=tuple(filter(None, os.getenv('MCP_ALLOWED_ORIGINS', '').split(','))),
                       enable_creation=os.getenv('MCP_ENABLE_CREATION') == '1',
-                      database_socket=os.getenv('MCP_DATABASE_SOCKET') or None)
+                      database_socket=os.getenv('MCP_DATABASE_SOCKET') or None,
+                      workload_socket=os.getenv('MCP_WORKLOAD_SOCKET') or None)

@@ -128,7 +128,7 @@ class MCPCreationSDKTests(unittest.TestCase):
                     async with streamable_http_client('http://testserver/_deploy/mcp', http_client=http) as (read, write):
                         async with ClientSession(read,write) as client:
                             await client.discover()
-                            self.assertEqual({t.name for t in (await client.list_tools()).tools}, set(mcp_server.SCOPES) - mcp_server.DATABASE_TOOLS)
+                            self.assertEqual({t.name for t in (await client.list_tools()).tools}, set(mcp_server.SCOPES) - mcp_server.DATABASE_TOOLS - mcp_server.WORKLOAD_TOOLS)
                             entered, release = threading.Event(), threading.Event()
                             event_loop_thread = threading.get_ident()
                             def blocked_verifier(*args):

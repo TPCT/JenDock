@@ -13,7 +13,7 @@ import workload_operations as operations
 import workload_protocol
 
 TARGET = {'project', 'environment', 'service_id', 'container_id', 'definition_digest', 'adapter_revision'}
-ACTIONS = frozenset({'workload-role-details', 'queue-failures', 'scheduler-history', 'queue-retry', 'workload-operation'})
+ACTIONS = frozenset({'workload-targets', 'workload-role-details', 'queue-failures', 'scheduler-history', 'queue-retry', 'workload-operation'})
 
 
 def invalid():
@@ -45,12 +45,53 @@ def _target(db, request):
         raise OperationError('workload_identity_changed', 'The accepted workload identity changed. Reload its details.', 409) from None
 
 
+def targets(db, request, authority):
+    if not {'project', 'environment'} <= set(request) <= {'project', 'environment', 'limit', 'cursor'}:
+        invalid()
+    limit = request.get('limit', 25)
+    cursor = request.get('cursor')
+    if type(limit) is not int or not 1 <= limit <= 100:
+        invalid()
+    if cursor is not None and (not isinstance(cursor, str) or not re.fullmatch('[a-f0-9-]{36}', cursor)):
+        invalid()
+    authority.authorize(authority.actor, request, 'read')
+    managed_services.initialize(db)
+    rows = db.execute('SELECT id FROM managed_services WHERE project=? AND environment=? AND id>? ORDER BY id LIMIT ?',
+                      (request['project'], request['environment'], cursor or '', limit + 1)).fetchall()
+    result = []
+    for row in rows[:limit]:
+        service = managed_services.get(db, row['id'])
+        definition = service['definition']
+        workload = definition['artifact'].get('workload')
+        if not workload:
+            continue
+        artifact_verified = True
+        try:
+            managed_services.require_role_capability(db, definition['artifact'])
+        except ValueError:
+            artifact_verified = False
+        binding = service.get('binding') or {}
+        digest = managed_services.digest(definition)
+        target = None
+        if (binding.get('definition_digest') == digest and isinstance(binding.get('container_id'), str)
+                and re.fullmatch('[a-f0-9]{64}', binding['container_id'])):
+            target = dict(project=request['project'], environment=request['environment'], service_id=service['id'],
+                          container_id=binding['container_id'], definition_digest=digest, adapter_revision=workload['adapter_revision'])
+        result.append({'service_id': service['id'], 'name': definition['name'], 'role': workload['role'],
+                       'recorded_state': service['state'], 'artifact_verified': artifact_verified,
+                       'runtime_observed': False, 'target': target})
+    authority.authorize(authority.actor, request, 'read')
+    return {'items': result, 'next_cursor': rows[limit - 1]['id'] if len(rows) > limit else None}
+
+
 def execute(db, body, *, transport, authority):
     """Authority is resolved from worker-authenticated proof, never body claims."""
     if not isinstance(body, dict) or body.get('action') not in ACTIONS:
         invalid()
     action = body['action']
     request = {k: v for k, v in body.items() if k != 'action'}
+    if action == 'workload-targets':
+        return targets(db, request, authority)
     if action == 'workload-operation':
         if set(request) != {'project', 'environment', 'service_id', 'request_id'}:
             invalid()
