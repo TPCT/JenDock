@@ -33,3 +33,5 @@ frontend/dist
 !managed_services.py
 !service_provisioning.py
 !artifact_publication.py
+
+!build_profiles.py

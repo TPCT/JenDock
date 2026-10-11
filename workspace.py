@@ -184,7 +184,12 @@ def read(db, project, environment):
         runs, unassigned_runs = _runs(db, project, environment)
         from delivery_target import readiness
         delivery = readiness(selected_recipe, services, {'stale': stale, 'ownership_complete': complete}, {'state': state}, settings)
+        import build_profiles
+        build_source = build_profiles.get(db, project, environment)
+        if build_source['source_revision'] is not None:
+            delivery['build'] = {'enabled': True, 'reason': ''}
         result = {
+            'build_source': build_source,
             'project': {key: record[key] for key in ('id', 'label', 'repository', 'revision')},
             'environment': settings,
             'binding': {'state': state, 'reason': reason, 'missing_services': missing},

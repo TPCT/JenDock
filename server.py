@@ -140,6 +140,18 @@ class Application:
                     return error.status, {'error': str(error), 'code': error.code}
                 except ValueError:
                     return 409, {'error': 'Service configuration is unavailable or changed. Reload this environment.', 'code': 'service_configuration_changed'}
+            if action in ('build-profile-get', 'build-profile-save'):
+                import build_profiles
+                ensure_registry(db, self.config)
+                try:
+                    if action == 'build-profile-get':
+                        return 200, {'profile': build_profiles.get(db, body.get('project'), body.get('environment'))}
+                    profile = build_profiles.save(db, body.get('project'), body.get('environment'),
+                        body.get('project_revision'), body.get('environment_revision'), body.get('profile_revision'), body.get('values'))
+                    audit(db, session['username'], action, body.get('project'), 'Build profile revision '+str(profile['profile_revision']))
+                    return 200, {'profile': profile}
+                except ValueError as error:
+                    return 409, {'error': str(error), 'code': 'build_profile_changed_or_invalid'}
             if action in ('registry-create','operation-status'):
                 import application_operations as operations
                 ensure_registry(db,self.config)
@@ -279,7 +291,7 @@ class Application:
             if existing:
                 return 200, {'job_id':existing['id'],'message':'This request has already been recorded.'}
             try:
-                target_options={field:body.get(field) for field in ('environment','environment_revision','project_revision','recipe_revision')}
+                target_options={field:body.get(field) for field in ('environment','environment_revision','project_revision','recipe_revision','source_revision')}
                 job_id,_=enqueue(db,'manual-'+key,name,sha,True,branch,mode,session['username'],retry_of,
                                  target_factory=lambda target_db:capture_registered_target(target_db,name,branch,sha,mode,**target_options),target_identity=reviewed)
             except ValueError as error:
@@ -330,13 +342,22 @@ class Application:
             results,skipped=[],[]
             for binding in matches:
                 name=binding['project'];environment=binding['environment']
-                options={key:binding.get(key) for key in ('environment','project_revision','environment_revision','recipe_revision')}
+                options={key:binding.get(key) for key in ('environment','project_revision','environment_revision','recipe_revision','source_revision')}
                 key=delivery+'-'+name+('-'+environment if environment else '')
                 identity={'environment':environment or 'legacy-unclassified'}
                 try:
-                    result=enqueue(db,key,name,sha,binding['automatic'],binding['branch'],
+                    previous=db.execute('SELECT id,mode FROM jobs WHERE delivery=?',(key,)).fetchone()
+                    mode=binding.get('mode','deploy')
+                    if previous is not None:
+                        import job_target
+                        if db.execute('SELECT 1 FROM job_targets WHERE job_id=?',(previous['id'],)).fetchone():
+                            pinned=job_target.load(db,previous['id'])
+                            if pinned['repository'] != repo or pinned['repository_id'] != repo_id:
+                                raise ValueError('Delivery repository identity changed.')
+                        mode=previous['mode']
+                    result=enqueue(db,key,name,sha,binding['automatic'],binding['branch'],mode=mode,
                                    target_factory=lambda target_db,binding=binding,options=options:capture_registered_target(
-                                       target_db,binding['project'],binding['branch'],sha,'deploy',execution_enabled=binding['automatic'],**options),
+                                       target_db,binding['project'],binding['branch'],sha,binding.get('mode','deploy'),execution_enabled=binding['automatic'],**options),
                                    target_identity=identity)
                     results.append(result)
                 except ValueError as error:

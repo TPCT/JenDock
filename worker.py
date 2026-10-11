@@ -24,6 +24,8 @@ from store import connect, projects, effective_projects, valid_branch, set_statu
 DOCKER = os.environ.get('DOCKER_BIN', '/usr/local/bin/docker')
 COMPOSE = os.environ.get('COMPOSE_BIN', '/usr/local/bin/docker-compose')
 STATE = Path(os.environ.get('STATE_DIR', '/worker-state'))
+ARTIFACT_WORK = Path(os.environ.get('ARTIFACT_WORK_DIR', '/work'))
+ARTIFACT_BUILD_NETWORK = os.environ.get('ARTIFACT_BUILD_NETWORK', 'deploy-build')
 DATABASE = os.environ.get('DATABASE', '/state/state.sqlite')
 CONFIG = os.environ.get('PROJECTS_FILE', '/config/projects.json')
 diagnostics = threading.local()
@@ -344,8 +346,76 @@ def run_migrations(recipe, policy, images):
                     '--force', '--no-interaction'), timeout=600)
 
 
+def build_artifacts(db, job, project, validate_only):
+    """Build a new project's pinned source without any runtime target dependency."""
+    if job['mode'] != 'validate' or not validate_only:
+        raise StepFailure('Artifact-only build profiles support validation builds only. No deployment was started.')
+    if project.get('environment') not in ('development', 'production'):
+        raise StepFailure('An explicit environment is required for an artifact build.')
+    import build_profiles
+    try:
+        recipe = build_profiles.validate_recipe(project['recipe'])
+    except (ValueError, TypeError, KeyError):
+        raise StepFailure('The pinned artifact build profile is invalid. Save a supported build source before retrying.') from None
+    if any(image['name'] != job['project'] + '-' + project['environment'] for image in recipe['images']):
+        raise StepFailure('The artifact image belongs to a different project or environment.')
+    sha, branch = job['sha'], job['branch']
+    if (not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40}', sha)
+            or not valid_branch(branch) or branch != project['branch']):
+        raise StepFailure('The artifact build must use its pinned branch and commit.')
+    if not isinstance(project.get('repository'), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,99}/[A-Za-z0-9_.-]{1,100}', project['repository']):
+        raise StepFailure('The pinned source repository is invalid.')
+    with tempfile.TemporaryDirectory(prefix=job['project'] + '-artifact-', dir=ARTIFACT_WORK) as temporary:
+        source = Path(temporary) / 'source'
+        set_status(db, job['id'], 'building', 'Checking out the pinned source for an isolated artifact build.')
+        run(['git', 'clone', '--branch', branch, '--', 'git@github.com:' + project['repository'] + '.git', str(source)], timeout=300)
+        if run(['git', 'rev-parse', 'HEAD'], cwd=source, capture=True).strip() != sha:
+            set_status(db, job['id'], 'superseded', 'The source branch changed. No image was built from a different commit.')
+            return
+        tracked = run(['git', 'ls-files'], cwd=source, capture=True).splitlines()
+        if any(Path(path).name in ('.env', 'id_rsa', 'id_ed25519') for path in tracked):
+            raise StepFailure('A sensitive configuration file was found in Git. Build stopped before copying the context.')
+        images = {}
+        for spec in recipe['images']:
+            try:
+                dockerfile = (source / spec['dockerfile']).resolve(strict=True)
+                context = (source / spec.get('context', '.')).resolve(strict=True)
+            except OSError:
+                raise StepFailure('The configured Dockerfile or build context is missing from the pinned checkout.') from None
+            if not dockerfile.is_relative_to(source) or not dockerfile.is_file() or not context.is_relative_to(source) or not context.is_dir():
+                raise StepFailure('Build paths must resolve to files and directories within the pinned checkout.')
+            tag = spec['name'] + ':' + sha[:12] + '-' + str(job['id'])
+            args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
+                    '--cpu-quota', '200000', '--network', ARTIFACT_BUILD_NETWORK,
+                    '--label', 'net.shiftcodes.deployer=deploy-monitor', '--label', 'net.shiftcodes.job=' + str(job['id']),
+                    '--label', 'org.opencontainers.image.revision=' + sha, '-t', tag, '-f', str(dockerfile)]
+            if spec.get('target'):
+                args += ['--target', spec['target']]
+            args.append(str(context))
+            run(args, timeout=1800)
+            images[spec['name']] = tag
+        set_status(db, job['id'], 'testing', 'Testing the built images without runtime environment files, networks or databases.')
+        for index, test in enumerate(recipe['tests']):
+            test_name = 'artifact-test-%s-%d-%s' % (job['id'], index, Path(temporary).name.rsplit('-', 1)[-1])
+            cidfile = Path(temporary) / ('test-%d.cid' % index)
+            args = [DOCKER, 'run', '--rm', '--name', test_name, '--cidfile', str(cidfile), '--network', 'none', '--read-only',
+                    '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=512m', '--cpus=1',
+                    '--pids-limit=128', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m',
+                    '--entrypoint', test['command'][0], images[test['image']], *test['command'][1:]]
+            try:
+                run(args, timeout=180)
+            finally:
+                identifier = cidfile.read_text().strip() if cidfile.exists() else ''
+                if re.fullmatch('[a-f0-9]{64}', identifier):
+                    subprocess.run([DOCKER, 'rm', '-f', identifier], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        complete_build(db, job['id'], recipe, images, 'validated',
+                       'Pinned source built and isolated tests passed. Verified application artifact publication was recorded; no environment was provisioned.')
+
+
 def deploy(db, job, project, validate_only=False):
     diagnostics.job_id = job['id']
+    if isinstance(project.get('recipe'), dict) and project['recipe'].get('schema_kind') == 'artifact-build':
+        return build_artifacts(db, job, project, validate_only)
     validate_execution_recipe(project)
     if job['mode'] not in ('validate', 'deploy') or validate_only != (job['mode'] == 'validate'):
         raise StepFailure('The execution mode differs from the pinned run mode. Retry as a new run.')

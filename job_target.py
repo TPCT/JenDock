@@ -75,18 +75,24 @@ def capture(project, environment, repository, repository_id, branch, sha, mode,
         raise ValueError('Unclassified legacy targets have no environment revision.')
     if not isinstance(recipe, dict) or not recipe:
         raise ValueError('A configured private recipe is required.')
-    # Capture stable target identity; deeper build/test recipe validation remains
-    # with the deployment engine. No path is resolved against mutable disk here.
-    token(recipe.get('compose_project'), r'[a-z0-9][a-z0-9_-]*', 'Compose project')
-    files, services = recipe.get('compose_files'), recipe.get('services')
-    if not isinstance(files, list) or not files or not all(_path(path) for path in files):
-        raise ValueError('Absolute Compose file paths are required.')
-    if not isinstance(services, list) or not services or len(set(canonical(item) for item in services)) != len(services):
-        raise ValueError('Unique deployment services are required.')
-    for service in services:
-        token(service, r'[A-Za-z0-9][A-Za-z0-9_.-]*', 'service')
-    if recipe.get('env_file') is not None and not _path(recipe['env_file']):
-        raise ValueError('Invalid environment file path.')
+    if recipe.get('schema_kind') == 'artifact-build':
+        if mode != 'validate' or environment == 'legacy-unclassified':
+            raise ValueError('Source build profiles only support explicit environment build validation.')
+        import build_profiles
+        build_profiles.validate_recipe(recipe)
+    else:
+        # Capture stable target identity; deeper build/test recipe validation remains
+        # with the deployment engine. No path is resolved against mutable disk here.
+        token(recipe.get('compose_project'), r'[a-z0-9][a-z0-9_-]*', 'Compose project')
+        files, services = recipe.get('compose_files'), recipe.get('services')
+        if not isinstance(files, list) or not files or not all(_path(path) for path in files):
+            raise ValueError('Absolute Compose file paths are required.')
+        if not isinstance(services, list) or not services or len(set(canonical(item) for item in services)) != len(services):
+            raise ValueError('Unique deployment services are required.')
+        for service in services:
+            token(service, r'[A-Za-z0-9][A-Za-z0-9_.-]*', 'service')
+        if recipe.get('env_file') is not None and not _path(recipe['env_file']):
+            raise ValueError('Invalid environment file path.')
     recipe_json = canonical(recipe)
     target = {'schema_version': VERSION, 'project': project, 'environment': environment,
               'repository': repository, 'repository_id': repository_id, 'branch': branch,
@@ -114,7 +120,10 @@ def matches(target, candidate):
 
 
 def _public(target):
-    return {key: target[key] for key in PUBLIC_FIELDS}
+    result = {key: target[key] for key in PUBLIC_FIELDS}
+    if target['recipe'].get('schema_kind') == 'artifact-build':
+        result['source_revision'] = target['recipe_revision']
+    return result
 
 
 def store(db, job_id, target):

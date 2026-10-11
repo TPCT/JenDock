@@ -153,3 +153,10 @@ test('same-project route changes resolve the requested workspace tab', async () 
   assert.equal(projectTabIndex(null), 0);
   assert.equal(projectTabIndex('invalid'), 0);
 });
+
+test('artifact validation pins source revision and cannot become a source-only deployment',()=>{
+ const base={project:'app',branch:'main',sha:'a'.repeat(40),mode:'validate',requestId:'request',target:{environment:'development',project_revision:3,environment_revision:4,source_revision:7}};
+ const body=buildPayload(base);assert.equal(body.source_revision,7);assert.equal('recipe_revision' in body,false);
+ assert.throws(()=>buildPayload({...base,mode:'deploy'}),/cannot deploy/);
+ for(const revision of [0,1.5,null])assert.throws(()=>buildPayload({...base,target:{...base.target,source_revision:revision}}),/Refresh/);
+});

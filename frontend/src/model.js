@@ -71,9 +71,11 @@ export function buildPayload({
     target && ["development", "production"].includes(target.environment);
   if (target && !scoped && target.environment !== "legacy-unclassified")
     throw Error("Choose an explicit build target.");
+  const revisionKey = mode === 'validate' && target?.source_revision != null ? 'source_revision' : 'recipe_revision';
+  if (target?.source_revision != null && mode !== 'validate')throw Error('Source-only builds cannot deploy a runtime.');
   if (
     scoped &&
-    ["project_revision", "environment_revision", "recipe_revision"].some(
+    ["project_revision", "environment_revision", revisionKey].some(
       (key) => !Number.isInteger(target[key]) || target[key] < 1,
     )
   )
@@ -96,7 +98,7 @@ export function buildPayload({
           environment: target.environment,
           project_revision: target.project_revision,
           environment_revision: target.environment_revision,
-          recipe_revision: target.recipe_revision,
+          [revisionKey]: target[revisionKey],
         }
       : {}),
   };

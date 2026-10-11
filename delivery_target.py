@@ -8,22 +8,32 @@ import registry
 
 def request_identity(body):
     environment = body.get('environment')
-    fields = ('project_revision', 'environment_revision', 'recipe_revision')
+    fields = ('project_revision', 'environment_revision', 'recipe_revision', 'source_revision')
     if environment is None:
         if any(body.get(key) is not None for key in fields):
             raise ValueError('Choose an environment before reviewing its revisions.')
         return {'environment': 'legacy-unclassified'}
     if not isinstance(environment, str) or environment not in registry.ENVIRONMENTS:
         raise ValueError('Choose Development or Production.')
+    if body.get('source_revision') is not None:
+        if body.get('recipe_revision') is not None:
+            raise ValueError('Choose either a source build profile or runtime recipe.')
+        fields = ('project_revision', 'environment_revision', 'source_revision')
+    else:
+        fields = ('project_revision', 'environment_revision', 'recipe_revision')
     if any(type(body.get(key)) is not int or body[key] < 1 for key in fields):
         raise ValueError('Reload this environment and review its current project, environment and recipe revisions.')
     return {'environment': environment, **{key: body[key] for key in fields}}
 
 
-def readiness(recipe, services, observation, binding, environment):
-    configured = (isinstance(recipe, dict) and all(isinstance(recipe.get(key), list) and recipe[key]
+def build_configured(recipe):
+    return (isinstance(recipe, dict) and all(isinstance(recipe.get(key), list) and recipe[key]
                   for key in ('images', 'tests', 'http_checks', 'services', 'compose_files'))
                   and isinstance(recipe.get('compose_project'), str) and bool(recipe['compose_project']))
+
+
+def readiness(recipe, services, observation, binding, environment):
+    configured = build_configured(recipe)
     build_reason = '' if configured else 'This environment needs an immutable build recipe, image definitions, isolated tests and runtime checks.'
     deploy_reason = build_reason
     if configured:
@@ -62,7 +72,7 @@ def assert_retry_environment(db, job_id, requested):
 
 
 def capture_registered_target(db, project, branch, sha, mode, *, environment=None,
-                              environment_revision=None, project_revision=None, recipe_revision=None,
+                              environment_revision=None, project_revision=None, recipe_revision=None, source_revision=None,
                               execution_enabled=True):
     if not registry.imported(db):
         raise ValueError('Project registry must be imported before enqueueing a target.')
@@ -70,6 +80,25 @@ def capture_registered_target(db, project, branch, sha, mode, *, environment=Non
     binding = environment
     captured_environment_revision = None
     captured_recipe_revision = None
+    if source_revision is not None:
+        expected = request_identity({'environment': binding, 'project_revision': project_revision,
+            'environment_revision': environment_revision, 'source_revision': source_revision, 'recipe_revision': recipe_revision})
+        if mode != 'validate':
+            raise ValueError('A source build profile cannot deploy or start services.')
+        import build_profiles
+        source = build_profiles.get(db, project, binding)
+        if any(source[key] != expected[key] for key in ('project_revision', 'environment_revision', 'source_revision')):
+            raise ValueError('Source or environment settings changed. Reload before building.')
+        row = db.execute('SELECT document,digest FROM registry_recipes WHERE id=? AND project=?', (source_revision, project)).fetchone()
+        if row is None:
+            raise ValueError('Source build profile is unavailable.')
+        recipe = json.loads(row['document'])
+        if hashlib.sha256(registry.canonical(recipe).encode()).hexdigest() != row['digest']:
+            raise ValueError('Source build profile integrity is invalid.')
+        return job_target.capture(project=project, environment=binding, repository=registered['repository'],
+            repository_id=registered['repository_id'], branch=branch, sha=sha, mode=mode,
+            recipe_revision=source_revision, recipe=recipe, project_revision=project_revision,
+            environment_revision=environment_revision)
     if binding is not None:
         expected = request_identity({'environment': binding, 'environment_revision': environment_revision,
                                      'project_revision': project_revision, 'recipe_revision': recipe_revision})
@@ -116,12 +145,30 @@ def webhook_bindings(db, repository, repository_id, branch):
     for project, registered in registry.list_projects(db).items():
         if registered['repository'] != repository or registered['repository_id'] != repository_id:
             continue
-        configured = [(name, env) for name, env in registered['environments'].items()
-                      if env['branch'] == branch and env['recipe_revision'] is not None]
-        for name, env in configured:
-            matches.append({'project': project, 'branch': branch, 'automatic': env['automatic'],
-                            'environment': name, 'project_revision': registered['revision'],
-                            'environment_revision': env['revision'], 'recipe_revision': env['recipe_revision']})
+        configured = []
+        import build_profiles
+        for name, env in registered['environments'].items():
+            if env['branch'] != branch:
+                continue
+            source = build_profiles.get_private(db, project, name)
+            if env['recipe_revision'] is None and source is None:
+                continue
+            configured.append(name)
+            match = {'project': project, 'branch': branch, 'automatic': env['automatic'],
+                     'environment': name, 'project_revision': registered['revision'],
+                     'environment_revision': env['revision']}
+            runtime_build = False
+            if env['recipe_revision'] is not None:
+                row = db.execute('SELECT document,digest FROM registry_recipes WHERE id=? AND project=?',
+                                 (env['recipe_revision'], project)).fetchone()
+                if row is None or hashlib.sha256(registry.canonical(json.loads(row['document'])).encode()).hexdigest() != row['digest']:
+                    raise ValueError('Runtime recipe integrity is invalid.')
+                runtime_build = build_configured(json.loads(row['document']))
+            if runtime_build or source is None:
+                match['recipe_revision'] = env['recipe_revision']
+            else:
+                match.update(source_revision=source['source_revision'], mode='validate')
+            matches.append(match)
         if not configured and registered['legacy_binding'] is None and registered['legacy_settings'] and legacy[project]['branch'] == branch:
             matches.append({'project': project, 'branch': branch, 'automatic': legacy[project]['automatic'], 'environment': None})
     return matches
