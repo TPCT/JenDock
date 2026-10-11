@@ -107,3 +107,5 @@ dividers use 12px on each side; section boundaries do not combine 32px margins
 with nested padding. Version headings group title, description and reload action
 in one row, with 12px before the list. Settings section headings use the shared
 16px heading style and keep their hint alongside the title on narrow screens.
+
+Use 4px for closely related version metadata and helper text, 6px for label-to-input spacing, and the existing 8/12/16/24px scale for controls, rows, panels and sections. Version headings retain a dedicated reload column at narrow widths; descriptions wrap within their own column. Form helper messages align with the input edge. Compact run event spacing uses these same tokens.

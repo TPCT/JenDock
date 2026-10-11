@@ -1,10 +1,12 @@
 /* Shared operational density. Keep these tokens available to portalled dialogs. */
 :root {
+  --space-tight: 4px;
   --space-inline: 8px;
   --space-group: 12px;
   --space-panel: 16px;
   --space-section: 24px;
   --space-page: 24px;
+  --space-label: 6px;
 }
 .workspace-main > main { padding: var(--space-section) var(--space-page) var(--space-panel); }
 .workspace-top { padding-inline: var(--space-page); }
@@ -23,6 +25,7 @@
 .performance-section { margin-top: var(--space-section); padding-top: var(--space-panel); }
 .unassigned-workload { margin-top: var(--space-section); padding-top: var(--space-panel); }
 .empty-state { padding: var(--space-panel); text-align: center; }
+.empty-state-description { max-width: 72ch; margin-inline: auto !important; }
 .empty-state-description { margin-top: var(--space-inline) !important; font-size: 14px !important; }
 .directory-row, .deployment-row { padding: var(--space-group) var(--space-panel); gap: var(--space-group); }
 .service-line { min-height: 64px; padding-block: var(--space-inline); }
@@ -72,4 +75,26 @@
 @media (max-width: 800px) {
   .section-heading { flex-wrap: wrap; }
   .version-row { padding: var(--space-group); }
+}
+
+/* Content rhythm: labels belong to controls, rows to sections, sections to pages. */
+.form-field { min-width: 0; }
+.form-field > label { margin-bottom: var(--space-label); line-height: 20px; }
+.form-field .MuiFormHelperText-root { margin: var(--space-tight) 0 0; }
+.workspace-main .section-heading > :first-child { min-width: 0; }
+.chart-toolbar > div { gap: var(--space-inline); }
+.project-layout { gap: var(--space-section); }
+.deploy-facts { margin-block: var(--space-panel); gap: var(--space-group) var(--space-inline); }
+.deployment-aside .section-heading { margin-bottom: var(--space-group); }
+.directory-row strong small { margin-top: var(--space-tight); }
+.event-row pre { margin: 0; }
+.terminal-panel > div { padding: var(--space-group) var(--space-panel); }
+.terminal-panel pre { margin: 0; padding: var(--space-panel); }
+.login-intro { margin-bottom: var(--space-section); }
+.login-intro h1 { margin-bottom: var(--space-inline); }
+.login-form .login-submit { margin-top: var(--space-section); }
+@media (max-width: 800px) {
+  .workspace-main .MuiButton-root { min-height: 40px; }
+  .project-layout { gap: var(--space-panel); }
+  .event-row { gap: var(--space-inline); }
 }
