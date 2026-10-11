@@ -51,6 +51,11 @@ was recreated. Do not report these attempts as successful image builds.
    bindings and real Python HTTP application runtime now pass both-engine
    acceptance; `migration_bindings.py` still accepts PostgreSQL only. Discovery
    now uses each engine's installed client and authenticated database name.
+   Typed compiler/catalog operations subsequently passed actual MySQL/MariaDB
+   create/add/index and privilege-visibility checks; see
+   `migration-catalog-acceptance-20261011.md`. The durable migration journal and
+   executor integration are still missing, so this is not migration support in
+   the product. Full ordinary migration grammar/history support remains open.
 5. Explicit Development-only fresh/refresh configuration and isolated execution.
    Production destructive database operations must remain prohibited.
 6. Public Cloudflare/CA/ingress activation, intended MCP client/TLS and deployed
