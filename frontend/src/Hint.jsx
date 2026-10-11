@@ -26,8 +26,11 @@ export default function Hint({ label, children }) {
         sx={{
           color: "text.secondary",
           verticalAlign: "middle",
+          width: { xs: 40, sm: 32 },
           minWidth: { xs: 40, sm: 32 },
+          height: { xs: 40, sm: 32 },
           minHeight: { xs: 40, sm: 32 },
+          flexShrink: 0,
         }}
       >
         <Info sx={{ fontSize: 16 }} />

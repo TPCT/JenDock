@@ -111,3 +111,14 @@ in one row, with 12px before the list. Settings section headings use the shared
 Use 4px for closely related version metadata and helper text, 6px for label-to-input spacing, and the existing 8/12/16/24px scale for controls, rows, panels and sections. Version headings retain a dedicated reload column at narrow widths; descriptions wrap within their own column. Form helper messages align with the input edge. Compact run event spacing uses these same tokens.
 
 The empty containers group and Versions use a 16px section margin (28px from the empty content edge including its inset). Loading groups use the same 16px vertical panel padding across deferred screens and settings. Variables action dividers use 12px on each side. Release metadata uses flex gap without extra child margins; desktop dividers keep a 16px inner gutter, removed when stacked on mobile. Version description margins are scoped to the section so MUI injection order cannot reset the 4px gap.
+
+## Operational spacing
+
+Use the shared 4/8/12/16/24px scale in `spacing.css`: tight metadata,
+12px row insets, 16px component padding, and 24px section separation.
+Mobile page gutters are 16px. Contextual hints are 32px on desktop and
+40px on mobile; explicit dimensions prevent the global icon-button size
+from increasing every metadata line. Group a section hint with its title,
+leaving the description on its own normal text line. Version source actions
+use 24px desktop line height and preserve 40px mobile touch targets.
+Project tabs scroll with visible navigation controls at narrow widths.

@@ -45,11 +45,9 @@ export default function ServiceVersions({ project, environment, api, navigate, r
   return <section className="service-versions" aria-label={`${label} versions`} aria-busy={loading}>
     <div className="section-heading versions-heading">
       <div className="versions-heading-copy">
-      <Typography component="h2" variant="h6">Versions</Typography>
-    <Typography className="versions-description" color="text.secondary" fontSize={13}>
-      <span>Recorded images published for {label.toLowerCase()}.</span>
-      <Hint label="About version records">Service associations reflect saved definitions and bindings, not a live container inspection. Open a container above to inspect its observed image and state. Historical images may have been pruned and are not guaranteed to remain available.</Hint>
-    </Typography>
+      <div className="versions-title"><Typography component="h2" variant="h6">Versions</Typography>
+      <Hint label="About version records">Service associations reflect saved definitions and bindings, not a live container inspection. Open a container above to inspect its observed image and state. Historical images may have been pruned and are not guaranteed to remain available.</Hint></div>
+    <Typography className="versions-description" color="text.secondary" fontSize={13}>Recorded images published for {label.toLowerCase()}.</Typography>
       </div>
       <Tooltip title="Reload versions"><span><IconButton size="small" disabled={loading} onClick={() => load()} aria-label={`Reload ${label.toLowerCase()} versions`}><Refresh /></IconButton></span></Tooltip>
     </div>

@@ -107,3 +107,18 @@
   .release-band > div { gap: var(--space-group); }
   .release-band > div > span { margin-bottom: 0; }
 }
+
+/* Compact metadata controls should not inflate their containing rows. */
+.workspace-main .section-heading { min-height: 32px; }
+.workspace-main .section-heading .MuiTypography-h6 { line-height: 1.5; }
+.service-versions { margin-top: var(--space-section); }
+.versions-title { display: flex; align-items: center; gap: var(--space-tight); }
+.service-versions .versions-description { display: block; margin-top: var(--space-tight); }
+.version-source .MuiButton-root { min-height: 24px; line-height: 24px; }
+.version-row { align-items: start; }
+.workspace-main .empty-state { padding-block: var(--space-panel); }
+.workspace-main .empty-state-description { line-height: 1.5; }
+@media (max-width: 800px) {
+  .service-versions { margin-top: var(--space-panel); }
+  .version-source .MuiButton-root { min-height: 40px; }
+}
