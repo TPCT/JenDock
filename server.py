@@ -120,6 +120,16 @@ class Application:
                     return 200,{'connection':connection,'message':message}
                 except integrations.IntegrationError as error:
                     return 409,{'error':str(error)}
+            if action in ('registry-create','operation-status'):
+                import application_operations as operations
+                ensure_registry(db,self.config)
+                principal=operations.Principal(session['username'],'console',frozenset({'projects:create','operations:read'}))
+                try:
+                    if action=='operation-status':return 200,{'operation':operations.get_operation(db,principal,body.get('operation_id'))}
+                    typed=operations.project_input(body.get('project'),body.get('values'),body.get('integration_ref','github'))
+                    return 200,operations.create_project(db,principal,typed,body.get('request_id'),self.integration_key)
+                except operations.OperationError as error:
+                    return error.status,{'error':str(error),'code':error.code}
             if action=='environment-workspace':
                 import workspace
                 ensure_registry(db,self.config)
@@ -127,16 +137,14 @@ class Application:
                     return 200,workspace.read(db,body.get('project'),body.get('environment'))
                 except ValueError as error:
                     return 409,{'error':str(error)}
-            if action in ('registry-list','registry-get','registry-create','registry-update','environment-settings'):
+            if action in ('registry-list','registry-get','registry-update','environment-settings'):
                 import registry
                 ensure_registry(db,self.config)
                 name=body.get('project','')
                 try:
                     if action=='registry-list':return 200,{'projects':registry.list_projects(db)}
                     if action=='registry-get':return 200,{'project':registry.get_project(db,name)}
-                    if action=='registry-create':
-                        result=registry.create_project(db,name,body.get('values'))
-                    elif action=='registry-update':
+                    if action=='registry-update':
                         changes=body.get('changes')
                         if not isinstance(changes,dict) or set(changes)-{'label'}:
                             return 400,{'error':'Only the project display name can be changed here. Workload adoption requires verified service and database identity.'}

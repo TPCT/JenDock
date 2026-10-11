@@ -1,6 +1,9 @@
 """Actual API/database acceptance for dynamic metadata, without Docker side effects."""
 import json
 import unittest
+from unittest.mock import patch
+from cryptography.fernet import Fernet
+import integrations
 import test_receiver as receiver_helpers
 from store import connect, effective_projects, valid_branch
 
@@ -15,7 +18,12 @@ class RegistryApiTests(unittest.TestCase):
         return self.app.action(self.session,dict(action=action,**values))
 
     def test_dynamic_creation_two_environments_reload_and_no_json_dependency(self):
-        code,result=self.request('registry-create',project='new-app',values={'repository':'TPCT/new-app','label':'New application'})
+        key=self.root/'key';key.write_bytes(Fernet.generate_key());key.chmod(0o600);self.app.integration_key=str(key)
+        db=connect(self.app.database)
+        integrations.save_connection(db,'github',0,'fixture-token',key,verifier=lambda *args: {'api_access':'verified','identity':'fixture','repositories':[],'clone_access':'unverified','webhook_management':'unverified'})
+        db.close()
+        with patch('integrations.get_json',return_value={'full_name':'TPCT/new-app','id':42}):
+            code,result=self.request('registry-create',project='new-app',request_id='new-project-request-123',values={'repository':'TPCT/new-app','label':'New application'})
         self.assertEqual(code,200)
         self.assertEqual(set(result['project']['environments']),{'development','production'})
         self.config.unlink()

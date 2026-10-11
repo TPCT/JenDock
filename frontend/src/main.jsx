@@ -83,6 +83,7 @@ import EnvironmentSettings from "./EnvironmentSettings.jsx";
 import AdoptWorkload from "./AdoptWorkload.jsx";
 import ProjectCreateDialog from "./ProjectCreateDialog.jsx";
 import Hint from "./Hint.jsx";
+import { storeCreation, restoreCreation, clearCreation, creationSessionStorage } from "./projectCreationStorage.js";
 import {
   workspaceEnvironment,
   containerRoute,
@@ -231,7 +232,9 @@ function Empty({ title, children }) {
   );
 }
 function App() {
-  const [session, setSession] = useState(null),
+  const creationDraft = useRef(null);
+  const creationOwner = useRef(null);
+  const [session, setSessionState] = useState(null),
     [boot, setBoot] = useState(true),
     [data, setData] = useState(null),
     [error, setError] = useState(""),
@@ -252,6 +255,22 @@ function App() {
     dirtyRef = useRef(false),
     pendingRef = useRef(false),
     fetchSeq = useRef(0);
+  const setSession = useCallback(value => {
+    if (value?.username) {
+      creationOwner.current = value.username;
+      creationDraft.current = restoreCreation(creationSessionStorage(), value.username);
+    } else {
+      clearCreation(creationSessionStorage(), creationOwner.current);
+      creationOwner.current = null;
+      creationDraft.current = null;
+    }
+    setSessionState(value);
+  }, []);
+  const saveCreationDraft = useCallback(value => {
+    if (!creationOwner.current) return;
+    creationDraft.current = value;
+    storeCreation(creationSessionStorage(), creationOwner.current, value);
+  }, []);
   sessionRef.current = session;
   routeRef.current = route;
   dirtyRef.current = dirty;
@@ -292,6 +311,7 @@ function App() {
       }
       const failure = Error(v.error || "Request failed.");
       failure.status = r.status;
+      failure.code = v.code;
       throw failure;
     }
     return v;
@@ -533,6 +553,8 @@ function App() {
     return r;
   };
   const context = {
+    creationDraft,
+    saveCreationDraft,
     data,
     api,
     refresh,
@@ -1358,7 +1380,7 @@ function ProjectSettings({ id, setDirty, setOperationPending, onEnvironments }) 
   );
 }
 function ProjectsPage() {
-  const { data, navigate, api, refresh, notify } = useApp();
+  const { data, navigate, api, refresh, creationDraft, saveCreationDraft, setOperationPending } = useApp();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [registry, setRegistry] = useState(null), [registryError, setRegistryError] = useState(''), [registryReload, setRegistryReload] = useState(0), [registryLoading, setRegistryLoading] = useState(true);
@@ -1383,7 +1405,7 @@ function ProjectsPage() {
         <Typography variant="h4">Projects</Typography>
         <Stack direction="row" alignItems="center" spacing={1}><IconAction label="Refresh project settings" icon={Refresh} disabled={registryLoading} onClick={()=>setRegistryReload(value=>value+1)}/><Button variant="contained" onClick={() => setCreating(true)}>New project</Button></Stack>
       </Stack>
-      <ProjectCreateDialog open={creating} onClose={() => setCreating(false)} api={api} onCreated={async (projectId) => { try { await refresh(); navigate("project/" + projectId); } catch { notify("Project created. Reload the project list to open it."); } }} />
+      <ProjectCreateDialog open={creating} onClose={() => setCreating(false)} api={api} draftStore={creationDraft} onDraftChange={saveCreationDraft} onPending={setOperationPending} onIntegrations={()=>navigate("integrations")} onCreated={async (projectId) => { await refresh(); navigate("project/" + encodeURIComponent(projectId)); }} />
       <Typography color="text.secondary" sx={{ mt: 1 }}>
         {Object.keys(data.projects).length} projects
       </Typography>

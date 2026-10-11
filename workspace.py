@@ -151,10 +151,15 @@ def read(db, project, environment):
             legacy_candidate = _recipe_matches(legacy.get('recipe'), identity, require_service=False)
             if owners == {(project, environment)}:
                 observed_services.add(identity[1])
-                manageable = not stale and any(str(row.get('Names', '')).startswith(prefix) for prefix in legacy.get('container_prefixes', []))
+                manageable = not stale
                 reason = 'Runtime observations are stale. Refresh before managing this service.' if stale else 'Persisted recipe and observed Compose ownership match.'
-                if not manageable and not stale:
-                    reason = 'The service is bound, but existing container control does not authorize this target.'
+                try:
+                    from ownership import resolve
+                    registered = resolve(db, project, identity[0], identity[1], list(identity[2]))
+                    manageable = manageable and registered is not None and registered['environment'] == environment
+                except ValueError:
+                    manageable = False
+                    reason = 'Registered ownership is inconsistent. Reconcile its recipe before management.'
                 services.append(_service(row, 'verified', reason, manageable))
             elif len(owners) > 1 and ((project, environment) in owners or legacy_candidate):
                 conflicts = True

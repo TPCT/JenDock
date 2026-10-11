@@ -47,8 +47,6 @@ def inspect_target(project_name, container_name):
     finally:policy_db.close()
     if not policy or not isinstance(container_name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{1,127}',container_name):
         raise ControlError('Unknown project or container.')
-    if not any(container_name.startswith(p) for p in policy.get('container_prefixes',[])):
-        raise ControlError('This container does not belong to this project.')
     result = json.loads(command([DOCKER,'inspect',container_name]))[0]
     if result['Name'].lstrip('/') != container_name:
         raise ControlError('Container identity changed. Refresh and try again.')
@@ -56,14 +54,26 @@ def inspect_target(project_name, container_name):
     group,service = labels.get('com.docker.compose.project'),labels.get('com.docker.compose.service')
     if not group or not service or not re.fullmatch(r'[a-zA-Z0-9_.-]+',group+service):
         raise ControlError('Container has no valid Compose owner.')
-    recipe=policy.get('recipe') or {}
-    if group != recipe.get('compose_project'):
-        raise ControlError('Container Compose ownership does not match this project.')
     try:
         observed_files = ordered_files(labels.get('com.docker.compose.project.config_files', '').split(','))
+        import ownership
+        policy_db = connect(DATABASE)
+        try:
+            owner = ownership.resolve(policy_db, project_name, group, service, list(observed_files))
+        finally:
+            policy_db.close()
+        if owner:
+            recipe = owner['recipe']
+            result['_monitor_environment'] = owner['environment']
+        else:
+            if not any(container_name.startswith(p) for p in policy.get('container_prefixes', [])):
+                raise ControlError('This container does not belong to this project.')
+            recipe = policy.get('recipe') or {}
+            if group != recipe.get('compose_project'):
+                raise ControlError('Container Compose ownership does not match this project.')
         expected_files = ordered_files(recipe.get('compose_files'))
-    except (ValueError, AttributeError):
-        raise ControlError('Container configuration identity is invalid.') from None
+    except (ValueError, AttributeError) as error:
+        raise ControlError(str(error) or 'Container configuration identity is invalid.') from None
     if 'owned_services' in recipe or recipe.get('service_provenance') is not None:
         import provenance
         if not provenance.matches(recipe, group, service, list(observed_files)):
