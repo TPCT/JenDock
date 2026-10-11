@@ -124,6 +124,16 @@
 .service-name, .service-actions { gap: var(--space-inline); }
 .health-caption { margin-top: var(--space-tight); }
 .empty-state + .service-versions { margin-top: var(--space-inline); }
+.aside-divider { margin-block: var(--space-section); }
+.delivery-line { margin-block: var(--space-inline); gap: var(--space-inline); }
+.commit-ref { gap: var(--space-inline); margin-top: var(--space-inline); }
+.commit-ref > span { margin-left: 0; }
+.timeline { margin-top: var(--space-panel); }
+.timeline > div { padding-inline-start: var(--space-panel); padding-bottom: var(--space-section); }
+.timeline > div:last-child { padding-bottom: 0; }
+.timeline small { margin-top: var(--space-tight); }
+.chart-legend, .health { gap: var(--space-inline); }
+.boot-state { gap: var(--space-panel); padding: var(--space-page); }
 @media (max-width: 800px) {
   .service-line { padding-inline: var(--space-group); }
 }
@@ -140,6 +150,15 @@
 .nav-divider { margin: var(--space-panel) var(--space-inline); }
 .empty-state-description > .MuiButton-root { margin-inline-start: var(--space-inline); }
 .MuiDialogContent-root > .MuiStack-root { min-width: 0; }
+.MuiDialogTitle-root { display: flex; align-items: center; gap: var(--space-inline); }
+.MuiDialogActions-root > .MuiButton-root { flex-shrink: 0; }
+.MuiAutocomplete-popper .MuiAutocomplete-listbox { padding: var(--space-tight); }
+.MuiAutocomplete-popper .MuiAutocomplete-listbox .MuiAutocomplete-option {
+  padding: var(--space-inline) var(--space-group);
+  gap: var(--space-inline);
+}
+.MuiAutocomplete-popper .MuiAutocomplete-noOptions,
+.MuiAutocomplete-popper .MuiAutocomplete-loading { padding: var(--space-panel); }
 @media (max-width: 800px) {
   .nav-list .MuiListItemButton-root,
   .project-nav .MuiListItemButton-root { min-height: 44px; }

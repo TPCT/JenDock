@@ -432,6 +432,8 @@ function App() {
     },
     shape: { borderRadius: 6 },
     components: {
+      // Gap keeps wrapped toolbars and responsive form stacks evenly spaced.
+      MuiStack: { defaultProps: { useFlexGap: true } },
       MuiAutocomplete: {
         defaultProps: {
           selectOnFocus: false,
@@ -544,7 +546,7 @@ function App() {
             borderTop: `1px solid ${theme.palette.divider}`,
             flexShrink: 0,
             flexWrap: "wrap",
-            gap: 8,
+            gap: "var(--space-inline)",
             "& > :not(style) ~ :not(style)": { marginLeft: 0 },
           }),
         },

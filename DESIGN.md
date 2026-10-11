@@ -85,6 +85,10 @@ current tracked branch.
 
 ## Shared operational spacing
 
+All MUI Stacks use flex gap by default, so responsive wrapping does not add
+leading sibling margins on the next line. Dropdown rows, dialog heading icons,
+deployment metadata and timeline groups use the same shared spacing tokens.
+
 `frontend/src/spacing.css` owns the shared spacing scale: 8px between controls,
 12px within compact rows, 16px for panel padding and form groups, and 24px between
 sections. The workspace header and page share a 24px horizontal gutter on desktop
