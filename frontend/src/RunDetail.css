@@ -45,7 +45,7 @@
   line-height: 1.35;
 }
 .run-detail .run-heading > .run-status-icon {
-  margin-top: 5px;
+  margin-top: var(--space-tight);
 }
 .run-detail .run-heading > .run-status-icon svg {
   width: 24px;
@@ -190,7 +190,7 @@
 }
 .run-detail .run-execution-heading p {
   font-size: 12px;
-  margin-top: 5px;
+  margin-top: var(--space-tight);
 }
 .run-detail .run-diagnostic {
   border: 1px solid var(--run-border);
@@ -203,7 +203,7 @@
 }
 .run-detail .run-diagnostic > .run-status-icon {
   align-self: flex-start;
-  margin-top: 3px;
+  margin-top: var(--space-tight);
 }
 .run-detail .run-diagnostic-failure {
   border-color: var(--run-danger);
@@ -212,7 +212,7 @@
 .run-detail .run-diagnostic-text {
   font-size: 13px;
   line-height: 1.7;
-  margin-top: 5px;
+  margin-top: var(--space-tight);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

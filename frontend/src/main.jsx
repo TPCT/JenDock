@@ -484,7 +484,19 @@ function App() {
       },
       MuiStack: { defaultProps: { useFlexGap: true } },
       MuiTooltip: { defaultProps: { enterTouchDelay: 0 } },
+      MuiFormControlLabel: {
+        styleOverrides: {
+          root: { margin: 0, gap: "var(--space-tight)", alignItems: "center" },
+          label: { paddingBlock: "var(--space-inline)" },
+        },
+      },
       MuiAlert: {
+        styleOverrides: {
+          root: { padding: "var(--space-group) var(--space-panel)", gap: "var(--space-group)", alignItems: "flex-start" },
+          icon: { margin: 0, padding: 0, minHeight: 24, alignItems: "center" },
+          message: { padding: 0, minWidth: 0, lineHeight: "24px" },
+          action: { margin: 0, padding: 0, alignSelf: "center" },
+        },
         defaultProps: {
           iconMapping: {
             error: <ErrorIcon />,

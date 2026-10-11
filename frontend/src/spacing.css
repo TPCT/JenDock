@@ -62,7 +62,6 @@
 .environment-switch .MuiTab-root { margin-right: var(--space-section); }
 .environment-switch .MuiTab-root:last-child,
 .project-tabs .MuiTab-root:last-child { margin-right: 0; }
-.nav-divider { margin: var(--space-panel) 10px; }
 .versions-pagination { gap: var(--space-group); padding-top: var(--space-group); flex-wrap: wrap; }
 .field-action-row { --field-label-line: 20px; --field-label-gap: 6px; }
 .field-action-row .form-field > label { line-height: var(--field-label-line); margin-bottom: var(--field-label-gap); }
@@ -124,7 +123,7 @@
 .table-head, .service-line { column-gap: var(--space-group); padding-inline: var(--space-panel); }
 .service-name, .service-actions { gap: var(--space-inline); }
 .health-caption { margin-top: var(--space-tight); }
-.empty-state + .service-versions { margin-top: var(--space-panel); }
+.empty-state + .service-versions { margin-top: var(--space-inline); }
 @media (max-width: 800px) {
   .service-line { padding-inline: var(--space-group); }
 }
@@ -145,4 +144,19 @@
   .nav-list .MuiListItemButton-root,
   .project-nav .MuiListItemButton-root { min-height: 44px; }
   .environment-workspace-state { padding-block: var(--space-tight); }
+}
+
+/* Keep feedback and wrapped toolbar controls on the same content grid. */
+.workspace-top, .top-right { gap: var(--space-group); }
+.workspace-main .MuiAlert-root, .MuiDialog-root .MuiAlert-root { min-width: 0; }
+.workspace-main .MuiAlert-message, .MuiDialog-root .MuiAlert-message { overflow-wrap: anywhere; }
+.section-heading > .MuiStack-root { flex-wrap: wrap; gap: var(--space-inline); }
+.project-tabs .MuiTabs-list, .environment-switch .MuiTabs-list { align-items: stretch; }
+@media (max-width: 800px) {
+  .workspace-main .MuiAlert-root, .MuiDialog-root .MuiAlert-root { flex-wrap: wrap; }
+  .workspace-main .MuiAlert-message, .MuiDialog-root .MuiAlert-message { flex: 1; }
+  .workspace-main .MuiAlert-action, .MuiDialog-root .MuiAlert-action {
+    margin-inline-start: calc(22px + var(--space-group));
+  }
+  .section-heading { row-gap: var(--space-inline); }
 }
