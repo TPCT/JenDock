@@ -101,3 +101,101 @@ class RolloutTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'manifest drifted'): self.deliver()
         self.assertEqual(self.replacement_count,0)
 
+    def reconcile(self):
+        return managed_rollout.reconcile(self.db, 'delivery-1', self.item, docker='docker', authorize=lambda:None)
+
+    def test_reconcile_delivery_verified_is_read_only(self):
+        result = self.deliver()
+        self.calls.clear()
+        before = self.db.total_changes
+        evidence = self.reconcile()
+        self.assertEqual(evidence['outcome'], 'verified-new', evidence)
+        self.assertEqual(evidence['binding']['container_id'], result['container_id'])
+        self.assertEqual(self.db.total_changes, before)
+        self.assertTrue(all(c[1] in ('inspect','network') for c in self.calls))
+        self.assertEqual(self.replacement_count, 1)
+
+    def test_reconcile_rollback_verified(self):
+        self.unhealthy = True
+        with self.assertRaises(managed_rollout.RolloutError): self.deliver()
+        evidence = self.reconcile()
+        self.assertEqual(evidence['outcome'], 'verified-old', evidence)
+        self.assertEqual(evidence['binding']['container_id'], 'f'*64)
+        self.assertEqual(self.replacement_count, 2)
+
+    def test_reconcile_never_adopts_absence_or_unrecorded_replacement(self):
+        self.uncertain = True
+        with self.assertRaises(ValueError): self.deliver()
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+        self.container = None
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+        self.assertEqual(self.replacement_count, 1)
+
+    def test_reconcile_no_journal_proves_untouched_running_and_stopped(self):
+        self.assertEqual(self.reconcile()['outcome'], 'verified-old')
+        self.container['State']['Running'] = False
+        self.item['binding']['state'] = 'stopped'
+        self.assertEqual(self.reconcile()['outcome'], 'verified-old')
+        self.assertEqual(self.replacement_count, 0)
+
+    def test_reconcile_rejects_fingerprint_health_configuration_network_drift(self):
+        self.deliver()
+        pristine = copy.deepcopy(self.container)
+        self.item['resources']['cpu'] = .5
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+        self.item['resources']['cpu'] = .25
+        for mutate in (lambda: self.container['State']['Health'].update(Status='unhealthy'),
+                       lambda: self.container['HostConfig'].update(Privileged=True),
+                       lambda: self.container.update(Id='9'*64)):
+            mutate()
+            self.assertEqual(self.reconcile()['outcome'], 'unknown')
+            self.container = copy.deepcopy(pristine)
+        self.network['Containers'] = {'9'*64: {}}
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+
+    def test_reconcile_revoked_authorization_propagates(self):
+        with self.assertRaisesRegex(ValueError, 'revoked'):
+            managed_rollout.reconcile(self.db, 'delivery-1', self.item, docker='docker',
+                authorize=lambda: (_ for _ in ()).throw(ValueError('revoked')))
+        self.assertEqual(self.calls, [])
+    def test_reconcile_completed_metadata_normalizes_only_plan_progress(self):
+        self.item['state'] = 'pending'
+        result = self.deliver()
+        self.item.update(state='succeeded', verified_binding=result)
+        self.peers[0].update(definition=self.new_definition, binding=result)
+        evidence = self.reconcile()
+        self.assertEqual(evidence['outcome'], 'verified-new', evidence)
+
+    def test_reconcile_skipped_stopped_without_next_definition(self):
+        self.container['State']['Running'] = False
+        self.item['binding']['state'] = 'stopped'
+        del self.item['next_definition']
+        del self.item['artifact']
+        self.item['state'] = 'skipped-stopped'
+        self.assertEqual(self.reconcile()['outcome'], 'verified-old')
+
+    def test_reconcile_manifest_intent_requires_untouched_manifest_and_id(self):
+        with patch.object(provision, '_atomic', side_effect=OSError('interrupted before manifest write')):
+            with self.assertRaises(OSError): self.deliver()
+        self.assertEqual(self.reconcile()['outcome'], 'verified-old')
+        self.container['Id'] = '9'*64
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+
+    def test_reconcile_start_intent_uses_actual_health_not_phase_claim(self):
+        self.deliver()
+        row = self.db.execute('SELECT document FROM managed_rollout_journals').fetchone()
+        journal = json.loads(row['document']); journal['phase'] = 'delivery-start-intent'
+        self.db.execute('UPDATE managed_rollout_journals SET document=?', (json.dumps(journal),))
+        self.assertEqual(self.reconcile()['outcome'], 'verified-new')
+        self.container['State']['Running'] = False
+        self.assertEqual(self.reconcile()['outcome'], 'unknown')
+    def test_reconcile_repeated_rollback_observation_keeps_original_fingerprint(self):
+        self.item['state'] = 'pending'
+        self.unhealthy = True
+        with self.assertRaises(managed_rollout.RolloutError): self.deliver()
+        result = self.reconcile()['binding']
+        self.item.update(state='rolled-back', verified_binding=result)
+        self.peers[0]['binding'] = result
+        self.assertEqual(self.reconcile()['outcome'], 'verified-old')
+        self.item['state'] = 'unchanged'
+        self.assertEqual(self.reconcile()['outcome'], 'verified-old')

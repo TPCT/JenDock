@@ -39,7 +39,7 @@ APP = "from http.server import BaseHTTPRequestHandler,HTTPServer; H=type('H',(Ba
 HEALTH = "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080',timeout=2).read()==b'fixture-ok'"
 
 
-def main():
+def main(recovery=False):
     docker = shutil.which('docker')
     command([docker, 'image', 'inspect', 'python:3.13-slim'])
     compose = next(item['Path'] for item in json.loads(command([docker, 'info', '--format', '{{json .ClientInfo.Plugins}}'])) if item['Name'] == 'compose')
@@ -188,7 +188,35 @@ def main():
                 assert len(published)==1
                 rollout_images.append(published[0]['image'])
                 assert inspect(docker,old_binding['container_id'])['Id']==old_binding['container_id']
-                succeeded=worker.process_managed_delivery(db,job_id)
+                if recovery:
+                    class InterruptedProcess(BaseException): pass
+                    with patch.object(managed_delivery, 'complete_service', side_effect=InterruptedProcess('crash before metadata CAS')):
+                        try: worker.process_managed_delivery(db,job_id)
+                        except InterruptedProcess: pass
+                        else: raise AssertionError('Fixture did not interrupt at metadata CAS')
+                    journal=json.loads(db.execute('SELECT document FROM managed_rollout_journals WHERE operation_id=?',(str(job_id)+'-'+selected['id'],)).fetchone()['document'])
+                    assert journal['phase']=='delivery-verified',journal
+                    candidate=journal['candidate_binding']
+                    assert inspect(docker,candidate['container_id'])['State']['Health']['Status']=='healthy'
+                    assert managed_services.get(db,selected['id'])['binding']['container_id']==old_binding['container_id']
+                    db.execute('UPDATE managed_deliveries SET expires=0 WHERE job_id=?',(job_id,))
+                    recovery_calls=[]
+                    real_command=service_provisioning.command
+                    def observe_command(argv, **kwargs):
+                        recovery_calls.append(argv)
+                        return real_command(argv, **kwargs)
+                    with patch.object(service_provisioning,'command',side_effect=observe_command):
+                        worker.recover_managed_deliveries(db)
+                        if managed_delivery.public(db,job_id)['status']=='recovery-required':
+                            db.execute('UPDATE managed_deliveries SET recovery_attempted=0 WHERE job_id=?',(job_id,))
+                            worker.recover_managed_deliveries(db)
+                    assert all(argv[1] in ('inspect','network') for argv in recovery_calls),recovery_calls
+                    assert inspect(docker,candidate['container_id'])['Id']==candidate['container_id']
+                    assert managed_services.get(db,selected['id'])['binding']['container_id']==candidate['container_id']
+                    report['interrupted_delivery_recovery']={'phase':'delivery-verified','candidate_id':candidate['container_id'],'read_only_runtime_recovery':True,'metadata_cas_recovered':True}
+                    succeeded=managed_delivery.public(db,job_id)['status']=='succeeded'
+                else:
+                    succeeded=worker.process_managed_delivery(db,job_id)
                 final=dict(db.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone())
                 assert succeeded and final['status']=='succeeded',(final,managed_delivery.public(db,job_id))
             replacement=managed_services.get(db,selected['id'])
@@ -217,7 +245,7 @@ def main():
             # temporary manifest's exact Compose file label authorizes cleanup.
             for env in registry.ENVIRONMENTS:
                 path = str(managed/PROJECT/env/'compose.json')
-                identifiers = command([docker,'ps','-aq','--filter','label=com.docker.compose.project.config_files='+path]).split()
+                identifiers = command([docker,'ps','-aq','--no-trunc','--filter','label=com.docker.compose.project.config_files='+path]).split()
                 containers.update(identifiers)
             existing_ids=set(command([docker,'ps','-aq','--no-trunc']).split())
             for identifier in containers & existing_ids: command([docker,'rm','-f',identifier])
@@ -237,7 +265,7 @@ def main():
         print('Peer identity changes:', changes)
         raise AssertionError('Existing peers changed')
     report['existing_peers_unchanged']=True;report['cleanup']='passed'
-    (runtime/'managed-pipeline-last.json').write_text(json.dumps(report,indent=2)+'\n')
+    (runtime/('managed-pipeline-recovery-last.json' if recovery else 'managed-pipeline-last.json')).write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2))
 
-if __name__=='__main__':main()
+if __name__=='__main__':main(recovery='--recovery' in sys.argv)

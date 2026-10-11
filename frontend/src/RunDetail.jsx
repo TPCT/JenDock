@@ -33,6 +33,7 @@ import {
 } from "./icons.jsx";
 import { activeStates, retryStates, statusLabel, date } from "./model.js";
 import { englishMessage } from "./legacyMessages.js";
+import { environmentLabel, managedDeliverySummary } from "./managedDelivery.js";
 import "./RunDetail.css";
 
 const cancellable = [
@@ -166,6 +167,9 @@ export default function RunDetail({
         <Button onClick={() => onNavigate("jobs")}>View runs</Button>
       </Box>
     );
+  const delivery = managedDeliverySummary(job);
+  const runLabel = delivery?.label || statusLabel(job.status);
+  const runIcon = delivery?.icon || job.status;
   const stages = recordedRunStages(job, events);
   const latestStage = stages.at(-1);
   const failureEvent = [...stages]
@@ -177,6 +181,16 @@ export default function RunDetail({
     : job.detail;
   const canCancel = cancellable.includes(job.status);
   const canRetry = !!project?.build_ready && retryStates.includes(job.status);
+  const retryBlocked = [
+    "recovery-required",
+    "reconciling",
+    "running",
+    "queued",
+    "pending",
+  ].includes(job.managed_delivery?.status);
+  const retryHint = retryBlocked
+    ? "Deployment is unavailable until this delivery finishes or runtime reconciliation completes. Open the project for build-only validation."
+    : "";
   const mode =
     job.mode === "validate"
       ? "Build and test only"
@@ -220,7 +234,7 @@ export default function RunDetail({
     <Box className="run-detail">
       <header className="run-header">
         <Box className="run-heading">
-          <StatusIcon status={job.status} />
+          <StatusIcon status={runIcon} />
           <Box>
             <Typography component="h1" variant="h4">
               {projectName} <span className="run-number">#{job.id}</span>
@@ -231,9 +245,7 @@ export default function RunDetail({
               alignItems="center"
               className="run-subheading"
             >
-              <Typography component="span">
-                {statusLabel(job.status)}
-              </Typography>
+              <Typography component="span">{runLabel}</Typography>
               <span aria-hidden="true">·</span>
               <Typography component="span">{mode}</Typography>
             </Stack>
@@ -247,15 +259,22 @@ export default function RunDetail({
           className="run-actions"
         >
           {canRetry && (
-            <Button
-              variant="outlined"
-              color="inherit"
-              startIcon={<Refresh />}
-              disabled={busy}
-              onClick={() => onBuild(job.project, job)}
-            >
-              {retryLabel}
-            </Button>
+            <Tooltip title={retryHint}>
+              <span
+                tabIndex={retryBlocked ? 0 : undefined}
+                aria-label={retryBlocked ? retryHint : undefined}
+              >
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<Refresh />}
+                  disabled={busy || retryBlocked}
+                  onClick={() => onBuild(job.project, job)}
+                >
+                  {retryLabel}
+                </Button>
+              </span>
+            </Tooltip>
           )}
           {canCancel && (
             <Button
@@ -284,6 +303,12 @@ export default function RunDetail({
         </Stack>
       </header>
       <Box component="dl" className="run-facts">
+        <Box>
+          <Typography component="dt">Environment</Typography>
+          <Typography component="dd">
+            {environmentLabel(delivery?.environment || job.target?.environment)}
+          </Typography>
+        </Box>
         <Box>
           <Typography component="dt">Triggered by</Typography>
           <Typography component="dd">
@@ -351,7 +376,7 @@ export default function RunDetail({
                   ? "Build and deploy"
                   : "Recorded run"}
             </span>
-            <StatusIcon status={job.status} />
+            <StatusIcon status={runIcon} />
           </div>
           <Typography className="run-sidebar-caption">
             {stages.reduce(
@@ -372,7 +397,7 @@ export default function RunDetail({
                 Execution record
               </Typography>
               <Typography color="text.secondary" variant="body2">
-                {statusLabel(job.status)} · updated {recordedDate(job.updated)}
+                {runLabel} · updated {recordedDate(job.updated)}
               </Typography>
             </div>
             <Chip
@@ -387,6 +412,86 @@ export default function RunDetail({
               }
             />
           </div>
+          {delivery && (
+            <Box
+              component="section"
+              aria-labelledby="run-containers-title"
+              sx={{
+                mb: 3,
+                border: "1px solid var(--run-border)",
+                borderRadius: "6px",
+                overflow: "hidden",
+              }}
+            >
+              <Box sx={{ p: 2, background: "var(--run-subtle)" }}>
+                <Typography
+                  component="h2"
+                  variant="subtitle2"
+                  id="run-containers-title"
+                >
+                  Container outcomes
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 0.5, overflowWrap: "anywhere" }}
+                >
+                  {environmentLabel(delivery.environment)} · {delivery.deployed}{" "}
+                  deployed · {delivery.skipped} skipped
+                </Typography>
+                {delivery.detail && (
+                  <Typography
+                    variant="body2"
+                    sx={{ mt: 1, overflowWrap: "anywhere" }}
+                  >
+                    {englishMessage(delivery.detail)}
+                  </Typography>
+                )}
+              </Box>
+              {delivery.services.length ? (
+                <Box component="ul" sx={{ m: 0, p: 0, listStyle: "none" }}>
+                  {delivery.services.map((service) => (
+                    <Box
+                      component="li"
+                      key={service.key}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: 1,
+                        px: 2,
+                        py: 1.5,
+                        borderTop: "1px solid var(--run-border)",
+                      }}
+                    >
+                      <StatusIcon status={service.icon} />
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          flex: "1 1 140px",
+                          minWidth: 0,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {service.name}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        className={`run-tone-${service.tone}`}
+                        sx={{ fontSize: 12 }}
+                      >
+                        {service.label}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Typography variant="body2" sx={{ p: 2 }}>
+                  No container outcomes were recorded for this delivery.
+                </Typography>
+              )}
+            </Box>
+          )}
           {diagnostic &&
             !stages.some((stage) =>
               stage.events.some((event) => event.detail === diagnostic),

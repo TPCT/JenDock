@@ -764,6 +764,55 @@ def process_managed_delivery(db, job_id):
             return False
 
 
+def recover_managed_deliveries(db):
+    """Reconcile interrupted managed mutations through observations only."""
+    import managed_delivery, managed_rollout
+    managed_delivery.initialize(db)
+    changed = False
+    with control.LOCK:
+        if control.JOURNAL.exists() or (STATE / 'transaction.json').exists(): return False
+        candidates = db.execute("SELECT job_id FROM managed_deliveries WHERE state='recovery-required' OR (state IN ('running','reconciling') AND expires<=?)", (time.time(),)).fetchall()
+        import uuid
+        for row in candidates:
+            worker_id = 'recovery-' + str(uuid.uuid4())
+            job_id = row['job_id']
+            try:
+                plan = managed_delivery.claim_recovery(db, job_id, worker_id, lease_seconds=300)
+            except (ValueError, KeyError, TypeError):
+                continue
+            if plan is None: continue
+            outcomes = {}
+            def authorize():
+                managed_delivery.renew_recovery(db, job_id, worker_id, lease_seconds=300)
+                return managed_delivery.authorize_recovery(db, job_id, worker_id)
+            for item in plan['services']:
+                try:
+                    observed = managed_rollout.reconcile(db, str(job_id)+'-'+item['service_id'], item,
+                                                        docker=DOCKER, authorize=authorize)
+                    outcome = {'verified-new':'new', 'verified-old':'old'}.get(observed['outcome'], 'unknown')
+                    outcomes[item['service_id']] = {'outcome':outcome, 'binding':observed.get('binding')}
+                except (ValueError, OSError, KeyError, TypeError):
+                    outcomes[item['service_id']] = {'outcome':'unknown'}
+            try:
+                result = managed_delivery.finish_recovery(db, job_id, worker_id, outcomes)
+            except (ValueError, KeyError, TypeError):
+                # No further mutation or ordinary deployment may steal this
+                # lease. Expiration returns it to bounded read-only recovery.
+                continue
+            changed = True
+            status = 'succeeded' if result['status'] == 'succeeded' else 'failed'
+            detail = ('Interrupted delivery was reconciled: all replacement containers are healthy.' if status == 'succeeded'
+                      else 'Runtime observations were reconciled; unchanged or restored services remain on their previous image.'
+                      if result['status'] == 'failed' else 'Runtime identity remains uncertain. Automatic reconciliation will retry without repeating deployment commands.')
+            old = db.execute('SELECT status,detail FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if old and (old['status'] != status or old['detail'] != detail):
+                set_status(db, job_id, status, detail)
+            if status == 'succeeded':
+                try: prune_managed_previous_images(db, job_id)
+                except (ValueError, OSError, subprocess.TimeoutExpired): pass
+    return changed
+
+
 def resume_managed_deliveries(db):
     import job_target, artifact_publication
     artifact_publication.initialize(db)
@@ -853,6 +902,7 @@ def main():
             try:
                 import artifact_publication
                 artifact_publication.process(db, inspect_artifact_image)
+                recover_managed_deliveries(db)
                 resume_managed_deliveries(db)
                 process_service_once(db)
                 job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()

@@ -106,7 +106,7 @@ def rollout(db, operation_id, item, *, docker, compose, authorize, health_timeou
 
     journal = {'service_id':old['service_id'], 'old_binding':binding, 'old_definition':old,
                'next_definition':new, 'resources':resources, 'before_manifest':before,
-               'replacement_ids':[]}
+               'replacement_ids':[], 'peers':copy.deepcopy(peers)}
     def persist(phase, **values):
         journal.update(values, phase=phase)
         db.execute('INSERT INTO managed_rollout_journals VALUES(?,?,?,?) ON CONFLICT(operation_id) DO UPDATE SET document=excluded.document,updated=excluded.updated',
@@ -170,3 +170,124 @@ def rollout(db, operation_id, item, *, docker, compose, authorize, health_timeou
     if restored is None:
         raise RolloutError('New application and rollback health were not verified. Recovery is required.')
     raise RolloutError('New application health failed; the previous image was restored and verified.', restored_binding=restored)
+
+
+def reconcile(db, operation_id, item, *, docker, authorize):
+    """Read-only evidence for a caller-held lock and subsequent metadata CAS.
+
+    authorize must pin every environment peer to the accepted delivery plan,
+    including already committed sibling replacements. It is checked before and
+    after observation. A missing/ambiguous candidate remains unknown; no Docker
+    mutation, journal initialization, rollback, or retry is performed here.
+    """
+    if db.in_transaction or not callable(authorize):
+        raise RolloutError('Reconciliation requires exclusive worker authorization outside a transaction.')
+    authorize()
+    unknown = lambda reason: {'outcome': 'unknown', 'binding': None, 'reason': reason}
+    old, new, binding = item['definition'], item.get('next_definition', item['definition']), item['binding']
+    resources = item['resources']
+    try:
+        exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='managed_rollout_journals'").fetchone()
+        record = db.execute('SELECT fingerprint,document FROM managed_rollout_journals WHERE operation_id=?', (operation_id,)).fetchone() if exists else None
+        journal = json.loads(record['document']) if record else None
+        original_item = copy.deepcopy(item)
+        original_item.pop('verified_binding', None)
+        if original_item.get('state') in ('succeeded', 'rolled-back', 'unchanged'):
+            original_item['state'] = 'pending'
+        if record and record['fingerprint'] != managed_services.digest(original_item):
+            return unknown('Rollout definition fingerprint changed.')
+        if len(binding['compose_files']) != 1 or len(binding['network_ids']) != 1:
+            return unknown('Ambiguous manifest or network ownership.')
+        path = Path(binding['compose_files'][0])
+        if not path.is_absolute() or any(p.is_symlink() for p in (path, *path.parents)):
+            return unknown('Noncanonical manifest path.')
+        service, network_name = provision._names(old)
+        if binding['compose_project'] != old['project'] or binding['compose_service'] != service or binding['network_name'] != network_name:
+            return unknown('Binding ownership differs.')
+        peers = managed_services.environment_definitions(db, old['project'], old['environment'])
+        selected = [p for p in peers if p['id'] == old['service_id']]
+        if len(selected) != 1 or selected[0]['operation_id'] != item['operation_id'] or selected[0]['effective_resources'] != resources:
+            return unknown('Selected service ownership or resources changed.')
+        manifest_bytes = path.read_bytes()
+        current = json.loads(manifest_bytes)
+        if journal:
+            if any(journal[k] != value for k, value in [('old_definition', old), ('next_definition', new), ('old_binding', binding), ('resources', resources), ('service_id', old['service_id'])]):
+                return unknown('Journal ownership differs.')
+            before = journal['before_manifest']
+            after = copy.deepcopy(before)
+            after['services'][service] = provision.service_config(new, item['operation_id'], resources)
+            if journal['after_manifest'] != after:
+                return unknown('Journal delivery manifest differs.')
+            phase = journal['phase']
+            if phase == 'manifest-intent' and not journal['replacement_ids']:
+                definition, owned, expected, outcome = old, binding, before, 'verified-old'
+            elif phase in ('delivery-created', 'delivery-start-intent', 'delivery-verified'):
+                definition, owned, expected, outcome = new, journal['candidate_binding'], after, 'verified-new'
+            elif phase in ('rollback-created', 'rollback-start-intent', 'rollback-verified'):
+                expected = copy.deepcopy(before)
+                expected['services'][service] = provision.service_config(old, item['operation_id'], resources)
+                if journal['rollback_manifest'] != expected:
+                    return unknown('Journal rollback manifest differs.')
+                definition, owned, outcome = old, journal['candidate_binding'], 'verified-old'
+            else:
+                return unknown('Phase has no recorded runtime candidate.')
+            if phase != 'manifest-intent' and (owned['container_id'] not in journal['replacement_ids'] or owned['container_id'] == binding['container_id']):
+                return unknown('Candidate is not an exact recorded replacement.')
+            recorded_peers = journal.get('peers')
+            if recorded_peers is None:
+                return unknown('Journal has no peer identity snapshot.')
+            strip_selected = lambda entries: [p for p in entries if p['id'] != old['service_id']]
+            if {p['id'] for p in strip_selected(peers)} != {p['id'] for p in strip_selected(recorded_peers)}:
+                return unknown('Peer membership changed.')
+            # authorize() pins all current peer metadata to the delivery plan;
+            # a previous successful sibling replacement can legitimately differ
+            # from this journal snapshot. Every current identity is inspected below.
+        else:
+            definition, owned, expected, outcome = old, binding, current, 'verified-old'
+        if selected[0]['definition'] not in (old, definition) or selected[0]['binding']['container_id'] not in (binding['container_id'], owned['container_id']):
+            return unknown('Selected metadata no longer matches the operation.')
+        if any(old[k] != new[k] for k in ('project', 'environment', 'name', 'service_id')):
+            return unknown('Definition ownership changed.')
+        stable = set(binding) - {'container_id', 'image_id', 'definition_digest', 'state', 'observed'}
+        if (any(owned.get(k) != binding[k] for k in stable) or owned['image_id'] != definition['artifact']['image']
+                or owned['definition_digest'] != managed_services.digest(definition) or owned['state'] != binding['state']):
+            return unknown('Candidate binding differs from its immutable definition.')
+        expected = copy.deepcopy(expected)
+        for peer in peers:
+            if peer['id'] == old['service_id']: continue
+            key = provision._names(peer['definition'])[0]
+            expected['services'][key] = provision.service_config(peer['definition'], peer['operation_id'], peer['effective_resources'])
+            for cap in ('mem_limit', 'memswap_limit', 'cpus', 'deploy'):
+                if cap in current['services'].get(key, {}): expected['services'][key][cap] = current['services'][key][cap]
+                else: expected['services'][key].pop(cap, None)
+        if current != expected or set(current) != {'name', 'services', 'networks'} or current['name'] != old['project'] or current['networks'] != {'environment': {'external': True, 'name': network_name}}:
+            return unknown('Current manifest differs.')
+        if set(current['services']) != {provision._names(p['definition'])[0] for p in peers}:
+            return unknown('Manifest service membership differs.')
+        observations = [(definition, owned, item['operation_id'], resources)]
+        observations += [(p['definition'], p['binding'], p['operation_id'], p['effective_resources']) for p in peers if p['id'] != old['service_id']]
+        cap_keys = {'mem_limit', 'memswap_limit', 'cpus', 'deploy'}
+        for d, pinned, operation, caps in observations:
+            spec = provision.service_config(d, operation, caps)
+            actual = current['services'][provision._names(d)[0]]
+            if {k:v for k,v in spec.items() if k not in cap_keys} != {k:v for k,v in actual.items() if k not in cap_keys}:
+                return unknown('Manifest configuration differs.')
+            row = provision._json([docker, 'inspect', pinned['container_id']])[0]
+            if row.get('Id') != pinned['container_id']:
+                return unknown('Exact container identity changed.')
+            provision._verify(row, d, operation, pinned['image_id'], binding['network_ids'][0], pinned['container_name'], path, caps)
+            if pinned['state'] not in ('running', 'stopped') or bool(row['State']['Running']) != (pinned['state'] == 'running'):
+                return unknown('Runtime state changed.')
+            if pinned['state'] == 'running' and row['State'].get('Health', {}).get('Status') != 'healthy':
+                return unknown('Runtime health is not verified.')
+        network = provision._json([docker, 'network', 'inspect', binding['network_ids'][0]])[0]
+        provision._network(network, old, binding['network_ids'][0])
+        if set(network.get('Containers') or {}) - {p['container_id'] for _, p, _, _ in observations}:
+            return unknown('Unknown network peer identity.')
+        if path.read_bytes() != manifest_bytes:
+            return unknown('Manifest changed during observation.')
+        result = dict(owned, observed=time.time())
+    except (ValueError, KeyError, TypeError, IndexError, OSError) as error:
+        return unknown('Reconciliation evidence unavailable: ' + str(error))
+    authorize()
+    return {'outcome': outcome, 'binding': result, 'reason': 'Exact manifest, runtime, health and peer identities verified.'}

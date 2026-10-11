@@ -18,6 +18,8 @@ def initialize(db):
     db.execute('''CREATE TABLE IF NOT EXISTS managed_deliveries(
         job_id INTEGER PRIMARY KEY,document TEXT NOT NULL,state TEXT NOT NULL,
         worker TEXT,expires REAL,updated REAL NOT NULL)''')
+    if 'recovery_attempted' not in {row['name'] for row in db.execute('PRAGMA table_info(managed_deliveries)')}:
+        db.execute('ALTER TABLE managed_deliveries ADD COLUMN recovery_attempted REAL')
     for action in ('UPDATE', 'DELETE'):
         db.execute(f"CREATE TRIGGER IF NOT EXISTS managed_delivery_target_{action.lower()} BEFORE {action} ON managed_delivery_targets BEGIN SELECT RAISE(ABORT,'Managed targets are immutable'); END")
     db.execute("CREATE TRIGGER IF NOT EXISTS managed_delivery_target_replace BEFORE INSERT ON managed_delivery_targets WHEN EXISTS(SELECT 1 FROM managed_delivery_targets WHERE job_id=NEW.job_id) BEGIN SELECT RAISE(ABORT,'Managed targets are immutable'); END")
@@ -26,7 +28,7 @@ def initialize(db):
 def capture(db, project, environment, service_ids=None):
     initialize(db)
     env = services.ensure_environment_eligible(db, project, environment)
-    for pending in db.execute("SELECT document FROM managed_deliveries WHERE state IN ('queued','running','recovery-required')"):
+    for pending in db.execute("SELECT document FROM managed_deliveries WHERE state IN ('queued','running','reconciling','recovery-required')"):
         previous = json.loads(pending['document'])
         if previous['project'] == project and previous['environment'] == environment:
             raise ValueError('This environment has a pending or unresolved managed delivery. Reconcile it before launching another.')
@@ -128,8 +130,8 @@ def _save(db, job_id, document, state):
 def _unchanged(db, entry):
     current = services.get(db, entry['service_id'])
     expected_id = entry['next_definition_id'] if entry['state'] == 'succeeded' else entry['definition_id']
-    binding = entry.get('verified_binding') if entry['state'] in ('succeeded','rolled-back') else entry['binding']
-    if current['definition_id'] != expected_id or current['binding'] != binding:
+    binding = entry.get('verified_binding', entry['binding']) if entry['state'] in ('succeeded','rolled-back','unchanged','skipped-stopped') else entry['binding']
+    if current['definition_id'] != expected_id or current['binding'] != binding or current['operation_id'] != entry['operation_id']:
         raise ValueError('Managed service identity changed after selection.')
     if entry['state'] != 'succeeded' and services.digest(current['definition']) != entry['definition_digest']:
         raise ValueError('Managed service definition changed after selection.')
@@ -162,7 +164,7 @@ def prepare(db, job_id):
                               template_revision=artifact['template_revision'], resources=copy.deepcopy(entry['resources']), desired_state='running')
             entry.update(artifact=artifact, next_definition=definition, next_definition_id=str(uuid.uuid4()))
         state = 'queued' if any(item['state'] == 'pending' for item in plan['services']) else 'succeeded'
-        db.execute('INSERT INTO managed_deliveries VALUES(?,?,?,?,?,?)', (job_id, registry.canonical(plan), state, None, None, time.time()))
+        db.execute('INSERT INTO managed_deliveries(job_id,document,state,worker,expires,updated) VALUES(?,?,?,?,?,?)', (job_id, registry.canonical(plan), state, None, None, time.time()))
         return plan
 
 
@@ -170,10 +172,10 @@ def claim(db, job_id, worker, lease_seconds=120):
     initialize(db)
     if not isinstance(worker, str) or not worker or not 1 <= lease_seconds <= 3600: raise ValueError('Invalid rollout lease.')
     with registry.transaction(db):
-        db.execute("UPDATE managed_deliveries SET state='recovery-required',worker=NULL,expires=NULL WHERE state='running' AND expires<=?", (time.time(),))
+        db.execute("UPDATE managed_deliveries SET state='recovery-required',worker=NULL,expires=NULL WHERE state IN ('running','reconciling') AND expires<=?", (time.time(),))
         row, plan = _load(db, job_id)
         if row['state'] != 'queued': return None
-        if db.execute("SELECT 1 FROM managed_deliveries WHERE state='running'").fetchone(): return None
+        if db.execute("SELECT 1 FROM managed_deliveries WHERE state IN ('running','reconciling')").fetchone(): return None
         _environment_unchanged(db, plan)
         for entry in plan['services']: _unchanged(db, entry)
         db.execute("UPDATE managed_deliveries SET state='running',worker=?,expires=?,updated=? WHERE job_id=? AND state='queued'", (worker, time.time()+lease_seconds, time.time(), job_id))
@@ -245,7 +247,7 @@ def fail(db, job_id, worker, detail=None, recovery_required=True):
 def public(db, job_id):
     initialize(db)
     row, plan = _load(db, job_id)
-    state = 'recovery-required' if row['state'] == 'running' and row['expires'] <= time.time() else row['state']
+    state = 'recovery-required' if row['state'] in ('running','reconciling') and row['expires'] <= time.time() else row['state']
     return {'job_id': job_id, 'project': plan['project'], 'environment': plan['environment'], 'status': state,
             'services': [{'service_id': item['service_id'], 'name': item['name'], 'status': item['state']} for item in plan['services']],
             'detail': 'Managed delivery requires runtime reconciliation.' if state == 'recovery-required' else 'Managed delivery status recorded.'}
@@ -254,7 +256,7 @@ def public(db, job_id):
 def protected_images(db):
     initialize(db)
     images = set()
-    for row in db.execute("SELECT document FROM managed_deliveries WHERE state IN ('queued','running','recovery-required')"):
+    for row in db.execute("SELECT document FROM managed_deliveries WHERE state IN ('queued','running','reconciling','recovery-required')"):
         for entry in json.loads(row['document'])['services']:
             images.add(entry['definition']['artifact']['image'])
             if entry.get('artifact'): images.add(entry['artifact']['image'])
@@ -302,3 +304,94 @@ def abandon_unstarted(db, job_id):
         changed = db.execute("UPDATE managed_deliveries SET state='failed',updated=? WHERE job_id=? AND state='queued' AND worker IS NULL AND expires IS NULL",
                              (time.time(),job_id)).rowcount
         return changed == 1
+
+
+def claim_recovery(db, job_id, worker, lease_seconds=120):
+    """Lease observation only; never makes an interrupted rollout executable."""
+    initialize(db)
+    if not isinstance(worker, str) or not worker or not 1 <= lease_seconds <= 3600:
+        raise ValueError('Invalid recovery lease.')
+    with registry.transaction(db):
+        now = time.time()
+        db.execute("UPDATE managed_deliveries SET state='recovery-required',worker=NULL,expires=NULL WHERE state IN ('running','reconciling') AND expires<=?", (now,))
+        row, plan = _load(db, job_id)
+        if row['state'] != 'recovery-required': return None
+        if row['recovery_attempted'] is not None and now-row['recovery_attempted'] < 30: return None
+        if db.execute("SELECT 1 FROM managed_deliveries WHERE state IN ('running','reconciling')").fetchone(): return None
+        # Persist backoff even when metadata drift prevents reconciliation.
+        db.execute('UPDATE managed_deliveries SET recovery_attempted=? WHERE job_id=?', (now, job_id))
+        try:
+            load_target(db, job_id)
+            _environment_unchanged(db, plan)
+            for entry in plan['services']: _unchanged(db, entry)
+        except ValueError:
+            return None
+        db.execute("UPDATE managed_deliveries SET state='reconciling',worker=?,expires=?,updated=? WHERE job_id=?", (worker, now+lease_seconds, now, job_id))
+        return plan
+
+
+def authorize_recovery(db, job_id, worker):
+    row, plan = _load(db, job_id)
+    if row['state'] != 'reconciling' or row['worker'] != worker or row['expires'] <= time.time():
+        raise ValueError('Managed recovery lease is unavailable or expired.')
+    load_target(db, job_id)
+    _environment_unchanged(db, plan)
+    for entry in plan['services']: _unchanged(db, entry)
+    return plan
+
+
+def renew_recovery(db, job_id, worker, lease_seconds=120):
+    if not 1 <= lease_seconds <= 3600: raise ValueError('Invalid recovery lease.')
+    with registry.transaction(db):
+        authorize_recovery(db, job_id, worker)
+        db.execute('UPDATE managed_deliveries SET expires=? WHERE job_id=? AND worker=?', (time.time()+lease_seconds, job_id, worker))
+
+
+def finish_recovery(db, job_id, worker, outcomes):
+    """Commit fresh read-only observations with identity CAS, never replay writes.
+
+    Missing or unknown observations keep the environment blocked. Known peers
+    are persisted atomically and will be re-observed on subsequent attempts.
+    """
+    with registry.transaction(db):
+        plan = authorize_recovery(db, job_id, worker)
+        if not isinstance(outcomes, dict) or set(outcomes)-{e['service_id'] for e in plan['services']}:
+            raise ValueError('Invalid recovery outcomes.')
+        unknown = False; any_old = False
+        for entry in plan['services']:
+            evidence = outcomes.get(entry['service_id'], {'outcome':'unknown'})
+            if not isinstance(evidence, dict) or evidence.get('outcome') not in ('new','old','unknown'):
+                raise ValueError('Invalid recovery observation.')
+            outcome = evidence['outcome']
+            if outcome == 'unknown':
+                unknown = True
+                continue
+            stopped = entry['state'] == 'skipped-stopped'
+            if stopped and outcome != 'old': raise ValueError('Stopped service cannot be replaced during recovery.')
+            binding = evidence.get('binding')
+            definition = entry['next_definition'] if outcome == 'new' else entry['definition']
+            mutable = {'container_id','observed','state','image_id','definition_digest'}
+            if (not isinstance(binding, dict)
+                    or binding.get('state') != ('stopped' if stopped else 'running')
+                    or not re.fullmatch('[a-f0-9]{64}', str(binding.get('container_id','')))
+                    or {k:v for k,v in entry['binding'].items() if k not in mutable} != {k:v for k,v in binding.items() if k not in mutable}
+                    or binding.get('image_id') != definition['artifact']['image']
+                    or binding.get('definition_digest') != services.digest(definition)
+                    or type(binding.get('observed')) not in (int,float)
+                    or not 0 <= time.time()-binding['observed'] <= 90):
+                raise ValueError('Verified recovery binding is invalid.')
+            current_id = entry['next_definition_id'] if entry['state'] == 'succeeded' else entry['definition_id']
+            target_id = entry['next_definition_id'] if outcome == 'new' else entry['definition_id']
+            if outcome == 'new' and not db.execute('SELECT 1 FROM service_definitions WHERE id=?',(target_id,)).fetchone():
+                db.execute('INSERT INTO service_definitions VALUES(?,?,?,?)', (target_id, registry.canonical(definition), services.digest(definition), time.time()))
+            changed = db.execute('UPDATE managed_services SET definition_id=?,state=?,updated=? WHERE id=? AND definition_id=?',
+                                 (target_id,binding['state'],time.time(),entry['service_id'],current_id)).rowcount
+            if changed != 1: raise ValueError('Managed service changed during recovery.')
+            db.execute('UPDATE service_bindings SET document=?,updated=? WHERE service_id=?', (registry.canonical(binding),time.time(),entry['service_id']))
+            status = 'succeeded' if outcome == 'new' else ('skipped-stopped' if stopped else ('rolled-back' if entry['state'] == 'rolled-back' else 'unchanged'))
+            entry.update(state=status, verified_binding=copy.deepcopy(binding))
+            if outcome == 'old' and not stopped: any_old = True
+        state = 'recovery-required' if unknown else ('failed' if any_old else 'succeeded')
+        _save(db, job_id, plan, state)
+        db.execute('UPDATE managed_deliveries SET worker=NULL,expires=NULL WHERE job_id=?',(job_id,))
+    return public(db, job_id)

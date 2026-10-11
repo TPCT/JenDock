@@ -132,3 +132,103 @@ class ManagedDeliveryTests(unittest.TestCase):
         self.db.execute('INSERT INTO managed_rollout_journals VALUES(?)',(str(self.job)+'-'+self.sid,))
         self.assertFalse(delivery.abandon_unstarted(self.db,self.job))
         self.assertEqual(delivery.public(self.db,self.job)['status'],'queued')
+
+    def recovery(self):
+        self.plan()
+        self.db.execute('UPDATE managed_deliveries SET expires=0')
+        return delivery.claim_recovery(self.db,self.job,'recover')
+
+    def old_observation(self):
+        entry=delivery._load(self.db,self.job)[1]['services'][0]
+        return dict(self.binding,observed=time.time(),image_id=entry['definition']['artifact']['image'],definition_digest=entry['definition_digest'])
+
+    def test_recovery_observed_new_commits_and_fences_executor(self):
+        self.recovery()
+        with self.assertRaises(ValueError): delivery.authorize_claim(self.db,self.job,'recover')
+        with self.assertRaises(ValueError): delivery.complete_service(self.db,self.job,'worker',self.sid,self.replacement())
+        with self.assertRaises(ValueError): delivery.capture(self.db,'app','development')
+        self.assertEqual(len(delivery.protected_images(self.db)),2)
+        delivery.renew_recovery(self.db,self.job,'recover')
+        result=delivery.finish_recovery(self.db,self.job,'recover',{self.sid:{'outcome':'new','binding':self.replacement()}})
+        self.assertEqual(result['status'],'succeeded')
+        self.assertEqual(services.get(self.db,self.sid)['binding']['container_id'],'e'*64)
+
+    def test_recovery_old_keeps_definition_and_releases_environment(self):
+        self.recovery(); old=services.get(self.db,self.sid)['definition_id']
+        count=self.db.execute('SELECT COUNT(*) FROM service_definitions').fetchone()[0]
+        result=delivery.finish_recovery(self.db,self.job,'recover',{self.sid:{'outcome':'old','binding':self.old_observation()}})
+        self.assertEqual(result['status'],'failed')
+        self.assertEqual(result['services'][0]['status'],'unchanged')
+        self.assertEqual(services.get(self.db,self.sid)['definition_id'],old)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM service_definitions').fetchone()[0],count)
+        delivery.capture(self.db,'app','development')
+
+    def test_unknown_recovery_keeps_protection_and_durable_backoff(self):
+        self.recovery()
+        self.assertEqual(delivery.finish_recovery(self.db,self.job,'recover',{})['status'],'recovery-required')
+        self.assertIsNone(delivery.claim_recovery(self.db,self.job,'second'))
+        with self.assertRaises(ValueError): delivery.capture(self.db,'app','development')
+        self.assertEqual(len(delivery.protected_images(self.db)),2)
+        self.db.execute('UPDATE managed_deliveries SET recovery_attempted=0')
+        self.assertIsNotNone(delivery.claim_recovery(self.db,self.job,'second'))
+        with self.assertRaises(ValueError): delivery.finish_recovery(self.db,self.job,'recover',{})
+
+    def test_active_and_expired_recovery_leases_cannot_be_stolen_or_commit(self):
+        self.plan()
+        self.assertIsNone(delivery.claim_recovery(self.db,self.job,'recover'))
+        self.db.execute('UPDATE managed_deliveries SET expires=0')
+        delivery.claim_recovery(self.db,self.job,'recover')
+        self.assertIsNone(delivery.claim_recovery(self.db,self.job,'second'))
+        self.db.execute('UPDATE managed_deliveries SET expires=0')
+        with self.assertRaises(ValueError): delivery.finish_recovery(self.db,self.job,'recover',{})
+
+    def test_recovery_rejects_stale_or_foreign_evidence_and_metadata_drift(self):
+        self.recovery()
+        for binding in (dict(self.replacement(),observed=0),dict(self.replacement(),compose_project='other')):
+            with self.assertRaises(ValueError):
+                delivery.finish_recovery(self.db,self.job,'recover',{self.sid:{'outcome':'new','binding':binding}})
+        self.db.execute("UPDATE resource_policies SET revision=revision+1 WHERE project='app'")
+        with self.assertRaises(ValueError): delivery.finish_recovery(self.db,self.job,'recover',{})
+
+    def add_peer(self, stopped=False):
+        import resource_policy
+        revision=resource_policy.read(self.db,'app')['revision']
+        values=dict(self.fixture.values,name='peer',environment_revision=services.ensure_environment_eligible(self.db,'app','development')['revision'],policy_revision=revision,resources={'memory_mib':64,'cpu':0.25},desired_state='stopped' if stopped else 'running')
+        result=self.fixture.create(values,key='create-peer-for-recovery')
+        claimed=services.claim_next(self.db,'provision-peer')
+        sid=result['service']['id']
+        binding=dict(self.binding,container_id='f'*64,container_name='app-development-peer-1',compose_service='development-peer',state='stopped' if stopped else 'running')
+        services.finish(self.db,claimed['operation_id'],'provision-peer',binding,binding['state'])
+        self.target['recipe']['managed_target']=delivery.capture(self.db,'app','development')
+        self.target['environment_revision']=self.target['recipe']['managed_target']['environment_revision']
+        return sid,binding
+
+    def test_partial_recovery_rechecks_known_peers_before_unlocking(self):
+        peer,_=self.add_peer()
+        self.recovery()
+        entry=next(e for e in delivery._load(self.db,self.job)[1]['services'] if e['service_id']==self.sid)
+        replacement=dict(self.binding,container_id='e'*64,observed=time.time(),image_id=entry['artifact']['image'],definition_digest=services.digest(entry['next_definition']))
+        result=delivery.finish_recovery(self.db,self.job,'recover',{self.sid:{'outcome':'new','binding':replacement}})
+        self.assertEqual(result['status'],'recovery-required')
+        self.assertEqual(services.get(self.db,self.sid)['definition_id'],entry['next_definition_id'])
+        self.db.execute('UPDATE managed_deliveries SET recovery_attempted=0')
+        plan=delivery.claim_recovery(self.db,self.job,'second')
+        old=next(e for e in plan['services'] if e['service_id']==peer)
+        old_binding=dict(old['binding'],observed=time.time(),image_id=old['definition']['artifact']['image'],definition_digest=old['definition_digest'])
+        result=delivery.finish_recovery(self.db,self.job,'second',{self.sid:{'outcome':'new','binding':replacement},peer:{'outcome':'old','binding':old_binding}})
+        self.assertEqual(result['status'],'failed')
+        delivery.capture(self.db,'app','development')
+
+    def test_stopped_peer_must_be_observed_and_stays_stopped(self):
+        peer,_=self.add_peer(stopped=True)
+        self.recovery()
+        plan=delivery._load(self.db,self.job)[1]
+        outcomes={}
+        for entry in plan['services']:
+            stopped=entry['state']=='skipped-stopped'
+            definition=entry['definition'] if stopped else entry['next_definition']
+            outcomes[entry['service_id']]={'outcome':'old' if stopped else 'new','binding':dict(entry['binding'],observed=time.time(),image_id=definition['artifact']['image'],definition_digest=services.digest(definition))}
+        result=delivery.finish_recovery(self.db,self.job,'recover',outcomes)
+        self.assertEqual(result['status'],'succeeded')
+        self.assertEqual(services.get(self.db,peer)['state'],'stopped')
+        delivery.capture(self.db,'app','development')
