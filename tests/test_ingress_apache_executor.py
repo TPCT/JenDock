@@ -121,3 +121,61 @@ Group: name="www-data" id=33
         self.assertEqual(rows[0]["names"],["sentinel.fixture.test","alias.fixture.test","*.reserved.fixture.test"])
         self.assertEqual(rows[1]["names"],["dev.fixture.test"])
         self.assertEqual(parse_inventory(output.replace(" ","\t")),rows)
+
+    def source_executor(self, root):
+        import os
+        from ingress_apache_executor import ApacheExecutor
+        e=object.__new__(ApacheExecutor);e.owner_uid=os.getuid()
+        e.source_roots=(root,);e.server_root=root
+        return e
+
+    def test_trusted_nested_includes_and_enabled_symlink_aliases(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'available').mkdir(mode=0o700);(root/'enabled').mkdir(mode=0o700);(root/'parts').mkdir(mode=0o700)
+            site=root/'available/site.conf';site.write_text('<VirtualHost *:80>\nServerName app.test\nInclude "parts/*.conf"\nIncludeOptional parts/missing.conf\n</VirtualHost>\n')
+            (root/'parts/one.conf').write_text('ServerAlias alias.test *.reserved.test\nInclude parts/nested.inc\n')
+            (root/'parts/nested.inc').write_text('ServerAlias nested.test\n')
+            for file in (site, root/'parts/one.conf', root/'parts/nested.inc'):file.chmod(0o600)
+            link=root/'enabled/site.conf';link.symlink_to(site)
+            e=self.source_executor(root)
+            self.assertEqual(e._aliases(str(link),1,'app.test'),['app.test','alias.test','*.reserved.test','nested.test'])
+
+    def test_includes_reject_escape_untrusted_cycle_and_aggregate_bound(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as outside:
+            root=Path(directory);site=root/'site.conf';part=root/'part.conf';e=self.source_executor(root)
+            foreign=Path(outside)/'foreign.conf';foreign.write_text('ServerAlias stolen.test\n')
+            for content in (f'Include {foreign}', 'Include ../foreign.conf', 'Include part.conf', 'ServerAlias '+('x'*65536)):
+                with self.subTest(content=content[:60]):
+                    part.write_text(content+'\n');site.write_text('<VirtualHost *:80>\nServerName app.test\nInclude part.conf\n</VirtualHost>\n')
+                    part.chmod(0o600);site.chmod(0o600)
+                    with self.assertRaises(ValueError):e._aliases(str(site),1,'app.test')
+            part.unlink();part.symlink_to(foreign)
+            with self.assertRaises(ValueError):e._aliases(str(site),1,'app.test')
+            part.unlink();part.write_text('ServerAlias bad.test\n');part.chmod(0o666)
+            with self.assertRaises(ValueError):e._aliases(str(site),1,'app.test')
+
+    def test_known_external_includes_require_explicit_read_roots(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as certificates:
+            root=Path(directory);certs=Path(certificates);site=root/'site.conf';include=certs/'acme-vhost.conf'
+            include.write_text('Alias /.well-known/acme-challenge/ /var/www/acme/\nServerAlias challenge.test\n');include.chmod(0o600)
+            site.write_text(f'<VirtualHost *:443>\nServerName app.test\nInclude {include}\nErrorLog ${{APACHE_LOG_DIR}}/error.log\n</VirtualHost>\n');site.chmod(0o600)
+            e=self.source_executor(root)
+            with self.assertRaises(ValueError):e._aliases(str(site),1,'app.test')
+            e.source_roots=(root,certs)
+            self.assertEqual(e._aliases(str(site),1,'app.test'),['app.test','challenge.test'])
+
+    def test_shared_include_budget_and_conditional_alias_rejected(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);site=root/'site.conf';part=root/'part.conf';e=self.source_executor(root)
+            for body in ('#'+('x'*40000)+'\n', '<IfDefine TEST>\nServerAlias hidden.test\n</IfDefine>\n'):
+                part.write_text(body);part.chmod(0o600)
+                site.write_text('<VirtualHost *:80>\nServerName app.test\nInclude part.conf\nInclude part.conf\n</VirtualHost>\n');site.chmod(0o600)
+                with self.assertRaises(ValueError):e._aliases(str(site),1,'app.test')

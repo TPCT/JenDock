@@ -78,6 +78,41 @@ class HostGrantIssuer:
         authorize()
         return definition,gateway,authorize
 
+    def _binding_identity(self, definition):
+        row=self.db.execute('SELECT journal FROM ingress_runtime_intents WHERE project=? AND environment=?',
+                            (definition['project'],definition['environment'])).fetchone()
+        if not row:raise ValueError('Gateway runtime evidence is missing')
+        journal=json.loads(row['journal'])
+        return {'container_id':journal.get('container_id'),'transport_id':journal.get('transport_id')}
+
+    def authorize_route(self, route_id, grant):
+        """Revalidate under the caller's existing host lock; never reacquire it.
+
+        Production daemon wiring MUST enable this callback on HostAdapter.
+        Static administrator grants without it are only the bootstrap mode.
+        """
+        if not isinstance(route_id,str) or not re.fullmatch('[a-f0-9]{32}',route_id):raise ValueError('Invalid route identity')
+        policy=self.adapter._policy()
+        _,state=self.adapter._paths(policy,route_id)
+        proof=self.adapter._state(state.with_name(route_id+'.grant.json'))
+        if not proof or proof.get('status')!='published' or proof.get('grant')!=grant or policy['routes'].get(route_id)!=grant:
+            raise ValueError('Published owned host grant is required')
+        request=proof.get('request')
+        if (not isinstance(request,dict) or set(request)!={'route_id','operation_id','expected_revision'}
+                or request['route_id']!=route_id or request['operation_id']!=proof.get('operation_id')
+                or type(request['expected_revision']) is not int or request['expected_revision']<0):
+            raise ValueError('Grant authority journal is invalid')
+        with registry.transaction(self.db):
+            definition,gateway,authorize=self._accepted(request)
+            expected={'hostname':definition['hostname'],'zone':definition['zone_name'],'port':gateway['port'],
+                      'revision':request['expected_revision']+1}
+            if (grant!=expected or proof.get('definition_digest')!=_digest(definition)
+                    or proof.get('gateway_digest')!=_digest(gateway)
+                    or proof.get('binding_identity')!=self._binding_identity(definition)
+                    or proof.get('project')!=definition['project'] or proof.get('environment')!=definition['environment']):
+                raise ValueError('Granted domain or gateway identity changed')
+            authorize()
+
     def issue(self,request):
         if not isinstance(request,dict) or set(request)!={'route_id','operation_id','expected_revision'} or any(not isinstance(request[k],str) or not re.fullmatch('[a-f0-9]{32}',request[k]) for k in ('route_id','operation_id')) or type(request['expected_revision']) is not int or request['expected_revision']<0:raise ValueError('Only opaque domain identities and an expected revision are accepted')
         with self.adapter._locked() as policy:
@@ -89,7 +124,7 @@ class HostGrantIssuer:
                 accepted_digest=_digest(definition)
                 current=policy['routes'].get(route_id)
                 if previous and previous['operation_id']==request['operation_id']:
-                    if previous['request']!=request or previous['definition_digest']!=accepted_digest or previous['gateway_digest']!=_digest(gateway):raise ValueError('Grant replay differs from accepted intent')
+                    if previous['request']!=request or previous['definition_digest']!=accepted_digest or previous['gateway_digest']!=_digest(gateway) or previous.get('binding_identity')!=self._binding_identity(definition):raise ValueError('Grant replay differs from accepted intent')
                     grant=previous['grant']
                     if current not in (previous['prior_grant'],grant):raise ValueError('Host grant changed outside its issuance operation')
                     if current==grant:
@@ -101,7 +136,7 @@ class HostGrantIssuer:
                     if self.adapter._state(state) is not None or self.adapter._read(path) is not None:raise ValueError('Existing host activation must be explicitly reconciled before changing its grant')
                     grant={'hostname':definition['hostname'],'zone':definition['zone_name'],'port':gateway['port'],'revision':request['expected_revision']+1}
                     previous={'request':copy.deepcopy(request),'operation_id':request['operation_id'],'definition_digest':accepted_digest,'gateway_digest':_digest(gateway),
-                              'project':definition['project'],'environment':definition['environment'],'prior_grant':current,'grant':grant,'status':'publishing'}
+                              'project':definition['project'],'environment':definition['environment'],'binding_identity':self._binding_identity(definition),'prior_grant':current,'grant':grant,'status':'publishing'}
                 candidate=copy.deepcopy(policy);candidate['routes'][route_id]=grant
                 self.adapter._grant(candidate,route_id)
                 for other,other_grant in policy['routes'].items():

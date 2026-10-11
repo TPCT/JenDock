@@ -178,7 +178,7 @@ def deliver_application(db,docker,compose,root,service,image,body,containers,*,r
     return managed_services.get(db,service['id']),job
 
 
-def main():
+def main(edge_acceptance=None):
     import ingress_ports
     import ingress_capacity
     import ingress_runtime
@@ -241,6 +241,8 @@ def main():
                 report['scenarios'][env]={'body':body,'port':port,'container_id':binding['container_id'],'application_id':apps[env]['binding']['container_id'],
                     'unknown_host_rejected':True,'resources_verified':True,'replay_same_container':True}
             report['simultaneous_environments']=True
+            if edge_acceptance:
+                report['host_edge']=edge_acceptance(db,docker,apps,ports)
             prod=inspect(docker,apps['production']['binding']['container_id'])
             prod_ip=next(iter(prod['NetworkSettings']['Networks'].values()))['IPAddress']
             command([docker,'exec',apps['development']['binding']['container_id'],'python','-c',

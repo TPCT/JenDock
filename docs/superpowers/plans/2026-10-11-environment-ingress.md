@@ -179,3 +179,27 @@ Also add scoped domain options/list/status (domain operations currently use a se
 table), explicit domain permissions across console/MCP issuance, leased worker phases
 and certificate lifecycle. Literal vhost inventory fails closed on dynamic in-block
 includes/macros; expand verified inventory support before adopting such host configs.
+
+### Sequential route addition design contract
+
+Keep the original runtime definition/digest as the stable gateway bootstrap and
+physical label/port/capacity identity. Add effective configuration generations with
+a canonical complete route set/hash, pending operation journal and CAS active
+pointer. Adding a hostname captures the active generation, preserves existing
+routes, appends an authorized unique route, and revalidates current service binding
+evidence. Use an environment lock shared with managed delivery route transitions.
+
+New gateway templates must mount a dedicated configuration directory read-only:
+atomic replacement of a host file bound individually leaves the container using
+the old inode. Existing single-file gateways need an explicit verified migration;
+do not pretend host file replacement updated a running gateway. Journal previous
+and candidate bytes before replacement, run nginx -t before reload intent, and
+verify all old/new routes, default-host rejection and generation identity before
+CAS. Pre-signal crashes allow deterministic file/test recovery; after possible
+signal, observe/reconcile without blindly reloading. Selected-route evidence and
+physical identity must preserve unrelated host grants across an addition.
+
+Acceptance: sequential A then B; unchanged gateway/port and A availability; invalid
+candidate preserving A; lost reload reply; stale generation; concurrent delivery;
+restart recovery; unchanged sibling environment. Initial batched routes do not
+prove this capability.

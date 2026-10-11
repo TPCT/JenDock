@@ -225,3 +225,45 @@ class HostTests(unittest.TestCase):
         e.observe_absence=lambda hostname:True
         self.assertEqual(a.recover({'route_id':'a'*32})['status'],'staged')
         self.assertEqual(e.calls,calls)
+
+    def test_restore_crashes_before_reload_intent_can_resume(self):
+        from unittest.mock import patch
+        class Crash(BaseException): pass
+        for boundary in ('before-file', 'after-file', 'before-tested', 'after-tested'):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as directory:
+                self.host=make_host(Path(directory))
+                a,e,p,prior=self.prepare_restore()
+                e.observe=lambda hostname,token:token==prior
+                original_restore=a._restore; original_save=a._save
+                def restore(path,old):
+                    if boundary=='before-file':raise Crash()
+                    original_restore(path,old)
+                    if boundary=='after-file':raise Crash()
+                def save(path,state):
+                    if state['status']=='restoring-tested' and boundary=='before-tested':raise Crash()
+                    original_save(path,state)
+                    if state['status']=='restoring-tested' and boundary=='after-tested':raise Crash()
+                reloads=e.calls.count('reload')
+                with patch.object(a,'_restore',restore), patch.object(a,'_save',save):
+                    with self.assertRaises(Crash):a.recover({'route_id':'a'*32})
+                self.assertEqual(e.calls.count('reload'),reloads)
+                fresh=HostAdapter(p/'policy.json',e,owner_uid=os.getuid())
+                self.assertEqual(fresh.recover({'route_id':'a'*32})['status'],'staged')
+                self.assertEqual(e.calls.count('reload'),reloads+1)
+
+    def test_crash_after_restore_reload_intent_never_reissues_signal(self):
+        from unittest.mock import patch
+        class Crash(BaseException): pass
+        a,e,p,prior=self.prepare_restore();e.observe=lambda *args:False
+        original_save=a._save
+        def save(path,state):
+            original_save(path,state)
+            if state['status']=='restoring':raise Crash()
+        with patch.object(a,'_save',save):
+            with self.assertRaises(Crash):a.recover({'route_id':'a'*32})
+        calls=list(e.calls)
+        with self.assertRaises(ValueError):a.recover({'route_id':'a'*32})
+        self.assertEqual(e.calls,calls)
+        e.observe=lambda hostname,token:token==prior
+        self.assertEqual(a.recover({'route_id':'a'*32})['status'],'staged')
+        self.assertEqual(e.calls,calls)

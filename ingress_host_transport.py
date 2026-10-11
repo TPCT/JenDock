@@ -13,8 +13,11 @@ import stat
 import struct
 import time
 
+from ingress_host_service import HostService
+
 MAX_FRAME = 65536
 METHODS = frozenset({'stage_http', 'activate_http', 'inspect', 'verify', 'recover'})
+SERVICE_METHODS = METHODS | {'issue_grant'}
 ERRORS = frozenset({'unauthorized', 'invalid_request', 'operation_failed'})
 
 
@@ -70,6 +73,7 @@ class HostServer:
     def __init__(self, path, adapter, *, allowed_uids, owner_uid=0, group_gid=None, timeout=5):
         self.path = Path(path)
         self.adapter = adapter
+        self.methods = SERVICE_METHODS if isinstance(adapter, HostService) else METHODS
         self.allowed_uids = frozenset(allowed_uids)
         if not self.allowed_uids or any(type(uid) is not int or uid < 0 for uid in self.allowed_uids):
             raise ValueError('Exact peer UID allowlist is required')
@@ -134,7 +138,7 @@ class HostServer:
                 else:
                     try:
                         envelope = _read(connection, deadline)
-                        if not isinstance(envelope, dict) or set(envelope) != {'method', 'request'} or not isinstance(envelope['method'], str) or envelope['method'] not in METHODS or not isinstance(envelope['request'], dict):
+                        if not isinstance(envelope, dict) or set(envelope) != {'method', 'request'} or not isinstance(envelope['method'], str) or envelope['method'] not in self.methods or not isinstance(envelope['request'], dict):
                             raise ValueError('Invalid request envelope')
                     except (ValueError, UnicodeError, RecursionError, TimeoutError):
                         response = {'ok':False, 'error':'invalid_request'}
@@ -146,7 +150,9 @@ class HostServer:
                             elif method == 'verify': result = self.adapter.verify(envelope['request'])
                             elif method == 'stage_http': result = self.adapter.stage_http(envelope['request'])
                             elif method == 'activate_http': result = self.adapter.activate_http(envelope['request'])
-                            else: result = self.adapter.recover(envelope['request'])
+                            elif method == 'recover': result = self.adapter.recover(envelope['request'])
+                            elif method == 'issue_grant' and isinstance(self.adapter, HostService): result = self.adapter.issue_grant(envelope['request'])
+                            else: raise ValueError('Unsupported host capability')
                             response = {'ok':True, 'result':result}
                             if len(json.dumps(response, allow_nan=False).encode()) > MAX_FRAME: raise ValueError('Oversized response')
                         except Exception:
@@ -166,7 +172,7 @@ class HostClient:
         self.timeout = _timeout(timeout)
 
     def call(self, method, request):
-        if not isinstance(method, str) or method not in METHODS or not isinstance(request, dict):
+        if not isinstance(method, str) or method not in SERVICE_METHODS or not isinstance(request, dict):
             raise ValueError('Invalid host method or request')
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             deadline = time.monotonic()+self.timeout

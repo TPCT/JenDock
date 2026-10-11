@@ -40,10 +40,16 @@ class HostAdapter:
     Static route grants are bootstrap capabilities, not the final domain UX;
     their dynamic issuer must verify gateway and reserved-port ownership.
     """
-    def __init__(self, policy_path, executor, *, owner_uid=0):
+    def __init__(self, policy_path, executor, *, owner_uid=0, authorize_route=None):
         self.policy_path = Path(policy_path)
         self.executor = executor
         self.owner_uid = owner_uid
+        self.authorize_route = authorize_route
+
+    def _authorize_route(self, route, grant):
+        # Called only under the host lock; the trusted issuer revalidates authority.
+        if self.authorize_route is not None:
+            self.authorize_route(route, grant)
 
     def _safe(self, path, *, directory=False):
         if not path.is_absolute() or '..' in path.parts:
@@ -189,6 +195,7 @@ class HostAdapter:
         self._request(request, ('route_id', 'operation_id', 'expected_digest'))
         with self._locked() as p:
             g = self._grant(p, request['route_id'])
+            self._authorize_route(request['route_id'], g)
             path, state = self._paths(p, request['route_id'])
             s = self._state(state)
             candidate = self._config(g, p['listener'])
@@ -215,6 +222,7 @@ class HostAdapter:
         self._request(request, ('route_id', 'operation_id', 'expected_digest', 'digest'))
         with self._locked() as p:
             g = self._grant(p, request['route_id'])
+            self._authorize_route(request['route_id'], g)
             path, state = self._paths(p, request['route_id'])
             s = self._state(state)
             if not s or any(s[k] != request[k] for k in request) or s['grant_digest'] != _digest(json.dumps({'grant':g, 'listener':p['listener']}, sort_keys=True)):
@@ -226,17 +234,20 @@ class HostAdapter:
             self._collision(g['hostname'], path, owned=s['previous'] is not None)
             if not self.executor.running():
                 raise ValueError('Configured Apache daemon is not running')
+            self._authorize_route(request['route_id'], g)
             s['status'] = 'installing'; self._save(state, s)
             try:
                 self._write(path, s['candidate'])
                 self.executor.configtest()
+                if not self.executor.running(): raise ValueError('Apache stopped before reload')
+                self._authorize_route(request['route_id'], g)
             except Exception:
-                self._restore(path, s['previous'])
-                s['status'] = 'staged'; self._save(state, s)
+                # Undo this operation's file effect before any signal, even if
+                # its forward authority was revoked during configuration testing.
+                self._compensate_file(path, state, s)
                 raise
             s['status'] = 'reloading'; self._save(state, s)
             try:
-                if not self.executor.running(): raise ValueError('Apache stopped before reload')
                 self.executor.reload()
             except Exception:
                 s['status'] = 'recovery_required'; self._save(state, s)
@@ -246,6 +257,19 @@ class HostAdapter:
                 raise ValueError('Apache activation outcome is unverified')
             s['status'] = 'active'; self._save(state, s)
             return self._public(s)
+
+    def _compensate_file(self, path, state, s):
+        """Restore only journaled bytes; this grants no forward/reload authority."""
+        if s['status'] not in ('installing', 'compensating-file'):
+            raise ValueError('File compensation requires proof no signal was attempted')
+        if (_digest(s['candidate']) != s['digest']
+                or (_digest(s['previous']) if s['previous'] is not None else None) != s['expected_digest']
+                or self._read(path) not in (s['candidate'], s['previous'])):
+            raise ValueError('File compensation identity changed')
+        s['status'] = 'compensating-file'; self._save(state, s)
+        self._restore(path, s['previous'])
+        s['status'] = 'staged'; self._save(state, s)
+        return self._public(s)
 
     def _restored(self, hostname, path, state, s):
         if self._read(path) != s['previous']:
@@ -269,26 +293,43 @@ class HostAdapter:
         self._request(request, ('route_id',))
         with self._locked() as p:
             path, state = self._paths(p, request['route_id']); s = self._state(state)
-            if not s or s['status'] not in ('installing', 'reloading', 'recovery_required', 'restoring'):
+            if not s or s['status'] not in ('installing', 'compensating-file', 'reloading', 'recovery_required', 'restoring-file', 'restoring-tested', 'restoring'):
                 raise ValueError('No interrupted host operation')
             if self._read(path) not in (s['candidate'], s['previous']):
                 raise ValueError('Managed configuration changed externally')
+            if s['status'] == 'compensating-file':
+                return self._compensate_file(path, state, s)
+            try:
+                g = self._grant(p, request['route_id'])
+                self._authorize_route(request['route_id'], g)
+            except Exception:
+                if s['status'] == 'installing':
+                    self._compensate_file(path, state, s)
+                raise
             if not self.executor.running(): raise ValueError('Apache is not running')
-            g = self._grant(p, request['route_id'])
             if s['grant_digest'] != _digest(json.dumps({'grant':g, 'listener':p['listener']}, sort_keys=True)):
                 raise ValueError('Host policy changed during interrupted operation')
             if s['status'] == 'restoring':
                 return self._restored(g['hostname'], path, state, s)
-            observed = self.executor.observe(g['hostname'], s['grant_digest'])
-            if observed is None:
-                raise ValueError('Apache outcome remains unknown; no recovery effects allowed')
-            if observed is True and self._read(path) == s['candidate']:
-                s['status'] = 'active'; self._save(state, s)
-                return self._public(s)
-            s['status'] = 'restoring'; self._save(state, s)
+            if s['status'] not in ('restoring-file', 'restoring-tested'):
+                observed = self.executor.observe(g['hostname'], s['grant_digest'])
+                if observed is None:
+                    raise ValueError('Apache outcome remains unknown; no recovery effects allowed')
+                if observed is True and self._read(path) == s['candidate']:
+                    s['status'] = 'active'; self._save(state, s)
+                    return self._public(s)
+                s['status'] = 'restoring-file'; self._save(state, s)
+            # These phases prove no restoration signal has been attempted. File
+            # restoration and full config testing are safe to repeat after a crash.
+            self._authorize_route(request['route_id'], g)
             self._restore(path, s['previous'])
             self.executor.configtest()
+            s['status'] = 'restoring-tested'; self._save(state, s)
             if not self.executor.running(): raise ValueError('Apache stopped before reload')
+            self._authorize_route(request['route_id'], g)
+            # Preserve legacy 'restoring' as the conservative reload-intent fence.
+            # A crash from here onward is observation-only, including lost replies.
+            s['status'] = 'restoring'; self._save(state, s)
             self.executor.reload()
             return self._restored(g['hostname'], path, state, s)
 
@@ -303,6 +344,7 @@ class HostAdapter:
 
     def _verify(self, p, route):
         g = self._grant(p, route)
+        self._authorize_route(route, g)
         path, state = self._paths(p, route); s = self._state(state)
         if not s or s['status'] != 'active' or self._read(path) != s['candidate'] or s['grant_digest'] != _digest(json.dumps({'grant':g, 'listener':p['listener']}, sort_keys=True)) or not self.executor.running():
             raise ValueError('HTTP configuration is not current')

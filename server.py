@@ -108,7 +108,7 @@ class Application:
                 import mcp_credentials
                 owner = operations.Principal(session['username'], 'console', frozenset({
                     'projects:read', 'projects:create', 'services:read', 'services:create',
-                    'services:start', 'operations:read'}))
+                    'services:start', 'operations:read', 'domains:read'}))
                 try:
                     if action == 'mcp-access-list':
                         return 200, {'credentials': mcp_credentials.list_credentials(db, owner),
@@ -137,6 +137,24 @@ class Application:
                     return 200,{'connection':connection,'message':message}
                 except integrations.IntegrationError as error:
                     return 409,{'error':str(error)}
+            if action in ('domain-options', 'domain-list', 'domain-get', 'domain-operation'):
+                import application_operations as operations
+                import ingress
+                ensure_registry(db, self.config)
+                principal = operations.Principal(session['username'], 'console', frozenset({'domains:read'}))
+                try:
+                    project, environment = body.get('project'), body.get('environment')
+                    if action == 'domain-options':
+                        return 200, ingress.domain_options(db, principal, project, environment)
+                    if action == 'domain-list':
+                        return 200, ingress.list_routes(db, principal, project, environment, limit=body.get('limit', 25), cursor=body.get('cursor'))
+                    if action == 'domain-get':
+                        return 200, {'route': ingress.get_route(db, principal, project, environment, body.get('route_id'))}
+                    return 200, {'operation': ingress.get_operation(db, principal, project, environment, body.get('operation_id'))}
+                except operations.OperationError as error:
+                    return error.status, {'error': str(error), 'code': error.code}
+                except ValueError:
+                    return 409, {'error': 'Domain information is unavailable or changed. Reload this environment.', 'code': 'domain_information_changed'}
             if action in ('service-templates', 'service-list', 'service-versions', 'service-get', 'service-create', 'service-resume'):
                 import application_operations as operations
                 ensure_registry(db, self.config)

@@ -5,6 +5,7 @@ export const MCP_SCOPES = [
   "services:create",
   "services:start",
   "operations:read",
+  "domains:read",
 ];
 export const freshMcpDraft = () => ({
   label: "",
@@ -56,10 +57,10 @@ export function mcpCredentialValues(draft, projects, now = Date.now()) {
   if (environments.some(([, e]) => !["development", "production"].includes(e)))
     throw new Error("Choose supported environments.");
   if (
-    draft.scopes.some((s) => s.startsWith("services:")) &&
+    draft.scopes.some((s) => s.startsWith("services:") || s.startsWith("domains:")) &&
     !environments.length
   )
-    throw new Error("Choose exact environments for service access.");
+    throw new Error("Choose exact environments for service or domain access.");
   return {
     label: draft.label.trim(),
     scopes: [...draft.scopes],

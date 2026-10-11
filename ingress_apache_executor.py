@@ -84,7 +84,7 @@ def bounded_run(argv, timeout, *, env=None):
 
 
 class ApacheExecutor:
-    def __init__(self, *, executable, config, pid_file, listener, expected_argv, owner_uid=0, timeout=5):
+    def __init__(self, *, executable, config, pid_file, listener, expected_argv, owner_uid=0, timeout=5, source_roots=None, server_root=None):
         self.executable, self.config, self.pid_file = map(Path, (executable, config, pid_file))
         if type(owner_uid) is not int or owner_uid < 0: raise ValueError('Invalid administrator UID')
         if isinstance(timeout, bool) or not isinstance(timeout,(int,float)) or not 0 < timeout <= 60: raise ValueError('Invalid deadline')
@@ -110,6 +110,16 @@ class ApacheExecutor:
                 raise ValueError('Unsupported daemon startup argument')
         self._safe(self.executable, executable=True); self._safe(self.config)
         self.executable_identity = self._file_identity(self.executable)
+        # Administrative read allowlist, never supplied by a route request.
+        self.source_roots = tuple(Path(root) for root in (source_roots or (self.config.parent,)))
+        for root in self.source_roots:
+            if not root.is_absolute() or '..' in root.parts or root.resolve() != root or root == Path('/'):
+                raise ValueError('Invalid trusted source root')
+        self.server_root = Path(server_root) if server_root is not None else None
+        if self.server_root is None and '-d' in self.config_args:
+            self.server_root = Path(self.config_args[self.config_args.index('-d')+1])
+        if self.server_root is not None and (not self.server_root.is_absolute() or '..' in self.server_root.parts):
+            raise ValueError('Invalid explicit ServerRoot')
 
     def _safe(self, path, *, executable=False):
         if not path.is_absolute() or '..' in path.parts: raise ValueError('Invalid administrator path')
@@ -130,36 +140,104 @@ class ApacheExecutor:
         return bounded_run([str(self.executable), *self.config_args, flag], self.timeout,
                            env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'})
 
-    def _aliases(self, source, line_number, expected_name):
-        # Apache -S omits aliases for a single-vhost listener. Read only the
-        # exact source block Apache identifies, never assume -S is exhaustive.
-        path = Path(source)
+    def _source_path(self, path, roots, depth=0):
+        if depth > 16 or not path.is_absolute() or '..' in path.parts or not any(path.is_relative_to(root) for root in roots):
+            raise ValueError('Source escapes trusted configuration roots')
+        # Validate every lexical component, including symlink owners and their
+        # canonical targets. Writable parent directories cannot redirect reads.
+        current = Path('/')
+        for index, part in enumerate(path.parts[1:]):
+            current /= part
+            info = current.lstat()
+            sticky = current == Path('/tmp') and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o1777
+            if info.st_uid not in (0, self.owner_uid) or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o022 and not sticky):
+                raise ValueError('Untrusted configuration source')
+            if stat.S_ISLNK(info.st_mode):
+                target = Path(os.readlink(current))
+                target = Path(os.path.normpath(str(target if target.is_absolute() else current.parent / target)))
+                remainder = path.parts[index+2:]
+                return self._source_path(target.joinpath(*remainder), roots, depth+1)
+            if current != path and not stat.S_ISDIR(info.st_mode):
+                raise ValueError('Invalid source ancestor')
         self._safe(path, executable=True)
-        with path.open('rb') as stream: raw = stream.read(LIMIT+1)
-        if len(raw) > LIMIT: raise ValueError('Vhost source exceeds bound')
-        lines = raw.decode('utf-8').splitlines()
+        return path
+
+    def _aliases(self, source, line_number, expected_name):
+        # -S omits single-vhost aliases. Expand only explicitly trusted literal
+        # includes, sharing byte/file/depth budgets over the entire source block.
+        roots = getattr(self, 'source_roots', (Path(source).parent,))
+        budget = {'bytes': 0, 'files': 0}
+        def read(path):
+            path = self._source_path(path, roots)
+            budget['files'] += 1
+            if budget['files'] > 64: raise ValueError('Include file count exceeds bound')
+            with path.open('rb') as stream: raw = stream.read(LIMIT+1)
+            budget['bytes'] += len(raw)
+            if budget['bytes'] > LIMIT: raise ValueError('Vhost source exceeds bound')
+            return path, raw.decode('utf-8').splitlines()
+        path, lines = read(Path(source))
         if not 1 <= line_number <= len(lines) or not re.fullmatch(r'\s*<VirtualHost\s+[^>]+>\s*', lines[line_number-1], re.I):
             raise ValueError('Apache source location is not a literal VirtualHost')
-        names, closed = [], False
-        for line in lines[line_number:]:
-            stripped = line.strip()
-            if not stripped or stripped.startswith('#'): continue
-            if stripped.endswith('\\') or '${' in stripped:
-                raise ValueError('Dynamic vhost source requires administrative resolution')
-            if re.fullmatch(r'</VirtualHost>\s*', stripped, re.I): closed = True; break
-            words = shlex.split(stripped, comments=False)
-            if not words: continue
-            directive = words[0].lower()
-            if directive in ('include','includeoptional','use','macro') or directive.startswith(('<if','<macro','<virtualhost')):
-                raise ValueError('Conditional or included vhost aliases cannot be proven')
-            if directive in ('servername','serveralias'):
-                if len(words)<2 or (directive == 'servername' and len(words)!=2): raise ValueError('Invalid vhost names')
-                for name in words[1:]:
-                    name = name.lower().rstrip('.')
-                    if not _NAME.fullmatch(name): raise ValueError('Invalid literal vhost alias')
-                    names.append(name)
-        if not closed or expected_name not in names: raise ValueError('Apache source identity differs from inventory')
+        names = []
+        def scan(lines, stack, top=False):
+            if len(stack) > 16: raise ValueError('Include depth exceeds bound')
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'): continue
+                if stripped.endswith('\\'): raise ValueError('Continued vhost source requires administrative resolution')
+                if re.fullmatch(r'</VirtualHost>\s*', stripped, re.I):
+                    if top: return
+                    raise ValueError('Include cannot close source VirtualHost')
+                words = shlex.split(stripped, comments=False)
+                if not words: continue
+                directive = words[0].lower()
+                if directive in ('use','macro') or directive.startswith(('<if','<macro','<virtualhost')):
+                    raise ValueError('Conditional vhost aliases cannot be proven')
+                if directive in ('include','includeoptional'):
+                    if len(words) != 2 or '${' in words[1]: raise ValueError('Invalid literal include')
+                    target = Path(words[1])
+                    if not target.is_absolute():
+                        root = getattr(self, 'server_root', None)
+                        if root is None: raise ValueError('Relative include requires explicit ServerRoot')
+                        target = root / target
+                    if '..' in target.parts or any(c in str(target.parent) for c in '*?['):
+                        raise ValueError('Unsupported include traversal')
+                    if not any(target.is_relative_to(root) for root in roots): raise ValueError('Include escapes trusted roots')
+                    matches = []
+                    if any(c in target.name for c in '*?['):
+                        # Validate directory without reading its contents first.
+                        self._source_path_directory(target.parent, roots)
+                        with os.scandir(target.parent) as entries:
+                            for count, entry in enumerate(entries):
+                                if count >= 1024: raise ValueError('Include directory exceeds bound')
+                                if fnmatch.fnmatchcase(entry.name, target.name) and not entry.name.startswith('.'):
+                                    matches.append(Path(entry.path))
+                    elif target.exists() or target.is_symlink(): matches = [target]
+                    if not matches and directive == 'include': raise ValueError('Required include is missing')
+                    for match in sorted(matches):
+                        included, content = read(match)
+                        if included in stack: raise ValueError('Include cycle')
+                        scan(content, (*stack, included))
+                elif directive in ('servername','serveralias'):
+                    if len(words)<2 or (directive == 'servername' and len(words)!=2): raise ValueError('Invalid vhost names')
+                    for name in words[1:]:
+                        name = name.lower().rstrip('.')
+                        if not _NAME.fullmatch(name): raise ValueError('Invalid literal vhost alias')
+                        names.append(name)
+            if top: raise ValueError('Unclosed VirtualHost')
+        scan(lines[line_number:], (path,), top=True)
+        if expected_name not in names: raise ValueError('Apache source identity differs from inventory')
         return names
+
+    def _source_path_directory(self, path, roots):
+        # No wildcard-directory traversal or symlink directories: ordinary enabled
+        # site symlinks are supported at the leaf; directory authority stays fixed.
+        if not any(path.is_relative_to(root) for root in roots): raise ValueError('Untrusted include directory')
+        for current in (path, *path.parents):
+            info = current.lstat()
+            sticky = current == Path('/tmp') and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o1777
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0,self.owner_uid) or (info.st_mode & 0o022 and not sticky):
+                raise ValueError('Unsafe include directory')
 
     def inventory(self): return parse_inventory(self._command('-S'), self._aliases)
     def configtest(self): self._command('-t')

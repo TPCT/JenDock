@@ -21,13 +21,17 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 import application_operations as ops
 import mcp_credentials
+import ingress
 
 _credential = ContextVar('mcp_credential')
 SCOPES = {'project_list': 'projects:read', 'project_get': 'projects:read',
           'project_create': 'projects:create', 'service_list': 'services:read',
           'service_get': 'services:read', 'service_create': 'services:create',
           'service_templates': 'services:create',
-          'operation_status': 'operations:read'}
+          'operation_status': 'operations:read',
+          'domain_options': 'domains:read', 'domain_list': 'domains:read',
+          'domain_get': 'domains:read', 'domain_operation_status': 'domains:read'}
+MUTATING_TOOLS = frozenset({'project_create', 'service_create'})
 
 
 def string(n=120): return {'type': 'string', 'minLength': 1, 'maxLength': n}
@@ -46,6 +50,10 @@ DEFINITION = obj({'name': string(48), 'artifact_id': string(), 'template_id': st
                   'desired_state': {'type': 'string', 'enum': ['stopped', 'running'], 'default': 'stopped'}},
                  ['name', 'artifact_id', 'template_id', 'template_revision', 'environment_revision', 'policy_revision', 'resources'])
 SCHEMAS = {
+    'domain_options': obj({'project_id': string(), 'environment': ENV}, ['project_id', 'environment']),
+    'domain_list': obj({'project_id': string(), 'environment': ENV, 'limit': PAGE['limit'], 'cursor': {'type': 'string', 'pattern': '^[a-f0-9]{32}$'}}, ['project_id', 'environment']),
+    'domain_get': obj({'project_id': string(), 'environment': ENV, 'route_id': string(32)}, ['project_id', 'environment', 'route_id']),
+    'domain_operation_status': obj({'project_id': string(), 'environment': ENV, 'operation_id': string(32)}, ['project_id', 'environment', 'operation_id']),
     'project_list': obj({**PAGE, 'cursor': string()}), 'project_get': obj({'project_id': string()}, ['project_id']),
     'project_create': obj({'project_id': string(), 'repository': string(200), 'repository_id': {'type': 'integer', 'minimum': 1, 'maximum': 9223372036854775807},
                            'label': string(), 'integration_ref': {'type': 'string', 'enum': ['github']},
@@ -132,16 +140,16 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
         return mcp_credentials.principal_for_credential(db, _credential.get(), owner_resolver=owner_resolver)
 
     def available(p):
-        return [name for name, scope in SCOPES.items() if scope in p.scopes and (enable_creation or not name.endswith('_create'))]
+        return [name for name, scope in SCOPES.items() if scope in p.scopes and (enable_creation or name not in MUTATING_TOOLS)]
 
     def list_tools_sync():
         with connection() as db:
             p = principal(db)
             return types.ListToolsResult(tools=[types.Tool(name=name, inputSchema=SCHEMAS[name],
                 description=('Create using a stable idempotency key. Service desired_state=running starts this service; queued is not success.'
-                             if name.endswith('_create') else 'Read authorized public deployment information.'),
-                annotations=types.ToolAnnotations(readOnlyHint=not name.endswith('_create'), destructiveHint=False,
-                                                  idempotentHint=True, openWorldHint=name.endswith('_create')))
+                             if name in MUTATING_TOOLS else 'Read authorized public deployment information.'),
+                annotations=types.ToolAnnotations(readOnlyHint=name not in MUTATING_TOOLS, destructiveHint=False,
+                                                  idempotentHint=True, openWorldHint=name in MUTATING_TOOLS))
                 for name in available(p)])
 
     def call_tool_sync(params):
@@ -164,6 +172,10 @@ def create_app(db_path, key_path, *, allowed_hosts, allowed_origins=(), owner_re
                 elif name == 'service_templates': payload = public_templates(ops.service_templates(db, p, a['project_id'], a['environment']), a['environment'], p)
                 elif name == 'service_get': payload = public_service(ops.get_service(db, p, a['service_id']))
                 elif name == 'operation_status': payload = ops.operation_status(db, p, a['operation_id'], after_event=a.get('after_event', 0), limit=a.get('limit', 25))
+                elif name == 'domain_options': payload = ingress.domain_options(db, p, a['project_id'], a['environment'])
+                elif name == 'domain_list': payload = ingress.list_routes(db, p, a['project_id'], a['environment'], limit=a.get('limit', 25), cursor=a.get('cursor'))
+                elif name == 'domain_get': payload = ingress.get_route(db, p, a['project_id'], a['environment'], a['route_id'])
+                elif name == 'domain_operation_status': payload = ingress.get_operation(db, p, a['project_id'], a['environment'], a['operation_id'])
                 elif name == 'project_create':
                     value = ops.project_input(a['project_id'], {k: a[k] for k in ('repository', 'repository_id', 'label') if k in a}, a.get('integration_ref', 'github'))
                     created = ops.create_project(db, p, value, a['idempotency_key'], key_path)

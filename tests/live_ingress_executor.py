@@ -36,10 +36,14 @@ def main():
             config=root/'httpd.conf';pid=root/'httpd.pid'
             text=''.join('LoadModule '+m+'_module /usr/lib/apache2/modules/mod_'+m+'.so\n' for m in modules)
             text+=f'ServerRoot {root}\nServerName localhost\nListen 127.0.0.1:{port}\nPidFile {pid}\nErrorLog {root}/error.log\nLogLevel warn\n'
-            sentinel=root/'sentinel.conf'
-            sentinel.write_text(f'<VirtualHost 127.0.0.1:{port}>\nServerName sentinel.fixture.test\nServerAlias alias.fixture.test *.reserved.fixture.test\nProxyPass / http://127.0.0.1:{backend.server_port}/\n</VirtualHost>\n')
+            for child in ('sites-available','sites-enabled','conf'):(root/child).mkdir(mode=0o700)
+            alias_config=root/'conf'/'aliases.conf'
+            alias_config.write_text('ServerAlias alias.fixture.test *.reserved.fixture.test\n');alias_config.chmod(0o600)
+            sentinel=root/'sites-available'/'sentinel.conf'
+            sentinel.write_text(f'<VirtualHost 127.0.0.1:{port}>\nServerName sentinel.fixture.test\nInclude {alias_config}\nProxyPass / http://127.0.0.1:{backend.server_port}/\n</VirtualHost>\n')
             sentinel.chmod(0o600)
-            text+=f'Include {sentinel}\nIncludeOptional {root}/managed/*.conf\n';config.write_text(text);config.chmod(0o600)
+            enabled=root/'sites-enabled'/'sentinel.conf';enabled.symlink_to(sentinel)
+            text+=f'Include {enabled}\nIncludeOptional {root}/managed/*.conf\n';config.write_text(text);config.chmod(0o600)
             initial=hashlib.sha256(sentinel.read_bytes()).hexdigest()
             argv=(binary,'-f',str(config),'-DFOREGROUND')
             executor=ApacheExecutor(executable=binary,config=str(config),pid_file=str(pid),listener=('127.0.0.1',port),expected_argv=argv,owner_uid=os.getuid(),timeout=5)
@@ -78,7 +82,7 @@ def main():
             try:executor.reload()
             except Exception:pass
             else:raise AssertionError('Stopped daemon was reloaded/started')
-            report={'scope':'local-installed-apache-executor','real_inventory_aliases':True,'pid_identity_verified':True,'http_activation_verified':True,'sentinel_preserved':True,'stopped_daemon_not_started':True,'production':False,'tls_verified':False}
+            report={'scope':'local-installed-apache-executor','real_inventory_aliases':True,'included_aliases_and_enabled_symlink':True,'pid_identity_verified':True,'http_activation_verified':True,'sentinel_preserved':True,'stopped_daemon_not_started':True,'production':False,'tls_verified':False}
     finally:
         if process:
             if process.poll() is None:process.terminate();process.wait(timeout=5)

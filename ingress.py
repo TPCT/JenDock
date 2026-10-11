@@ -75,10 +75,8 @@ def _authorize(db,principal,scope,project,environment):
     record=ops._service_authorize(db,principal,scope,project,environment);ops.recheck_credential(db,principal)
     return record
 
-def _definition(db,principal,project,environment,values,scope):
-    project_row=_authorize(db,principal,scope,project,environment)
-    env=services.ensure_environment_eligible(db,project,environment)
-    service=services.get(db,values['service_id']);definition=service['definition'];binding=service.get('binding')
+def _service_evidence(db,principal,project,environment,service_id):
+    service=services.get(db,service_id);definition=service['definition'];binding=service.get('binding')
     if service['project']!=project or service['environment']!=environment:raise _error('service_unavailable','Choose a service in this environment.')
     if service['state']!='running' or not binding or binding.get('state')!='running' or not re.fullmatch('[a-f0-9]{64}',str(binding.get('container_id',''))) or binding.get('definition_digest')!=services.digest(definition) or binding.get('image_id')!=definition['artifact']['image'] or type(binding.get('observed')) not in (int,float) or not 0<binding['observed']<=time.time():
         raise _error('service_unverified','The application must have a recorded verified running binding. Domain setup never starts it.')
@@ -87,6 +85,13 @@ def _definition(db,principal,project,environment,values,scope):
     build_profiles.validate_http_endpoint(artifact['http_endpoint'])
     source_environment=artifact.get('source_environment')
     if principal.allowed_environments is not None and source_environment in registry.ENVIRONMENTS and (project,source_environment) not in principal.allowed_environments:raise _error('forbidden','Source environment is not permitted.',403)
+    return service,artifact
+
+def _definition(db,principal,project,environment,values,scope):
+    project_row=_authorize(db,principal,scope,project,environment)
+    env=services.ensure_environment_eligible(db,project,environment)
+    service,artifact=_service_evidence(db,principal,project,environment,values['service_id'])
+    definition=service['definition'];binding=service['binding'];source_environment=artifact.get('source_environment')
     source=build_profiles.get_private(db,project,environment)
     policy=resource_policy.read(db,project)
     connection=db.execute("SELECT revision,enabled,metadata FROM integration_connections WHERE provider='cloudflare'").fetchone()
@@ -141,3 +146,117 @@ def accept(db,principal,project,environment,values,idempotency_key):
         db.execute('INSERT INTO ingress_definitions VALUES(?,?,?,?)',(definition_id,registry.canonical(definition),_digest(definition),now))
         db.execute('INSERT INTO ingress_operations VALUES(?,?,?,?,?,?,?,?,?)',(operation_id,principal.subject_id,principal.credential_id,idempotency_key,fingerprint,route_id,'pending-provisioning',registry.canonical(result),now))
         return result
+
+
+def domain_options(db,principal,project,environment):
+    """Scoped public discovery; cached evidence is explicitly distinct from live checks."""
+    project_row=_authorize(db,principal,'domains:read',project,environment);initialize(db)
+    env=services.ensure_environment_eligible(db,project,environment)
+    source=build_profiles.get_private(db,project,environment);policy=resource_policy.read(db,project)
+    choices=[]
+    for item in services.list_services(db,project,environment):
+        try:service,artifact=_service_evidence(db,principal,project,environment,item['id'])
+        except ops.OperationError as error:
+            if error.code in ('forbidden','service_unavailable','service_unverified','endpoint_unavailable'):continue
+            raise
+        choices.append({'id':service['id'],'name':service['definition']['name'],'definition_id':service['definition_id'],
+                        'http_endpoint':dict(artifact['http_endpoint']),'state':'running','evidence':'recorded','runtime_verification':'pending'})
+    zones=[];connection=db.execute("SELECT revision,enabled,metadata FROM integration_connections WHERE provider='cloudflare'").fetchone()
+    integration_state='unavailable'
+    if connection and connection['enabled']:
+        try:metadata=json.loads(connection['metadata'])
+        except (ValueError,TypeError):metadata=None
+        if (isinstance(metadata,dict) and metadata.get('api_access')=='verified' and metadata.get('zone_read')=='verified'
+                and metadata.get('token_kind') in ('user','account') and isinstance(metadata.get('zones'),list)):
+            counts={}
+            for zone in metadata['zones']:
+                if isinstance(zone,dict) and isinstance(zone.get('id'),str):counts[zone['id']]=counts.get(zone['id'],0)+1
+            for zone in metadata['zones']:
+                if (not isinstance(zone,dict) or not isinstance(zone.get('id'),str) or not re.fullmatch('[a-f0-9]{32}',zone['id']) or counts.get(zone['id'])!=1
+                        or zone.get('status')!='active' or not re.fullmatch('[a-f0-9]{32}',str(zone.get('account_id','')))
+                        or metadata['token_kind']=='account' and zone['account_id']!=metadata.get('account_id')):continue
+                try:name=_hostname(zone.get('name'))
+                except ops.OperationError:continue
+                zones.append({'id':zone['id'],'name':name,'account_id':zone['account_id']})
+            integration_state='verified' if zones else 'no-eligible-zones'
+    try:origins,origin_revision=_origin();origin_state='configured'
+    except ops.OperationError:origins={};origin_revision=None;origin_state='unavailable'
+    _authorize(db,principal,'domains:read',project,environment)
+    return {'project':project,'environment':environment,'services':choices,'zones':zones,
+            'origins':[{'dns_type':kind,'target':target} for kind,target in sorted(origins.items())],
+            'project_revision':project_row['revision'],'environment_revision':env['revision'],'source_revision':source['source_revision'] if source else None,
+            'policy_revision':policy['revision'],'integration_revision':connection['revision'] if connection else 0,'origin_revision':origin_revision,
+            'integration_status':integration_state,'origin_status':origin_state,'dns_live_checked':False,'executor_available':False,
+            'defaults':{'proxied':True,'ttl':1},'ready':False}
+
+
+def _route_document(db,principal,project,environment,route_id):
+    row=db.execute('SELECT r.*,d.document,d.digest FROM ingress_routes r LEFT JOIN ingress_definitions d ON d.id=r.definition_id WHERE r.id=? AND r.project=? AND r.environment=?',(route_id,project,environment)).fetchone()
+    if row is None:raise _error('route_unavailable','Domain is unavailable in this environment.',404)
+    try:
+        definition=json.loads(row['document'])
+        if (_digest(definition)!=row['digest'] or any(definition[k]!=row[k] for k in ('project','environment','hostname'))
+                or type(row['revision']) is not int or row['revision']<1):raise ValueError()
+        normalized=_values({key:definition[key] for key in FIELDS})
+        if any(normalized[key]!=definition[key] for key in FIELDS):raise ValueError()
+        build_profiles.validate_http_endpoint(definition['http_endpoint'])
+    except (ValueError,TypeError,KeyError):raise _error('route_integrity','Stored domain identity is inconsistent.') from None
+    source=definition.get('source_environment')
+    if principal.allowed_environments is not None and source in registry.ENVIRONMENTS and (project,source) not in principal.allowed_environments:raise _error('forbidden','Source environment is not permitted.',403)
+    return row,definition
+
+
+def _dns_evidence(db,route_id,definition):
+    result={'status':'unverified','evidence':'none','observed_at':None}
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_dns_ownership'").fetchone():return result
+    owner=db.execute('SELECT * FROM ingress_dns_ownership WHERE route_id=?',(route_id,)).fetchone()
+    if not owner:return result
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ingress_dns_intents'").fetchone():raise _error('route_integrity','Recorded DNS evidence is incomplete.')
+    intent=db.execute('SELECT * FROM ingress_dns_intents WHERE operation_id=? AND route_id=?',(owner['operation_id'],route_id)).fetchone()
+    if (not intent or intent['state']!='verified' or intent['record_id']!=owner['record_id'] or intent['marker']!=owner['marker']
+            or owner['zone_id']!=definition['zone_id'] or not re.fullmatch('[a-f0-9]{32}',str(owner['record_id']))
+            or not re.fullmatch('[a-f0-9]{64}',str(owner['record_digest'])) or type(owner['observed']) not in (int,float) or not 0<owner['observed']<=time.time()):raise _error('route_integrity','Recorded DNS ownership is inconsistent.')
+    expected={'id':owner['record_id'],'name':definition['hostname'],'type':definition['dns_type'],'content':definition['target'],'ttl':definition['ttl'],'proxied':definition['proxied'],'comment':owner['marker']}
+    if _digest(expected)!=owner['record_digest']:raise _error('route_integrity','Recorded DNS identity differs from the accepted domain.')
+    return {'status':'verified','evidence':'recorded','observed_at':owner['observed'],'record_id':owner['record_id'],'live_checked':False}
+
+
+def get_route(db,principal,project,environment,route_id):
+    _authorize(db,principal,'domains:read',project,environment);initialize(db)
+    row,definition=_route_document(db,principal,project,environment,route_id)
+    public={key:definition[key] for key in ('service_id','hostname','zone_id','dns_type','target','proxied','ttl','http_endpoint')}
+    public.update(id=row['id'],project=project,environment=environment,definition_id=row['definition_id'],revision=row['revision'],
+                  status=row['status'] if row['status'] in ('accepted','active','failed','recovery-required') else 'unknown',ready=False,
+                  dns=_dns_evidence(db,route_id,definition),origin={'status':'unverified','evidence':'none'},tls={'status':'unverified','evidence':'none'},
+                  runtime_verification='pending',executor_available=False)
+    _authorize(db,principal,'domains:read',project,environment)
+    return public
+
+
+def list_routes(db,principal,project,environment,*,limit=25,cursor=None):
+    _authorize(db,principal,'domains:read',project,environment);initialize(db)
+    if type(limit) is not int or not 1<=limit<=100 or cursor is not None and (not isinstance(cursor,str) or not re.fullmatch('[a-f0-9]{32}',cursor)):raise _error('invalid_input','Choose a valid page size and domain cursor.',400)
+    result=[]
+    for row in db.execute('SELECT id FROM ingress_routes WHERE project=? AND environment=? AND id>? ORDER BY id',(project,environment,cursor or '')):
+        try:route=get_route(db,principal,project,environment,row['id'])
+        except ops.OperationError as error:
+            if error.status==403:continue
+            raise
+        result.append(route)
+        if len(result)>limit:break
+    _authorize(db,principal,'domains:read',project,environment)
+    return {'routes':result[:limit],'next_cursor':result[limit-1]['id'] if len(result)>limit else None}
+
+
+def get_operation(db,principal,project,environment,operation_id):
+    _authorize(db,principal,'domains:read',project,environment);initialize(db)
+    row=db.execute('SELECT o.* FROM ingress_operations o JOIN ingress_routes r ON r.id=o.route_id WHERE o.id=? AND r.project=? AND r.environment=?',(operation_id,project,environment)).fetchone()
+    if row is None:raise _error('operation_unavailable','Domain operation is unavailable in this environment.',404)
+    route=get_route(db,principal,project,environment,row['route_id'])
+    try:
+        accepted=json.loads(row['result']);record=accepted['route']
+        if accepted['operation']['id']!=row['id'] or any(record[k]!=route[k] for k in ('id','project','environment','hostname','definition_id')):raise ValueError()
+    except (ValueError,TypeError,KeyError):raise _error('route_integrity','Stored domain operation identity is inconsistent.') from None
+    return {'id':row['id'],'route_id':row['route_id'],'project':project,'environment':environment,
+            'status':row['status'] if row['status'] in ('pending-provisioning','running','failed','recovery-required','succeeded') else 'unknown',
+            'dns':route['dns'],'origin':route['origin'],'tls':route['tls'],'ready':False,'executor_available':False,'runtime_verification':'pending'}
