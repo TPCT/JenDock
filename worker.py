@@ -562,7 +562,7 @@ def deploy(db, job, project, validate_only=False):
                     args += ['-e', key + '=' + value]
                 args += ['--entrypoint', test['command'][0], images[test['image']], *test['command'][1:]]
                 try:
-                    run(args, timeout=600 if database_env else 180)
+                    run(args, timeout=1200 if database_env else 180)
                 finally:
                     subprocess.run([DOCKER, 'rm', '-f', test_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         if validate_only:

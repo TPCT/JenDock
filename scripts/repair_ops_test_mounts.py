@@ -29,15 +29,26 @@ def main():
             options[i] = name + '=' + desired
         corrected.append(target + ':' + ','.join(options))
     assert tests[0].get('database') in (None, 'postgres')
+    test_defaults = {
+        'JWT_SECRET': 'ci-isolated-test-jwt-secret-not-for-production',
+        'APP_TIMEZONE': 'Africa/Cairo', 'APP_URL': 'http://localhost',
+        'APP_DEBUG': 'false', 'BROADCAST_CONNECTION': 'null', 'BROADCAST_DRIVER': 'null',
+        'FILESYSTEM_DISK': 'local', 'PUBLIC_FILESYSTEM_DRIVER': 'local',
+        'LIVEWIRE_TEMPORARY_FILE_UPLOAD_DISK': 'local', 'VISIT_PDF_RENDER_SUBPROCESS': 'false',
+    }
+    environment = tests[0]['environment']
+    defaults_ready = all(key in environment for key in test_defaults)
     print(json.dumps({'project': 'aic-ops', 'tmpfs': corrected, 'database': 'postgres'}))
     command = tests[0]['command']
     assert len(command) == 3 and command[:2] == ['sh', '-c']
     assert 'php vendor/bin/phpunit' in command[2]
     command_ready = '--do-not-cache-result' in command[2]
-    if '--apply' not in sys.argv or (mounts == corrected and tests[0].get('database') == 'postgres' and command_ready):
+    if '--apply' not in sys.argv or (mounts == corrected and tests[0].get('database') == 'postgres' and command_ready and defaults_ready):
         return
     tests[0]['tmpfs'] = corrected
     tests[0]['database'] = 'postgres'
+    for key, value in test_defaults.items():
+        environment.setdefault(key, value)
     if not command_ready:
         command[2] = command[2].replace('php vendor/bin/phpunit', 'php vendor/bin/phpunit --do-not-cache-result')
     assert path.read_bytes() == original, 'Configuration changed during review'
