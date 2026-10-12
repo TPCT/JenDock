@@ -1,0 +1,107 @@
+--- a/worker.py
++++ b/worker.py
+@@ -8,6 +8,7 @@
+ import os
+ import re
+ import shutil
++import sqlite3
+ import subprocess
+ import tempfile
+ import threading
+@@ -214,7 +215,7 @@
+             tag = spec['name'] + ':' + version
+             set_status(db, job['id'], 'building', 'Building image ' + spec['name'] + ' from Git.')
+             args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
+-                    '--cpu-quota', '200000', '--network', 'deploy-build',
++                    '--cpu-quota', '100000', '--cpu-shares', '128', '--network', 'deploy-build',
+                     '--label', 'net.shiftcodes.deployer=deploy-monitor',
+                     '--label', 'net.shiftcodes.job=' + str(job['id']),
+                     '--label', 'org.opencontainers.image.revision=' + sha,
+@@ -311,6 +312,31 @@
+     db.execute('DELETE FROM requests WHERE project=?',(name,))
+ 
+ 
++def collect_resiliently(collect, interval, stop=None):
++    """Read-only observers recover their connection after transient SQLite contention."""
++    stop = stop or threading.Event()
++    db = None
++    try:
++        while not stop.is_set():
++            try:
++                if db is None:
++                    db = connect(DATABASE)
++                collect(db)
++            except sqlite3.OperationalError as error:
++                if db is not None:
++                    db.close()
++                    db = None
++                if not any(word in str(error).lower() for word in ('locked', 'busy')):
++                    raise
++            except (StepFailure, OSError, ValueError, KeyError, IndexError):
++                # Keep the previous observation timestamp so stale data is visible.
++                pass
++            stop.wait(interval)
++    finally:
++        if db is not None:
++            db.close()
++
++
+ def main():
+     STATE.mkdir(exist_ok=True)
+     Path('/work').mkdir(exist_ok=True)
+@@ -325,39 +351,23 @@
+                 snapshot(db, 'worker', {'state': 'recovery-failed', 'detail': 'Recovery requires review. Deployments have stopped.'})
+                 raise SystemExit(1)
+         db.execute("UPDATE jobs SET status='interrupted',detail='The worker stopped before the update completed. The run was not marked successful.' WHERE status IN ('building','testing','deploying')")
+-        def branch_collector():
+-            branch_db=connect(DATABASE)
+-            while True:
+-                try:
+-                    policy=projects(CONFIG)
+-                    requested=branch_db.execute('SELECT project FROM requests ORDER BY created LIMIT 1').fetchone()
+-                    name=requested['project'] if requested else next((name for name in policy if not (row:=branch_db.execute('SELECT updated FROM snapshots WHERE name=?',('branches:'+name,)).fetchone()) or time.time()-row['updated']>300),None)
+-                    if name in policy:
+-                        observe_branches(branch_db,name,policy[name])
+-                except (OSError,ValueError,StepFailure):
+-                    pass
+-                time.sleep(3)
+-        def host_collector():
+-            measurements=connect(DATABASE)
+-            while True:
+-                try:
+-                    reading=host_metrics.read();record_metrics(measurements,reading);snapshot(measurements,'telemetry',reading)
+-                    snapshot(measurements,'telemetry-error',{'error':False})
+-                except (OSError,ValueError,KeyError,IndexError):
+-                    snapshot(measurements,'telemetry-error',{'error':True,'detail':'Host metrics are unavailable. Check the host measurement mounts.'})
+-                time.sleep(5)
+-        threading.Thread(target=host_collector,daemon=True).start()
++        def collect_branches(branch_db):
++            policy = projects(CONFIG)
++            requested = branch_db.execute('SELECT project FROM requests ORDER BY created LIMIT 1').fetchone()
++            name = requested['project'] if requested else next((name for name in policy if not (row := branch_db.execute('SELECT updated FROM snapshots WHERE name=?', ('branches:'+name,)).fetchone()) or time.time()-row['updated'] > 300), None)
++            if name in policy:
++                observe_branches(branch_db, name, policy[name])
++
++        def collect_host(measurements):
++            reading = host_metrics.read()
++            record_metrics(measurements, reading)
++            snapshot(measurements, 'telemetry', reading)
++            snapshot(measurements, 'telemetry-error', {'error': False})
++
++        threading.Thread(target=collect_resiliently, args=(collect_host, 5), daemon=True).start()
+         control.start()
+-        threading.Thread(target=branch_collector,daemon=True).start()
+-        def collector():
+-            observations = connect(DATABASE)
+-            while True:
+-                try:
+-                    observe(observations)
+-                except (StepFailure, OSError):
+-                    snapshot(observations, 'worker', {'state': 'unavailable', 'detail': 'Docker could not be observed. Previous observations are stale.'})
+-                time.sleep(5)
+-        threading.Thread(target=collector, daemon=True).start()
++        threading.Thread(target=collect_resiliently, args=(collect_branches, 3), daemon=True).start()
++        threading.Thread(target=collect_resiliently, args=(observe, 5), daemon=True).start()
+         while True:
+             try:
+                 job = db.execute("SELECT * FROM jobs WHERE status IN ('queued','validation-queued') ORDER BY id LIMIT 1").fetchone()

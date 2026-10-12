@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -437,7 +438,7 @@ def build_artifacts(db, job, project, validate_only):
                 raise StepFailure('Build paths must resolve to files and directories within the pinned checkout.')
             tag = spec['name'] + ':' + sha[:12] + '-' + str(job['id'])
             args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
-                    '--cpu-quota', '200000', '--network', ARTIFACT_BUILD_NETWORK,
+                    '--cpu-quota', '100000', '--cpu-shares', '128', '--network', ARTIFACT_BUILD_NETWORK,
                     '--label', 'net.shiftcodes.deployer=deploy-monitor', '--label', 'net.shiftcodes.job=' + str(job['id']),
                     '--label', 'org.opencontainers.image.revision=' + sha, '-t', tag, '-f', str(dockerfile)]
             if spec.get('target'):
@@ -531,7 +532,7 @@ def deploy(db, job, project, validate_only=False):
             tag = spec['name'] + ':' + version
             set_status(db, job['id'], 'building', 'Building image ' + spec['name'] + ' from Git.')
             args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
-                    '--cpu-quota', '200000', '--network', 'deploy-build',
+                    '--cpu-quota', '100000', '--cpu-shares', '128', '--network', 'deploy-build',
                     '--label', 'net.shiftcodes.deployer=deploy-monitor',
                     '--label', 'net.shiftcodes.job=' + str(job['id']),
                     '--label', 'org.opencontainers.image.revision=' + sha,
@@ -1120,6 +1121,31 @@ def process_domain_once(db):
             key_path=os.environ.get('INTEGRATION_KEY_FILE', '/config/integrations.key'))
 
 
+def collect_resiliently(collect, interval, stop=None):
+    """Read-only observers recover their connection after transient SQLite contention."""
+    stop = stop or threading.Event()
+    db = None
+    try:
+        while not stop.is_set():
+            try:
+                if db is None:
+                    db = connect(DATABASE)
+                collect(db)
+            except sqlite3.OperationalError as error:
+                if db is not None:
+                    db.close()
+                    db = None
+                if not any(word in str(error).lower() for word in ('locked', 'busy')):
+                    raise
+            except (StepFailure, OSError, ValueError, KeyError, IndexError):
+                # Keep the previous observation timestamp so stale data is visible.
+                pass
+            stop.wait(interval)
+    finally:
+        if db is not None:
+            db.close()
+
+
 def main():
     STATE.mkdir(exist_ok=True)
     Path('/work').mkdir(exist_ok=True)
@@ -1134,35 +1160,16 @@ def main():
                 snapshot(db, 'worker', {'state': 'recovery-failed', 'detail': 'Recovery requires review. Deployments have stopped.'})
                 raise SystemExit(1)
         db.execute("UPDATE jobs SET status='interrupted',detail='The worker stopped before the update completed. The run was not marked successful.' WHERE status IN ('building','testing','deploying')")
-        def branch_collector():
-            branch_db=connect(DATABASE)
-            while True:
-                try:
-                    collect_branches_once(branch_db)
-                except (OSError,ValueError,StepFailure):
-                    pass
-                time.sleep(3)
-        def host_collector():
-            measurements=connect(DATABASE)
-            while True:
-                try:
-                    reading=host_metrics.read();record_metrics(measurements,reading);snapshot(measurements,'telemetry',reading)
-                    snapshot(measurements,'telemetry-error',{'error':False})
-                except (OSError,ValueError,KeyError,IndexError):
-                    snapshot(measurements,'telemetry-error',{'error':True,'detail':'Host metrics are unavailable. Check the host measurement mounts.'})
-                time.sleep(5)
-        threading.Thread(target=host_collector,daemon=True).start()
+        def collect_host(measurements):
+            reading = host_metrics.read()
+            record_metrics(measurements, reading)
+            snapshot(measurements, 'telemetry', reading)
+            snapshot(measurements, 'telemetry-error', {'error': False})
+
+        threading.Thread(target=collect_resiliently, args=(collect_host, 5), daemon=True).start()
         control.start()
-        threading.Thread(target=branch_collector,daemon=True).start()
-        def collector():
-            observations = connect(DATABASE)
-            while True:
-                try:
-                    observe(observations)
-                except (StepFailure, OSError):
-                    snapshot(observations, 'worker', {'state': 'unavailable', 'detail': 'Docker could not be observed. Previous observations are stale.'})
-                time.sleep(5)
-        threading.Thread(target=collector, daemon=True).start()
+        threading.Thread(target=collect_resiliently, args=(collect_branches_once, 3), daemon=True).start()
+        threading.Thread(target=collect_resiliently, args=(observe, 5), daemon=True).start()
         while True:
             try:
                 import artifact_publication
