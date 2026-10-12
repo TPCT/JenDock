@@ -34,7 +34,9 @@ def database(test, test_name, docker, run):
         created_database = True
         run([docker, 'start', name])
         for _ in range(45):
-            ready = subprocess.run([docker, 'exec', name, 'pg_isready', '-U', 'deploy_test', '-d', 'deploy_test'],
+            # The entrypoint briefly starts a socket-only initialization server.
+            # Wait for TCP so clients cannot race its shutdown and final startup.
+            ready = subprocess.run([docker, 'exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'deploy_test', '-d', 'deploy_test'],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
             if ready.returncode == 0:
                 break
