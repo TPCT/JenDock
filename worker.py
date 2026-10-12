@@ -4,6 +4,7 @@ The receiver cannot reach Docker. The worker rechecks the configured branch and
 uses isolated test containers without production environment files or volumes.
 """
 import contextlib
+import isolated_test_database
 import fcntl
 import json
 import os
@@ -551,18 +552,19 @@ def deploy(db, job, project, validate_only=False):
         set_status(db, job['id'], 'testing', 'Testing images without production secrets or databases.')
         for i, test in enumerate(recipe['tests']):
             test_name = 'deploy-test-%s-%d' % (job['id'], i)
-            args = [DOCKER, 'run', '--rm', '--name', test_name, '--network', 'none', '--read-only',
-                    '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=512m', '--cpus=1',
-                    '--pids-limit=128', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m']
-            for mount in test.get('tmpfs', []):
-                args += ['--tmpfs', mount]
-            for key, value in test.get('environment', {}).items():
-                args += ['-e', key + '=' + value]
-            args += ['--entrypoint', test['command'][0], images[test['image']], *test['command'][1:]]
-            try:
-                run(args, timeout=180)
-            finally:
-                subprocess.run([DOCKER, 'rm', '-f', test_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            with isolated_test_database.database(test, test_name, DOCKER, run) as (test_network, database_env):
+                args = [DOCKER, 'run', '--rm', '--name', test_name, '--network', test_network, '--read-only',
+                        '--cap-drop=ALL', '--security-opt=no-new-privileges', '--memory=512m', '--cpus=1',
+                        '--pids-limit=128', '--tmpfs', '/tmp:rw,noexec,nosuid,size=128m']
+                for mount in test.get('tmpfs', []):
+                    args += ['--tmpfs', mount]
+                for key, value in {**test.get('environment', {}), **database_env}.items():
+                    args += ['-e', key + '=' + value]
+                args += ['--entrypoint', test['command'][0], images[test['image']], *test['command'][1:]]
+                try:
+                    run(args, timeout=600 if database_env else 180)
+                finally:
+                    subprocess.run([DOCKER, 'rm', '-f', test_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         if validate_only:
             complete_build(db, job['id'], recipe, images, 'validated', 'Build and internal tests passed. Services and databases were not changed.' + (' Development migrations will run during deployment.' if migration else ' Migration changes require review.' if schema_changes else ''))
             return

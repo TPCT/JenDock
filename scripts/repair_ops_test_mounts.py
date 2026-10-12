@@ -28,10 +28,12 @@ def main():
             assert options[i].split('=', 1)[1] in ('65534', desired)
             options[i] = name + '=' + desired
         corrected.append(target + ':' + ','.join(options))
-    print(json.dumps({'project': 'aic-ops', 'tmpfs': corrected}))
-    if '--apply' not in sys.argv or mounts == corrected:
+    assert tests[0].get('database') in (None, 'postgres')
+    print(json.dumps({'project': 'aic-ops', 'tmpfs': corrected, 'database': 'postgres'}))
+    if '--apply' not in sys.argv or (mounts == corrected and tests[0].get('database') == 'postgres'):
         return
     tests[0]['tmpfs'] = corrected
+    tests[0]['database'] = 'postgres'
     assert path.read_bytes() == original, 'Configuration changed during review'
     stat = path.stat()
     temporary = path.with_name('.projects-ops-mounts.tmp')
@@ -46,7 +48,7 @@ def main():
     finally:
         temporary.unlink(missing_ok=True)
     assert json.loads(path.read_text())['aic-ops']['recipe']['tests'][0]['tmpfs'] == corrected
-    print('Ops isolated test mount ownership verified; sandbox restrictions preserved.')
+    print('Ops isolated test mount ownership and PostgreSQL recipe verified.')
 
 
 if __name__ == '__main__':
