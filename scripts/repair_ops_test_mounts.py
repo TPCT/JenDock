@@ -30,10 +30,16 @@ def main():
         corrected.append(target + ':' + ','.join(options))
     assert tests[0].get('database') in (None, 'postgres')
     print(json.dumps({'project': 'aic-ops', 'tmpfs': corrected, 'database': 'postgres'}))
-    if '--apply' not in sys.argv or (mounts == corrected and tests[0].get('database') == 'postgres'):
+    command = tests[0]['command']
+    assert len(command) == 3 and command[:2] == ['sh', '-c']
+    assert 'php vendor/bin/phpunit' in command[2]
+    command_ready = '--do-not-cache-result' in command[2]
+    if '--apply' not in sys.argv or (mounts == corrected and tests[0].get('database') == 'postgres' and command_ready):
         return
     tests[0]['tmpfs'] = corrected
     tests[0]['database'] = 'postgres'
+    if not command_ready:
+        command[2] = command[2].replace('php vendor/bin/phpunit', 'php vendor/bin/phpunit --do-not-cache-result')
     assert path.read_bytes() == original, 'Configuration changed during review'
     stat = path.stat()
     temporary = path.with_name('.projects-ops-mounts.tmp')

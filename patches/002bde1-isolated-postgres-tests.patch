@@ -1,6 +1,14 @@
 --- a/worker.py
 +++ b/worker.py
-@@ -234,18 +234,19 @@
+@@ -4,6 +4,7 @@
+ uses isolated test containers without production environment files or volumes.
+ """
+ import fcntl
++import isolated_test_database
+ import json
+ import os
+ import re
+@@ -234,18 +235,19 @@
          set_status(db, job['id'], 'testing', 'Testing images without production secrets or databases.')
          for i, test in enumerate(recipe['tests']):
              test_name = 'deploy-test-%s-%d' % (job['id'], i)
