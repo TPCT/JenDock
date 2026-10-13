@@ -56,8 +56,11 @@ proposal the entry says so ("Deviation").
   "slug": "shop-api", "name": "Shop API", "repository": "acme/shop-api",
   "created_at": "2026-09-01T10:00:00Z",
   "environments": [
-    {"name": "development", "branch": "develop", "auto_deploy": true,  "last_run": RunSummary | null},
-    {"name": "production",  "branch": "main",    "auto_deploy": false, "last_run": RunSummary | null}
+    {"name": "development", "branch": "develop", "auto_deploy": true,
+     "compose_project": "shop-dev" | null, "compose_files": ["/abs/compose.yml"],
+     "compose_env_files": [], "services": ["web"], "has_pipeline": true,
+     "last_run": RunSummary | null},
+    {"name": "production",  "branch": "main",    "auto_deploy": false, ... same keys ...}
   ],
   "git_transport": "ssh" | "https"
 }
@@ -65,6 +68,12 @@ proposal the entry says so ("Deviation").
 
 `git_transport` is an addition (not in the original proposal): how the worker clones the
 repository, `ssh` = deploy key over ssh.github.com:443, `https` = public repositories.
+
+`has_pipeline` (addition) is true when a pipeline is stored for the environment (a repository
+`Jenkinsfile` alone does not count). With the compose settings it tells the UI whether an
+environment can deploy by itself: the Projects page offers "turn on automatic deploy for all
+configured environments" only for environments with `compose_project`, `compose_files` and
+`has_pipeline`, and sends one `PATCH .../environments/{env}` per environment (each audited).
 
 `environments` always has exactly two entries, development first. `last_run` is the newest run
 (by `created_at`) of that environment, any status.
@@ -777,8 +786,9 @@ Record { "record_type", "name", "content", "proxied" }
 ```
 
 `blocked: true` (`dns.action: "conflict"`) means a record not created by Jendock exists at
-that name; apply is refused and nothing is touched. Cloudflare errors (no token secret, token
-rejected, no zone) come back as 404 (missing `CLOUDFLARE_API_TOKEN` secret of the environment),
+that name; apply is refused and nothing is touched. Cloudflare errors (no token, token
+rejected, no zone) come back as 404 (neither the platform token of Settings > Integrations nor
+a `CLOUDFLARE_API_TOKEN` secret of the environment exists),
 500 `configuration_error` (no server address configured) or 502 `upstream_error`.
 
 ### `POST .../domains/{id}/apply`
@@ -815,6 +825,113 @@ happens automatically 30 days before expiry.
 ### `GET /api/ingress/certificates`
 
 Scope `read`. Expiry monitoring: 200 `[{domain_id, hostname} + Certificate]`, soonest expiry first.
+
+## Integrations (exists)
+
+Settings > Integrations and the Domains page's readiness check. Every endpoint below except
+`GET /api/ingress/readiness` is for **browser sessions only** (a bearer token gets 403) and every
+mutation needs the CSRF header. Nothing here can return a credential: the Cloudflare token is
+write-only and lives encrypted in the worker's platform secret store (table `platform_secrets`,
+decrypted only by the worker); private deploy keys never leave the worker. Mutations are
+audited without values (`integration.credential_set`, `integration.credential_clear`,
+`integration.cloudflare_test`, `integration.ingress_settings_update` with the names of the changed
+fields, `deploy_key.create`).
+
+Ingress reads the Cloudflare token from the platform store first and falls back to the
+environment secret `CLOUDFLARE_API_TOKEN`. The ACME email, the server's public IPv4/IPv6 and the
+ACME challenge are stored platform settings (table `platform_settings`); when none is stored the
+`JENDOCK_INGRESS_*` environment value is the default. Whether ingress is *enabled*
+(`JENDOCK_INGRESS_ENABLED`) and where the host helper socket is stay environment settings; the API
+reports them and the reason when ingress cannot work.
+
+### `GET /api/integrations/cloudflare`
+
+200:
+
+```json
+{
+  "token_configured": true, "token_updated_at": "2026-10-14T09:00:00Z",
+  "settings": {"stored": V, "defaults": V, "effective": V},
+  "helper": {"enabled": true, "socket_path": "/run/jendock-ingress/host.sock",
+             "reachable": false, "reason": "the socket ... does not exist in the worker"} | null,
+  "ready": false,
+  "reasons": [{"code": "helper_unreachable", "message": "...", "blocking": true}]
+}
+V = {"acme_email": str|null, "public_ipv4": str|null, "public_ipv6": str|null,
+     "acme_challenge": "dns-01"|"http-01"|null}
+```
+
+`stored` is what an administrator saved (`null` = use the default), `defaults` is the environment
+value, `effective` is what the worker uses. `helper` is `null` when the worker did not answer.
+Reason codes: `worker_unavailable`, `ingress_disabled`, `helper_unreachable`, `no_token` (all
+blocking) and `no_acme_email` (advice). `ready` is true when no reason is blocking.
+
+### `PUT /api/integrations/cloudflare/token`
+
+Body `{token}` (1 to 512 characters, no whitespace; extra keys rejected; the value is never echoed,
+not even in a 422). The API hands it to the worker, which encrypts and stores it. 200 as
+`GET /api/integrations/cloudflare`.
+
+### `DELETE /api/integrations/cloudflare/token`
+
+Forgets the stored token (environment secrets keep working as the fallback). 200 as above.
+
+### `POST /api/integrations/cloudflare/test`
+
+The worker verifies the stored token with Cloudflare (`GET /user/tokens/verify`) and lists the
+active zones it can see. 200 `{ok, status: "active"|... |null, zones: [name...], message}`: a wrong
+or missing token is `ok: false` with a `message`, not an HTTP error. Zone **names only**.
+
+### `PUT /api/integrations/cloudflare/settings`
+
+Body: any of `acme_email`, `public_ipv4`, `public_ipv6`, `acme_challenge`. Only present keys
+change; `null` or `""` removes the stored value so the environment default applies again. 422 for an
+invalid email, address or challenge. 200 `{stored, defaults, effective}` (as `V` above).
+
+### `GET /api/integrations/github`
+
+200:
+
+```json
+{
+  "webhook": {"payload_url": "https://<origin>/api/github/webhook",
+              "secret_configured": true | false | null,
+              "counts_7d": {"queued": 14, "recorded": 5},
+              "recent": [{"delivery_id", "event", "repository", "outcome", "received_at"}]},
+  "deploy_keys": [{"slug", "name", "repository", "git_transport", "exists": true,
+                   "public_key": "ssh-ed25519 AAAA... jendock:acme/shop-api" | null}]
+}
+```
+
+`secret_configured` only says whether the worker has a non-empty webhook secret file (`null` when
+the worker did not answer); the value is never returned. `counts_7d` and `recent` come from the
+`webhook_deliveries` table (the newest 10). `public_key` is the public half only.
+
+### `POST /api/integrations/github/projects/{slug}/deploy-key`
+
+The worker creates the project's repository deploy key (ed25519, same logic as
+`python -m backend.cli deploy-key create`). 201 `{slug, public_key}`; 409 when a key already
+exists (rotation stays a CLI action); 404 unknown or archived project.
+
+### `GET /api/ingress/readiness?project=<slug>&environment=<env>`
+
+Scope `read`. Same `reasons` as the Cloudflare endpoint; with `project` and `environment` an
+environment's own `CLOUDFLARE_API_TOKEN` secret also counts as a token. 200
+`{ready, token_configured, reasons}`. The Domains page shows a Banner linking to Settings >
+Integrations while a blocking reason exists.
+
+## MCP tools of a scope selection (exists)
+
+### `GET /api/mcp/tools?scopes=read,run`
+
+Browser sessions only. The tools a token holding exactly those scopes would see (`admin` implies
+all), derived from the MCP tool registry so the settings page can never drift from the server.
+Unknown scope names give 422; no scopes give an empty list. 200:
+
+```json
+{"endpoint": "https://<origin>/mcp", "enabled": true,
+ "tools": [{"name": "list_projects", "description": "...", "scope": "read", "read_only": true}]}
+```
 
 ## Serving the UI (status: exists)
 

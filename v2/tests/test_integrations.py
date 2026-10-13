@@ -405,3 +405,13 @@ def test_mcp_never_offers_secret_values_or_a_terminal(world: World) -> None:
     names = {t["name"] for t in admin}
     assert "list_secret_names" in names
     assert not any("reveal" in n or "terminal" in n or "shell" in n or "exec" in n for n in names)
+
+
+def test_empty_ingress_variables_mean_not_configured() -> None:
+    """An unset compose variable arrives as an empty string and must not break the settings."""
+    settings = IngressSettings.model_validate(
+        {"public_ipv4": "", "public_ipv6": " ", "acme_email": ""}
+    )
+    assert settings.public_ipv4 is None
+    assert settings.public_ipv6 is None
+    assert settings.acme_email is None
