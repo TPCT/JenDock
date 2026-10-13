@@ -7,7 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from backend.api.deps import Container, require_scope
+from backend.api import authz
+from backend.api.deps import Container, Target, require
 from backend.api.events import RunEventStream
 from backend.api.principal import Principal
 from backend.api.schemas.runs import (
@@ -17,24 +18,30 @@ from backend.api.schemas.runs import (
     RunResponse,
     RunSummary,
 )
-from backend.domain.enums import TokenScope
+from backend.domain.access import Action
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-BackgroundReader = Annotated[Principal, Depends(require_scope(TokenScope.READ, background=True))]
-Runner = Annotated[Principal, Depends(require_scope(TokenScope.RUN))]
+Lister = Annotated[Principal, Depends(require(Action.RUN_LIST, Target.NONE))]
+Reader = Annotated[Principal, Depends(require(Action.RUN_READ, Target.RUN))]
+BackgroundReader = Annotated[
+    Principal, Depends(require(Action.RUN_READ, Target.RUN, background=True))
+]
+Canceller = Annotated[Principal, Depends(require(Action.RUN_CANCEL, Target.RUN))]
+Retrier = Annotated[Principal, Depends(require(Action.RUN_RETRY, Target.RUN))]
 MAX_PAGE = 100
 
 
 @router.get("")
 def list_runs(
-    _principal: Reader,
+    principal: Lister,
     container: Container,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> RunPage:
-    """Runs of every project and environment, newest first."""
-    return RunPage.from_page(container.project_queries().all_runs(limit=limit, offset=offset))
+    """Runs of every project and environment the caller may read, newest first."""
+    only = authz.run_predicate(principal)
+    page = container.project_queries().all_runs(limit=limit, offset=offset, only=only)
+    return RunPage.from_page(page)
 
 
 @router.get("/{run_id}")
@@ -68,7 +75,7 @@ def run_events(run_id: int, principal: BackgroundReader, container: Container) -
 
 
 @router.post("/{run_id}/cancel")
-def cancel_run(run_id: int, principal: Runner, container: Container) -> CancelResponse:
+def cancel_run(run_id: int, principal: Canceller, container: Container) -> CancelResponse:
     """Cancel a queued run now, or ask the worker to stop a running one."""
     outcome = container.run_lifecycle().request_cancel(run_id, principal.actor)
     return CancelResponse(
@@ -77,7 +84,7 @@ def cancel_run(run_id: int, principal: Runner, container: Container) -> CancelRe
 
 
 @router.post("/{run_id}/retry", status_code=201)
-def retry_run(run_id: int, principal: Runner, container: Container) -> RunSummary:
+def retry_run(run_id: int, principal: Retrier, container: Container) -> RunSummary:
     """Queue a new run of the same commit and branch (trigger ``manual``) of a finished run."""
     run = container.run_triggers().retry(run_id, principal.run_origin())
     detail = container.run_queries().detail(run.id)

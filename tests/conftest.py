@@ -17,6 +17,7 @@ from backend.repositories.database import (
 from backend.repositories.models import Base
 from backend.services.projects import ProjectService
 from backend.services.secret_cipher import SecretCipher
+from tests.access_world import world  # noqa: F401 - fixture shared by the access tests
 from tests.api_support import FakeClock, create_user, make_client, make_container, make_settings
 from tests.execution_support import Harness, make_harness
 

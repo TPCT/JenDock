@@ -13,8 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from backend.api.data_scope import require_data_scope
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, require
 from backend.api.principal import Principal
 from backend.api.schemas.databases import (
     ConnectionResponse,
@@ -31,14 +30,16 @@ from backend.api.schemas.databases import (
     parse_worker,
     rows_response,
 )
+from backend.domain.access import Action
 from backend.domain.database import ConnectionRef, TableRef
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.enums import EnvironmentName
 from backend.inspector.model import DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS
 from backend.services.database_connections import ConnectionChange, NewConnection
 
 router = APIRouter(prefix="/api/projects/{slug}/environments/{env}/databases", tags=["databases"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Admin = Annotated[Principal, Depends(require_scope(TokenScope.ADMIN))]
+Reader = Annotated[Principal, Depends(require(Action.DATABASE_READ))]
+Configurer = Annotated[Principal, Depends(require(Action.DATABASE_CONFIGURE))]
+DataReader = Annotated[Principal, Depends(require(Action.DATABASE_DATA))]
 MAX_OFFSET = 10_000_000
 
 
@@ -99,7 +100,7 @@ def list_connections(
 def create_connection(
     path: Annotated[EnvPath, Depends()],
     body: CreateConnectionRequest,
-    principal: Admin,
+    principal: Configurer,
     container: Container,
 ) -> ConnectionResponse:
     """Create a connection; the password is stored in the environment's secret store."""
@@ -130,7 +131,7 @@ def get_connection(
 def update_connection(
     path: Annotated[ConnectionPath, Depends()],
     body: UpdateConnectionRequest,
-    principal: Admin,
+    principal: Configurer,
     container: Container,
 ) -> ConnectionResponse:
     """Change a connection; a ``password`` rotates the stored secret."""
@@ -143,7 +144,7 @@ def update_connection(
 
 @router.delete("/{name}", status_code=204)
 def delete_connection(
-    path: Annotated[ConnectionPath, Depends()], principal: Admin, container: Container
+    path: Annotated[ConnectionPath, Depends()], principal: Configurer, container: Container
 ) -> Response:
     """Delete a connection and its password secret."""
     container.database_connections().delete(path.slug, path.env, path.name, principal.actor)
@@ -152,7 +153,7 @@ def delete_connection(
 
 @router.post("/{name}/test")
 def test_connection(
-    path: Annotated[ConnectionPath, Depends()], principal: Admin, container: Container
+    path: Annotated[ConnectionPath, Depends()], principal: Configurer, container: Container
 ) -> ConnectionTestResponse:
     """Connect through the environment network; the answer is 200 with ``ok`` true or false."""
     result = container.inspector_gateway().test(path.ref, principal.actor)
@@ -200,14 +201,13 @@ def get_table(
 @router.get("/{name}/schemas/{schema}/tables/{table}/rows")
 def get_rows(  # noqa: PLR0913, PLR0917 - path, scope, container and three paging parameters
     path: Annotated[TablePath, Depends()],
-    principal: Reader,
+    principal: DataReader,
     container: Container,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_ROWS)] = DEFAULT_PAGE_ROWS,
     offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
     cursor: Annotated[str | None, Query(max_length=2048)] = None,
 ) -> RowsResponse:
     """One page of rows ordered by primary key (``cursor`` keyset paging beats ``offset``)."""
-    require_data_scope(principal, path.env)
     page: dict[str, object] = {"limit": limit, "offset": offset}
     if cursor is not None:
         page["after"] = decode_cursor(cursor)
@@ -219,10 +219,9 @@ def get_rows(  # noqa: PLR0913, PLR0917 - path, scope, container and three pagin
 def run_query(
     path: Annotated[ConnectionPath, Depends()],
     body: QueryRequest,
-    principal: Reader,
+    principal: DataReader,
     container: Container,
 ) -> QueryResponse:
     """Run one read-only statement (SELECT, WITH, SHOW or EXPLAIN); audited, results are not."""
-    require_data_scope(principal, path.env)
     result = container.inspector_gateway().query(path.ref, body.statement, principal.actor)
     return parse_worker(QueryResponse, result)

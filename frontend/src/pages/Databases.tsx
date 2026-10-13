@@ -23,6 +23,7 @@ import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import { EnvToolbar } from "../components/EnvSwitch";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { RelativeTime } from "../components/Time";
+import { useCan } from "../lib/permissions";
 import { capitalize } from "../lib/format";
 import box from "../styles/box.module.css";
 
@@ -291,6 +292,8 @@ export function DatabasesPage() {
   const { slug = "", env: rawEnv } = useParams();
   const env = ENVIRONMENTS.find((name) => name === rawEnv) ?? null;
   const connections = useConnections(slug, env ?? "development");
+  const can = useCan();
+  const scope = { project: slug, env: env ?? "development" };
   const test = useTestConnection(slug, env ?? "development");
   const remove = useDeleteConnection(slug, env ?? "development");
   const [dialog, setDialog] = useState<{ existing: DbConnection | null } | null>(null);
@@ -321,22 +324,24 @@ export function DatabasesPage() {
         env={env}
         pathFor={(next) => databasesPath(slug, next)}
         actions={
-          <Button
-            variant="primary"
-            leadingVisual={PlusIcon}
-            onClick={() => {
-              setDialog({ existing: null });
-            }}
-          >
-            Add connection
-          </Button>
+          can("database.configure", scope) ? (
+            <Button
+              variant="primary"
+              leadingVisual={PlusIcon}
+              onClick={() => {
+                setDialog({ existing: null });
+              }}
+            >
+              Add connection
+            </Button>
+          ) : null
         }
       />
       {env === "production" ? (
         <Callout variant="warning" title="Production data">
-          Browsing rows and running queries here needs the admin permission and every access is
-          recorded in the audit log (the table and page, or the statement text; never the data
-          itself). {READ_ONLY_ADVICE}
+          Browsing rows and running queries here needs admin access or a maintainer role on
+          production, and every access is recorded in the audit log (the table and page, or the
+          statement text; never the data itself). {READ_ONLY_ADVICE}
         </Callout>
       ) : null}
       {connections.isPending ? <Loading label="Loading connections" /> : null}
@@ -388,49 +393,55 @@ export function DatabasesPage() {
                   >
                     Browse
                   </LinkButton>
-                  <LinkButton
-                    as={Link}
-                    to={`${databasesPath(slug, env)}/${item.name}/console`}
-                    size="small"
-                  >
-                    SQL console
-                  </LinkButton>
-                  <Button
-                    size="small"
-                    disabled={test.isPending}
-                    aria-label={`Test connection ${item.name}`}
-                    onClick={() => {
-                      setTested(null);
-                      test.mutate(item.name, {
-                        onSuccess: (result) => {
-                          setTested({ name: item.name, result });
-                        },
-                      });
-                    }}
-                  >
-                    {test.isPending && test.variables === item.name
-                      ? "Testing…"
-                      : "Test connection"}
-                  </Button>
-                  <Button
-                    size="small"
-                    aria-label={`Edit ${item.name}`}
-                    onClick={() => {
-                      setDialog({ existing: item });
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="danger"
-                    aria-label={`Delete ${item.name}`}
-                    onClick={() => {
-                      setDeleting(item);
-                    }}
-                  >
-                    Delete
-                  </Button>
+                  {can("database.data", scope) ? (
+                    <LinkButton
+                      as={Link}
+                      to={`${databasesPath(slug, env)}/${item.name}/console`}
+                      size="small"
+                    >
+                      SQL console
+                    </LinkButton>
+                  ) : null}
+                  {can("database.configure", scope) ? (
+                    <>
+                      <Button
+                        size="small"
+                        disabled={test.isPending}
+                        aria-label={`Test connection ${item.name}`}
+                        onClick={() => {
+                          setTested(null);
+                          test.mutate(item.name, {
+                            onSuccess: (result) => {
+                              setTested({ name: item.name, result });
+                            },
+                          });
+                        }}
+                      >
+                        {test.isPending && test.variables === item.name
+                          ? "Testing…"
+                          : "Test connection"}
+                      </Button>
+                      <Button
+                        size="small"
+                        aria-label={`Edit ${item.name}`}
+                        onClick={() => {
+                          setDialog({ existing: item });
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="danger"
+                        aria-label={`Delete ${item.name}`}
+                        onClick={() => {
+                          setDeleting(item);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
               </div>
               <p className="muted">

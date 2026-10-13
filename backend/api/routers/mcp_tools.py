@@ -11,9 +11,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from backend.api.deps import Container, require_session
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.integrations import McpToolResponse, McpToolsResponse
+from backend.domain.access import Action
 from backend.domain.enums import TokenScope
 from backend.domain.errors import ValidationError
 from backend.mcp.registry import ToolRegistry
@@ -21,7 +22,7 @@ from backend.mcp.server import MCP_PATH
 from backend.mcp.tools import default_registry
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
-SessionPrincipal = Annotated[Principal, Depends(require_session())]
+SessionPrincipal = Annotated[Principal, Depends(require(Action.MCP_TOOLS, Target.NONE))]
 
 
 @lru_cache

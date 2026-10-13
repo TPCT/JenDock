@@ -11,6 +11,7 @@ from backend.api.principal import Principal
 from backend.domain.actor import Actor
 from backend.domain.enums import EnvironmentName, TokenScope
 from backend.domain.errors import ValidationError
+from backend.services import policy
 from backend.services.run_triggers import RunOrigin
 
 JsonSchema = Mapping[str, object]
@@ -122,8 +123,19 @@ class ToolRegistry:
         return [tool for tool in self.all() if everything or tool.scope in held]
 
     def visible_to(self, principal: Principal) -> list[Tool]:
-        """The tools whose scope the principal holds."""
-        return [tool for tool in self.all() if principal.has_scope(tool.scope)]
+        """The tools the principal's token scopes and its user's role could ever allow."""
+        return [
+            tool
+            for tool in self.all()
+            if principal.has_scope(tool.scope) and _could_use(principal, tool.name)
+        ]
+
+
+def _could_use(principal: Principal, tool_name: str) -> bool:
+    from backend.mcp.access import action_of  # noqa: PLC0415 - access imports this module
+
+    action = action_of(tool_name)
+    return action is not None and policy.could_perform(principal, action)
 
 
 def registry_from_modules(modules: Iterable[ModuleType]) -> ToolRegistry:

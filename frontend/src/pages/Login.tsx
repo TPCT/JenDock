@@ -63,8 +63,12 @@ export function LoginPage() {
     login.mutate(
       { username, password },
       {
-        onSuccess: () => {
-          void navigate(safeNext(params.get("next")), { replace: true });
+        onSuccess: (session) => {
+          // After an administrator reset the one-time password must be replaced first.
+          const target = session.must_change_password
+            ? "/change-password"
+            : safeNext(params.get("next"));
+          void navigate(target, { replace: true });
         },
         onError: (error) => {
           if (!isApiError(error)) {

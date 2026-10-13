@@ -6,13 +6,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.containers.wire import HostTelemetryView
-from backend.domain.enums import TokenScope
+from backend.domain.access import Action
 
 router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
+Reader = Annotated[Principal, Depends(require(Action.TELEMETRY_READ, Target.NONE))]
 
 
 @router.get("/host")

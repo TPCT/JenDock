@@ -24,6 +24,7 @@ from backend.api.principal import Principal
 from backend.containers.base import ContainerAuditor
 from backend.containers.logs import LogCursor
 from backend.containers.wire import LogCursorView, LogLineView, LogPageView
+from backend.domain.access import GlobalRole
 from backend.domain.enums import ActorType, EnvironmentName
 from backend.domain.errors import NotFoundError
 from backend.repositories.database import UnitOfWork, create_session_factory
@@ -369,7 +370,9 @@ def test_log_stream_events_are_bounded_masked_json(wired: Wired) -> None:
     )
     gateway = _ScriptedGateway([page])
     container = dataclasses.replace(wired.container, containers=gateway)  # type: ignore[arg-type]
-    context = SessionContext(1, 1, "admin", "csrf", datetime(2030, 1, 1, tzinfo=UTC))
+    context = SessionContext(
+        1, 1, "admin", "csrf", datetime(2030, 1, 1, tzinfo=UTC), role=GlobalRole.OWNER
+    )
     stream = ContainerLogStream(
         container, Principal(session=context), "demo", EnvironmentName.DEVELOPMENT, "a" * 64, 10
     )

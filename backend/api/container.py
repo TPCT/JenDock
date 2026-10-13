@@ -36,6 +36,7 @@ from backend.repositories.database import (
     create_db_engine,
     create_session_factory,
 )
+from backend.services.access import AccessService
 from backend.services.auth import AuthService
 from backend.services.certificates import RenewalPolicy
 from backend.services.database_connections import DatabaseConnectionService
@@ -56,6 +57,7 @@ from backend.services.run_queries import RunQueryService
 from backend.services.run_triggers import RunTriggerService
 from backend.services.sessions import SessionService
 from backend.services.tokens import TokenService
+from backend.services.users import UserService
 from backend.services.webhooks import WebhookService
 
 
@@ -161,6 +163,14 @@ class AppContainer:
     def token_service(self) -> TokenService:
         """Return a token service with its own unit of work."""
         return TokenService(self.uow(), self.clock)
+
+    def access_service(self) -> AccessService:
+        """Return the access grant service with its own unit of work."""
+        return AccessService(self.uow(), self.clock)
+
+    def user_service(self) -> UserService:
+        """Return the user management service with its own unit of work."""
+        return UserService(self.uow(), self.hasher, self.clock)
 
     def auth_service(self) -> AuthService:
         """Return a login service with its own unit of work."""

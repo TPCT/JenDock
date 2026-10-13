@@ -20,6 +20,7 @@ from backend.adapters.worker_client import RepositoryFile
 from backend.api.app import create_app
 from backend.api.container import AppContainer
 from backend.api.principal import Principal
+from backend.domain.access import GlobalRole
 from backend.domain.actor import Actor
 from backend.domain.enums import EnvironmentName, PipelineSource, RunTrigger, TokenScope
 from backend.mcp.dispatcher import ToolDispatcher, audit_arguments
@@ -79,7 +80,9 @@ def _user(container: AppContainer) -> int:
 
 
 def _principal(*scopes: TokenScope, token_id: int = 7) -> Principal:
-    return Principal(token=AuthenticatedToken(token_id, "agent", frozenset(scopes)))
+    return Principal(
+        token=AuthenticatedToken(token_id, "agent", frozenset(scopes), 1, GlobalRole.OWNER)
+    )
 
 
 @pytest.fixture

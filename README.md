@@ -195,7 +195,7 @@ Dockerfiles. `make lock` regenerates it inside `python:3.13.9-slim`.
   `Cache-Control: no-store`, and HSTS in production. Swagger UI is disabled (its CDN assets
   conflict with the CSP); `/openapi.json` exists in development only.
 
-### Creating the first admin
+### Creating the first owner
 
 Passwords are read from a hidden prompt or, with `--password-stdin`, from stdin. There is
 deliberately no argv or environment option.
@@ -208,8 +208,55 @@ printf '%s\n' "$PW" | python -m backend.cli users reset-password admin --passwor
 docker compose run --rm -T api python -m backend.cli users create admin --password-stdin
 ```
 
-`reset-password` also ends all sessions of that user. Both commands are audited
+`create` makes an **owner** by default (`--role admin|member` for others; further users are
+normally created in the UI, see "Users, roles and access control"). `reset-password` sets the
+given password and also ends all sessions of that user. Both commands are audited
 (`user.create`, `user.reset_password`, actor `system:cli`).
+
+### Users, roles and access control
+
+- Global roles: `owner` (everything, including users and integrations), `admin` (everything
+  except creating, changing, disabling, deleting or resetting owners) and `member` (only what
+  grants give). **Upgrade note:** the migration `0007_access` turns every existing user into an
+  owner, so the production `admin` user keeps full control; no data is lost and nobody is locked
+  out. New users start as `member` unless an owner or admin picks another role.
+- Settings → Members (owners and admins): add a member (username, name, optional email, role),
+  edit, disable/enable, delete and reset the password. A new member and a reset user get a
+  generated **one-time password shown once**; the next sign-in is forced to the change-password
+  screen (every other endpoint answers 403 `password_change_required` until it is changed).
+  Nobody changes their own role or disables/deletes themselves, and the last active owner can
+  never be demoted, disabled or deleted. Disabling or deleting a user ends their sessions and voids
+  their API tokens.
+- Project Settings → Access (owners and admins): like GitHub's "Manage access". A grant is on
+  a project (all environments), one environment, or one container service, held by a member:
+  - `viewer`: read projects, runs and step logs, pipelines, deployments, the container inventory,
+    domains, database metadata, secret names.
+  - `developer`: viewer + start/cancel/retry runs, save the pipeline and browse rows/console
+    on **development**.
+  - `maintainer`: developer + the same on **production**, redeploy, container logs and actions,
+    environment variables and limits, files, terminal, domains.
+  - container grants carry `logs`, `terminal` and/or `actions` (start/stop/restart) for one
+    service and nothing else.
+  - Always owner/admin only: creating/editing projects and environments, database connection
+    configuration, secret values, container variable reveal, certificates overview, users and
+    access. Production rows and the SQL console stay owner/admin-only unless the member holds a
+    `maintainer` grant on that production environment.
+- **One policy decides everything**: `backend/services/policy.py` (`authorize(principal, action,
+  resource)`, rules in `backend/domain/access.py`). Every router names its action through
+  `Depends(require(Action, Target))` (`backend/api/deps.py`) and every MCP tool is mapped to an
+  action in `backend/mcp/access.py` (a test fails when a tool has no mapping). Lists (projects,
+  runs, containers, MCP tools) only contain what the caller may see; a member asking for a project
+  they cannot see gets 404, not 403. Run events, container log follow and terminals re-check the
+  caller at every heartbeat, so revoking a grant or disabling a user ends them.
+- **Tokens never exceed their user**: a request authenticated by a token is allowed only when the
+  token's scopes allow it *and* its owner may do it (role and grants are read at every request).
+  Managing users, access and tokens is browser-session only.
+- `GET /api/auth/session` returns the role and an effective-permission summary the UI uses to
+  hide or disable what the user cannot do (the API stays the authority); see
+  `docs/api-contract.md` ("Access control").
+- Audited: `user.create`, `user.update` (profile, role, enable/disable), `user.delete`,
+  `user.password_reset` (admin reset, never the password), `user.password_change`,
+  `access.grant_add`, `access.grant_update`, `access.grant_remove`.
 
 ### API tokens (agents / MCP)
 
@@ -221,6 +268,9 @@ docker compose run --rm -T api python -m backend.cli users create admin --passwo
 - Scopes: `read`, `run`, `deploy`, `containers`, `terminal`, `pipelines`, `admin` (`admin`
   implies every other scope except token management, which is session-only). Secrets: list needs
   `read`; set, delete and reveal need `admin`. Sessions hold all scopes.
+- A token acts as its owner: the effective permission is the **intersection** of its scopes and
+  the owner's role and grants (see "Users, roles and access control"); tokens of a disabled or
+  deleted user stop working. A user lists and revokes only their own tokens.
 - Revoked or expired tokens are rejected; `last_used_at` is updated at most once per minute;
   token actions are audited with actor type `token`. Runs can record `triggered_by_token_id`.
 
@@ -627,9 +677,13 @@ removes the route.
   agents normally send none. The SDK also checks the `Host` header against the public origin's host
   plus `JENDOCK_MCP_ALLOWED_HOSTS` (comma separated; set it when a reverse proxy changes the
   Host header, e.g. `127.0.0.1:8000`).
-- `tools/list` shows only the tools whose scope the token holds, and `tools/call` re-checks the
-  scope (an unknown tool and a missing scope give the same `forbidden` answer). `admin` implies
-  every scope.
+- `tools/list` shows only the tools whose scope the token holds and whose action its owner could
+  ever be allowed, and `tools/call` re-checks the scope (an unknown tool and a missing scope give
+  the same `forbidden` answer). `admin` implies every scope. Before a handler runs the dispatcher
+  asks the same policy as REST (`backend/mcp/access.py` maps every tool to an action and to what
+  its arguments point at): a token of a member can only use tools on projects, environments and
+  containers granted to that member, `list_projects`, `list_runs` and `list_containers` only
+  return what they may see, and refusals are audited as `denied`.
 
 ### Tools
 

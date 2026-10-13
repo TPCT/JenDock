@@ -14,7 +14,8 @@ from backend.api.container import AppContainer
 from backend.api.errors import describe_domain_error, diagnostic_body
 from backend.api.principal import Principal
 from backend.domain.audit import AuditTarget
-from backend.domain.errors import DomainError
+from backend.domain.errors import DomainError, NotFoundError, PermissionDeniedError
+from backend.mcp.access import authorize_tool
 from backend.mcp.registry import Args, Tool, ToolContext, ToolRegistry
 from backend.services.audit import AuditService
 
@@ -28,7 +29,7 @@ class Outcome(StrEnum):
     """How a call ended (recorded in the audit event)."""
 
     OK = "ok"
-    DENIED = "denied"  # unknown tool, or the token lacks the scope
+    DENIED = "denied"  # unknown tool, or the token or its user lacks the scope or permission
     INVALID = "invalid"  # arguments do not match the tool's schema
     ERROR = "error"  # the platform refused or failed (not found, conflict, validation...)
 
@@ -100,7 +101,7 @@ class ToolDispatcher:
         self._audit(principal, name, tool, values, outcome)
         return result
 
-    def _execute(
+    def _execute(  # noqa: PLR0911 - one early return per refusal
         self, principal: Principal, tool: Tool | None, values: Mapping[str, object]
     ) -> tuple[Outcome, types.CallToolResult]:
         if tool is None or not principal.has_scope(tool.scope):
@@ -115,7 +116,14 @@ class ToolDispatcher:
             message = f"invalid input at {where}: {errors[0].validator} constraint not met"
             return Outcome.INVALID, _error_result("invalid_input", message)
         try:
-            payload = tool.handler(ToolContext(self._container, principal), Args(values))
+            args = Args(values)
+            authorize_tool(self._container, principal, tool.name, args)
+        except (PermissionDeniedError, NotFoundError) as error:
+            return Outcome.DENIED, _domain_failure(error)
+        except DomainError as error:
+            return Outcome.ERROR, _domain_failure(error)
+        try:
+            payload = tool.handler(ToolContext(self._container, principal), args)
         except DomainError as error:
             return Outcome.ERROR, _domain_failure(error)
         except Exception:

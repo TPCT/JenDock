@@ -16,6 +16,7 @@ import { StageView } from "../components/StageView";
 import { StatusBadge, StatusIcon } from "../components/Status";
 import { Duration, RelativeTime } from "../components/Time";
 import { STATUS_LABEL, capitalize, isCancellable, isTerminal } from "../lib/format";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 import styles from "./RunDetail.module.css";
 
@@ -29,7 +30,9 @@ const TRIGGER_TEXT = {
 function CancelControl({ run }: { run: RunDetail }) {
   const [confirming, setConfirming] = useState(false);
   const cancel = useCancelRun(run.id);
+  const can = useCan();
   if (!isCancellable(run.status)) return null;
+  if (!can("run.cancel", { project: run.project, env: run.environment })) return null;
   if (run.cancel_requested_at !== null) {
     return (
       <Button leadingVisual={StopIcon} disabled>
@@ -170,6 +173,7 @@ export function RunDetailPage() {
   const run = query.data;
   const project = useProject(run?.project ?? "");
   const rerun = useRetryRun(runId);
+  const can = useCan();
   const projectName = project.data?.name ?? run?.project ?? "Project";
   const { store, connection, reconnect } = useRunStream(runId, run?.status);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
@@ -275,7 +279,7 @@ export function RunDetailPage() {
         }
         actions={
           <div className={box.cluster}>
-            {finished ? (
+            {finished && can("run.retry", { project: data.project, env: data.environment }) ? (
               <Button
                 leadingVisual={SyncIcon}
                 disabled={rerun.isPending}

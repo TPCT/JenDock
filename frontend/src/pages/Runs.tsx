@@ -11,6 +11,7 @@ import { PageHead } from "../components/PageHead";
 import { RunList } from "../components/RunList";
 import { StartRunDialog } from "../components/StartRunDialog";
 import { capitalize } from "../lib/format";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 
 function Pager({ page, onChange }: { page: Page<RunSummary>; onChange: (offset: number) => void }) {
@@ -55,6 +56,7 @@ export function EnvironmentRunsPage() {
   const [params, setParams] = useSearchParams();
   const [offset, setOffset] = useState(0);
   const project = useProject(slug);
+  const can = useCan();
   const runs = useEnvironmentRuns(slug, env, offset);
   const environment = project.data?.environments.find((item) => item.name === env);
   const dialogOpen = params.get("run") === "new" && environment !== undefined;
@@ -96,16 +98,18 @@ export function EnvironmentRunsPage() {
           )
         }
         actions={
-          <Button
-            variant="primary"
-            leadingVisual={PlayIcon}
-            disabled={!environment}
-            onClick={() => {
-              setParams({ run: "new" });
-            }}
-          >
-            Run pipeline
-          </Button>
+          can("run.create", { project: slug, env }) ? (
+            <Button
+              variant="primary"
+              leadingVisual={PlayIcon}
+              disabled={!environment}
+              onClick={() => {
+                setParams({ run: "new" });
+              }}
+            >
+              Run pipeline
+            </Button>
+          ) : null
         }
       />
       {runs.isPending ? <Loading label="Loading runs" /> : null}
@@ -120,8 +124,10 @@ export function EnvironmentRunsPage() {
         <EmptyState icon={<HistoryIcon size={32} aria-hidden="true" />} title="No runs yet">
           A run builds and deploys one commit.{" "}
           {environment?.auto_deploy
-            ? `Push to ${environment.branch} on GitHub to start the first one, or press Run pipeline.`
-            : "Press Run pipeline to start the first one."}
+            ? `Push to ${environment.branch} on GitHub to start the first one${can("run.create", { project: slug, env }) ? ", or press Run pipeline" : ""}.`
+            : can("run.create", { project: slug, env })
+              ? "Press Run pipeline to start the first one."
+              : "Nothing has run here yet."}
         </EmptyState>
       ) : null}
       {runs.data && runs.data.total > 0 ? (

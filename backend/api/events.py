@@ -6,9 +6,12 @@ import json
 import time
 from collections.abc import Iterator
 
+from backend.api import authz
 from backend.api.container import AppContainer
 from backend.api.principal import Principal
 from backend.api.schemas.runs import RunResponse
+from backend.domain.access import Action, Resource
+from backend.domain.enums import EnvironmentName
 from backend.execution.logs import LogStore
 from backend.services.run_queries import RunDetail, RunQueryService
 
@@ -32,6 +35,8 @@ class RunEventStream:
         self._container = container
         self._principal = principal
         self._run_id = run_id
+        detail = container.run_queries().locate(run_id)
+        self._project, self._environment = detail[0], detail[1].value
         self._queries: RunQueryService = container.run_queries()
         self._logs: LogStore = container.log_store()
         self._offsets: dict[int, int] = {}
@@ -79,7 +84,6 @@ class RunEventStream:
                 return
 
     def _session_alive(self) -> bool:
-        token = self._principal.session_token
-        if token is None:
-            return True
-        return self._container.session_service().resolve(token, touch=False) is not None
+        """Still authenticated and still allowed to read the run (grants can be revoked)."""
+        resource = Resource.of_environment(self._project, EnvironmentName(self._environment))
+        return authz.still_allowed(self._container, self._principal, Action.RUN_READ, resource)

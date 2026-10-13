@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from backend.config import SESSION_ABSOLUTE_TIMEOUT, SESSION_IDLE_TIMEOUT
+from backend.domain.access import GlobalRole
 from backend.domain.clock import Clock, utcnow
 from backend.repositories.database import UnitOfWork
 from backend.repositories.models import Session
@@ -56,6 +57,10 @@ class SessionContext:
     username: str
     csrf_token: str
     expires_at: datetime
+    role: GlobalRole
+    must_change_password: bool = False
+    display_name: str = ""
+    email: str | None = None
 
 
 class SessionService:
@@ -100,7 +105,15 @@ class SessionService:
             if touch:
                 row.last_seen_at = now
             return SessionContext(
-                row.id, user.id, user.username, derive_csrf_token(token), row.expires_at
+                row.id,
+                user.id,
+                user.username,
+                derive_csrf_token(token),
+                row.expires_at,
+                role=user.role,
+                must_change_password=user.must_change_password,
+                display_name=user.display_name,
+                email=user.email,
             )
 
     def delete(self, token: str) -> None:

@@ -16,6 +16,7 @@ import { useProject } from "../api/hooks";
 import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import { EmptyState, ErrorCallout, Loading } from "../components/Feedback";
 import { PageHead } from "../components/PageHead";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 
 type TabId = "overview" | "runs" | "pipeline" | "containers" | "database" | "domains" | "settings";
@@ -55,6 +56,7 @@ export function ProjectLayout() {
   const { slug = "" } = useParams();
   const { pathname } = useLocation();
   const project = useProject(slug);
+  const can = useCan();
 
   if (project.isPending) return <Loading label="Loading project" />;
   if (project.isError) {
@@ -117,7 +119,9 @@ export function ProjectLayout() {
         description={<span className="ltr">{project.data.repository}</span>}
         navigation={
           <UnderlineNav aria-label="Project">
-            {PROJECT_TABS.map((item) => (
+            {PROJECT_TABS.filter(
+              (item) => item.id !== "settings" || can("project.update", { project: slug }),
+            ).map((item) => (
               <UnderlineNav.Item
                 key={item.id}
                 as={Link}

@@ -66,3 +66,29 @@ def test_run_execution_columns_exist_and_downgrade_removes_them(migrated_url: st
     columns = {column["name"] for column in inspect(engine).get_columns("runs")}
     engine.dispose()
     assert not {"cancel_requested_at", "message"} & columns
+
+
+def test_existing_users_become_owners_and_access_grants_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The production upgrade: the one ``admin`` operator keeps full control as owner."""
+    url = f"sqlite:///{tmp_path / 'old' / 'old.db'}"
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", url)
+    upgrade_to_head()
+    command.downgrade(build_config(), "0004_task10")
+    engine = create_db_engine(url)
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO users (username, password_hash, is_active, created_at) "
+            "VALUES ('admin', 'x', 1, '2026-10-13 12:00:00')"
+        )
+    engine.dispose()
+    upgrade_to_head()
+    engine = create_db_engine(url)
+    with engine.connect() as connection:
+        row = connection.exec_driver_sql(
+            "SELECT role, display_name, email, must_change_password FROM users"
+        ).one()
+    assert tuple(row) == ("owner", "", None, 0)
+    assert "access_grants" in inspect(engine).get_table_names()
+    engine.dispose()

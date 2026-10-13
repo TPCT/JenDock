@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.domain.enums import EnvironmentName
 from backend.domain.errors import NotFoundError
 from backend.repositories.database import UnitOfWork
 from backend.repositories.models import Run, StageRun, StepRun
@@ -48,6 +49,16 @@ class RunQueryService:
                 for stage in self._uow.runs.list_stages(run_id)
             )
             return RunDetail(run, project.slug, environment.name.value, stages)
+
+    def locate(self, run_id: int) -> tuple[str, EnvironmentName]:
+        """The project slug and environment of a run (cheap; for authorization)."""
+        with self._uow:
+            run = self._uow.runs.get(run_id)
+            environment = self._uow.environments.get(run.environment_id) if run else None
+            project = self._uow.projects.get(environment.project_id) if environment else None
+            if environment is None or project is None:
+                raise NotFoundError(f"run not found: {run_id}")
+            return project.slug, environment.name
 
     def require_step(self, run_id: int, step_id: int) -> StepRun:
         """Return the step if it belongs to the run; otherwise ``NotFoundError``."""

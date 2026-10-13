@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from backend.domain.access import GlobalRole
 from backend.domain.actor import Actor
 from backend.domain.audit import AuditEntry, AuditTarget
 from backend.domain.clock import Clock, utcnow
@@ -14,7 +15,7 @@ from backend.domain.enums import TokenScope
 from backend.domain.errors import NotFoundError, ValidationError
 from backend.domain.values import validate_display_name
 from backend.repositories.database import UnitOfWork
-from backend.repositories.models import ApiToken
+from backend.repositories.models import ApiToken, User
 from backend.services.audit import add_audit_event
 from backend.services.sessions import hash_token
 
@@ -54,6 +55,8 @@ class AuthenticatedToken:
     id: int
     name: str
     scopes: frozenset[TokenScope]
+    owner_id: int
+    owner_role: GlobalRole
 
 
 class TokenService:
@@ -99,16 +102,20 @@ class TokenService:
             self._audit(actor, "token.create", row, details)
             return CreatedToken(_info(row), value)
 
-    def list(self) -> Sequence[TokenInfo]:
-        """Return all tokens (never their values), newest first."""
+    def list(self, owner_id: int | None = None) -> Sequence[TokenInfo]:
+        """Return tokens (never their values), newest first; only ``owner_id``'s when given."""
         with self._uow:
-            return [_info(row) for row in self._uow.tokens.list()]
+            rows = self._uow.tokens.list()
+            return [_info(row) for row in rows if owner_id in (None, row.created_by)]
 
-    def revoke(self, token_id: int, actor: Actor) -> TokenInfo:
-        """Revoke a token; revoking twice keeps the first revocation time."""
+    def revoke(self, token_id: int, actor: Actor, owner_id: int | None = None) -> TokenInfo:
+        """Revoke a token; revoking twice keeps the first revocation time.
+
+        With ``owner_id`` only that user's tokens are found (other tokens do not exist for them).
+        """
         with self._uow:
             row = self._uow.tokens.get(token_id)
-            if row is None:
+            if row is None or owner_id not in (None, row.created_by):
                 raise NotFoundError(f"token not found: {token_id}")
             if row.revoked_at is None:
                 row.revoked_at = self._clock()
@@ -129,9 +136,12 @@ class TokenService:
                 return None
             if row.expires_at is not None and row.expires_at <= now:
                 return None
+            owner = self._uow.users.get(row.created_by)
+            if owner is None or not owner.is_active:
+                return None  # a token never outlives its owner's access
             if row.last_used_at is None or now - row.last_used_at >= LAST_USED_RESOLUTION:
                 row.last_used_at = now
-            return AuthenticatedToken(row.id, row.name, frozenset(_scopes(row)))
+            return _authenticated(row, owner)
 
     def current(self, token_id: int) -> AuthenticatedToken | None:
         """Re-check a token by id (no secret needed): ``None`` once revoked or expired."""
@@ -142,11 +152,18 @@ class TokenService:
                 return None
             if row.expires_at is not None and row.expires_at <= now:
                 return None
-            return AuthenticatedToken(row.id, row.name, frozenset(_scopes(row)))
+            owner = self._uow.users.get(row.created_by)
+            if owner is None or not owner.is_active:
+                return None
+            return _authenticated(row, owner)
 
     def _audit(self, actor: Actor, action: str, row: ApiToken, details: dict[str, object]) -> None:
         target = AuditTarget("api_token", str(row.id))
         add_audit_event(self._uow, AuditEntry(actor, action, target, details), self._clock)
+
+
+def _authenticated(row: ApiToken, owner: User) -> AuthenticatedToken:
+    return AuthenticatedToken(row.id, row.name, frozenset(_scopes(row)), owner.id, owner.role)
 
 
 def _scopes(row: ApiToken) -> list[TokenScope]:

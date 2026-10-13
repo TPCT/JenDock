@@ -28,22 +28,163 @@ interrupted | skipped`. Finished = not queued and not running.
 ### `POST /api/auth/login` (exists)
 
 Body `{username: string (1-64), password: string (1-1024)}`, extra keys rejected.
-200 `{user: {id, username}, csrf_token, expires_at}` + session cookie.
+200 `Session` (below) + session cookie. A disabled user cannot sign in.
 401 `unauthenticated` (same body for unknown user and wrong password), 422 with `fields`,
 429 `rate_limited` with `Retry-After`.
 
 ### `GET /api/auth/session` (exists)
 
-200 `{user: {id, username}, csrf_token, expires_at}`; 401 when there is no valid session.
-The UI calls it at start and keeps `csrf_token` in memory.
+200 `Session`; 401 when there is no valid session. The UI calls it at start and keeps
+`csrf_token` in memory.
+
+```json
+{
+  "user": {"id": 1, "username": "admin", "display_name": "", "email": null, "role": "owner"},
+  "csrf_token": "...", "expires_at": "2026-10-14T00:00:00Z",
+  "must_change_password": false,
+  "permissions": {
+    "role": "owner", "all": true,
+    "global": ["access.manage", "project.create", "user.manage", "..."],
+    "projects": {}
+  }
+}
+```
+
+`permissions` is the effective-permission summary the UI uses to hide or disable what the
+user cannot do; the API stays the authority. Owners and admins have `all: true` (every action on
+every resource; `global` lists the platform-wide actions). For a member `projects` lists what the
+grants give, per project and environment:
+
+```json
+"projects": {"shop-api": {"environments": {
+  "development": {"role": "developer", "actions": ["run.create", "run.read", "..."], "services": {}},
+  "production":  {"role": null, "actions": ["project.read"],
+                  "services": {"web": ["container.logs", "container.read", "project.read"]}}
+}}}
+```
+
+`role` is the best project/environment role in that environment (`null` when there is only a
+container grant); `actions` are the actions allowed on the environment as a whole; `services`
+lists the actions allowed on one granted compose service. An environment the member cannot
+see is absent. Action names are the policy actions in "Access control" below.
+
+`must_change_password` is true after an administrator reset (or for a user created with a
+generated password): every endpoint except `GET /api/auth/session`, `POST /api/auth/logout` and
+`POST /api/auth/change-password` answers 403 with code `password_change_required` until the
+password is changed. The UI shows the change-password screen.
+
+### `POST /api/auth/change-password` (exists)
+
+Own password only. Body `{current_password, new_password (12-1024 characters)}`, extra keys
+rejected. 200 `Session` (refreshed). 422 when the current password is wrong, the new one is
+too short or equals the current one. Wrong current passwords count against a per-user and
+per-IP limit (same window and limits as login): 429 `rate_limited` with `Retry-After`. Clears `must_change_password`, ends the user's other
+sessions, audited as `user.password_change` (never with a password).
 
 ### `POST /api/auth/logout` (exists)
 
 204, clears the cookie.
 
+## Access control (members, roles and grants)
+
+### Roles
+
+- Global role of every user: `owner` (everything, including users and integrations), `admin`
+  (everything except creating, changing, disabling, deleting or resetting owners), `member` (only
+  what grants give). Existing users became `owner` when this was introduced.
+- A grant gives a member a role on a project (all environments), on one environment, or
+  permissions on one compose service of an environment. Roles are cumulative:
+  - `viewer`: read projects, runs and step logs, pipelines, deployments, the container inventory
+    (state, stats, variable names), domains, database metadata and secret names.
+  - `developer`: viewer + start, cancel and retry runs and save the pipeline on **development**,
+    browse rows and run the read-only console of development databases.
+  - `maintainer`: developer + the same on **production**, redeploy, container logs, start/stop/
+    restart, edit container variables and limits, container file browser, terminal, domains.
+  - Container grants carry any of `logs`, `terminal`, `actions` (start/stop/restart) for one
+    service; they also make that container (and its project and environment) visible, nothing else.
+- Always owner/admin only: create and edit projects and environments, database connection
+  configuration, secret values (set, delete, reveal), container variable reveal, certificate
+  overview, users and access management. A member never gets production rows or the console
+  without a `maintainer` grant on that production environment.
+- Tokens: the permission of a request is the **intersection** of the token scopes and what the
+  token's owner may do (role and grants, evaluated at every request). A token never exceeds its
+  user; a disabled or deleted user's tokens stop working. Managing users, access and tokens is
+  browser-session only.
+
+### Enforcement
+
+`backend/services/policy.py` (`authorize(principal, action, resource)`) is the only place that
+decides. Every router uses `Depends(require(Action, Target))` and every MCP tool is mapped to an
+action in `backend/mcp/access.py`; lists (projects, runs, containers, search, SSE streams)
+are filtered to what the principal may see. A member that cannot see a project gets 404
+`not_found` (existence is not revealed); one that can see it but lacks the permission gets 403
+`forbidden`. Token scope failures answer 403 `missing scope: <scope>`. Running streams (run
+events, container log follow, terminals) re-check the principal at every heartbeat and end when a
+grant is revoked or the user is disabled.
+
+Actions: `project.list`, `project.read`, `project.create`, `project.update`,
+`environment.update`, `run.list`, `run.read`, `run.create`, `run.cancel`, `run.retry`,
+`pipeline.read`, `pipeline.write`, `pipeline.tools`, `deployment.read`, `deployment.redeploy`,
+`container.read`, `container.logs`, `container.terminal`, `container.action`,
+`container.env_update`, `container.limits`, `container.files`, `container.env_reveal`,
+`database.read`, `database.data`, `database.configure`, `domain.read`, `domain.manage`,
+`certificate.list`, `secret.list`, `secret.write`, `secret.reveal`, `telemetry.read`,
+`token.manage`, `user.manage`, `access.manage`.
+
+### Users: `/api/users` (owners and admins, session only)
+
+```json
+UserSummary: {"id": 3, "username": "maria", "display_name": "Maria Lopez", "email": null,
+              "role": "member", "is_active": true, "must_change_password": false,
+              "created_at": "2026-10-01T10:00:00Z"}
+```
+
+- `GET /api/users`: `UserSummary[]` by username.
+- `POST /api/users`: body `{username (3-64, lowercase letters, digits . _ -), display_name?,
+  email?, role: "owner"|"admin"|"member"}` (default `member`). 201
+  `{user: UserSummary, one_time_password}`: a generated password shown **only in this
+  response**; `must_change_password` is true. 409 duplicate username, 422 invalid values, 403
+  when an admin asks for `owner`. Audited `user.create`.
+- `GET /api/users/{id}`: `UserSummary`; 404.
+- `PATCH /api/users/{id}`: body with any of `display_name`, `email` (`""` clears it), `role`,
+  `is_active`. 200 `UserSummary`. Disabling ends the user's sessions and voids their tokens.
+  409 for changing your own role, disabling yourself, or demoting/disabling the last active owner;
+  403 for an admin touching an owner or promoting to owner. Audited `user.update`.
+- `DELETE /api/users/{id}`: 204; removes sessions, tokens and grants (runs keep no reference).
+  409 for yourself or the last owner, 403 for an admin deleting an owner. Audited `user.delete`.
+- `POST /api/users/{id}/reset-password`: 200 `{user, one_time_password}`; the old password
+  stops working, the user's sessions end and the next sign-in is forced through
+  `change-password`. Audited `user.password_reset` (without the password).
+- `GET /api/users/{id}/access`: `Grant[]` of the user across projects.
+
+### Project access: `/api/projects/{slug}/access` (owners and admins, session only)
+
+```json
+Grant: {"id": 7, "user_id": 3, "username": "maria", "display_name": "Maria Lopez",
+        "project": "shop-api", "environment": "development" | null, "service": "web" | null,
+        "role": "viewer" | "developer" | "maintainer" | null,
+        "permissions": ["logs", "terminal", "actions"], "created_at": "..."}
+```
+
+- `GET`: `{privileged: UserSummary[], grants: Grant[]}`: owners and admins (full access without a
+  grant) and the members' grants.
+- `PUT`: body `{user_id, environment?, service?, role?, permissions?}`. No `environment`: the
+  project grant (`role` required). `environment` only: that environment (`role` required).
+  `environment` + `service`: container permissions (`permissions` non-empty, no `role`).
+  A second `PUT` for the same user and target replaces the first (the role changes).
+  200 `Grant`; 422 for an invalid shape or an owner/admin target; 404 unknown user/project.
+  Audited `access.grant_add` / `access.grant_update`.
+- `DELETE /{grant_id}`: 204; 404. Audited `access.grant_remove`.
+
+Audit details of grant events: `{project, user, user_id, environment, service, role,
+permissions}`, target `project/<slug>`, actor the administrator.
+
 ## Projects (implemented, Task 6)
 
-Reads need scope `read` (sessions always have it). Archived projects are omitted. Everything in
+Reads need scope `read` (sessions always have it) and, for members, a grant: the lists only
+contain what the caller may see (`GET /api/projects` also hides environments, and the last run of
+those whose runs they cannot read; `GET /api/runs` only runs of readable environments). Archived
+projects are omitted. Everything in
 this and the Runs section below is implemented; where the implementation differs from the original
 proposal the entry says so ("Deviation").
 
@@ -560,7 +701,7 @@ environment; `name` is `[a-z0-9][a-z0-9-]{0,47}`.
 Table names containing `/` cannot be addressed (path segment); all other names, including hostile ones,
 are quoted by the driver / catalog-verified and never spliced from the URL.
 
-### Rows (`read` dev, `admin` production)
+### Rows (token scope `read` dev, `admin` production; member: `developer` dev, `maintainer` production)
 
 `GET .../{name}/schemas/{schema}/tables/{table}/rows?limit=100&offset=0&cursor=`
 
@@ -580,7 +721,7 @@ Cells are JSON scalars (integers beyond 2^53 and all decimals/dates/uuids/json/a
 A page is cut (and `size_limited` is true) if it would exceed ~640 KiB; continue with the next cursor.
 Reads of production rows are audited (`database.rows.read`: table and page, never data).
 
-### Console (`read` dev, `admin` production)
+### Console (token scope `read` dev, `admin` production; member: `developer` dev, `maintainer` production)
 
 `POST .../{name}/query` body `{"statement": "SELECT ..."}` (max 20,000 chars) ->
 
@@ -671,6 +812,9 @@ outcome applied|restored|restore_failed), `container.env.reveal`, `container.lim
 `container.file.read` (path), `terminal.open`, `terminal.close`.
 
 ## Terminal (exists, Task 9)
+
+Needs `container.terminal` on the container (a `maintainer` role, or a container grant with
+`terminal` for exactly that service; see "Access control").
 
 1. `POST /api/projects/{slug}/environments/{env}/containers/{id}/terminal/tickets` (scope
    `terminal`; CSRF for sessions) body `{terminal_id?}` -> `{ticket, expires_at, websocket_path:

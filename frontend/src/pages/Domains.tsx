@@ -53,6 +53,7 @@ import {
 import { EnvToolbar } from "../components/EnvSwitch";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { RelativeTime } from "../components/Time";
+import { useCan } from "../lib/permissions";
 import { capitalize, formatDateTime } from "../lib/format";
 import box from "../styles/box.module.css";
 import styles from "./Domains.module.css";
@@ -463,6 +464,7 @@ function DomainRow({
 }) {
   const check = useCheckDomain(slug, env);
   const issue = useIssueCertificate(slug, env);
+  const manage = useCan()("domain.manage", { project: slug, env });
   const status = STATUS_TEXT[domain.status];
   const canCert = domain.status === "active" && domain.tls_enabled;
   const results = domain.check?.results;
@@ -479,82 +481,86 @@ function DomainRow({
           ) : null}
         </div>
         <div className={box.cluster}>
-          <Button
-            size="small"
-            variant={domain.status === "active" ? "default" : "primary"}
-            onClick={() => {
-              onAction({ kind: "plan", id: domain.id, operation: "apply" });
-            }}
-            aria-label={`Preview and apply ${domain.hostname}`}
-          >
-            {domain.status === "active" ? "Preview" : "Preview and apply"}
-          </Button>
-          <Button
-            size="small"
-            disabled={check.isPending || domain.status === "draft"}
-            aria-label={`Run checks for ${domain.hostname}`}
-            onClick={() => {
-              onNotice(null);
-              check.mutate(domain.id);
-            }}
-          >
-            {check.isPending ? "Checking…" : "Run checks"}
-          </Button>
-          <ActionMenu>
-            <ActionMenu.Anchor>
-              <IconButton
+          {manage ? (
+            <>
+              <Button
                 size="small"
-                icon={KebabHorizontalIcon}
-                aria-label={`More actions for ${domain.hostname}`}
-              />
-            </ActionMenu.Anchor>
-            <ActionMenu.Overlay width="medium">
-              <ActionList>
-                <ActionList.Item
-                  disabled={!canCert || issue.isPending}
-                  onSelect={() => {
-                    onNotice(null);
-                    issue.mutate(domain.id, {
-                      onSuccess: () => {
-                        onNotice({
-                          variant: "success",
-                          text: `Certificate for ${domain.hostname} issued.`,
+                variant={domain.status === "active" ? "default" : "primary"}
+                onClick={() => {
+                  onAction({ kind: "plan", id: domain.id, operation: "apply" });
+                }}
+                aria-label={`Preview and apply ${domain.hostname}`}
+              >
+                {domain.status === "active" ? "Preview" : "Preview and apply"}
+              </Button>
+              <Button
+                size="small"
+                disabled={check.isPending || domain.status === "draft"}
+                aria-label={`Run checks for ${domain.hostname}`}
+                onClick={() => {
+                  onNotice(null);
+                  check.mutate(domain.id);
+                }}
+              >
+                {check.isPending ? "Checking…" : "Run checks"}
+              </Button>
+              <ActionMenu>
+                <ActionMenu.Anchor>
+                  <IconButton
+                    size="small"
+                    icon={KebabHorizontalIcon}
+                    aria-label={`More actions for ${domain.hostname}`}
+                  />
+                </ActionMenu.Anchor>
+                <ActionMenu.Overlay width="medium">
+                  <ActionList>
+                    <ActionList.Item
+                      disabled={!canCert || issue.isPending}
+                      onSelect={() => {
+                        onNotice(null);
+                        issue.mutate(domain.id, {
+                          onSuccess: () => {
+                            onNotice({
+                              variant: "success",
+                              text: `Certificate for ${domain.hostname} issued.`,
+                            });
+                          },
+                          onError: (error) => {
+                            onNotice({ variant: "danger", text: errorMessage(error) });
+                          },
                         });
-                      },
-                      onError: (error) => {
-                        onNotice({ variant: "danger", text: errorMessage(error) });
-                      },
-                    });
-                  }}
-                >
-                  Issue or renew certificate
-                  <ActionList.Description variant="block">
-                    {canCert
-                      ? "Requests a new certificate now."
-                      : "Needs an active domain with HTTPS."}
-                  </ActionList.Description>
-                </ActionList.Item>
-                <ActionList.Item
-                  variant="danger"
-                  disabled={domain.status === "draft"}
-                  onSelect={() => {
-                    onAction({ kind: "plan", id: domain.id, operation: "remove" });
-                  }}
-                >
-                  Remove from server…
-                </ActionList.Item>
-                <ActionList.Item
-                  variant="danger"
-                  disabled={domain.status !== "draft"}
-                  onSelect={() => {
-                    onAction({ kind: "delete", id: domain.id });
-                  }}
-                >
-                  Delete draft…
-                </ActionList.Item>
-              </ActionList>
-            </ActionMenu.Overlay>
-          </ActionMenu>
+                      }}
+                    >
+                      Issue or renew certificate
+                      <ActionList.Description variant="block">
+                        {canCert
+                          ? "Requests a new certificate now."
+                          : "Needs an active domain with HTTPS."}
+                      </ActionList.Description>
+                    </ActionList.Item>
+                    <ActionList.Item
+                      variant="danger"
+                      disabled={domain.status === "draft"}
+                      onSelect={() => {
+                        onAction({ kind: "plan", id: domain.id, operation: "remove" });
+                      }}
+                    >
+                      Remove from server…
+                    </ActionList.Item>
+                    <ActionList.Item
+                      variant="danger"
+                      disabled={domain.status !== "draft"}
+                      onSelect={() => {
+                        onAction({ kind: "delete", id: domain.id });
+                      }}
+                    >
+                      Delete draft…
+                    </ActionList.Item>
+                  </ActionList>
+                </ActionMenu.Overlay>
+              </ActionMenu>
+            </>
+          ) : null}
         </div>
       </div>
       <p className={`muted ${styles.meta}`}>
@@ -675,6 +681,7 @@ export function DomainsPage() {
   const env = ENVIRONMENTS.find((name) => name === rawEnv) ?? null;
   const domains = useDomains(slug, env ?? "development");
   const remove = useDeleteDomain(slug, env ?? "development");
+  const canManage = useCan()("domain.manage", { project: slug, env: env ?? "development" });
   const [search] = useSearchParams();
   const created = useLocation().state as CreatedState | null;
   const [action, setAction] = useState<Action | null>(
@@ -713,15 +720,17 @@ export function DomainsPage() {
         env={env}
         pathFor={(next) => domainsPath(slug, next)}
         actions={
-          <Button
-            variant="primary"
-            leadingVisual={PlusIcon}
-            onClick={() => {
-              setAction({ kind: "add" });
-            }}
-          >
-            Add domain
-          </Button>
+          canManage ? (
+            <Button
+              variant="primary"
+              leadingVisual={PlusIcon}
+              onClick={() => {
+                setAction({ kind: "add" });
+              }}
+            >
+              Add domain
+            </Button>
+          ) : null
         }
       />
       {created ? <CreatedBanner state={created} env={env} /> : null}

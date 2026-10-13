@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from backend.api import authz
 from backend.api.schemas.projects import ProjectResponse
 from backend.api.schemas.secrets import SecretResponse
 from backend.domain.enums import TokenScope
@@ -11,13 +12,14 @@ from backend.mcp.registry import Args, Tool, ToolContext
 
 def list_projects(ctx: ToolContext, _args: Args) -> object:
     """Every project with its two environments (branch, auto-deploy, latest run)."""
-    views = ctx.container.project_queries().list_projects()
+    views = ctx.container.project_queries().list_projects(authz.project_filter(ctx.principal))
     return [ProjectResponse.from_view(view).model_dump(mode="json") for view in views]
 
 
 def get_project(ctx: ToolContext, args: Args) -> object:
     """One project with its environments."""
-    view = ctx.container.project_queries().get(args.text("slug"))
+    only = authz.project_filter(ctx.principal)
+    view = ctx.container.project_queries().get(args.text("slug"), only)
     return ProjectResponse.from_view(view).model_dump(mode="json")
 
 

@@ -31,6 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
+from backend.domain.access import AccessRole, GlobalRole
 from backend.domain.clock import utcnow
 from backend.domain.database import DatabaseEngine, TlsMode
 from backend.domain.enums import (
@@ -103,6 +104,43 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    role: Mapped[GlobalRole] = mapped_column(
+        _enum(GlobalRole), default=GlobalRole.MEMBER, server_default=GlobalRole.MEMBER.value
+    )
+    display_name: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    email: Mapped[str | None] = mapped_column(String(254), default=None)
+    must_change_password: Mapped[bool] = mapped_column(default=False, server_default="0")
+
+
+class AccessGrant(Base):
+    """What a member may do on a project, one of its environments or one container service.
+
+    ``scope_key`` (``project``, ``env:<name>`` or ``svc:<name>:<service>``) makes a grant unique
+    per user and target even though ``environment`` and ``service`` are nullable. Project and
+    environment grants carry ``role``; service grants carry ``permissions``
+    (``logs``, ``terminal``, ``actions``). Grants are removed with their user and project.
+    """
+
+    __tablename__ = "access_grants"
+    __table_args__ = (
+        UniqueConstraint("user_id", "project_id", "scope_key"),
+        Index("ix_access_grants_project_id", "project_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    environment: Mapped[EnvironmentName | None] = mapped_column(
+        _enum(EnvironmentName), default=None
+    )
+    service: Mapped[str | None] = mapped_column(String(64), default=None)
+    scope_key: Mapped[str] = mapped_column(String(100))
+    role: Mapped[AccessRole | None] = mapped_column(_enum(AccessRole), default=None)
+    permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 

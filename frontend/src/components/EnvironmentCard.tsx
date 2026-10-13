@@ -9,6 +9,7 @@ import { BranchName, Heading, Label, LinkButton, VisuallyHidden } from "@primer/
 import { Link } from "react-router-dom";
 import type { EnvironmentSummary, Project } from "../api/types";
 import { capitalize } from "../lib/format";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 import { CopySha } from "./CopySha";
 import styles from "./EnvironmentCard.module.css";
@@ -40,6 +41,8 @@ export function EnvironmentCard({
   detailed?: boolean;
 }) {
   const { last_run: run } = environment;
+  const can = useCan();
+  const scope = { project: project.slug, env: environment.name };
   const headingId = `env-${project.slug}-${environment.name}`;
   return (
     <section className={styles.env} aria-labelledby={headingId}>
@@ -89,25 +92,29 @@ export function EnvironmentCard({
         </p>
       )}
       <div className={box.cluster}>
-        <LinkButton
-          as={Link}
-          to={runsPath(project.slug, environment.name)}
-          size="small"
-          leadingVisual={HistoryIcon}
-          aria-label={`View ${environment.name} runs of ${project.name}`}
-        >
-          View runs
-        </LinkButton>
-        <LinkButton
-          as={Link}
-          to={pipelinePath(project.slug, environment.name)}
-          size="small"
-          leadingVisual={WorkflowIcon}
-          aria-label={`Edit the ${environment.name} pipeline of ${project.name}`}
-        >
-          Pipeline
-        </LinkButton>
-        {detailed ? (
+        {can("run.read", scope) ? (
+          <LinkButton
+            as={Link}
+            to={runsPath(project.slug, environment.name)}
+            size="small"
+            leadingVisual={HistoryIcon}
+            aria-label={`View ${environment.name} runs of ${project.name}`}
+          >
+            View runs
+          </LinkButton>
+        ) : null}
+        {can("pipeline.read", scope) ? (
+          <LinkButton
+            as={Link}
+            to={pipelinePath(project.slug, environment.name)}
+            size="small"
+            leadingVisual={WorkflowIcon}
+            aria-label={`Edit the ${environment.name} pipeline of ${project.name}`}
+          >
+            Pipeline
+          </LinkButton>
+        ) : null}
+        {detailed && can("run.create", scope) ? (
           <LinkButton
             as={Link}
             to={`${domainsPath(project.slug, environment.name)}?add=1`}

@@ -21,6 +21,9 @@ import { ContainersPage } from "./pages/Containers";
 import { DatabaseBrowserPage } from "./pages/DatabaseBrowser";
 import { DatabasesPage } from "./pages/Databases";
 import { DomainsPage } from "./pages/Domains";
+import { AccountPage, ChangePasswordPage } from "./pages/ChangePassword";
+import { MembersPage } from "./pages/Members";
+import { AccessSettingsPage } from "./pages/ProjectAccess";
 import { AgentsPage } from "./pages/AgentsPage";
 import { GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
 import { IntegrationsPage } from "./pages/Integrations";
@@ -71,7 +74,11 @@ export function UnauthenticatedRedirect() {
   return null;
 }
 
-function RequireAuth({ children }: { children: ReactNode }) {
+/**
+ * Signed-in users only. After an administrator reset the password the session is limited to the
+ * change-password screen (`pending` marks the one route that is open to it).
+ */
+function RequireAuth({ children, pending = false }: { children: ReactNode; pending?: boolean }) {
   const session = useSession();
   const location = useLocation();
   if (session.isPending) return <Loading label="Checking your session" />;
@@ -89,6 +96,9 @@ function RequireAuth({ children }: { children: ReactNode }) {
         />
       </div>
     );
+  }
+  if (session.data.must_change_password && !pending) {
+    return <Navigate to="/change-password" replace />;
   }
   return children;
 }
@@ -136,6 +146,14 @@ export const appRoutes: RouteObject[] = [
     children: [
       { path: "/login", element: <LoginPage /> },
       {
+        path: "/change-password",
+        element: (
+          <RequireAuth pending>
+            <ChangePasswordPage />
+          </RequireAuth>
+        ),
+      },
+      {
         element: (
           <RequireAuth>
             <Shell />
@@ -179,6 +197,7 @@ export const appRoutes: RouteObject[] = [
                   { path: "environments", element: <EnvironmentsSettingsPage /> },
                   { path: "webhook", element: <WebhookSettingsPage /> },
                   { path: "secrets", element: <SecretsSettingsPage /> },
+                  { path: "access", element: <AccessSettingsPage /> },
                   { path: "notifications", element: <ProjectNotificationsPage /> },
                 ],
               },
@@ -194,6 +213,8 @@ export const appRoutes: RouteObject[] = [
               { path: "tokens", element: <TokensPage /> },
               { path: "notifications", element: <NotificationsPage /> },
               { path: "agents", element: <AgentsPage /> },
+              { path: "account", element: <AccountPage /> },
+              { path: "members", element: <MembersPage /> },
               { path: "integrations", element: <IntegrationsPage /> },
             ],
           },

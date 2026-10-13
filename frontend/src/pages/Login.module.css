@@ -30,3 +30,6 @@
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
 }
+.narrow {
+  max-width: 20.5rem;
+}

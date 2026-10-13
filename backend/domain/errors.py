@@ -39,6 +39,10 @@ class PermissionDeniedError(DomainError):
     """The caller is authenticated but not allowed to perform the operation."""
 
 
+class PasswordChangeRequiredError(PermissionDeniedError):
+    """The user must set a new password before anything else (after an admin reset)."""
+
+
 class RateLimitedError(DomainError):
     """Too many attempts; the caller may retry after ``retry_after`` seconds."""
 

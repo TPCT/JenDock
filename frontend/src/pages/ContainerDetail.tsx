@@ -11,6 +11,7 @@ import { HealthLabel, StateLabel } from "../components/ContainerBits";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { useDocumentTitle } from "../components/PageHead";
 import { capitalize } from "../lib/format";
+import { useCan, type Action } from "../lib/permissions";
 import box from "../styles/box.module.css";
 import { containersPath } from "./Containers";
 import { EnvPanel } from "./container/EnvPanel";
@@ -21,6 +22,14 @@ import { OverviewPanel } from "./container/OverviewPanel";
 
 const TABS = ["overview", "logs", "environment", "files", "limits"] as const;
 type Tab = (typeof TABS)[number];
+/** The permission each tab needs (the overview only needs to see the container). */
+const TAB_ACTION: Record<Tab, Action> = {
+  overview: "container.read",
+  logs: "container.logs",
+  environment: "container.env_update",
+  files: "container.files",
+  limits: "container.limits",
+};
 const TAB_LABEL: Record<Tab, string> = {
   overview: "Overview",
   logs: "Logs",
@@ -50,6 +59,10 @@ function ActionControls({
 }) {
   const request = useRequestAction(slug, env, container.id);
   const confirm = useConfirmAction(slug, env, container.id);
+  const can = useCan();
+  const scope = { project: slug, env, service: container.service };
+  const canAct = can("container.action", scope);
+  const canTerminal = can("container.terminal", scope);
   const [plan, setPlan] = useState<ActionPlan | null>(null);
   const running = container.state === "running";
   const available: Record<LifecycleAction, boolean> = {
@@ -65,7 +78,7 @@ function ActionControls({
   return (
     <>
       <div className={box.cluster}>
-        {(["start", "stop", "restart"] as const).map((action) => (
+        {(canAct ? (["start", "stop", "restart"] as const) : []).map((action) => (
           <Button
             key={action}
             leadingVisual={ACTION_ICON[action]}
@@ -78,15 +91,17 @@ function ActionControls({
             {capitalize(action)}
           </Button>
         ))}
-        <LinkButton
-          as={Link}
-          to="terminal"
-          leadingVisual={TerminalIcon}
-          aria-disabled={!running}
-          inactive={!running}
-        >
-          Terminal
-        </LinkButton>
+        {canTerminal ? (
+          <LinkButton
+            as={Link}
+            to="terminal"
+            leadingVisual={TerminalIcon}
+            aria-disabled={!running}
+            inactive={!running}
+          >
+            Terminal
+          </LinkButton>
+        ) : null}
       </div>
       {request.isError ? (
         <Callout variant="danger" role="alert">
@@ -145,13 +160,16 @@ export function ContainerDetailPage() {
   const env = ENVIRONMENTS.find((name) => name === rawEnv) ?? "development";
   const [params, setParams] = useSearchParams();
   const container = useContainer(slug, env, id);
+  const can = useCan();
   const location = useLocation();
   const arrived = (location.state as { notice?: string } | null)?.notice ?? null;
   const [done, setNotice] = useState<string | null>(null);
   const notice = done ?? arrived;
   useDocumentTitle(container.data ? `${container.data.name} · containers` : "Container");
   const wanted = params.get("tab");
-  const tab: Tab = TABS.find((item) => item === wanted) ?? "overview";
+  const service = container.data?.service;
+  const tabs = TABS.filter((item) => can(TAB_ACTION[item], { project: slug, env, service }));
+  const tab: Tab = tabs.find((item) => item === wanted) ?? "overview";
   const back = containersPath(slug, env);
 
   if (container.isPending) return <Loading label="Loading container" />;
@@ -209,12 +227,12 @@ export function ContainerDetailPage() {
           setParams(value === "overview" ? {} : { tab: value }, { replace: true });
         }}
       >
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <UnderlinePanels.Tab key={item} value={item}>
             {TAB_LABEL[item]}
           </UnderlinePanels.Tab>
         ))}
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <UnderlinePanels.Panel key={item} value={item}>
             <div className={box.section}>
               {tab !== item ? null : item === "overview" ? (
