@@ -12,7 +12,7 @@ import {
   Select,
 } from "@primer/react";
 import { UnderlinePanels } from "@primer/react/experimental";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useConnection, useRows, useSchemas, useTableDetail, useTables } from "../api/dbHooks";
 import type { TableDetail, TableInfo } from "../api/dbTypes";
@@ -121,6 +121,41 @@ function Structure({ detail }: { detail: TableDetail }) {
     </div>
   );
 }
+
+/** Memoised: Primer re-creates link anchors on every render, which would swallow a click that a data load interrupts. */
+const TableNav = memo(
+  function TableNav({ tables, selected }: { tables: TableInfo[]; selected: string | null }) {
+    return (
+      <NavList aria-label="Tables">
+        {tables.map((item) => (
+          <NavList.Item
+            key={item.name}
+            as={Link}
+            to={{
+              search: `?${new URLSearchParams({ schema: item.schema, table: item.name }).toString()}`,
+            }}
+            aria-current={selected === item.name ? "page" : undefined}
+          >
+            <NavList.LeadingVisual>
+              {item.kind === "table" ? <TableIcon /> : <EyeIcon />}
+            </NavList.LeadingVisual>
+            {item.name}
+            <NavList.TrailingVisual>
+              <span className="muted" title={`${kindLabel(item.kind)}, rows estimated`}>
+                {item.approx_rows === null
+                  ? kindLabel(item.kind)
+                  : `~${item.approx_rows.toLocaleString()}`}
+              </span>
+            </NavList.TrailingVisual>
+          </NavList.Item>
+        ))}
+      </NavList>
+    );
+  },
+  (previous, next) =>
+    previous.selected === next.selected &&
+    JSON.stringify(previous.tables) === JSON.stringify(next.tables),
+);
 
 export function DatabaseBrowserPage() {
   const { slug = "", env: rawEnv, name = "" } = useParams();
@@ -231,30 +266,7 @@ export function DatabaseBrowserPage() {
               tables.data.tables.length === 0 ? (
                 <p className="muted">This schema has no tables.</p>
               ) : (
-                <NavList aria-label="Tables">
-                  {tables.data.tables.map((item) => (
-                    <NavList.Item
-                      key={item.name}
-                      as={Link}
-                      to={{
-                        search: `?${new URLSearchParams({ schema: item.schema, table: item.name }).toString()}`,
-                      }}
-                      aria-current={table === item.name ? "page" : undefined}
-                    >
-                      <NavList.LeadingVisual>
-                        {item.kind === "table" ? <TableIcon /> : <EyeIcon />}
-                      </NavList.LeadingVisual>
-                      {item.name}
-                      <NavList.TrailingVisual>
-                        <span className="muted" title={`${kindLabel(item.kind)}, rows estimated`}>
-                          {item.approx_rows === null
-                            ? kindLabel(item.kind)
-                            : `~${item.approx_rows.toLocaleString()}`}
-                        </span>
-                      </NavList.TrailingVisual>
-                    </NavList.Item>
-                  ))}
-                </NavList>
+                <TableNav tables={tables.data.tables} selected={table} />
               )
             ) : null}
             {tables.isError ? (
