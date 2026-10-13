@@ -5,6 +5,7 @@ from __future__ import annotations
 from shiftcodes.adapters.deployer import UnavailableDeployer
 from shiftcodes.adapters.docker_cli import DockerCliRuntime
 from shiftcodes.adapters.http_probe import UrllibProbe
+from shiftcodes.adapters.repo_files import GitFileReader
 from shiftcodes.adapters.sources import LocalGitSource
 from shiftcodes.adapters.workspace import WorkspaceManager
 from shiftcodes.config import Settings
@@ -19,6 +20,12 @@ from shiftcodes.services.secrets import SecretService
 PRIVATE_DIR_NAME = "worker-private"
 WORKSPACES_DIR_NAME = "workspaces"
 LOGS_DIR_NAME = "logs"
+
+
+def build_repository_reader(settings: Settings) -> GitFileReader:
+    """Reads single files of a repository branch, from the same place runs clone from."""
+    template = settings.git_url_template
+    return GitFileReader(lambda repo: template.format(repository=repo), settings.git_binary)
 
 
 def build_execution_env(

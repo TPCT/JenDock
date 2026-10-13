@@ -39,6 +39,14 @@ class PipelineRepository:
         )
         return self._session.scalar(query)
 
+    def get_version(self, environment_id: int, version: int) -> PipelineDefinition | None:
+        """Return one stored version or ``None``."""
+        query = select(PipelineDefinition).where(
+            PipelineDefinition.environment_id == environment_id,
+            PipelineDefinition.version == version,
+        )
+        return self._session.scalar(query)
+
     def list_history(self, environment_id: int) -> Sequence[PipelineDefinition]:
         """Return all versions, newest first."""
         query = (

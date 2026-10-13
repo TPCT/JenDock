@@ -308,6 +308,7 @@ label and every workspace directory removed, then are marked `interrupted` with 
 | `SHIFTCODES_GIT_URL_TEMPLATE` / `_GIT_BINARY` | GitHub https / `git` | source clone |
 | `SHIFTCODES_QUEUE_POLL_INTERVAL`, `_CANCEL_POLL_INTERVAL` | 1 s | worker polling |
 | `SHIFTCODES_SSE_POLL_INTERVAL`, `_SSE_HEARTBEAT_INTERVAL` | 0.5 s / 15 s | event stream |
+| `SHIFTCODES_FRONTEND_DIST` | unset | built web UI served by the API (the API image sets it) |
 
 ## Pipelines (Jenkinsfile)
 
@@ -395,6 +396,20 @@ written in the canonical call style). For every accepted text,
 `parse(serialize(parse(x))) == parse(x)` (spans are excluded from equality). Comments are not
 part of the AST and are not preserved: the visual editor rewrites the canonical form, while
 text-mode edits keep the user's own text.
+
+### Editors, templates and dry run
+
+The browser never parses Jenkinsfile text. `shiftcodes/pipeline/model*.py` define the JSON
+editing model (pydantic) and its two converters (`to_model` / `to_ast`, round trip tested on every
+valid fixture); `catalog.py` generates the step catalogue (titles, help texts, enums, bounds and
+image roles come from `steps.py`, so forms and validator cannot disagree);
+`pipeline/templates/` holds the starter Jenkinsfiles (also compared with real Jenkins);
+`execution/dry_run.py` plans a pipeline for a branch without executing it. The endpoints are in
+`docs/api-contract.md`, "Pipelines". The repository's `Jenkinsfile` is detected by the worker
+(`pipeline.repository_file` RPC, a depth-1 filtered fetch of the environment branch).
+
+The API image builds `frontend/` (node stage) and serves it, with a fallback to `index.html`
+for client routes (`shiftcodes/api/frontend.py`).
 
 ### Example
 
