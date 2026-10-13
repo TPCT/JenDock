@@ -2,8 +2,9 @@
 
 Every operation validates its parameters itself. The operation set is closed: ping, rendering
 and reading managed vhost files, writing and removing them (with configtest, graceful reload
-and automatic rollback), installing certificates, ACME HTTP-01 challenge files and a loopback
-port probe. There is no generic command, path or configuration-text parameter.
+and automatic rollback), installing certificates, ACME HTTP-01 challenge files, a loopback
+port probe and a read-only listing of the Apache sites that already exist. There is no generic
+command, path or configuration-text parameter.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 from backend.hosthelper.apache import ApacheControl
 from backend.hosthelper.certs import describe_certificate, validate_material
 from backend.hosthelper.config import HelperConfig
+from backend.hosthelper.discovery import scan_directories
 from backend.hosthelper.errors import HelperError, InvalidRequestError
 from backend.hosthelper.files import PRIVATE_DIR_MODE, ChangeSet
 from backend.hosthelper.names import (
@@ -53,6 +55,7 @@ class HelperService:
             "vhost.render": self._vhost_render,
             "vhost.get": self._vhost_get,
             "vhost.list": self._vhost_list,
+            "vhost.discover": self._vhost_discover,
             "vhost.put": self._vhost_put,
             "vhost.remove": self._vhost_remove,
             "cert.install": self._cert_install,
@@ -130,6 +133,16 @@ class HelperService:
             if first.startswith(MARKER_PREFIX):
                 names.append(first.split("host=", 1)[1].split(" ", 1)[0])
         return {"hostnames": names}
+
+    def _vhost_discover(self, params: Mapping[str, object]) -> Result:
+        """Read-only: the Apache sites in the configured directories (no parameters at all)."""
+        _only(params, set())
+        found = scan_directories(self._config.readable_vhost_dirs)
+        return {
+            "vhosts": [block.as_payload() for block in found.blocks],
+            "files_scanned": found.files_scanned,
+            "truncated": found.truncated,
+        }
 
     def _vhost_put(self, params: Mapping[str, object]) -> Result:
         spec = self._spec(params)

@@ -8,6 +8,11 @@ from datetime import timedelta
 from sqlalchemy import Engine
 
 from backend.adapters.container_client import ContainerClient, ContainersGateway
+from backend.adapters.discovery_client import (
+    DiscoveryClient,
+    DiscoveryGateway,
+    UnavailableDiscovery,
+)
 from backend.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from backend.adapters.inspector_client import InspectorGateway, WorkerInspectorClient
 from backend.adapters.integrations_client import (
@@ -44,6 +49,8 @@ from backend.services.certificates import RenewalPolicy
 from backend.services.dashboard import DashboardService
 from backend.services.database_connections import DatabaseConnectionService
 from backend.services.deployments import DeploymentService
+from backend.services.discovery_queries import DiscoveryQueryService
+from backend.services.domain_adoption import AdoptionService
 from backend.services.domain_status import DomainStatusService
 from backend.services.domains import DomainService
 from backend.services.environments import EnvironmentService
@@ -87,6 +94,8 @@ class AppContainer:
     github: GithubGateway
     ingress: IngressGateway = field(default_factory=UnavailableIngress)
     ingress_settings: IngressSettings = field(default_factory=IngressSettings)
+    # Domain discovery (Cloudflare, Apache) and the check of adopted domains: worker-side too.
+    discovery: DiscoveryGateway = field(default_factory=UnavailableDiscovery)
     # Cloudflare credential, test connection and deploy keys: all worker-side.
     integrations: IntegrationsGateway = field(default_factory=UnavailableIntegrations)
     repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
@@ -136,6 +145,7 @@ class AppContainer:
             containers=containers or ContainerClient(worker),
             terminal_tickets=TicketStore(clock),
             ingress=IngressClient(settings.worker_socket_path),
+            discovery=DiscoveryClient(settings.worker_socket_path),
             integrations=IntegrationsClient(settings.worker_socket_path),
             ingress_settings=get_ingress_settings(),
             github=github or worker,
@@ -256,6 +266,14 @@ class AppContainer:
             retry_after=timedelta(hours=self.ingress_settings.renew_retry_hours),
         )
         return DomainStatusService(self.uow(), self.domain_service(), policy, self.clock)
+
+    def adoption_service(self) -> AdoptionService:
+        """Return the service that links existing (discovered) domains to projects."""
+        return AdoptionService(self.uow(), self.clock)
+
+    def discovery_queries(self) -> DiscoveryQueryService:
+        """Return the discovery snapshot read model (never contacts Cloudflare or Apache)."""
+        return DiscoveryQueryService(self.uow())
 
     def integrations_service(self) -> IntegrationsService:
         """Return the Integrations pages' service (settings, status, webhook summary)."""

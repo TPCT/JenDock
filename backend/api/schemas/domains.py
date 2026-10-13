@@ -12,6 +12,7 @@ from backend.domain.ingress import (
     DnsPlanView,
     DnsRecordType,
     DnsRecordView,
+    DomainOrigin,
     DomainStatus,
     IngressPlanView,
     PlanAction,
@@ -115,6 +116,9 @@ class DomainResponse(BaseModel):
     tls_enabled: bool
     status: DomainStatus
     status_message: str | None
+    origin: DomainOrigin
+    adopted_at: datetime | None
+    vhost_file: str | None
     applied_at: datetime | None
     last_verified_at: datetime | None
     last_verified_ok: bool | None
@@ -136,6 +140,9 @@ class DomainResponse(BaseModel):
             tls_enabled=domain.tls_enabled,
             status=domain.status,
             status_message=domain.status_message,
+            origin=domain.origin,
+            adopted_at=domain.adopted_at,
+            vhost_file=domain.vhost_file,
             applied_at=domain.applied_at,
             last_verified_at=domain.last_verified_at,
             last_verified_ok=domain.last_verified_ok,

@@ -43,6 +43,27 @@ class InstalledCertificate:
     serial: str
 
 
+@dataclass(frozen=True, slots=True)
+class VhostEntry:
+    """One Apache ``<VirtualHost>`` the helper found (read-only discovery)."""
+
+    file: str
+    managed: bool
+    server_names: tuple[str, ...]
+    ports: tuple[int, ...]
+    upstream_host: str | None
+    upstream_port: int | None
+    ssl: bool
+
+
+@dataclass(frozen=True, slots=True)
+class VhostDiscovery:
+    """The sites of the helper's configured directories; ``truncated`` when a limit cut it."""
+
+    entries: tuple[VhostEntry, ...]
+    truncated: bool = False
+
+
 class HostHelper(Protocol):
     """The helper operations the platform uses; implemented by the client and by test fakes."""
 
@@ -79,6 +100,9 @@ class HostHelper(Protocol):
 
     def check_backend(self, port: int) -> bool:
         """Whether something accepts TCP connections on ``127.0.0.1:port`` on the host."""
+
+    def discover_vhosts(self) -> VhostDiscovery:
+        """The Apache sites that exist on the host (read-only)."""
 
 
 class HostHelperClient:
@@ -155,6 +179,18 @@ class HostHelperClient:
         """Probe ``127.0.0.1:port`` from the host."""
         return bool(self._call("backend.check", {"port": port}).get("reachable"))
 
+    def discover_vhosts(self) -> VhostDiscovery:
+        """List the Apache sites in the helper's configured directories (``vhost.discover``)."""
+        result = self._call("vhost.discover", {})
+        items = result.get("vhosts")
+        if not isinstance(items, list):
+            raise HostHelperError("protocol", "unexpected helper response")
+        try:
+            entries = tuple(_entry(item) for item in items)
+        except (KeyError, TypeError, ValueError) as error:
+            raise HostHelperError("protocol", "unexpected helper response") from error
+        return VhostDiscovery(entries, bool(result.get("truncated")))
+
     def _call(self, operation: str, params: Mapping[str, object]) -> Mapping[str, object]:
         request_id = secrets.token_hex(8)
         payload = json.dumps({"id": request_id, "op": operation, "params": dict(params)})
@@ -188,6 +224,24 @@ class HostHelperClient:
         if not isinstance(decoded, dict):
             raise HostHelperError("protocol", "malformed helper response")
         return decoded
+
+
+def _entry(item: object) -> VhostEntry:
+    if not isinstance(item, dict):
+        raise TypeError("vhost entry")
+    names, ports = item["server_names"], item["ports"]
+    host, port = item.get("upstream_host"), item.get("upstream_port")
+    if not isinstance(names, list) or not isinstance(ports, list):
+        raise TypeError("vhost lists")
+    return VhostEntry(
+        str(item["file"]),
+        bool(item.get("managed")),
+        tuple(str(name) for name in names),
+        tuple(int(p) for p in ports),
+        str(host) if isinstance(host, str) else None,
+        int(port) if isinstance(port, int) and not isinstance(port, bool) else None,
+        bool(item.get("ssl")),
+    )
 
 
 def _vhost(hostname: str, port: int, tls: bool, websocket: bool) -> dict[str, object]:

@@ -19,7 +19,9 @@ from backend.hosthelper.names import WILDCARD_PREFIX
 
 AUTO_TTL = 1
 PAGE_SIZE = 100
+ZONE_PAGE_SIZE = 50  # Cloudflare refuses a larger ``per_page`` on the zone list
 MAX_PAGES = 20
+MAX_DISCOVERY_PAGES = 100
 ALREADY_EXISTS_CODES = frozenset({81057, 81058})
 ADDRESS_TYPES = frozenset({"A", "AAAA", "CNAME"})
 DEFAULT_TIMEOUT = 15.0
@@ -108,7 +110,9 @@ class CloudflareClient:
         labels = hostname.removeprefix(WILDCARD_PREFIX).split(".")
         for start in range(len(labels) - 1):
             candidate = ".".join(labels[start:])
-            result = self._get("/zones", {"name": candidate, "status": "active"})
+            result = self._get(
+                "/zones", {"name": candidate, "status": "active"}, per_page=ZONE_PAGE_SIZE
+            )
             if result:
                 return Zone(str(result[0]["id"]), str(result[0]["name"]))
         raise CloudflareError(f"no Cloudflare zone is reachable with this token for {hostname}")
@@ -122,8 +126,28 @@ class CloudflareClient:
 
     def list_zone_names(self, limit: int = 200) -> list[str]:
         """Names of the active zones the token can see, sorted (at most ``limit``)."""
-        items = self._get("/zones", {"status": "active"})
-        return sorted(str(item["name"]) for item in items if "name" in item)[:limit]
+        return sorted(zone.name for zone in self.list_zones())[:limit]
+
+    def list_zones(self) -> list[Zone]:
+        """Every active zone the token can see (all pages)."""
+        items = self._get(
+            "/zones", {"status": "active"}, per_page=ZONE_PAGE_SIZE, max_pages=MAX_DISCOVERY_PAGES
+        )
+        return [
+            Zone(str(item["id"]), str(item["name"]).lower()) for item in items if "name" in item
+        ]
+
+    def list_address_records(self, zone_id: str) -> list[DnsRecord]:
+        """Every A, AAAA and CNAME record of a zone (all pages; read-only)."""
+        records: list[DnsRecord] = []
+        for record_type in sorted(ADDRESS_TYPES):
+            items = self._get(
+                f"/zones/{zone_id}/dns_records",
+                {"type": record_type},
+                max_pages=MAX_DISCOVERY_PAGES,
+            )
+            records.extend(_record(item) for item in items)
+        return records
 
     def list_records(self, zone_id: str, name: str) -> list[DnsRecord]:
         """Return all records with exactly this name."""
@@ -142,10 +166,17 @@ class CloudflareClient:
         """Delete a record."""
         self._send("DELETE", f"/zones/{zone_id}/dns_records/{record_id}", None)
 
-    def _get(self, path: str, params: Mapping[str, str]) -> list[Mapping[str, Any]]:
+    def _get(
+        self,
+        path: str,
+        params: Mapping[str, str],
+        *,
+        per_page: int = PAGE_SIZE,
+        max_pages: int = MAX_PAGES,
+    ) -> list[Mapping[str, Any]]:
         collected: list[Mapping[str, Any]] = []
-        for page in range(1, MAX_PAGES + 1):
-            query = {**params, "per_page": str(PAGE_SIZE), "page": str(page)}
+        for page in range(1, max_pages + 1):
+            query = {**params, "per_page": str(per_page), "page": str(page)}
             payload = self._request("GET", path, params=query, body=None)
             result = payload.get("result")
             collected.extend(cast("list[Mapping[str, Any]]", result or []))

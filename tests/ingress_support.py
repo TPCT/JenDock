@@ -20,6 +20,8 @@ from backend.adapters.cloudflare import CloudflareClient, CloudflareDns
 from backend.adapters.host_helper_client import (
     HostHelperError,
     InstalledCertificate,
+    VhostDiscovery,
+    VhostEntry,
     VhostProposal,
 )
 from backend.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
@@ -77,6 +79,16 @@ class FakeHelper:
         self.backend_up = True
         self.fail_put: HostHelperError | None = None
         self.challenges: dict[str, str] = {}
+        # What ``vhost.discover`` reports; ``discover_error`` scripts "helper missing/too old".
+        self.existing_sites: list[VhostEntry] = []
+        self.discover_error: HostHelperError | None = None
+
+    def discover_vhosts(self) -> VhostDiscovery:
+        """The scripted Apache sites (or the scripted failure)."""
+        self.calls.append("discover_vhosts")
+        if self.discover_error is not None:
+            raise self.discover_error
+        return VhostDiscovery(tuple(self.existing_sites))
 
     def render_vhost(
         self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True

@@ -13,6 +13,7 @@ from backend.domain.errors import ConflictError, NotFoundError, ValidationError
 from backend.domain.hostnames import Hostname
 from backend.domain.ingress import (
     DnsRecordType,
+    DomainOrigin,
     DomainStatus,
     validate_dns_target,
     validate_port,
@@ -73,7 +74,7 @@ class DomainService:
         checked = _checked_fields(draft)
         with self._uow:
             environment = require_environment(self._uow, slug, env)
-            _check_service(environment, checked.service)
+            check_service(environment, checked.service)
             if self._uow.domains.get_by_hostname(hostname) is not None:
                 raise ConflictError(f"hostname is already in use: {hostname}")
             now = self._clock()
@@ -102,10 +103,15 @@ class DomainService:
         """Change the routing of a domain; run preview and apply again to roll it out."""
         with self._uow:
             domain = self._require(slug, env, domain_id)
+            if domain.origin is DomainOrigin.ADOPTED and _touches_dns(patch):
+                raise ConflictError(
+                    "DNS and HTTPS of an adopted domain are managed outside Jendock; "
+                    "only the service and ports can be corrected here"
+                )
             environment = require_environment(self._uow, slug, env)
             merged = _merge(domain, patch)
             checked = _checked_fields(merged)
-            _check_service(environment, checked.service)
+            check_service(environment, checked.service)
             changed = _apply_fields(domain, checked)
             domain.updated_at = self._clock()
             self._audit(
@@ -125,12 +131,19 @@ class DomainService:
             return self._uow.domains.list_for_environment(environment.id)
 
     def delete(self, slug: str, env: EnvironmentName, domain_id: int, actor: Actor) -> None:
-        """Delete a domain that is not applied anywhere (remove it from DNS/Apache first)."""
+        """Delete a domain that is not applied anywhere (remove it from DNS/Apache first).
+
+        An adopted domain is only unlinked: DNS and Apache were never Jendock's to remove.
+        """
         with self._uow:
             domain = self._require(slug, env, domain_id)
-            if domain.status is not DomainStatus.DRAFT:
+            adopted = domain.origin is DomainOrigin.ADOPTED
+            if domain.status is not DomainStatus.DRAFT and not adopted:
                 raise ConflictError("remove the domain from DNS and Apache before deleting it")
-            self._audit(actor, "domain.delete", domain, {"hostname": domain.hostname})
+            details: dict[str, object] = {"hostname": domain.hostname}
+            if adopted:
+                details["origin"] = DomainOrigin.ADOPTED.value
+            self._audit(actor, "domain.delete", domain, details)
             self._uow.domains.delete(domain)
 
     # --- used by the worker's orchestration -----------------------------------------------
@@ -235,6 +248,16 @@ def _merge(domain: Domain, patch: DomainPatch) -> DomainDraft:
     return replace(draft, **updates)  # type: ignore[arg-type]
 
 
+def _touches_dns(patch: DomainPatch) -> bool:
+    return (
+        patch.dns_record_type is not None
+        or patch.dns_target is not None
+        or patch.clear_dns_target
+        or patch.dns_proxied is not None
+        or patch.tls_enabled is not None
+    )
+
+
 def _checked_fields(draft: DomainDraft) -> DomainDraft:
     """Validate the routing fields of a draft and return the normalized draft."""
     service = validate_service_names([draft.service])[0]
@@ -249,7 +272,8 @@ def _checked_fields(draft: DomainDraft) -> DomainDraft:
     )
 
 
-def _check_service(environment: Environment, service: str) -> None:
+def check_service(environment: Environment, service: str) -> None:
+    """Raise unless ``service`` is one of the environment's compose services (when it has any)."""
     if environment.services and service not in environment.services:
         raise ValidationError(f"service is not part of the environment: {service}")
 

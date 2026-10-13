@@ -25,6 +25,13 @@ class DomainStatus(StrEnum):
     ERROR = "error"  # the last apply failed; ``status_message`` says why
 
 
+class DomainOrigin(StrEnum):
+    """Who set the domain up on the server."""
+
+    MANAGED = "managed"  # created by Jendock: DNS record, Apache site and certificate are its own
+    ADOPTED = "adopted"  # existed before; only recorded here, DNS and Apache stay untouched
+
+
 class DnsRecordType(StrEnum):
     """Record types the platform manages."""
 

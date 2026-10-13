@@ -26,6 +26,7 @@ KNOWN_KEYS = frozenset(
         "allow_wildcards",
         "max_vhosts",
         "command_timeout_seconds",
+        "discovery_dirs",
     }
 )
 REQUIRED_KEYS = frozenset(
@@ -83,6 +84,14 @@ class HelperConfig:
     allow_wildcards: bool = False
     max_vhosts: int = DEFAULT_MAX_VHOSTS
     command_timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT
+    # Directories whose ``*.conf`` files ``vhost.discover`` may read (read-only), for example
+    # ``/etc/apache2/sites-enabled``. ``vhost_dir`` is always readable as well.
+    discovery_dirs: tuple[Path, ...] = ()
+
+    @property
+    def readable_vhost_dirs(self) -> tuple[Path, ...]:
+        """Every directory ``vhost.discover`` scans: the managed one first, then the others."""
+        return (self.vhost_dir, *(d for d in self.discovery_dirs if d != self.vhost_dir))
 
     def port_allowed(self, port: int) -> bool:
         """Whether Apache may proxy to ``port``."""
@@ -135,6 +144,7 @@ def parse_config(raw: object) -> HelperConfig:
         allow_wildcards=_boolean(raw.get("allow_wildcards", False), "allow_wildcards"),
         max_vhosts=_bounded_int(raw.get("max_vhosts", DEFAULT_MAX_VHOSTS), "max_vhosts", 1, 5000),
         command_timeout_seconds=_timeout(raw.get("command_timeout_seconds")),
+        discovery_dirs=_dirs(raw.get("discovery_dirs", []), "discovery_dirs"),
     )
 
 
@@ -145,6 +155,12 @@ def _abs_path(value: object, name: str) -> Path:
     if not path.is_absolute() or ".." in path.parts:
         raise ConfigError(f"{name} must be an absolute path without '..'")
     return path
+
+
+def _dirs(value: object, name: str) -> tuple[Path, ...]:
+    if not isinstance(value, list):
+        raise ConfigError(f"{name} must be a list of absolute directories")
+    return tuple(_abs_path(item, name) for item in value)
 
 
 def _optional_str(value: object, name: str) -> str | None:
