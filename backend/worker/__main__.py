@@ -24,6 +24,7 @@ from backend.repositories.database import (
 )
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
+from backend.services.totp import TotpVault
 from backend.worker.container_handlers import build_container_handlers
 from backend.worker.container_wiring import build_container_parts
 from backend.worker.database_wiring import build_inspection_handlers
@@ -36,6 +37,7 @@ from backend.worker.integrations_wiring import build_integrations
 from backend.worker.notification_wiring import NotificationParts, build_notification_parts
 from backend.worker.pipeline_handlers import PipelineHandlers
 from backend.worker.rpc import Handler, RpcServer
+from backend.worker.totp_handlers import totp_handlers
 from backend.worker.wiring import build_execution_env
 
 logger = logging.getLogger(__name__)
@@ -92,11 +94,13 @@ def build_rpc_server(
         settings, get_ingress_settings(), session_factory, cipher, redactor
     )
     channels = notifications.handlers if notifications else {}
+    two_factor = totp_handlers(TotpVault(cipher))
     extra = {
         **github,
         **pipelines.handlers(),
         **inspection,
         **integrations,
+        **two_factor,
         **channels,
         **(extra_handlers or {}),
     }

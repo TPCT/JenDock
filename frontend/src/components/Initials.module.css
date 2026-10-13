@@ -1,0 +1,32 @@
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bgColor-accent-emphasis);
+  color: var(--fgColor-onEmphasis);
+  font-weight: var(--base-text-weight-semibold);
+  line-height: 1;
+  user-select: none;
+}
+.size24 {
+  width: var(--base-size-24);
+  height: var(--base-size-24);
+  font-size: 0.6875rem;
+}
+.size32 {
+  width: var(--base-size-32);
+  height: var(--base-size-32);
+  font-size: 0.8125rem;
+}
+.size64 {
+  width: var(--base-size-64);
+  height: var(--base-size-64);
+  font-size: 1.5rem;
+}
+.size96 {
+  width: 6rem;
+  height: 6rem;
+  font-size: 2.25rem;
+}

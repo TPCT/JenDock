@@ -1,7 +1,7 @@
 """Admin command line: ``python -m backend.cli users create|reset-password <username>``,
-``import-v1`` (see ``backend.importer``), ``deploy-key create|show|list <owner/name>``
-(see README "GitHub integration") and ``backup create|restore|prune``
-(see README "Backup and restore").
+``users disable-two-factor <username>``, ``import-v1`` (see ``backend.importer``),
+``deploy-key create|show|list <owner/name>`` (see README "GitHub integration") and
+``backup create|restore|prune`` (see README "Backup and restore").
 
 Passwords are read from a hidden prompt, or from stdin with ``--password-stdin``. They are
 never accepted as arguments or environment variables, so they stay out of shell history
@@ -61,6 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="read the password from the first line of stdin instead of prompting",
         )
+    recovery = users.add_parser(
+        "disable-two-factor", help="turn two-factor authentication off (lost device and codes)"
+    )
+    recovery.add_argument("username")
     add_import_arguments(
         groups.add_parser(
             "import-v1", help="import v1 projects and convert recipes to Jenkinsfiles"
@@ -90,6 +94,10 @@ def run(
     """Execute one command; returns the process exit code."""
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "disable-two-factor":
+            service.disable_two_factor(args.username, CLI_ACTOR)
+            print(f"two-factor authentication turned off for {args.username}")
+            return 0
         password = read_password(args.password_stdin, stdin or sys.stdin, prompt)
         if args.command == "create":
             service.create(args.username, password, CLI_ACTOR, role=GlobalRole(args.role))

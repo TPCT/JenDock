@@ -20,6 +20,7 @@ from backend.adapters.worker_client import (
     GithubGateway,
     RepositoryGateway,
     SecretsGateway,
+    TotpGateway,
     UnavailableRepositoryGateway,
     WorkerClient,
 )
@@ -37,18 +38,22 @@ from backend.repositories.database import (
     create_session_factory,
 )
 from backend.services.access import AccessService
+from backend.services.audit_log import AuditLogService
 from backend.services.auth import AuthService
 from backend.services.certificates import RenewalPolicy
+from backend.services.dashboard import DashboardService
 from backend.services.database_connections import DatabaseConnectionService
 from backend.services.deployments import DeploymentService
 from backend.services.domain_status import DomainStatusService
 from backend.services.domains import DomainService
 from backend.services.environments import EnvironmentService
 from backend.services.integrations import IntegrationsService
+from backend.services.mfa_challenges import MfaChallengeStore
 from backend.services.notification_rules import NotificationQueryService, NotificationRuleService
 from backend.services.passwords import PasswordHasher
 from backend.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
 from backend.services.pipelines import PipelineService
+from backend.services.profile import ProfileService
 from backend.services.project_queries import ProjectQueryService
 from backend.services.projects import ProjectService
 from backend.services.rate_limit import LoginRateLimiter, webhook_failure_limiter
@@ -57,6 +62,7 @@ from backend.services.run_queries import RunQueryService
 from backend.services.run_triggers import RunTriggerService
 from backend.services.sessions import SessionService
 from backend.services.tokens import TokenService
+from backend.services.two_factor import TwoFactorService
 from backend.services.users import UserService
 from backend.services.webhooks import WebhookService
 
@@ -95,6 +101,10 @@ class AppContainer:
     # Notification channel configuration goes through the worker (it encrypts); ``None`` means
     # the default socket client (see ``notification_gateway``).
     notifications: NotificationGateway | None = None
+    # Two-factor key operations (the key lives in the worker); ``None`` means the default
+    # socket client. Pending second-step logins live in process memory, like terminal tickets.
+    totp: TotpGateway | None = None
+    mfa_challenges: MfaChallengeStore = field(default_factory=MfaChallengeStore)
 
     @classmethod
     def build(  # noqa: PLR0913 - one optional override per collaborator
@@ -108,6 +118,7 @@ class AppContainer:
         hasher: PasswordHasher | None = None,
         limiter: LoginRateLimiter | None = None,
         containers: ContainersGateway | None = None,
+        totp: TotpGateway | None = None,
     ) -> AppContainer:
         """Create the default wiring; tests override individual collaborators."""
         engine = create_db_engine(settings.database_url)
@@ -130,7 +141,15 @@ class AppContainer:
             github=github or worker,
             repository=worker,
             webhook_limiter=webhook_failure_limiter(clock),
+            totp=totp or worker,
+            mfa_challenges=MfaChallengeStore(clock),
         )
+
+    def totp_gateway(self) -> TotpGateway:
+        """Two-factor key operations (always through the worker; the API has no key)."""
+        if self.totp is not None:
+            return self.totp
+        return WorkerClient(self.settings.worker_socket_path)
 
     def container_gateway(self) -> ContainersGateway:
         """Container management (always through the worker; the API has no Docker access)."""
@@ -175,8 +194,32 @@ class AppContainer:
     def auth_service(self) -> AuthService:
         """Return a login service with its own unit of work."""
         return AuthService(
-            self.uow(), self.hasher, self.limiter, self.session_service(), self.clock
+            self.uow(),
+            self.hasher,
+            self.limiter,
+            self.session_service(),
+            self.clock,
+            two_factor=self.two_factor_service(),
+            challenges=self.mfa_challenges,
         )
+
+    def two_factor_service(self) -> TwoFactorService:
+        """Return the two-factor service with its own unit of work."""
+        return TwoFactorService(
+            self.uow(), self.hasher, self.totp_gateway(), self.limiter, self.clock
+        )
+
+    def profile_service(self) -> ProfileService:
+        """Return the signed-in user's account service with its own unit of work."""
+        return ProfileService(self.uow(), self.clock)
+
+    def audit_log_service(self) -> AuditLogService:
+        """Return the audit log reader with its own unit of work."""
+        return AuditLogService(self.uow())
+
+    def dashboard_service(self) -> DashboardService:
+        """Return the dashboard read model with its own unit of work."""
+        return DashboardService(self.uow(), self.clock)
 
     def run_queries(self) -> RunQueryService:
         """Return a run read-model service with its own unit of work."""

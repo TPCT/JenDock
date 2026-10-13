@@ -35,3 +35,23 @@
   min-width: 0;
   outline: none;
 }
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.accountName {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 30rem) {
+  .accountName {
+    display: none;
+  }
+}
+.role {
+  font-weight: var(--base-text-weight-normal);
+  text-transform: capitalize;
+}

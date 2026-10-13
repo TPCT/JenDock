@@ -274,6 +274,59 @@ given password and also ends all sessions of that user. Both commands are audite
 - Revoked or expired tokens are rejected; `last_used_at` is updated at most once per minute;
   token actions are audited with actor type `token`. Runs can record `triggered_by_token_id`.
 
+### Your account (profile, sessions, two-factor)
+
+Open the avatar menu in the header: **Your profile** and **Settings** lead to the settings
+pages (API reference: `docs/api-contract.md`, "Account").
+
+- **Public profile**: display name and an optional email. The avatar shows initials.
+- **Password and authentication**: the existing change-password screen (current password
+  required, rate limited, other sessions ended) is reused; the two-factor controls sit next to it.
+- **Sessions**: every live login with its browser and OS (from the `User-Agent`), client address
+  (the peer, or the real client behind `JENDOCK_TRUSTED_PROXIES`), last activity and a *This
+  device* marker. Revoke one session or all others.
+- **API tokens**: your own tokens (create, revoke), listed under Settings.
+- **Security log**: your sign-ins and account changes (profile, password, two-factor, tokens).
+- **Two-factor authentication (TOTP, RFC 6238)**: *Set up* shows a QR code (drawn in the browser
+  from an `otpauth://` URI, no outside service) and the key to type by hand; entering a valid
+  six-digit code turns it on and shows ten one-time recovery codes **once**. Login then asks for
+  the code after the password (SHA-1, 6 digits, 30 s, one step of clock drift; a code works once)
+  or for a recovery code. Wrong codes are rate limited like wrong passwords. Turning it off needs
+  the password and a code. Lost your phone and your codes: an operator turns it off with
+  `python -m backend.cli users disable-two-factor <username>` (audited as `two_factor.disable`,
+  actor `system:cli`); the user can then set it up again.
+  *Design:* the TOTP key must be readable to verify codes, so it cannot be hashed. It is
+  generated and decrypted **only by the worker** (same Fernet key and trust boundary as project
+  secrets, `totp.generate` / `totp.check` RPC methods); the API stores the ciphertext and sends
+  it with the code to the worker, which answers with the matching time step only. A database or
+  backup leak, or a compromise of the API process alone, does not reveal the keys, and the
+  plaintext appears once, in the enrollment response. Recovery codes carry 80 bits of entropy,
+  so their SHA-256 is stored (like API tokens). Without a reachable worker, users with
+  two-factor cannot complete a password login (recovery codes still work).
+
+### Audit log (`/audit`)
+
+The sidebar's **Audit log** lists every recorded action in words ("Revealed the secret
+DATABASE_URL"), newest first, with the actor, time, target and the raw (secret-free) details
+behind a disclosure. Filter by search text, actor type, action (or a whole group such as
+`secret.*`), project, target and date range; **Load older events** continues with a cursor;
+**Export CSV** downloads the current filter (streamed, at most the newest 10 000 events,
+spreadsheet formulas neutralised). Owners and admins see every event; a member sees only their
+own activity, and only about projects they still hold a grant on (policy action `audit.read`,
+`authz.audit_filter`). Everybody sees their own activity under Settings, Security log.
+
+### Home dashboard (`/`)
+
+One request (`GET /api/dashboard`, fixed number of queries) feeds the landing page: needs
+attention (running or queued runs, environments whose newest run failed), recent deployments
+(status, who or what triggered, commit, duration), pushes waiting for a manual deploy
+(auto-deploy off), certificates expiring within 30 days and the host's CPU, memory and disk.
+Every card links to its details and explains in its empty state what to do next; members only
+see what their grants allow (deployments, runs, domains and certificates per environment, the host
+only with any grant); a brand-new
+installation shows a welcome with *Create your first project*. If the worker cannot be reached
+only the host card says so.
+
 ### Secret endpoints
 
 `GET|PUT|DELETE /api/projects/{slug}/environments/{env}/secrets[/{name}]` and

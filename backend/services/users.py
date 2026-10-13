@@ -60,14 +60,14 @@ def generate_password() -> str:
     return secrets.token_urlsafe(GENERATED_PASSWORD_BYTES)
 
 
-def _clean_display_name(value: str) -> str:
+def clean_display_name(value: str) -> str:
     name = value.strip()
     if len(name) > MAX_NAME_LENGTH:
         raise ValidationError(f"display name must be at most {MAX_NAME_LENGTH} characters")
     return name
 
 
-def _clean_email(value: str | None) -> str | None:
+def clean_email(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
     email = value.strip()
@@ -116,8 +116,8 @@ class UserService:
                 password_hash=password_hash,
                 created_at=self._clock(),
                 role=role,
-                display_name=_clean_display_name(display_name),
-                email=_clean_email(email),
+                display_name=clean_display_name(display_name),
+                email=clean_email(email),
                 must_change_password=must_change_password,
             )
             self._uow.users.add(user)
@@ -236,13 +236,25 @@ class UserService:
                     self._uow.sessions.delete(row)
             self._audit(actor, "user.password_change", user, {})
 
+    def disable_two_factor(self, username: str, actor: Actor) -> None:
+        """Remove the user's second factor and recovery codes (operator recovery path)."""
+        with self._uow:
+            user = self._uow.users.get_by_username(username)
+            if user is None:
+                raise NotFoundError(f"user not found: {username}")
+            user.totp_secret = None
+            user.totp_enabled_at = None
+            user.totp_last_step = None
+            self._uow.users.delete_recovery_codes(user.id)
+            self._audit(actor, "two_factor.disable", user, {})
+
     def _apply(self, user: User, change: UserChange) -> dict[str, object]:
         details: dict[str, object] = {}
         if change.display_name is not None:
-            user.display_name = _clean_display_name(change.display_name)
+            user.display_name = clean_display_name(change.display_name)
             details["display_name"] = user.display_name
         if change.email is not None:
-            user.email = _clean_email(change.email)
+            user.email = clean_email(change.email)
             details["email"] = user.email
         if change.role is not None and change.role is not user.role:
             self._guard_last_owner(user)

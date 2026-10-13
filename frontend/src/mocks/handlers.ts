@@ -1,6 +1,7 @@
 import { http, HttpResponse, sse, type HttpHandler } from "msw";
 import type { EnvironmentName, Page, RunSummary, Session } from "../api/types";
 import type { Model } from "../api/pipelineTypes";
+import { accountHandlers, MOCK_RECOVERY_CODES, MOCK_TOTP_CODE } from "./account";
 import { adminHandlers } from "./admin";
 import { accessHandlers, mockSession } from "./access";
 import { containerHandlers } from "./containers";
@@ -10,6 +11,8 @@ import { integrationHandlers } from "./integrations";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
   MOCK_LOCKED_USERNAME,
+  MOCK_MFA_CHALLENGE,
+  MOCK_MFA_USERNAME,
   MOCK_PASSWORD,
   MOCK_CSRF,
   MOCK_USERNAME,
@@ -74,6 +77,7 @@ const SIMULATED_LINES = 10;
 export const handlers: HttpHandler[] = [
   ...adminHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...accessHandlers({ authenticated: () => authenticated, error, unauthenticated }),
+  ...accountHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...containerHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...databaseHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...notificationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
@@ -107,8 +111,26 @@ export const handlers: HttpHandler[] = [
     if (body.username === MOCK_LOCKED_USERNAME) {
       return error(429, "rate_limited", "too many login attempts", { "Retry-After": "420" });
     }
-    if (body.username !== MOCK_USERNAME || body.password !== MOCK_PASSWORD) {
+    const known = body.username === MOCK_USERNAME || body.username === MOCK_MFA_USERNAME;
+    if (!known || body.password !== MOCK_PASSWORD) {
       return error(401, "unauthenticated", "invalid username or password");
+    }
+    if (body.username === MOCK_MFA_USERNAME) {
+      return HttpResponse.json({ mfa_required: true, challenge: MOCK_MFA_CHALLENGE });
+    }
+    setMockAuthenticated(true);
+    return HttpResponse.json(session());
+  }),
+
+  http.post("/api/auth/login/two-factor", async ({ request }) => {
+    const body = (await request.json()) as { challenge?: string; code?: string };
+    const code = (body.code ?? "").replace(/[\s-]/g, "");
+    const recovery = MOCK_RECOVERY_CODES.map((item) => item.replace(/-/g, ""));
+    if (
+      body.challenge !== MOCK_MFA_CHALLENGE ||
+      (code !== MOCK_TOTP_CODE && !recovery.includes(code))
+    ) {
+      return error(401, "unauthenticated", "invalid or expired verification code");
     }
     setMockAuthenticated(true);
     return HttpResponse.json(session());

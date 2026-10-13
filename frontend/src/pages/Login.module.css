@@ -33,3 +33,29 @@
 .narrow {
   max-width: 20.5rem;
 }
+.alternatives {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--base-size-8);
+}
+.hints {
+  margin: var(--base-size-4) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-body-size-small);
+}
+.hintOk {
+  color: var(--fgColor-success);
+}
+.hintTodo {
+  color: var(--fgColor-muted);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

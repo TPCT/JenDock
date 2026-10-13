@@ -15,6 +15,9 @@ export const MOCK_USERNAME = "admin";
 export const MOCK_PASSWORD = "mock-password-12345";
 export const MOCK_CSRF = "mock-csrf-token";
 export const MOCK_LOCKED_USERNAME = "locked";
+/** A user with two-factor authentication: the mock login asks for MOCK_TOTP_CODE. */
+export const MOCK_MFA_USERNAME = "mfa";
+export const MOCK_MFA_CHALLENGE = "mock-challenge";
 
 const MINUTE = 60_000;
 const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();

@@ -36,10 +36,10 @@ describe("format", () => {
 describe("safeNext", () => {
   it("only allows in-app paths", () => {
     expect(safeNext("/runs/4?x=1")).toBe("/runs/4?x=1");
-    expect(safeNext("//evil.test")).toBe("/projects");
-    expect(safeNext("https://evil.test")).toBe("/projects");
-    expect(safeNext("/login")).toBe("/projects");
-    expect(safeNext(null)).toBe("/projects");
+    expect(safeNext("//evil.test")).toBe("/");
+    expect(safeNext("https://evil.test")).toBe("/");
+    expect(safeNext("/login")).toBe("/");
+    expect(safeNext(null)).toBe("/");
   });
 });
 

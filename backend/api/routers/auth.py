@@ -14,20 +14,26 @@ from backend.api.deps import (
     session_context,
 )
 from backend.api.principal import Principal
-from backend.api.schemas.auth import ChangePasswordRequest, LoginRequest, SessionResponse
+from backend.api.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    MfaRequiredResponse,
+    SessionResponse,
+    TwoFactorLoginRequest,
+)
 from backend.domain.errors import AuthenticationError
+from backend.services.auth import LoginResult
 from backend.services.users import WrongPasswordError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-@router.post("/login")
-def login(
-    body: LoginRequest, request: Request, response: Response, container: Container
+def _opened_session(
+    result: LoginResult, response: Response, container: Container
 ) -> SessionResponse:
-    """Verify credentials, open a session and set the cookie."""
-    check_origin(request, container)
-    result = container.auth_service().login(body.username, body.password, client_ip(request))
+    """Set the cookie of a freshly opened session and describe it."""
+    if result.session is None:
+        raise RuntimeError("login result without a session")
     container.cookies.set(response, result.session.token)
     resolved = container.session_service().resolve(result.session.token, touch=False)
     if resolved is None:
@@ -37,6 +43,33 @@ def login(
     )
     principal = Principal(session=resolved, session_token=result.session.token, grants=grants)
     return SessionResponse.from_principal(principal)
+
+
+@router.post("/login")
+def login(
+    body: LoginRequest, request: Request, response: Response, container: Container
+) -> SessionResponse | MfaRequiredResponse:
+    """Verify credentials. Without two-factor this opens the session and sets the cookie;
+    with two-factor it answers ``mfa_required`` and a challenge for ``/login/two-factor``."""
+    check_origin(request, container)
+    agent = request.headers.get("user-agent")
+    result = container.auth_service().login(body.username, body.password, client_ip(request), agent)
+    if result.challenge is not None:
+        return MfaRequiredResponse(challenge=result.challenge)
+    return _opened_session(result, response, container)
+
+
+@router.post("/login/two-factor")
+def login_two_factor(
+    body: TwoFactorLoginRequest, request: Request, response: Response, container: Container
+) -> SessionResponse:
+    """Second step: a six-digit code (or a recovery code) completes a pending login."""
+    check_origin(request, container)
+    agent = request.headers.get("user-agent")
+    result = container.auth_service().complete_login(
+        body.challenge, body.code, client_ip(request), agent
+    )
+    return _opened_session(result, response, container)
 
 
 @router.post("/logout", status_code=204)

@@ -96,6 +96,7 @@ class WebhookService:
                 event=event[:32],
                 repository=routing.repository,
                 outcome=routing.outcome.value,
+                branch=routing.branch,
                 received_at=now,
             )
             self._uow.deliveries.add(delivery)

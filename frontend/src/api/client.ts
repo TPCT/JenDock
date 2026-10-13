@@ -1,3 +1,4 @@
+import type { MfaRequired } from "./accountTypes";
 import type { Diagnostic, FieldIssue, Session } from "./types";
 
 /** Parsed error envelope: `{"error": {"code", "message", "diagnostics"?, "fields"?}}`. */
@@ -136,10 +137,28 @@ export async function fetchSession(): Promise<Session> {
   return session;
 }
 
-export async function login(username: string, password: string): Promise<Session> {
-  const session = await request<Session>("/api/auth/login", {
+export type LoginOutcome = Session | MfaRequired;
+
+export function isMfaRequired(outcome: LoginOutcome): outcome is MfaRequired {
+  return "mfa_required" in outcome;
+}
+
+/** Step one: a session, or `mfa_required` and a challenge for `loginTwoFactor`. */
+export async function login(username: string, password: string): Promise<LoginOutcome> {
+  const outcome = await request<LoginOutcome>("/api/auth/login", {
     method: "POST",
     body: { username, password },
+    suppressUnauthenticated: true,
+  });
+  if (!isMfaRequired(outcome)) setCsrfToken(outcome.csrf_token);
+  return outcome;
+}
+
+/** Step two: a six-digit code (or a recovery code) completes a pending login. */
+export async function loginTwoFactor(challenge: string, code: string): Promise<Session> {
+  const session = await request<Session>("/api/auth/login/two-factor", {
+    method: "POST",
+    body: { challenge, code },
     suppressUnauthenticated: true,
   });
   setCsrfToken(session.csrf_token);

@@ -1,0 +1,8 @@
+.qr {
+  display: block;
+  width: 12rem;
+  max-width: 100%;
+  height: auto;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}

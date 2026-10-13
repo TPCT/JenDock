@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { api, fetchSession, login, logout } from "./client";
+import { api, fetchSession, isMfaRequired, login, loginTwoFactor, logout } from "./client";
 import type {
   Catalog,
   Diagnostics,
@@ -50,6 +50,17 @@ export function useLogin() {
   return useMutation({
     mutationFn: (input: { username: string; password: string }) =>
       login(input.username, input.password),
+    onSuccess: (outcome) => {
+      if (!isMfaRequired(outcome)) client.setQueryData(keys.session, outcome);
+    },
+  });
+}
+
+export function useLoginTwoFactor() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { challenge: string; code: string }) =>
+      loginTwoFactor(input.challenge, input.code),
     onSuccess: (session) => {
       client.setQueryData(keys.session, session);
     },

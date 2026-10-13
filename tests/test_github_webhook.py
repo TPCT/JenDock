@@ -252,6 +252,11 @@ def test_push_with_auto_deploy_off_is_recorded_without_a_run(
     assert _deliveries(hook_container) == 1
     events = AuditService(hook_container.uow()).list(action="github.webhook")
     assert events[0].details["outcome"] == "recorded"
+    # The delivery remembers the branch, which is what the dashboard's "waiting for a manual
+    # deploy" card matches against the environments.
+    uow = hook_container.uow()
+    with uow:
+        assert uow.session.scalar(select(WebhookDelivery.branch)) == "development"
 
 
 def test_each_environment_follows_its_own_branch(
