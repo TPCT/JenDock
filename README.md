@@ -5,8 +5,8 @@ Self-hosted CI/CD for Docker Compose applications on your own server, Jenkinsfil
 Jendock watches your GitHub repositories, runs your pipeline when you push, builds the Docker
 images, deploys them with Docker Compose and rolls back when the new version does not become
 healthy. Each project has a **Development** and a **Production** environment, each tracking its
-own branch (conventionally `development` and `production`), and everything is operated from a GitHub-style web UI, a REST API or an MCP endpoint
-for AI agents.
+own branch (conventionally `development` and `production`). Everything is operated from a
+GitHub-style web UI, a REST API or an MCP endpoint for AI agents.
 
 ## Features
 
@@ -94,7 +94,7 @@ engine in `backend/pipeline` is pure code and never executes anything. See
 
 ### Local development
 
-```
+```bash
 make install                                  # .venv with the dev dependencies
 make check                                    # lint, type check, tests
 
@@ -105,7 +105,7 @@ cd frontend && npm ci && npm run dev:mock     # web UI on :5173 against a mocked
 To run the real backend, point it at a scratch directory and start the API, the worker and the
 UI dev server (see [frontend/README.md](frontend/README.md)):
 
-```
+```bash
 export JENDOCK_DATA_DIR=$PWD/.data JENDOCK_WORKER_SOCKET_PATH=$PWD/.data/worker.sock
 export JENDOCK_PUBLIC_ORIGIN=http://localhost:5173
 mkdir -p .data && make migrate
@@ -117,7 +117,7 @@ cd frontend && npm run dev                             # proxies /api to :8000
 
 ### Production
 
-```
+```bash
 # on the server, in the release checkout; `docker compose` talks to the host's Docker daemon
 cp deployment/env.production.example .env     # then edit it
 make preflight PREFLIGHT_ARGS="--env-file .env"
@@ -190,7 +190,7 @@ Details, including the trust boundaries and their known limits, are in
 
 ## Development
 
-```
+```bash
 make check            # ruff, mypy (strict) and pytest
 make test-docker      # integration tests against a real Docker daemon
 make test-e2e         # the whole platform with real containers (several minutes)
