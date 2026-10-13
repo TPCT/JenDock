@@ -34,6 +34,7 @@ from sqlalchemy.types import TypeDecorator
 from shiftcodes.domain.clock import utcnow
 from shiftcodes.domain.enums import (
     ActorType,
+    DeploymentStatus,
     EnvironmentName,
     GitTransport,
     PipelineSource,
@@ -168,6 +169,8 @@ class Environment(Base):
     auto_deploy: Mapped[bool] = mapped_column(default=False)
     compose_project: Mapped[str | None] = mapped_column(String(63), default=None)
     compose_files: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Interpolation env files for every compose invocation (absolute host paths).
+    compose_env_files: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     services: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
@@ -249,6 +252,39 @@ class StepRun(Base):
     label: Mapped[str] = mapped_column(String(500))
     status: Mapped[RunStatus] = mapped_column(_enum(RunStatus), default=RunStatus.QUEUED)
     exit_code: Mapped[int | None] = mapped_column(default=None)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+
+
+class Deployment(Base):
+    """One rollout of built images to the services of an environment.
+
+    ``services`` holds one object per service: ``service``, ``previous_image``,
+    ``previous_image_id``, ``new_image`` and ``new_image_id`` (the previous ones are null when
+    the service was not running). A redeploy starts as a ``pending`` row that points at the
+    deployment whose images it reuses.
+    """
+
+    __tablename__ = "deployments"
+    __table_args__ = (
+        Index("ix_deployments_environment_id_created_at", "environment_id", "created_at"),
+        Index("ix_deployments_run_id", "run_id"),
+        Index("ix_deployments_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="RESTRICT"))
+    status: Mapped[DeploymentStatus] = mapped_column(
+        _enum(DeploymentStatus), default=DeploymentStatus.DEPLOYING
+    )
+    commit_sha: Mapped[str] = mapped_column(String(40))
+    services: Mapped[list[dict[str, str | None]]] = mapped_column(JSON, default=list)
+    message: Mapped[str | None] = mapped_column(String(500), default=None)
+    redeploy_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("deployments.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
 

@@ -65,6 +65,9 @@ class PipelineRunner:
 
     def _checkout(self, plan: StagePlan, scope: Scope, state: RunState) -> None:
         recorder = self._run.recorder
+        if self._run.job.redeploy_images:
+            recorder.finish_stage(plan.checkout_id, RunStatus.SKIPPED)  # nothing is built
+            return
         recorder.start_stage(plan.checkout_id)
         status = RunStatus.SUCCEEDED
         try:

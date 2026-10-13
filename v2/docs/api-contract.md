@@ -234,6 +234,53 @@ Scope `run`, CSRF. 200 `{outcome: "cancelled" | "requested", run: RunResponse}`.
 (`cancel_requested_at` set, status still `running`). The UI offers cancel only while
 `queued|running`, behind a confirmation, and shows "Cancel requested" afterwards.
 
+## Deployments (exists)
+
+A deployment is one rollout of built images to the services of an environment. The worker
+records it (previous and new image per service) before it changes anything, verifies container
+health afterwards and rolls back automatically when the new containers do not become healthy.
+Deployment statuses: `pending` (a queued redeploy that has not started), `deploying`,
+`succeeded`, `failed` (refused before anything changed), `rolled_back` (the new images failed
+and the previous ones run again) and `rollback_failed` (both failed: needs manual attention; the
+run is failed with a message starting `ROLLBACK FAILED`). A `pending` row whose run ended
+without deploying is reported as `failed` with the run's message.
+
+### `GET /api/projects/{slug}/environments/{env}/deployments?limit=20&offset=0`
+
+Scope `read`. `env` is `development|production`; `limit` 1-100, `offset` >= 0. 200, newest first:
+
+```json
+{
+  "items": [{
+    "id": 12, "run_id": 41, "run_number": 9, "status": "succeeded",
+    "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+    "services": [{
+      "service": "web",
+      "previous_image": "sc/shop-production-web:aaaaaaaaaaaa-r8", "previous_image_id": "sha256:...",
+      "new_image": "sc/shop-production-web:bbbbbbbbbbbb-r9", "new_image_id": "sha256:..."
+    }],
+    "message": null, "redeploy_of": null,
+    "created_at": "2026-10-13T10:00:00Z", "started_at": "...", "finished_at": "..."
+  }],
+  "total": 1, "limit": 20, "offset": 0
+}
+```
+
+`previous_image` and `previous_image_id` are `null` for a service that was not running before.
+`message` explains `failed`, `rolled_back` and `rollback_failed`. `redeploy_of` is the id of the
+deployment whose images a redeploy reuses. 404 for an unknown project, 422 for a bad `env`.
+
+### `POST /api/projects/{slug}/environments/{env}/deployments/{id}/redeploy`
+
+Scope `deploy`, CSRF. Queues a run (trigger `redeploy`, pipeline source `platform`) whose
+pipeline is a synthetic `deploy` of the images of deployment `{id}`; nothing is rebuilt and the
+source is not checked out (the Checkout stage is `skipped`). Only a `succeeded` deployment of
+this environment can be redeployed, and its images must still exist on the host (image
+retention keeps the newest ones). Audited as `deployment.redeploy`.
+201 `{run: RunSummary, deployment_id}` where `deployment_id` is the new `pending` deployment;
+404 `not_found` (unknown deployment, or one of another environment), 409 `conflict` (the
+deployment did not succeed, or the run number was taken concurrently: retry).
+
 ## Pipelines (implemented)
 
 The browser never parses or serializes Jenkinsfile text. The server is the single source of

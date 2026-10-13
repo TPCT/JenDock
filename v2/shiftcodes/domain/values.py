@@ -167,6 +167,16 @@ def validate_compose_files(paths: list[str]) -> list[str]:
     return list(paths)
 
 
+def validate_compose_env_files(paths: list[str]) -> list[str]:
+    """Validate compose interpolation env file paths: absolute, no ``..`` parts, no NUL."""
+    for raw in paths:
+        path = PurePosixPath(raw)
+        if "\0" in raw or not path.is_absolute() or ".." in path.parts:
+            raise ValidationError(f"compose env file must be a clean absolute path: {raw!r}")
+    _reject_duplicates(paths, "compose env file")
+    return list(paths)
+
+
 def validate_compose_project(name: str | None) -> str | None:
     """Validate a docker compose project name; ``None`` is allowed."""
     if name is not None and not _COMPOSE_PROJECT.fullmatch(name):

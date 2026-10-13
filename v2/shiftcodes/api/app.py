@@ -15,6 +15,7 @@ from shiftcodes.api.frontend import mount_frontend
 from shiftcodes.api.middleware import SecurityHeadersMiddleware
 from shiftcodes.api.routers import (
     auth,
+    deployments,
     domains,
     github,
     pipelines,
@@ -63,6 +64,7 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(secrets.router)
     app.include_router(domains.router)
     app.include_router(runs.router)
+    app.include_router(deployments.router)
     app.include_router(projects.router)
     app.include_router(github.router)
     app.include_router(pipelines.environment_router)

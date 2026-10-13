@@ -31,6 +31,16 @@ def test_update_all_fields(uow: UnitOfWork, project: str) -> None:
     assert service.get(project, DEV).branch == "development"
 
 
+def test_compose_env_files_are_stored_and_validated(uow: UnitOfWork, project: str) -> None:
+    service = EnvironmentService(uow)
+    assert service.get(project, DEV).compose_env_files == []
+    change = EnvironmentUpdate(compose_env_files=["/opt/demo/ports.env"])
+    assert service.update(project, DEV, change).compose_env_files == ["/opt/demo/ports.env"]
+    with pytest.raises(ValidationError):
+        service.update(project, DEV, EnvironmentUpdate(compose_env_files=["ports.env"]))
+    assert service.get(project, DEV).compose_env_files == ["/opt/demo/ports.env"]
+
+
 def test_partial_update_and_clear_compose_project(uow: UnitOfWork, project: str) -> None:
     service = EnvironmentService(uow)
     service.update(project, DEV, EnvironmentUpdate(compose_project="x", auto_deploy=True))

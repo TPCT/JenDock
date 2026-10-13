@@ -29,6 +29,7 @@ from shiftcodes.repositories.database import (
 )
 from shiftcodes.services.auth import AuthService
 from shiftcodes.services.certificates import RenewalPolicy
+from shiftcodes.services.deployments import DeploymentService
 from shiftcodes.services.domain_status import DomainStatusService
 from shiftcodes.services.domains import DomainService
 from shiftcodes.services.environments import EnvironmentService
@@ -125,6 +126,10 @@ class AppContainer:
     def run_lifecycle(self) -> RunLifecycleService:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
+
+    def deployment_service(self) -> DeploymentService:
+        """Return a deployment history service with its own unit of work."""
+        return DeploymentService(self.uow(), self.clock)
 
     def domain_service(self) -> DomainService:
         """Return a domain service with its own unit of work."""

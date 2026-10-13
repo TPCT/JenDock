@@ -56,6 +56,12 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   `SHIFTCODES_DOCKER_HOST` points to.
 - `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
   see `stat -c %g <socket>`). Added to the worker via `group_add`.
+- `COMPOSE_PROJECTS_DIR` - host directory with the compose files and `--env-file` files of the
+  deployed projects (default `/opt/docker-engine/projects`). It is mounted read-only into the
+  worker at the **identical absolute path**: the compose CLI runs in the worker but the host
+  daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
+  file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
+  below it; the deployer refuses to start a deployment when one is not readable.
 
 ## Reproducible builds
 
@@ -205,9 +211,54 @@ the exit code.
   step). Strings are rendered from the AST parts and the resolved environment, never evaluated.
   `credentials('X')` is resolved by the worker through `SecretService.resolve_for_run` (audited as
   `secret.resolve`) and registered with the run's redactor.
-- `deploy` calls a `Deployer`; until Task 7 the worker wires `UnavailableDeployer`, which fails
-  the step with "deploy is not available yet (Task 7)". `healthCheck` does an HTTP GET (redirects
-  are not followed) every 2 s until the expected status or its timeout.
+- `deploy` calls a `Deployer` (`ComposeDeployer`, see Deployment below); optional
+  `healthUrl`/`healthStatus`/`healthTimeout` arguments add an HTTP check that must pass before
+  the deployment counts as good. `healthCheck` does an HTTP GET (redirects are not followed)
+  every 2 s until the expected status or its timeout.
+
+### Deployment (Task 7)
+
+`ComposeDeployer` (`shiftcodes/adapters/compose_deployer.py`) deploys the requested services of
+an environment and nothing else:
+
+0. Every compose invocation (config, ps, up, rm; deploy, rollback and recovery) starts with
+   `docker compose --env-file <f>... -p <project> -f <file>... [-f <override>]`, built only by
+   `ComposeProject.base_command` (Task 8 reuses it). `compose_env_files` of the environment
+   supply the variable interpolation of the compose files; every compose and env file must be
+   readable by the worker, otherwise the deployment is refused with a clear error.
+1. It checks that every service exists in `docker compose config` of the environment's own files
+   and that the new image exists locally (it never pulls or builds).
+2. It records, per service, the running image tag and id in a `deployments` row, and writes a
+   journal `<data_dir>/deployments/<compose project>/journal.json` (fsynced) with everything
+   needed to undo the change.
+3. It writes the managed override `<data_dir>/deployments/<compose project>/override.yml`
+   (atomic; the replaced version stays as `override.yml.prev`) that pins `image:` of each
+   deployed service, and runs `docker compose -p <project> -f <files...> -f <override> up -d
+   --no-deps --no-build --pull never <services>`. The override is always the last compose file, so
+   later restarts or recreations of the service keep the deployed image (Task 8 must append
+   `OverrideStore.path()` too).
+4. It waits (`SHIFTCODES_DEPLOY_HEALTH_TIMEOUT`, default 120 s) until every container is
+   `running` and, when it has a healthcheck, `healthy`, and stays so for
+   `SHIFTCODES_DEPLOY_SETTLE_SECONDS` (default 3) without its restart count increasing; then the
+   optional HTTP check runs.
+5. On any failure it restores the previous override, recreates the services from their previous
+   image (pinned by id when the tag moved; a service that did not exist before is removed) and
+   verifies them again: the deployment becomes `rolled_back`, or `rollback_failed` (the run fails
+   with a message starting `ROLLBACK FAILED`). Either way the step fails.
+6. After success it removes old images (`SHIFTCODES_IMAGE_RETENTION`, default 5): per logical
+   image (repository) of this project and environment (labels `shiftcodes.project` and
+   `shiftcodes.environment` are required, so foreign images are never touched) only the newest N
+   remain, plus any image used by a container and the images of the latest deployment
+   (previous and new).
+
+At worker start `recover_interrupted_deployments` (before runs are marked `interrupted`) rolls
+back every deployment whose journal is still on disk and marks deployments left `deploying`
+without a journal as `failed`. Recovery always rolls back rather than finishing, because the run
+that owned the deployment ends `interrupted`. One deployment per environment runs at a time.
+
+`GET .../deployments` lists the history and `POST .../deployments/{id}/redeploy` queues a run
+(trigger `redeploy`) that deploys the images of a successful deployment again without checkout
+or build; see `docs/api-contract.md`.
 
 ### Docker agents
 
