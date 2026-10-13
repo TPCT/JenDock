@@ -20,8 +20,9 @@ from backend.domain.discovery import (
 )
 from backend.domain.enums import EnvironmentName
 from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.repositories.models import DiscoveredDomain
 from backend.services.discovery import DiscoveryService
-from backend.services.discovery_queries import DiscoveryQueryService
+from backend.services.discovery_queries import DiscoveryQueryService, DiscoveryStateView
 from tests.discovery_support import (
     SERVER_IP,
     FakePorts,
@@ -69,10 +70,10 @@ class World:
     def refresh(self) -> None:
         DiscoveryService(UnitOfWork(self.factory), self.ports.build()).refresh(ACTOR)
 
-    def state(self):
+    def state(self) -> DiscoveryStateView:
         return DiscoveryQueryService(UnitOfWork(self.factory)).state()
 
-    def rows(self) -> dict[str, object]:
+    def rows(self) -> dict[str, DiscoveredDomain]:
         with UnitOfWork(self.factory) as uow:
             return {row.hostname: row for row in uow.discovery.list_all()}
 
@@ -106,8 +107,8 @@ def test_cloudflare_is_read_page_by_page_and_only_read(world: World) -> None:
 def test_cname_to_a_server_record_points_here_and_proxy_flag_is_kept(world: World) -> None:
     world.refresh()
     rows = world.rows()
-    assert rows["www.example.com"].points_to_server is True  # type: ignore[attr-defined]
-    assert rows["shop.example.com"].proxied is True  # type: ignore[attr-defined]
+    assert rows["www.example.com"].points_to_server is True
+    assert rows["shop.example.com"].proxied is True
     assert world.state().zones == ("example.com", "example.org")
 
 
@@ -120,16 +121,16 @@ def test_apache_sites_are_merged_and_matched_by_upstream_port(world: World) -> N
     world.refresh()
     rows = world.rows()
     shop = rows["shop.example.com"]
-    assert (shop.upstream_port, shop.vhost_ssl, shop.vhost_file) == (  # type: ignore[attr-defined]
+    assert (shop.upstream_port, shop.vhost_ssl, shop.vhost_file) == (
         20001,
         True,
         "shop-ssl.conf",
     )
-    assert shop.suggested_project == "shop-api"  # type: ignore[attr-defined]
-    assert shop.suggestion_confidence is Confidence.HIGH  # type: ignore[attr-defined]
-    assert shop.suggested_service == "web" and shop.suggested_container_port == 8080  # type: ignore[attr-defined]
+    assert shop.suggested_project == "shop-api"
+    assert shop.suggestion_confidence is Confidence.HIGH
+    assert shop.suggested_service == "web" and shop.suggested_container_port == 8080
     legacy = rows["legacy.example.com"]
-    assert legacy.zone_name == "example.com" and legacy.record_type is None  # type: ignore[attr-defined]
+    assert legacy.zone_name == "example.com" and legacy.record_type is None
     state = world.state()
     assert state.helper is SourceState.OK and state.cloudflare is SourceState.OK
     assert state.adoptable == 2  # shop.example.com and www.example.com share the port
@@ -142,7 +143,7 @@ def test_without_the_helper_cloudflare_alone_still_works(world: World) -> None:
     assert state.helper is SourceState.MISSING and state.cloudflare is SourceState.OK
     assert len(world.rows()) == 3
     # name-based suggestion survives without Apache
-    assert world.rows()["shop-api.example.com"].suggested_project == "shop-api"  # type: ignore[attr-defined]
+    assert world.rows()["shop-api.example.com"].suggested_project == "shop-api"
 
 
 def test_an_old_helper_is_reported_as_outdated(world: World) -> None:

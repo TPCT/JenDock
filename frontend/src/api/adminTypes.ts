@@ -62,6 +62,7 @@ export interface CreateTokenBody {
 
 export type DnsRecordType = "A" | "AAAA" | "CNAME";
 export type DomainStatus = "draft" | "active" | "error";
+export type DomainOrigin = "managed" | "adopted";
 export type CertificateState = "ok" | "renewal_due" | "warning" | "critical" | "expired";
 
 export interface Certificate {
@@ -76,6 +77,13 @@ export interface CheckResult {
   ok: boolean;
   detail: string;
   checked_at: string;
+  /** The part could not be checked (no token, no host helper); it does not fail the check. */
+  skipped?: boolean;
+  proxied?: boolean;
+  record_type?: string;
+  file?: string;
+  upstream_port?: number | null;
+  ssl?: boolean;
   addresses?: string[];
   expected?: string[];
   status_code?: number;
@@ -86,7 +94,8 @@ export interface CheckResult {
 export interface Check {
   checked_at: string;
   ok: boolean;
-  results: { dns: CheckResult; https: CheckResult; backend: CheckResult };
+  /** `vhost` is only present for adopted domains (Apache is not Jendock's to plan). */
+  results: { dns: CheckResult; https: CheckResult; backend: CheckResult; vhost?: CheckResult };
 }
 
 export interface Domain {
@@ -101,6 +110,10 @@ export interface Domain {
   tls_enabled: boolean;
   status: DomainStatus;
   status_message: string | null;
+  /** `adopted` domains existed before Jendock and are managed outside it. */
+  origin: DomainOrigin;
+  adopted_at: string | null;
+  vhost_file: string | null;
   applied_at: string | null;
   last_verified_at: string | null;
   last_verified_ok: boolean | null;

@@ -21,6 +21,7 @@ import { ContainersPage } from "./pages/Containers";
 import { DatabaseBrowserPage } from "./pages/DatabaseBrowser";
 import { DatabasesPage } from "./pages/Databases";
 import { DeploymentsPage } from "./pages/Deployments";
+import { DiscoveredDomainsPage } from "./pages/DiscoveredDomains";
 import { DomainsPage } from "./pages/Domains";
 import { ChangePasswordPage } from "./pages/ChangePassword";
 import { MembersPage } from "./pages/Members";
@@ -166,6 +167,7 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <HomePage /> },
           { path: "/audit", element: <AuditLogPage /> },
+          { path: "/domains", element: <DiscoveredDomainsPage /> },
           { path: "/projects", element: <ProjectsPage /> },
           { path: "/projects/new", element: <NewProjectPage /> },
           {

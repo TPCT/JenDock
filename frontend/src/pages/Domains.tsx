@@ -1,5 +1,6 @@
 import {
   CheckCircleFillIcon,
+  CircleSlashIcon,
   GlobeIcon,
   KebabHorizontalIcon,
   PlusIcon,
@@ -45,12 +46,14 @@ import { useProject } from "../api/hooks";
 import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import {
   DomainFields,
+  hostnameOf,
   domainBody,
   emptyDomainDraft,
   validateDomainDraft,
   type DomainDraft,
 } from "../components/DomainFields";
 import { EnvToolbar } from "../components/EnvSwitch";
+import { NameCheck } from "../components/NameCheck";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { RelativeTime } from "../components/Time";
 import { useCan } from "../lib/permissions";
@@ -112,15 +115,29 @@ const STATUS_TEXT: Record<DomainDetail["status"], { variant: LabelVariant; text:
   error: { variant: "danger", text: "Last change failed" },
 };
 
-function CheckLine({ name, ok, detail }: { name: string; ok: boolean; detail: string }) {
-  const Icon = ok ? CheckCircleFillIcon : XCircleFillIcon;
+function CheckLine({
+  name,
+  ok,
+  detail,
+  skipped = false,
+}: {
+  name: string;
+  ok: boolean;
+  detail: string;
+  skipped?: boolean;
+}) {
+  const Icon = skipped ? CircleSlashIcon : ok ? CheckCircleFillIcon : XCircleFillIcon;
   return (
     <li className={styles.check}>
-      <Icon size={16} className={ok ? styles.ok : styles.bad} aria-hidden="true" />
+      <Icon
+        size={16}
+        className={skipped ? "muted" : ok ? styles.ok : styles.bad}
+        aria-hidden="true"
+      />
       <span>
         <strong>{name}</strong>{" "}
         <span className="muted">
-          {ok ? "OK" : "Failed"}: {detail}
+          {skipped ? "Not checked" : ok ? "OK" : "Failed"}: {detail}
         </span>
       </span>
     </li>
@@ -314,14 +331,17 @@ function AddDomainDialog({
   slug,
   env,
   onClose,
+  onCreated,
 }: {
   slug: string;
   env: EnvironmentName;
   onClose: () => void;
+  /** Called with the new draft's id: the page then opens its preview. */
+  onCreated: (id: number) => void;
 }) {
   const create = useCreateDomain(slug, env);
   const project = useProject(slug);
-  const picker = useZonePicker();
+  const picker = useZonePicker({ slug, env });
   const services = project.data?.environments.find((item) => item.name === env)?.services ?? [];
   const [draft, setDraft] = useState<DomainDraft>(() => emptyDomainDraft());
   const [type, setType] = useState<DnsRecordType>("A");
@@ -347,14 +367,18 @@ function AddDomainDialog({
         dns_target: target.trim() === "" ? null : target.trim(),
         tls_enabled: tls,
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: (created) => {
+          onCreated(created.id);
+        },
+      },
     );
   };
 
   return (
     <Dialog
       title={`Add a domain to ${capitalize(env)}`}
-      subtitle="Adding only saves a draft. Nothing is changed in DNS or on the server until you preview and apply it."
+      subtitle="Adding saves a draft and opens the preview: the DNS record, the Apache site and the HTTPS certificate are shown before anything changes in DNS or on the server."
       width="large"
       onClose={onClose}
       footerButtons={[
@@ -388,6 +412,7 @@ function AddDomainDialog({
             setDraft((current) => ({ ...current, ...patch }));
           }}
         />
+        <NameCheck scope={{ slug, env }} hostname={hostnameOf(draft)} />
         <FormControl>
           <FormControl.Label>DNS record type</FormControl.Label>
           <Select
@@ -466,13 +491,22 @@ function DomainRow({
   const issue = useIssueCertificate(slug, env);
   const manage = useCan()("domain.manage", { project: slug, env });
   const status = STATUS_TEXT[domain.status];
-  const canCert = domain.status === "active" && domain.tls_enabled;
+  const adopted = domain.origin === "adopted";
+  const canCert = domain.status === "active" && domain.tls_enabled && !adopted;
   const results = domain.check?.results;
   return (
     <li className={box.row} aria-label={domain.hostname}>
       <div className={styles.head}>
         <div className={styles.title}>
           <strong className="ltr">{domain.hostname}</strong>
+          {adopted ? (
+            <Label
+              variant="accent"
+              title="Existing site: DNS and Apache are managed outside Jendock"
+            >
+              Adopted
+            </Label>
+          ) : null}
           <Label variant={status.variant}>{status.text}</Label>
           {domain.certificate ? (
             <Label variant={certLabel(domain.certificate).variant}>
@@ -483,16 +517,18 @@ function DomainRow({
         <div className={box.cluster}>
           {manage ? (
             <>
-              <Button
-                size="small"
-                variant={domain.status === "active" ? "default" : "primary"}
-                onClick={() => {
-                  onAction({ kind: "plan", id: domain.id, operation: "apply" });
-                }}
-                aria-label={`Preview and apply ${domain.hostname}`}
-              >
-                {domain.status === "active" ? "Preview" : "Preview and apply"}
-              </Button>
+              {adopted ? null : (
+                <Button
+                  size="small"
+                  variant={domain.status === "active" ? "default" : "primary"}
+                  onClick={() => {
+                    onAction({ kind: "plan", id: domain.id, operation: "apply" });
+                  }}
+                  aria-label={`Preview and apply ${domain.hostname}`}
+                >
+                  {domain.status === "active" ? "Preview" : "Preview and apply"}
+                </Button>
+              )}
               <Button
                 size="small"
                 disabled={check.isPending || domain.status === "draft"}
@@ -538,24 +574,40 @@ function DomainRow({
                           : "Needs an active domain with HTTPS."}
                       </ActionList.Description>
                     </ActionList.Item>
-                    <ActionList.Item
-                      variant="danger"
-                      disabled={domain.status === "draft"}
-                      onSelect={() => {
-                        onAction({ kind: "plan", id: domain.id, operation: "remove" });
-                      }}
-                    >
-                      Remove from server…
-                    </ActionList.Item>
-                    <ActionList.Item
-                      variant="danger"
-                      disabled={domain.status !== "draft"}
-                      onSelect={() => {
-                        onAction({ kind: "delete", id: domain.id });
-                      }}
-                    >
-                      Delete draft…
-                    </ActionList.Item>
+                    {adopted ? (
+                      <ActionList.Item
+                        variant="danger"
+                        onSelect={() => {
+                          onAction({ kind: "delete", id: domain.id });
+                        }}
+                      >
+                        Unlink from Jendock…
+                        <ActionList.Description variant="block">
+                          DNS and Apache are not touched.
+                        </ActionList.Description>
+                      </ActionList.Item>
+                    ) : (
+                      <>
+                        <ActionList.Item
+                          variant="danger"
+                          disabled={domain.status === "draft"}
+                          onSelect={() => {
+                            onAction({ kind: "plan", id: domain.id, operation: "remove" });
+                          }}
+                        >
+                          Remove from server…
+                        </ActionList.Item>
+                        <ActionList.Item
+                          variant="danger"
+                          disabled={domain.status !== "draft"}
+                          onSelect={() => {
+                            onAction({ kind: "delete", id: domain.id });
+                          }}
+                        >
+                          Delete draft…
+                        </ActionList.Item>
+                      </>
+                    )}
                   </ActionList>
                 </ActionMenu.Overlay>
               </ActionMenu>
@@ -564,6 +616,7 @@ function DomainRow({
         </div>
       </div>
       <p className={`muted ${styles.meta}`}>
+        {adopted ? "Existing site, managed outside Jendock · " : ""}
         {domain.dns_record_type} record
         {domain.dns_target ? ` to ${domain.dns_target}` : " to this server"} · service{" "}
         <code>{domain.service}</code> port {domain.container_port} (published on{" "}
@@ -595,9 +648,32 @@ function DomainRow({
             <RelativeTime iso={domain.check.checked_at} />
           </Details.Summary>
           <ul className={styles.checks}>
-            <CheckLine name="DNS" ok={results.dns.ok} detail={results.dns.detail} />
-            <CheckLine name="HTTPS" ok={results.https.ok} detail={results.https.detail} />
-            <CheckLine name="Backend" ok={results.backend.ok} detail={results.backend.detail} />
+            <CheckLine
+              name="DNS"
+              ok={results.dns.ok}
+              detail={results.dns.detail}
+              skipped={results.dns.skipped ?? false}
+            />
+            {results.vhost ? (
+              <CheckLine
+                name="Apache"
+                ok={results.vhost.ok}
+                detail={results.vhost.detail}
+                skipped={results.vhost.skipped ?? false}
+              />
+            ) : null}
+            <CheckLine
+              name="HTTPS"
+              ok={results.https.ok}
+              detail={results.https.detail}
+              skipped={results.https.skipped ?? false}
+            />
+            <CheckLine
+              name="Backend"
+              ok={results.backend.ok}
+              detail={results.backend.detail}
+              skipped={results.backend.skipped ?? false}
+            />
           </ul>
         </Details>
       ) : domain.status !== "draft" ? (
@@ -684,6 +760,7 @@ export function DomainsPage() {
   const canManage = useCan()("domain.manage", { project: slug, env: env ?? "development" });
   const [search] = useSearchParams();
   const created = useLocation().state as CreatedState | null;
+  const canAdopt = useCan()("domain.discover");
   const [action, setAction] = useState<Action | null>(
     search.get("add") === "1" ? { kind: "add" } : null,
   );
@@ -720,17 +797,24 @@ export function DomainsPage() {
         env={env}
         pathFor={(next) => domainsPath(slug, next)}
         actions={
-          canManage ? (
-            <Button
-              variant="primary"
-              leadingVisual={PlusIcon}
-              onClick={() => {
-                setAction({ kind: "add" });
-              }}
-            >
-              Add domain
-            </Button>
-          ) : null
+          <>
+            {canAdopt ? (
+              <Button as={Link} to={`/domains?q=${encodeURIComponent(slug)}`}>
+                Adopt an existing domain
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button
+                variant="primary"
+                leadingVisual={PlusIcon}
+                onClick={() => {
+                  setAction({ kind: "add" });
+                }}
+              >
+                Add domain
+              </Button>
+            ) : null}
+          </>
         }
       />
       {created ? <CreatedBanner state={created} env={env} /> : null}
@@ -752,6 +836,9 @@ export function DomainsPage() {
         <EmptyState icon={<GlobeIcon size={32} aria-hidden="true" />} title="No domains yet">
           Add a host name to make this environment reachable from the internet. You will see exactly
           what changes in DNS and on the web server before anything is applied.
+          {canAdopt
+            ? " A site that already works? Adopt it from the Domains page: it is linked to this project without changing DNS or Apache."
+            : ""}
         </EmptyState>
       ) : null}
       {list.length > 0 ? (
@@ -769,7 +856,16 @@ export function DomainsPage() {
         </ul>
       ) : null}
 
-      {action?.kind === "add" ? <AddDomainDialog slug={slug} env={env} onClose={close} /> : null}
+      {action?.kind === "add" ? (
+        <AddDomainDialog
+          slug={slug}
+          env={env}
+          onClose={close}
+          onCreated={(id) => {
+            setAction({ kind: "plan", id, operation: "apply" });
+          }}
+        />
+      ) : null}
       {action?.kind === "plan" && target ? (
         <PlanDialog
           key={`${String(target.id)}-${action.operation}`}
@@ -782,8 +878,8 @@ export function DomainsPage() {
       ) : null}
       {action?.kind === "delete" && target ? (
         <ConfirmationDialog
-          title={`Delete ${target.hostname}?`}
-          confirmButtonContent="Delete draft"
+          title={`${target.origin === "adopted" ? "Unlink" : "Delete"} ${target.hostname}?`}
+          confirmButtonContent={target.origin === "adopted" ? "Unlink domain" : "Delete draft"}
           cancelButtonContent="Keep it"
           confirmButtonType="danger"
           confirmButtonLoading={remove.isPending}
@@ -792,7 +888,11 @@ export function DomainsPage() {
             else close();
           }}
         >
-          <p>The draft is deleted. Nothing exists on the server for it, so nothing else changes.</p>
+          <p>
+            {target.origin === "adopted"
+              ? "The domain is unlinked from this project. Its DNS record and Apache site were never managed by Jendock, so nothing changes there."
+              : "The draft is deleted. Nothing exists on the server for it, so nothing else changes."}
+          </p>
           {remove.isError ? (
             <Callout variant="danger" role="alert">
               {errorMessage(remove.error)}

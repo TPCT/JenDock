@@ -1,0 +1,23 @@
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8) var(--base-size-16);
+}
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+.meta {
+  margin: var(--base-size-8) 0 0;
+  overflow-wrap: anywhere;
+}
+.two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--base-size-12);
+}

@@ -68,12 +68,27 @@ refuses a symlink, a writable file or a file owned by another user). See
 | `allowed_upstream_ports` | `[[first, last], ...]`, each within 1024-65535 |
 | `allow_wildcards` | default false |
 | `max_vhosts`, `command_timeout_seconds` | limits (defaults 200 / 30) |
+| `discovery_dirs` | optional list of absolute directories whose `*.conf` files `vhost.discover` may **read**, e.g. `["/etc/apache2/sites-enabled"]`; `vhost_dir` is always readable |
 
 The zone allowlist and port ranges are the blast radius of a compromised worker: keep them
 as small as the deployment allows (use the same port range your compose files publish on).
 
 Check without serving: `python -m backend.hosthelper --config /etc/jendock/host-helper.json --check`
 (validates the file and runs `apachectl configtest`; exit 0 only if both pass).
+
+### Seeing the existing Apache sites (read-only)
+
+To let Jendock recognise sites that were set up by hand, add `discovery_dirs` (for Debian:
+`"discovery_dirs": ["/etc/apache2/sites-enabled"]`). The operation `vhost.discover` takes no
+parameters, reads only `*.conf` files in `vhost_dir` and those directories (at most 500 files of
+256 KiB; symlinks to regular files are followed, nothing is written or executed), and returns, per
+`<VirtualHost>`: the `ServerName`/`ServerAlias` names, the first `ProxyPass /` (or `[P]` rewrite)
+upstream host and port, whether it serves TLS, the ports and the file name. Certificate paths and
+every other directive stay on the host. Like all operations it is served only to the allowed
+peer uids (`SO_PEERCRED`) and unknown parameters are rejected. A helper installed before this
+operation existed answers `unknown operation`; Jendock then shows "the installed host helper is too
+old": copy the new release (step 2) and restart it. Hand-made vhost files may use any name; they
+are never changed.
 
 ## 4. Service
 

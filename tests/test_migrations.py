@@ -103,22 +103,22 @@ def test_existing_domains_stay_managed_and_the_discovery_tables_come_and_go(
     command.downgrade(build_config(), "0009_resources")
     engine = create_db_engine(url)
     assert "discovered_domains" not in inspect(engine).get_table_names()
-    stamp = "'2026-10-13 12:00:00'"
     with engine.begin() as connection:
         connection.exec_driver_sql(
             "INSERT INTO projects (id, slug, name, repository, git_transport, created_at) "
-            f"VALUES (1, 'demo', 'Demo', 'octo/demo', 'https', {stamp})"
+            "VALUES (1, 'demo', 'Demo', 'octo/demo', 'https', '2026-10-13 12:00:00')"
         )
         connection.exec_driver_sql(
             "INSERT INTO environments (id, project_id, name, branch, auto_deploy, services, "
             "compose_files, compose_env_files, created_at, updated_at) VALUES (1, 1, "
-            f"'production', 'main', 0, '[]', '[]', '[]', {stamp}, {stamp})"
+            "'production', 'main', 0, '[]', '[]', '[]', "
+            "'2026-10-13 12:00:00', '2026-10-13 12:00:00')"
         )
         connection.exec_driver_sql(
             "INSERT INTO domains (environment_id, hostname, service, container_port, "
             "published_port, dns_record_type, dns_proxied, tls_enabled, status, created_at, "
-            f"updated_at) VALUES (1, 'app.example.com', 'web', 8080, 20001, 'A', 0, 1, "
-            f"'active', {stamp}, {stamp})"
+            "updated_at) VALUES (1, 'app.example.com', 'web', 8080, 20001, 'A', 0, 1, "
+            "'active', '2026-10-13 12:00:00', '2026-10-13 12:00:00')"
         )
     engine.dispose()
     upgrade_to_head()

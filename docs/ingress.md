@@ -102,6 +102,7 @@ served **serially**. The kernel-reported peer uid must be in `allowed_uids`. Req
 | `cert.install` | hostname, fullchain_pem, private_key_pem | validate, install (key 0600), test+reload if a TLS vhost uses it, revert on failure |
 | `cert.info` / `cert.remove` | hostname | read / remove (refused while a TLS vhost uses it) |
 | `challenge.put` / `challenge.remove` | token, content | HTTP-01 file in the webroot |
+| `vhost.discover` | - | **read-only**: the Apache sites in `vhost_dir` and `discovery_dirs` (see "Existing domains") |
 | `backend.check` | port | TCP connect to `127.0.0.1:port` from the host |
 | `apache.configtest` | - | run `apachectl configtest` |
 
@@ -153,6 +154,53 @@ records: resolves at all), HTTPS answers with a valid certificate for the hostna
 store, hostname verified) and status < 500, and the backend accepts TCP connections on the
 published loopback port (probed by the helper, because the worker's `127.0.0.1` is not the
 host's). Wildcard domains are probed through `ingress-check.<zone>`.
+
+## Existing domains: discovery and adoption
+
+Sites set up by hand before Jendock (a Cloudflare record and an Apache vhost that proxies to a
+container's published port) are found and linked, without changing DNS or Apache.
+
+**Discovery (worker, read-only).** `discovery.refresh` lists the active zones and every A, AAAA and
+CNAME record (all pages of the Cloudflare API; zones 50 per page), and, when the host helper is
+reachable, the Apache sites through the read-only `vhost.discover`. The container inventory gives
+each project's published host ports. The result is a snapshot (`discovered_domains`,
+`discovery_state`) that the Domains page reads; Cloudflare is only ever read. A Cloudflare failure
+keeps the previous snapshot. Without the helper the page still lists the DNS records and says
+"Install the host helper to see Apache routing".
+
+- *Which records are listed:* those that lead to the server: an address equal to the server's public
+  IP (`Settings > Integrations` / `JENDOCK_INGRESS_PUBLIC_IPV4` or `_IPV6`; if neither is set, the
+  address the public origin resolves to, ignoring Cloudflare's edge ranges), and CNAMEs whose chain
+  inside the zones ends there. Records of the zone that point elsewhere are skipped. When the
+  server address is unknown every address record is listed and the page warns about it. Names that
+  only exist in Apache (no Cloudflare record) are listed too.
+- *Matching* (`backend/domain/discovery.py`): if the Apache site proxies to `127.0.0.1:<port>`
+  (also `localhost`, `::1`) and exactly one project container publishes that host port, the name is
+  suggested for that project/environment/service with confidence `high` ("certain": complete, so
+  it can be adopted in bulk). Otherwise the host name is compared with project slugs and names:
+  the slug as whole words gives `medium`, a shared word `low` (never adoptable in bulk: service and
+  port are left open); a host name with a `dev`, `staging` or `test` first label prefers the
+  development environment. Ambiguous names get no suggestion.
+
+**Adoption.** `POST .../domains/adopt` records the discovered name as a domain of a project
+environment with `origin = adopted`, status `active`, the record's type, target and proxied flag,
+HTTPS from the Apache site (or the proxy flag) and the Apache file name. Only the database changes.
+An adopted domain is never planned, applied, removed or issued a certificate by Jendock (409), its
+DNS and HTTPS fields cannot be edited, and "delete" only unlinks it. Its **check** is read-only:
+the Cloudflare record found (proxied or DNS only), the Apache site found (needs the helper), an
+HTTPS `HEAD` request with a timeout (`CHECK_TIMEOUT_SECONDS`), and the backend port (helper). A
+part that cannot be read (no token, no helper) is shown as "not checked", not as a failure.
+"Converting" an adopted domain to a managed one is deliberately not implemented: it would have to
+take over a DNS record and an Apache file Jendock did not write (its helper refuses files without
+the `# jendock-managed:` marker). To hand a site over, remove the manual record and vhost, unlink
+the adopted domain and add it again.
+
+**New domains.** In a project's Domains tab and in the New Project wizard the host name is a
+Cloudflare zone from a dropdown plus a subdomain (or the apex), with the full name previewed and a
+live conflict check (`.../domains/lookup`, `/api/domains/lookup`): an existing record that Jendock
+did not create, or a name that already belongs to a project, is flagged before anything is saved.
+Adding then opens the normal preview (DNS record, proxied by Cloudflare if chosen, Apache site,
+certificate by DNS-01 or the configured challenge) and applies it on confirmation.
 
 ## Settings reference (`JENDOCK_INGRESS_*`)
 

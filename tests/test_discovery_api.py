@@ -113,7 +113,7 @@ def test_refresh_then_list_with_filters_search_and_paging(stack: Stack) -> None:
     empty = stack.admin.get("/api/domains/discovered").json()
     assert empty["total"] == 0
     state = stack.refresh()
-    assert state["cloudflare"] == {"state": "ok", "message": None}  # type: ignore[comparison-overlap]
+    assert state["cloudflare"] == {"state": "ok", "message": None}
     assert state["hosts"] == 3 and state["adoptable"] == 2 and state["zones"] == ["example.com"]
     assert state["server_ip"] == SERVER_IP
     page = stack.admin.get("/api/domains/discovered").json()

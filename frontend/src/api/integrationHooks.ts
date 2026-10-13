@@ -10,6 +10,7 @@ import type {
   IngressValues,
   McpTools,
 } from "./integrationTypes";
+import { useDomainZones, type DomainScope } from "./discoveryHooks";
 import type { EnvironmentName } from "./types";
 
 const cloudflareKey = ["integrations", "cloudflare"] as const;
@@ -138,17 +139,31 @@ export interface ZonePicker {
   problem: string | null;
 }
 
-/** Zones for the host name pickers: the stored token zones, or why there are none. */
-export function useZonePicker(): ZonePicker {
+/**
+ * Zones for the host name pickers. With a project environment the zones come from that
+ * environment's own endpoint (a maintainer may use it); without one (the New Project wizard,
+ * which only administrators reach) from the stored token's test connection.
+ */
+export function useZonePicker(scope: DomainScope = {}): ZonePicker {
+  const scoped = scope.slug !== undefined && scope.env !== undefined;
   const status = useCloudflare();
   const configured = status.data?.token_configured;
-  const zones = useCloudflareZones(configured === true);
-  const failed = zones.data && !zones.data.ok ? zones.data.message : null;
-  const broken = zones.isError ? zones.error.message : null;
+  const global = useCloudflareZones(!scoped && configured === true);
+  const own = useDomainZones(scope, scoped);
+  if (scoped) {
+    return {
+      loading: own.isPending,
+      configured: own.data?.configured,
+      zones: own.data?.zones ?? [],
+      problem: own.data?.configured && own.data.message !== "" ? own.data.message : null,
+    };
+  }
+  const failed = global.data && !global.data.ok ? global.data.message : null;
+  const broken = global.isError ? global.error.message : null;
   return {
-    loading: status.isPending || (configured === true && zones.isPending),
+    loading: status.isPending || (configured === true && global.isPending),
     configured,
-    zones: zones.data?.ok ? zones.data.zones : [],
+    zones: global.data?.ok ? global.data.zones : [],
     problem: failed ?? broken,
   };
 }

@@ -313,12 +313,7 @@ describe("domains", () => {
     expect(await within(add).findByRole("alert")).toHaveTextContent("Enter a host name such as");
     await user.type(within(add).getByLabelText(/Host name/), "Taken.Example.com");
     await user.click(within(add).getByRole("button", { name: "Add domain" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
-    await user.click(
-      await screen.findByRole("button", { name: "Preview and apply taken.example.com" }),
-    );
+    // Adding opens the preview of the new draft at once.
     const dialog = await screen.findByRole("dialog", { name: "Apply taken.example.com" });
     const alert = await within(dialog).findByRole("alert");
     expect(alert).toHaveTextContent("not created by Jendock");

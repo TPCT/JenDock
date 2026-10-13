@@ -56,12 +56,17 @@ const MAINTAINER = [
   "container.limits",
   "container.files",
   "domain.manage",
+  "domain.lookup",
+  "domain.adopt",
 ];
 const OWNER_GLOBAL = [
   "access.manage",
   "certificate.list",
   "container.env_reveal",
   "database.configure",
+  "domain.adopt_all",
+  "domain.discover",
+  "domain.discover_refresh",
   "environment.update",
   "integration.manage",
   "mcp.tools",

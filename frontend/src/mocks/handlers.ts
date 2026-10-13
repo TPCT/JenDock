@@ -10,6 +10,7 @@ import { resourcesHandlers } from "./resources";
 import { databaseHandlers } from "./databases";
 import { notificationHandlers } from "./notifications";
 import { byText, byTime, listResponse, type MockList } from "./paging";
+import { discoveryHandlers } from "./discovery";
 import { integrationHandlers } from "./integrations";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
@@ -99,6 +100,8 @@ function isEnvironment(value: unknown): value is EnvironmentName {
 const SIMULATED_LINES = 10;
 
 export const handlers: HttpHandler[] = [
+  // Before the domain routes of the admin mock: "zones" and "lookup" are not domain ids.
+  ...discoveryHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...adminHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...accessHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...accountHandlers({ authenticated: () => authenticated, error, unauthenticated }),
