@@ -13,6 +13,7 @@ from shiftcodes.adapters.deployer import Deployer
 from shiftcodes.adapters.http_probe import HttpProbe
 from shiftcodes.adapters.sources import SourceProvider
 from shiftcodes.adapters.workspace import WorkspaceManager
+from shiftcodes.domain.enums import GitTransport, PipelineSource
 from shiftcodes.execution.cancel import CancelToken, NeverCancelled
 from shiftcodes.execution.config import ExecutionConfig
 from shiftcodes.execution.errors import DeadlineExceeded, RunCancelled
@@ -40,6 +41,8 @@ class RunJob:
     compose_files: tuple[str, ...]
     services: tuple[str, ...]
     pipeline_text: str
+    git_transport: GitTransport = GitTransport.HTTPS
+    pipeline_source: PipelineSource = PipelineSource.PLATFORM
 
 
 class ImageBook:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from shiftcodes.repositories.models import Project
@@ -29,6 +29,16 @@ class ProjectRepository:
     def get_by_slug(self, slug: str) -> Project | None:
         """Return the project with ``slug`` or ``None``."""
         return self._session.scalar(select(Project).where(Project.slug == slug))
+
+    def list_by_repository(self, repository: str) -> Sequence[Project]:
+        """Return the active projects of a repository (GitHub names are case-insensitive)."""
+        query = (
+            select(Project)
+            .where(func.lower(Project.repository) == repository.lower())
+            .where(Project.archived_at.is_(None))
+            .order_by(Project.slug)
+        )
+        return self._session.scalars(query).all()
 
     def list(self, *, include_archived: bool = False) -> Sequence[Project]:
         """Return projects ordered by slug, excluding archived ones by default."""

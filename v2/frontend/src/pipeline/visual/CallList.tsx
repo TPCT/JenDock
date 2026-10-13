@@ -1,6 +1,9 @@
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "@primer/octicons-react";
-import { useId, useRef, useState } from "react";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "@primer/octicons-react";
+import { ActionList, ActionMenu, IconButton } from "@primer/react";
+import { useRef } from "react";
 import type { Call, StepDef } from "../../api/pipelineTypes";
+import styles from "../pipeline.module.css";
+import { RemoveButton } from "../ui";
 import { useEditorEnv, moveItem, removeAt, replaceAt } from "./context";
 import { ArgField } from "./fields";
 import { useFocusAfterMove } from "./useFocusAfterMove";
@@ -41,50 +44,41 @@ function CallCard({
   const { catalog } = useEditorEnv();
   const title = def?.title ?? call.name;
   return (
-    <li className="card step-card" data-card={`${scope}-${index}`}>
-      <div className="card-head">
+    <li className={styles.card} data-card={`${scope}-${index}`}>
+      <div className={styles.cardHead}>
         <div>
           <strong>{title}</strong> <code className="muted">{call.name}</code>
         </div>
-        <div className="row-actions">
-          <button
-            type="button"
-            className="btn btn-icon"
+        <div className={styles.cluster}>
+          <IconButton
+            icon={ArrowUpIcon}
+            size="small"
             data-focus-key={`${scope}-${index}-up`}
             aria-label={`Move ${title} ${index + 1} up`}
+            tooltipDirection="s"
             disabled={index === 0}
             onClick={() => {
               onMove(-1);
             }}
-          >
-            <ArrowUpIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon"
+          />
+          <IconButton
+            icon={ArrowDownIcon}
+            size="small"
             data-focus-key={`${scope}-${index}-down`}
             aria-label={`Move ${title} ${index + 1} down`}
+            tooltipDirection="s"
             disabled={index === count - 1}
             onClick={() => {
               onMove(1);
             }}
-          >
-            <ArrowDownIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon btn-danger"
-            aria-label={`Remove ${title} ${index + 1}`}
-            onClick={onRemove}
-          >
-            <TrashIcon size={16} />
-          </button>
+          />
+          <RemoveButton label={`Remove ${title} ${index + 1}`} onClick={onRemove} />
         </div>
       </div>
       {def ? (
         <>
-          {def.description ? <p className="hint">{def.description}</p> : null}
-          <div className="card-body">
+          {def.description ? <p className={styles.hint}>{def.description}</p> : null}
+          <div className={styles.cardBody}>
             {def.args.map((arg) => (
               <ArgField
                 key={arg.name}
@@ -100,8 +94,8 @@ function CallCard({
               />
             ))}
             {def.takes_block ? (
-              <div className="nested">
-                <p className="hint">Steps inside:</p>
+              <div className={styles.nested}>
+                <p className={styles.hint}>Steps inside:</p>
                 <CallList
                   calls={call.body ?? []}
                   defs={catalog.steps}
@@ -115,7 +109,7 @@ function CallCard({
           </div>
         </>
       ) : (
-        <p className="hint">
+        <p className={styles.hint}>
           This item is not in the catalogue. Edit it in the Text tab; it is kept as is.
         </p>
       )}
@@ -143,14 +137,11 @@ export function CallList({
 }) {
   const container = useRef<HTMLDivElement>(null);
   const focus = useFocusAfterMove(container);
-  const selectId = useId();
-  const [choice, setChoice] = useState("");
-  const selected = defs.find((item) => item.name === choice) ?? defs[0];
 
   return (
-    <div ref={container} className="calllist">
+    <div ref={container} className={styles.stack}>
       {calls.length === 0 ? <p className="muted">{emptyText}</p> : null}
-      <ol className="cards">
+      <ol className={styles.cards}>
         {calls.map((call, index) => (
           <CallCard
             key={index}
@@ -172,35 +163,34 @@ export function CallList({
           />
         ))}
       </ol>
-      <div className="add-row">
-        <div className="field">
-          <label htmlFor={selectId}>{typeLabel}</label>
-          <select
-            id={selectId}
-            className="input"
-            value={selected?.name ?? ""}
-            onChange={(event) => {
-              setChoice(event.target.value);
-            }}
-          >
-            {defs.map((item) => (
-              <option key={item.name} value={item.name}>
-                {item.title}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="button"
-          className="btn"
-          disabled={!selected}
-          onClick={() => {
-            if (selected) onChange([...calls, newCall(selected)]);
-          }}
-        >
-          <PlusIcon size={16} aria-hidden="true" />
-          {addLabel}
-        </button>
+      <div>
+        <ActionMenu>
+          <ActionMenu.Button size="small" leadingVisual={PlusIcon} disabled={defs.length === 0}>
+            {addLabel}
+          </ActionMenu.Button>
+          <ActionMenu.Overlay width="large" maxHeight="medium">
+            <ActionList>
+              <ActionList.Group>
+                <ActionList.GroupHeading>{typeLabel}</ActionList.GroupHeading>
+                {defs.map((item) => (
+                  <ActionList.Item
+                    key={item.name}
+                    onSelect={() => {
+                      onChange([...calls, newCall(item)]);
+                    }}
+                  >
+                    {item.title}
+                    {item.description ? (
+                      <ActionList.Description variant="block">
+                        {item.description}
+                      </ActionList.Description>
+                    ) : null}
+                  </ActionList.Item>
+                ))}
+              </ActionList.Group>
+            </ActionList>
+          </ActionMenu.Overlay>
+        </ActionMenu>
       </div>
     </div>
   );

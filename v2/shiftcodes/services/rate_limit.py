@@ -21,6 +21,32 @@ MAX_FAILURES_PER_IP = 20
 MAX_TRACKED_KEYS = 10_000
 
 
+WEBHOOK_WINDOW = timedelta(minutes=1)
+MAX_WEBHOOK_FAILURES_PER_IP = 30
+_WEBHOOK_KEY = "webhook"
+
+
+def webhook_failure_limiter(clock: Clock = utcnow) -> LoginRateLimiter:
+    """A limiter counting only the requests per client IP that failed signature verification
+    (30 per minute). Valid deliveries are never counted."""
+    return LoginRateLimiter(
+        clock,
+        WEBHOOK_WINDOW,
+        max_per_username=MAX_WEBHOOK_FAILURES_PER_IP,
+        max_per_ip=MAX_WEBHOOK_FAILURES_PER_IP,
+    )
+
+
+def check_webhook(limiter: LoginRateLimiter, client_ip: str) -> None:
+    """Raise ``RateLimitedError`` when ``client_ip`` has too many failed deliveries."""
+    limiter.check(_WEBHOOK_KEY, client_ip)
+
+
+def record_webhook_failure(limiter: LoginRateLimiter, client_ip: str) -> None:
+    """Count one delivery that failed verification."""
+    limiter.record_failure(_WEBHOOK_KEY, client_ip)
+
+
 class LoginRateLimiter:
     """Counts failed attempts per username and per client IP."""
 

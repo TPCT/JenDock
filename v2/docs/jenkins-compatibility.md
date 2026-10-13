@@ -63,6 +63,17 @@ Recorded runs are only as good as the probes: the table lists every pipeline tha
 | ------- | -------- | -------- | ---------- |
 | example | accepted | accepted |            |
 
+## Starter templates
+
+| Case           | Ours     | Jenkins  | Difference |
+| -------------- | -------- | -------- | ---------- |
+| laravel        | accepted | accepted |            |
+| nextjs         | accepted | accepted |            |
+| node-api       | accepted | accepted |            |
+| python-fastapi | accepted | accepted |            |
+| static-site    | accepted | accepted |            |
+| dockerfile     | accepted | accepted |            |
+
 ## Serialized valid fixtures
 
 | Case                       | Ours     | Jenkins  | Difference |
@@ -79,6 +90,12 @@ Recorded runs are only as good as the probes: the table lists every pipeline tha
 | valid/sequential_stages    | accepted | accepted |            |
 | valid/strings_and_comments | accepted | accepted |            |
 | readme/example             | accepted | accepted |            |
+| template/laravel           | accepted | accepted |            |
+| template/nextjs            | accepted | accepted |            |
+| template/node-api          | accepted | accepted |            |
+| template/python-fastapi    | accepted | accepted |            |
+| template/static-site       | accepted | accepted |            |
+| template/dockerfile        | accepted | accepted |            |
 
 ## Invalid fixtures
 

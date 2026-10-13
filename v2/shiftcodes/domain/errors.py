@@ -53,3 +53,7 @@ class WorkerError(DomainError):
 
 class WorkerUnavailableError(WorkerError):
     """The worker could not be reached in time."""
+
+
+class SourceUnavailableError(DomainError):
+    """The source repository could not be reached or read (git, SSH key, network)."""

@@ -1,0 +1,123 @@
+/* The log reads like the GitHub Actions log view: monospace, a number gutter, a quiet background,
+   Primer's ANSI palette. Colours are Primer variables so both colour modes work. */
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+}
+.scroll {
+  max-height: 32rem;
+  overflow: auto;
+  padding: var(--base-size-8) 0;
+  background: var(--bgColor-inset);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  color: var(--fgColor-default);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  line-height: 1.5;
+}
+.log[data-stale="true"] .scroll {
+  border-style: dashed;
+  border-color: var(--borderColor-attention-emphasis);
+}
+.line {
+  display: flex;
+  align-items: flex-start;
+  min-width: max-content;
+  padding-right: var(--base-size-16);
+}
+.line:hover {
+  background: var(--bgColor-muted);
+}
+.number {
+  flex: none;
+  min-width: 3.5rem;
+  padding: 0 var(--base-size-12);
+  text-align: right;
+  color: var(--fgColor-muted);
+  user-select: none;
+}
+.timestamp {
+  flex: none;
+  padding-right: var(--base-size-12);
+  color: var(--fgColor-muted);
+}
+.text {
+  white-space: pre;
+}
+.mark {
+  background: var(--bgColor-attention-emphasis);
+  color: var(--fgColor-onEmphasis);
+  border-radius: var(--borderRadius-small);
+}
+.mark[data-current="true"] {
+  outline: var(--borderWidth-thick) solid var(--borderColor-accent-emphasis);
+}
+.empty {
+  padding: 0 var(--base-size-16);
+  color: var(--fgColor-muted);
+}
+.earlier {
+  padding: 0 var(--base-size-16) var(--base-size-8);
+}
+.note,
+.stale {
+  margin: 0;
+  color: var(--fgColor-muted);
+}
+.stale {
+  color: var(--fgColor-attention);
+}
+
+:global(.ansi-bold) {
+  font-weight: var(--base-text-weight-semibold);
+}
+:global(.ansi-black) {
+  color: var(--ansi-black);
+}
+:global(.ansi-red) {
+  color: var(--ansi-red);
+}
+:global(.ansi-green) {
+  color: var(--ansi-green);
+}
+:global(.ansi-yellow) {
+  color: var(--ansi-yellow);
+}
+:global(.ansi-blue) {
+  color: var(--ansi-blue);
+}
+:global(.ansi-magenta) {
+  color: var(--ansi-magenta);
+}
+:global(.ansi-cyan) {
+  color: var(--ansi-cyan);
+}
+:global(.ansi-white) {
+  color: var(--ansi-white);
+}
+:global(.ansi-bright-black) {
+  color: var(--ansi-blackBright);
+}
+:global(.ansi-bright-red) {
+  color: var(--ansi-redBright);
+}
+:global(.ansi-bright-green) {
+  color: var(--ansi-greenBright);
+}
+:global(.ansi-bright-yellow) {
+  color: var(--ansi-yellowBright);
+}
+:global(.ansi-bright-blue) {
+  color: var(--ansi-blueBright);
+}
+:global(.ansi-bright-magenta) {
+  color: var(--ansi-magentaBright);
+}
+:global(.ansi-bright-cyan) {
+  color: var(--ansi-cyanBright);
+}
+:global(.ansi-bright-white) {
+  color: var(--ansi-whiteBright);
+}

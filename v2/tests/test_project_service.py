@@ -72,7 +72,7 @@ def test_duplicate_slug_conflicts_even_when_archived(uow: UnitOfWork) -> None:
 def test_create_validation(uow: UnitOfWork, kwargs: dict[str, str]) -> None:
     args = {"slug": "demo", "name": "Demo", "repository": "o/r"} | kwargs
     with pytest.raises(ValidationError):
-        ProjectService(uow).create(**args)
+        ProjectService(uow).create(**args)  # type: ignore[arg-type]
     assert ProjectService(uow).list(include_archived=True) == []
 
 

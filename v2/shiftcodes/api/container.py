@@ -7,7 +7,13 @@ from dataclasses import dataclass, field
 from sqlalchemy import Engine
 
 from shiftcodes.adapters.container_client import ContainerClient, ContainersGateway
-from shiftcodes.adapters.worker_client import SecretsGateway, WorkerClient
+from shiftcodes.adapters.worker_client import (
+    GithubGateway,
+    RepositoryGateway,
+    SecretsGateway,
+    UnavailableRepositoryGateway,
+    WorkerClient,
+)
 from shiftcodes.api.cookies import CookiePolicy
 from shiftcodes.api.terminal_tickets import TicketStore
 from shiftcodes.config import Settings
@@ -20,12 +26,19 @@ from shiftcodes.repositories.database import (
     create_session_factory,
 )
 from shiftcodes.services.auth import AuthService
+from shiftcodes.services.environments import EnvironmentService
 from shiftcodes.services.passwords import PasswordHasher
-from shiftcodes.services.rate_limit import LoginRateLimiter
+from shiftcodes.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
+from shiftcodes.services.pipelines import PipelineService
+from shiftcodes.services.project_queries import ProjectQueryService
+from shiftcodes.services.projects import ProjectService
+from shiftcodes.services.rate_limit import LoginRateLimiter, webhook_failure_limiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
 from shiftcodes.services.run_queries import RunQueryService
+from shiftcodes.services.run_triggers import RunTriggerService
 from shiftcodes.services.sessions import SessionService
 from shiftcodes.services.tokens import TokenService
+from shiftcodes.services.webhooks import WebhookService
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,17 +57,23 @@ class AppContainer:
     limiter: LoginRateLimiter
     secrets: SecretsGateway
     cookies: CookiePolicy
+    # Webhook verification and branch lookups: both run in the worker (keys and git live there).
+    github: GithubGateway
+    repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
+    # Failed webhook signatures per client IP (separate from the login limiter).
+    webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
     # Container management through the worker; ``None`` means "the default client" (see
     # ``container_gateway``). Tickets of the terminal WebSocket live here, in process memory.
     containers: ContainersGateway | None = None
     terminal_tickets: TicketStore = field(default_factory=TicketStore)
 
     @classmethod
-    def build(  # noqa: PLR0913 - one keyword per collaborator tests may replace
+    def build(  # noqa: PLR0913 - one optional override per collaborator
         cls,
         settings: Settings,
         *,
         secrets: SecretsGateway | None = None,
+        github: GithubGateway | None = None,
         clock: Clock = utcnow,
         hasher: PasswordHasher | None = None,
         limiter: LoginRateLimiter | None = None,
@@ -74,6 +93,9 @@ class AppContainer:
             cookies=CookiePolicy.for_settings(settings),
             containers=containers or ContainerClient(worker),
             terminal_tickets=TicketStore(clock),
+            github=github or worker,
+            repository=worker,
+            webhook_limiter=webhook_failure_limiter(clock),
         )
 
     def container_gateway(self) -> ContainersGateway:
@@ -108,6 +130,39 @@ class AppContainer:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
 
+    def pipeline_editor(self) -> PipelineEditorService:
+        """Return the parse/render/validate service with its own unit of work."""
+        return PipelineEditorService(self.uow())
+
+    def pipeline_documents(self) -> PipelineDocumentService:
+        """Return the stored-pipeline service (repository file, versions, dry run)."""
+        return PipelineDocumentService(
+            self.uow(),
+            PipelineService(self.uow(), clock=self.clock),
+            self.pipeline_editor(),
+            self.repository,
+        )
+
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""
         return LogStore(self.settings.data_dir / "logs")
+
+    def project_queries(self) -> ProjectQueryService:
+        """Return the project and run list read model with its own unit of work."""
+        return ProjectQueryService(self.uow())
+
+    def run_triggers(self) -> RunTriggerService:
+        """Return the manual run and retry service with its own unit of work."""
+        return RunTriggerService(self.uow(), self.github, self.clock)
+
+    def webhook_service(self) -> WebhookService:
+        """Return the webhook delivery service with its own unit of work."""
+        return WebhookService(self.uow(), self.clock)
+
+    def project_service(self) -> ProjectService:
+        """Return the project use cases with their own unit of work."""
+        return ProjectService(self.uow(), self.clock)
+
+    def environment_service(self) -> EnvironmentService:
+        """Return the environment use cases with their own unit of work."""
+        return EnvironmentService(self.uow(), self.clock)
