@@ -7,6 +7,7 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { groovy } from "@codemirror/legacy-modes/mode/groovy";
+import { mariaDB, mySQL, pgSQL } from "@codemirror/legacy-modes/mode/sql";
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { Compartment, EditorState } from "@codemirror/state";
 import {
@@ -20,6 +21,9 @@ import { tags } from "@lezer/highlight";
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { Diagnostic } from "../api/types";
 import styles from "./pipeline.module.css";
+
+export type EditorLanguage = "groovy" | "postgresql" | "mysql" | "mariadb";
+const LANGUAGES = { groovy, postgresql: pgSQL, mysql: mySQL, mariadb: mariaDB } as const;
 
 export interface CodeEditorHandle {
   /** Moves the cursor to a 1-based line/column, scrolls to it and focuses the editor. */
@@ -128,6 +132,8 @@ export function CodeEditor({
   diagnostics,
   label,
   handle,
+  language = "groovy",
+  onRun,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -135,9 +141,17 @@ export function CodeEditor({
   diagnostics: Diagnostic[];
   label: string;
   handle?: Ref<CodeEditorHandle>;
+  /** Highlighting dialect; the SQL console uses the engine's. */
+  language?: EditorLanguage;
+  /** Ctrl/Cmd+Enter. */
+  onRun?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  const runRef = useRef(onRun);
+  useEffect(() => {
+    runRef.current = onRun;
+  });
   const editable = useRef(new Compartment());
   const changeRef = useRef(onChange);
   useEffect(() => {
@@ -164,9 +178,20 @@ export function CodeEditor({
           indentOnInput(),
           bracketMatching(),
           lintGutter(),
-          StreamLanguage.define(groovy),
+          StreamLanguage.define(LANGUAGES[language]),
           syntaxHighlighting(highlight),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+          keymap.of([
+            {
+              key: "Mod-Enter",
+              run: () => {
+                runRef.current?.();
+                return runRef.current !== undefined;
+              },
+            },
+            ...defaultKeymap,
+            ...historyKeymap,
+            indentWithTab,
+          ]),
           theme,
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({

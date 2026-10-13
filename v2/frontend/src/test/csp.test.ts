@@ -91,6 +91,11 @@ const KNOWN_STYLE_SITES: { name: string; signature: RegExp; why: string }[] = [
     why: "Only runs where the Popover API is missing, and then prefers constructed stylesheets; the <style> branch needs a browser with neither.",
   },
   {
+    name: "xterm.js style elements (through the style bridge)",
+    signature: /xterm-scrollable-element|_dimensionsStyleElement|_themeStyleElement/,
+    why: "xterm creates <style> elements for its scrollbar, cell size and theme. src/lib/styleBridge.ts hands out inert placeholders while the terminal page is open and mirrors their text into constructed stylesheets (allowed by the policy), so nothing blocked is created.",
+  },
+  {
     name: "@primer/live-region-element template",
     signature: /aria-live="polite"/,
     why: "A custom element whose shadow-root template has a <style>; it is only created by announce(), which no component this app renders calls (see the runtime guard in vitest.setup.ts).",
@@ -124,12 +129,19 @@ describe("runtime style injection paths in the JavaScript bundles", () => {
     expect([...seen].sort()).toEqual(KNOWN_STYLE_SITES.map((site) => site.name).sort());
   });
 
-  it("never sets the style attribute from a string in application code", () => {
-    // style="..." written as an attribute string would be blocked; CSSOM (style.cssText,
-    // style.setProperty, React's style prop) is not.
-    for (const text of Object.values(scripts)) {
-      expect(text).not.toMatch(/setAttribute\((["'`])style\1/);
+  it("sets the style attribute from a string only where it is mirrored into the CSSOM", () => {
+    // style="..." written as an attribute string is blocked; CSSOM (style.cssText,
+    // style.setProperty, React's style prop) is not. The one string writer is xterm's DOM
+    // renderer (true-colour cells); src/lib/styleBridge.ts mirrorInlineStyles copies it to the
+    // CSSOM, and the WebGL renderer, used where available, does not write it at all.
+    const unknown: string[] = [];
+    for (const [file, text] of Object.entries(scripts)) {
+      for (const match of text.matchAll(/setAttribute\((["'`])style\1/g)) {
+        const context = text.slice(Math.max(0, match.index - 200), match.index + 200);
+        if (!/_addStyle/.test(context)) unknown.push(`${file}: ${context}`);
+      }
     }
+    expect(unknown.map((entry) => entry.slice(0, 300))).toEqual([]);
   });
 
   it("documents why each site is acceptable", () => {

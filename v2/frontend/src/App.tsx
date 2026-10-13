@@ -16,10 +16,14 @@ import styles from "./App.module.css";
 import { ErrorCallout, Loading } from "./components/Feedback";
 import { Shell } from "./components/Shell";
 import { LoginPage } from "./pages/Login";
+import { ContainerDetailPage } from "./pages/ContainerDetail";
+import { ContainersPage } from "./pages/Containers";
+import { DatabaseBrowserPage } from "./pages/DatabaseBrowser";
+import { DatabasesPage } from "./pages/Databases";
 import { DomainsPage } from "./pages/Domains";
 import { AgentsPage, GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
 import { NewProjectPage } from "./pages/NewProject";
-import { NotFoundPage, ProjectTabPlaceholder } from "./pages/Placeholder";
+import { NotFoundPage } from "./pages/Placeholder";
 import {
   EnvironmentsSettingsPage,
   GeneralSettingsPage,
@@ -86,6 +90,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 const PipelinePage = lazy(() => import("./pages/Pipeline"));
+const TerminalPage = lazy(() => import("./pages/TerminalPage"));
+const ConsolePage = lazy(() => import("./pages/DatabaseConsole"));
 
 function Root() {
   return (
@@ -93,6 +99,22 @@ function Root() {
       <UnauthenticatedRedirect />
       <Outlet />
     </>
+  );
+}
+
+function TerminalRoute() {
+  return (
+    <Suspense fallback={<Loading label="Loading the terminal" />}>
+      <TerminalPage />
+    </Suspense>
+  );
+}
+
+function ConsoleRoute() {
+  return (
+    <Suspense fallback={<Loading label="Loading the SQL console" />}>
+      <ConsolePage />
+    </Suspense>
   );
 }
 
@@ -126,8 +148,20 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ProjectOverviewPage /> },
               { path: "environments/:env/runs", element: <EnvironmentRunsPage /> },
               { path: "environments/:env/pipeline", element: <PipelineRoute /> },
-              { path: "containers", element: <ProjectTabPlaceholder /> },
-              { path: "database", element: <ProjectTabPlaceholder /> },
+              { path: "environments/:env/containers", element: <ContainersPage /> },
+              { path: "environments/:env/containers/:id", element: <ContainerDetailPage /> },
+              { path: "environments/:env/containers/:id/terminal", element: <TerminalRoute /> },
+              {
+                path: "containers",
+                element: <Navigate to="../environments/development/containers" replace />,
+              },
+              { path: "environments/:env/databases", element: <DatabasesPage /> },
+              { path: "environments/:env/databases/:name", element: <DatabaseBrowserPage /> },
+              { path: "environments/:env/databases/:name/console", element: <ConsoleRoute /> },
+              {
+                path: "database",
+                element: <Navigate to="../environments/development/databases" replace />,
+              },
               { path: "environments/:env/domains", element: <DomainsPage /> },
               {
                 path: "domains",

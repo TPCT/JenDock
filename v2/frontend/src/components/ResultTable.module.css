@@ -1,0 +1,59 @@
+.scroll {
+  overflow: auto;
+  max-height: 32rem;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+}
+.table th,
+.table td {
+  padding: var(--base-size-4) var(--base-size-12);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bgColor-muted);
+  border-top: 0;
+  font-weight: var(--base-text-weight-semibold);
+}
+.type {
+  display: block;
+  color: var(--fgColor-muted);
+  font-weight: var(--base-text-weight-normal);
+}
+.null {
+  color: var(--fgColor-muted);
+  font-style: italic;
+}
+.text {
+  display: inline-block;
+  max-width: 28rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.hex {
+  color: var(--fgColor-muted);
+}
+.full {
+  max-height: 24rem;
+  overflow: auto;
+  margin: 0;
+  padding: var(--base-size-12);
+  background: var(--bgColor-inset);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
