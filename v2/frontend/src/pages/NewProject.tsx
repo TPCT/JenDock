@@ -1,16 +1,37 @@
-import { Button, FormControl, Heading, Radio, RadioGroup, TextInput } from "@primer/react";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useCreateProject, useTemplates } from "../api/adminHooks";
+import {
+  Button,
+  Checkbox,
+  FormControl,
+  Heading,
+  Radio,
+  RadioGroup,
+  TextInput,
+} from "@primer/react";
+import { Fragment, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useCreateProject, useTemplates, type WizardDomain } from "../api/adminHooks";
 import type { GitTransport } from "../api/adminTypes";
 import { isApiError } from "../api/client";
+import { useZonePicker } from "../api/integrationHooks";
+import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
+import {
+  DomainFields,
+  domainBody,
+  emptyDomainDraft,
+  hostnameOf,
+  validateDomainDraft,
+  type DomainDraft,
+} from "../components/DomainFields";
 import { Callout, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { GithubSetup } from "../components/GithubSetup";
 import { PageHead } from "../components/PageHead";
+import { capitalize } from "../lib/format";
 import box from "../styles/box.module.css";
 import styles from "./NewProject.module.css";
 
-const STEPS = ["Repository", "Connect GitHub", "Branches", "Pipeline", "Review"] as const;
+const STEPS = ["Repository", "Connect GitHub", "Branches", "Pipeline", "Domain", "Review"] as const;
+const DOMAIN_STEP = 4;
+const REVIEW_STEP = 5;
 const REPOSITORY = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const NO_TEMPLATE = "__none__";
@@ -34,6 +55,40 @@ interface Draft {
 }
 
 type Errors = Partial<Record<keyof Draft, string>>;
+
+interface EnvDomain {
+  enabled: boolean;
+  fields: DomainDraft;
+}
+type DomainDrafts = Record<EnvironmentName, EnvDomain>;
+type DomainErrors = Partial<Record<EnvironmentName, string>>;
+
+function initialDomains(): DomainDrafts {
+  return {
+    development: { enabled: false, fields: emptyDomainDraft("20001") },
+    production: { enabled: false, fields: emptyDomainDraft("20002") },
+  };
+}
+
+/** Problems of the chosen domains, per environment; hosts must also differ between them. */
+export function validateDomains(domains: DomainDrafts): DomainErrors {
+  const errors: DomainErrors = {};
+  const seen = new Map<string, EnvironmentName>();
+  for (const env of ENVIRONMENTS) {
+    const entry = domains[env];
+    if (!entry.enabled) continue;
+    const found = validateDomainDraft(entry.fields);
+    if (found) {
+      errors[env] = found;
+      continue;
+    }
+    const host = hostnameOf(entry.fields);
+    const other = seen.get(host);
+    if (other) errors[env] = `${host} is already used for ${capitalize(other)}.`;
+    seen.set(host, env);
+  }
+  return errors;
+}
 
 function validate(step: number, draft: Draft): Errors {
   const errors: Errors = {};
@@ -67,6 +122,9 @@ export function NewProjectPage() {
   const [step, setStep] = useState(0);
   const [slugTouched, setSlugTouched] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
+  const [domains, setDomains] = useState<DomainDrafts>(initialDomains);
+  const [domainErrors, setDomainErrors] = useState<DomainErrors>({});
+  const picker = useZonePicker();
   const [draft, setDraft] = useState<Draft>({
     repository: "",
     name: "",
@@ -86,8 +144,15 @@ export function NewProjectPage() {
   const next = () => {
     const found = validate(step, draft);
     setErrors(found);
-    if (Object.keys(found).length === 0) setStep((current) => current + 1);
+    const domainFound = step === DOMAIN_STEP ? validateDomains(domains) : {};
+    setDomainErrors(domainFound);
+    if (Object.keys(found).length === 0 && Object.keys(domainFound).length === 0) {
+      setStep((current) => current + 1);
+    }
   };
+  const chosenDomains: WizardDomain[] = ENVIRONMENTS.flatMap((env) =>
+    domains[env].enabled ? [{ env, body: domainBody(domains[env].fields) }] : [],
+  );
 
   const submit = () => {
     create.mutate(
@@ -101,10 +166,26 @@ export function NewProjectPage() {
           git_transport: draft.transport,
         },
         jenkinsfile: chosen?.jenkinsfile ?? null,
+        domains: chosenDomains,
       },
       {
-        onSuccess: (project) => {
-          void navigate(`/projects/${encodeURIComponent(project.slug)}/settings/webhook`);
+        onSuccess: ({ project, created, failed }) => {
+          const base = `/projects/${encodeURIComponent(project.slug)}`;
+          const first = created[0] ?? failed[0]?.domain;
+          if (first) {
+            // Drafts exist: the next step is previewing and applying them on the Domains tab.
+            void navigate(`${base}/environments/${first.env}/domains`, {
+              state: {
+                created: created.map((item) => item.body.hostname),
+                failed: failed.map((item) => ({
+                  hostname: item.domain.body.hostname,
+                  message: item.message,
+                })),
+              },
+            });
+          } else {
+            void navigate(`${base}/settings/webhook`);
+          }
         },
       },
     );
@@ -117,7 +198,7 @@ export function NewProjectPage() {
       <PageHead
         crumbs={[{ label: "Projects", to: "/projects" }, { label: "New project" }]}
         title="Create a project"
-        description="A project connects one GitHub repository to a Development and a Production environment. It takes five short steps."
+        description="A project connects one GitHub repository to a Development and a Production environment. It takes six short steps."
       />
       <div className={`${box.section} ${styles.wizard}`}>
         <ol className={styles.steps} aria-label="Steps">
@@ -360,7 +441,82 @@ export function NewProjectPage() {
             </>
           ) : null}
 
-          {step === 4 ? (
+          {step === DOMAIN_STEP ? (
+            <>
+              <Heading as="h2" variant="medium">
+                Give it a web address (optional)
+              </Heading>
+              <p className="muted">
+                Pick a domain from Cloudflare for an environment. Creating the project only saves a
+                draft; you then preview and apply it on the project&apos;s Domains tab, which shows
+                the DNS record, the Apache site and the HTTPS certificate first.
+              </p>
+              {picker.loading ? <Loading label="Checking Cloudflare" /> : null}
+              {picker.configured === false ? (
+                <Callout variant="warning" title="Cloudflare is not connected yet">
+                  Domains need a Cloudflare API token. Add it in{" "}
+                  <Link to="/settings/integrations" target="_blank">
+                    Settings, Integrations
+                  </Link>{" "}
+                  (it opens in a new tab so you keep your answers). You can skip this step now and
+                  add a domain from the project&apos;s Domains tab later.
+                </Callout>
+              ) : null}
+              {picker.problem ? (
+                <Callout variant="warning" title="The zone list is not available">
+                  {picker.problem} You can still type a full host name, or fix the token in{" "}
+                  <Link to="/settings/integrations" target="_blank">
+                    Settings, Integrations
+                  </Link>
+                  .
+                </Callout>
+              ) : null}
+              {picker.configured === true && !picker.loading
+                ? ENVIRONMENTS.map((env) => (
+                    <fieldset key={env} className={styles.domain}>
+                      <legend>{capitalize(env)}</legend>
+                      <FormControl>
+                        <Checkbox
+                          checked={domains[env].enabled}
+                          onChange={(event) => {
+                            setDomains((current) => ({
+                              ...current,
+                              [env]: { ...current[env], enabled: event.target.checked },
+                            }));
+                          }}
+                        />
+                        <FormControl.Label>Give {capitalize(env)} a domain</FormControl.Label>
+                      </FormControl>
+                      {domains[env].enabled ? (
+                        <>
+                          <DomainFields
+                            draft={domains[env].fields}
+                            zones={picker.zones}
+                            services={[]}
+                            onChange={(patch) => {
+                              setDomains((current) => ({
+                                ...current,
+                                [env]: {
+                                  ...current[env],
+                                  fields: { ...current[env].fields, ...patch },
+                                },
+                              }));
+                            }}
+                          />
+                          {domainErrors[env] ? (
+                            <Callout variant="danger" role="alert">
+                              {domainErrors[env]}
+                            </Callout>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </fieldset>
+                  ))
+                : null}
+            </>
+          ) : null}
+
+          {step === REVIEW_STEP ? (
             <>
               <Heading as="h2" variant="medium">
                 Review and create
@@ -382,6 +538,23 @@ export function NewProjectPage() {
                 <dd className="ltr">{draft.production.trim()}</dd>
                 <dt>Starter pipeline</dt>
                 <dd>{chosen ? chosen.title : "None"}</dd>
+                {chosenDomains.map((item) => (
+                  <Fragment key={item.env}>
+                    <dt>{capitalize(item.env)} domain</dt>
+                    <dd className="ltr">
+                      {item.body.hostname}
+                      {" → "}
+                      {item.body.service}:{item.body.container_port}
+                      {item.body.dns_proxied ? " (proxied)" : ""}
+                    </dd>
+                  </Fragment>
+                ))}
+                {chosenDomains.length === 0 ? (
+                  <>
+                    <dt>Domain</dt>
+                    <dd>None yet</dd>
+                  </>
+                ) : null}
               </dl>
               {create.isError ? (
                 <Callout
@@ -401,6 +574,7 @@ export function NewProjectPage() {
             disabled={step === 0 || create.isPending}
             onClick={() => {
               setErrors({});
+              setDomainErrors({});
               setStep((current) => Math.max(0, current - 1));
             }}
           >

@@ -5,6 +5,7 @@ import { adminHandlers } from "./admin";
 import { containerHandlers } from "./containers";
 import { databaseHandlers } from "./databases";
 import { notificationHandlers } from "./notifications";
+import { integrationHandlers } from "./integrations";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
   MOCK_CSRF,
@@ -80,6 +81,7 @@ export const handlers: HttpHandler[] = [
   ...containerHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...databaseHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...notificationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
+  ...integrationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
 
   http.get("/api/auth/session", () =>
     authenticated ? HttpResponse.json(session()) : unauthenticated(),

@@ -1,4 +1,10 @@
-import { BellIcon, CommentDiscussionIcon, KeyIcon, PlusIcon } from "@primer/octicons-react";
+import {
+  BellIcon,
+  CommentDiscussionIcon,
+  KeyIcon,
+  PlugIcon,
+  PlusIcon,
+} from "@primer/octicons-react";
 import {
   Button,
   Checkbox,
@@ -49,10 +55,14 @@ export function GlobalSettingsLayout() {
     { to: "/settings/tokens", label: "API tokens", icon: KeyIcon },
     { to: "/settings/notifications", label: "Notifications", icon: BellIcon },
     { to: "/settings/agents", label: "Connect an AI agent", icon: CommentDiscussionIcon },
+    { to: "/settings/integrations", label: "Integrations", icon: PlugIcon },
   ];
   return (
     <>
-      <PageHead title="Settings" description="Your access to Jendock from scripts and AI agents." />
+      <PageHead
+        title="Settings"
+        description="Your access to Jendock from scripts and AI agents, and the services it connects to."
+      />
       <div className={box.section}>
         <SettingsLayout label="Settings" items={items} />
       </div>
@@ -344,24 +354,6 @@ export function TokensPage() {
           ) : null}
         </ConfirmationDialog>
       ) : null}
-    </SettingsSection>
-  );
-}
-
-export function AgentsPage() {
-  return (
-    <SettingsSection
-      title="Connect an AI agent"
-      intro="Let an AI assistant such as Claude start runs, read logs and manage deployments through the Model Context Protocol (MCP)."
-    >
-      <EmptyState
-        icon={<CommentDiscussionIcon size={32} aria-hidden="true" />}
-        title="MCP access is coming soon"
-      >
-        Jendock will offer an MCP server at <code>/mcp</code> on this address. When it is ready you
-        will create an API token here with only the permissions the agent needs, then paste the
-        address and the token into the agent&apos;s settings. The server is not available yet.
-      </EmptyState>
     </SettingsSection>
   );
 }

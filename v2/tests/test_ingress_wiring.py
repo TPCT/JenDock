@@ -23,6 +23,12 @@ from backend.logging import SecretRedactor
 from backend.repositories.database import UnitOfWork, create_session_factory
 from backend.services.audit import AuditService
 from backend.services.domains import DomainDraft
+from backend.services.platform_secrets import CLOUDFLARE_TOKEN, PlatformSecretService
+from backend.services.platform_settings import (
+    IngressOverrides,
+    IngressSettingsPatch,
+    PlatformSettingsService,
+)
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
 from backend.worker.__main__ import build_ingress, build_rpc_server
@@ -56,6 +62,7 @@ class World:
         values.update(overrides)
         self.ingress_settings = IngressSettings.model_validate(values)
         cipher = SecretCipher(tmp_path / "keys" / "secret.key")
+        self.cipher = cipher
         self.secrets = SecretService(self.uow(), cipher)
         self.factory = IngressFactory(
             self.settings,
@@ -81,6 +88,10 @@ class World:
         value = dns01_value(key_authorization)
         name = f"_acme-challenge.{domain}"
         return any(r["name"] == name and r["content"] == value for r in self.cloudflare.records)
+
+    def set_platform_token(self, value: str = TOKEN) -> None:
+        service = PlatformSecretService(self.uow(), self.cipher)
+        service.set(CLOUDFLARE_TOKEN, value, Actor(ActorType.USER, "1"))
 
     def set_token(self) -> None:
         self.secrets.set("demo", DEV, CLOUDFLARE_TOKEN_SECRET, TOKEN, Actor(ActorType.USER, "1"))
@@ -116,9 +127,49 @@ def test_apply_uses_the_token_from_the_secret_store_and_real_acme_dns01(world: W
     assert world.ca.new_account_calls == 1
 
 
+def test_apply_picks_the_platform_token_without_any_environment_secret(world: World) -> None:
+    world.set_platform_token()
+    domain_id = create_domain(world)
+    service = world.factory.ingress_service()
+    service.apply(domain_id, service.preview(domain_id).plan_hash, ACTOR)
+    assert [(r["type"], r["name"]) for r in world.cloudflare.records] == [("A", HOST)]
+    actions = [e.action for e in AuditService(world.uow()).list(limit=50)]
+    assert "secret.resolve" not in actions  # the environment store was never consulted
+
+
+def test_the_platform_token_wins_over_the_environment_secret(world: World) -> None:
+    world.set_token()  # a stale environment secret that Cloudflare would reject
+    world.secrets.set("demo", DEV, CLOUDFLARE_TOKEN_SECRET, "stale-env-token", ACTOR)
+    world.set_platform_token()
+    domain_id = create_domain(world)
+    assert world.factory.ingress_service().preview(domain_id).dns.action.value == "create"
+
+
+def test_stored_settings_override_the_environment_defaults(
+    tmp_path: Path, engine: Engine, project: str
+) -> None:
+    world = World(tmp_path, engine, acme_email=None, public_ipv4=None)
+    world.set_platform_token()
+    settings = PlatformSettingsService(world.uow())
+    patch = IngressSettingsPatch(
+        IngressOverrides(
+            acme_email="ops@example.com", public_ipv4="198.51.100.9", acme_challenge="http-01"
+        ),
+        frozenset({"acme_email", "public_ipv4", "acme_challenge"}),
+    )
+    settings.update(patch, ACTOR)
+    domain_id = create_domain(world)
+    service = world.factory.ingress_service()
+    plan = service.preview(domain_id)
+    assert plan.dns.desired is not None and plan.dns.desired.content == "198.51.100.9"
+    assert plan.tls.challenge == "http-01"
+    service.apply(domain_id, plan.plan_hash, ACTOR)  # the stored email makes issuance possible
+    assert HOST in world.helper.certificates
+
+
 def test_a_missing_cloudflare_secret_is_a_clear_not_found(world: World) -> None:
     domain_id = create_domain(world)
-    with pytest.raises(NotFoundError, match=CLOUDFLARE_TOKEN_SECRET):
+    with pytest.raises(NotFoundError, match="Settings > Integrations"):
         world.factory.ingress_service().preview(domain_id)
 
 
@@ -130,7 +181,7 @@ def test_the_acme_email_is_required_for_issuance(
     domain_id = create_domain(world)
     service = world.factory.ingress_service()
     plan = service.preview(domain_id)
-    with pytest.raises(ConfigurationError, match="ACME_EMAIL"):
+    with pytest.raises(ConfigurationError, match="ACME contact email"):
         service.apply(domain_id, plan.plan_hash, ACTOR)
 
 

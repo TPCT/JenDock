@@ -60,9 +60,11 @@ differs, so what the user reviewed is what runs. Apply order:
 
 ## Cloudflare DNS
 
-`backend/adapters/cloudflare.py`. Token: the environment secret `CLOUDFLARE_API_TOKEN`
-(set it through the secrets endpoints; the worker reads it per call, audited as
-`secret.resolve`). Use a token scoped to **Zone:DNS:Edit** for the single zone (plus
+`backend/adapters/cloudflare.py`. Token: the platform token stored in Settings > Integrations
+(encrypted in the worker's platform secret store, write-only; the worker reads it per call). The
+environment secret `CLOUDFLARE_API_TOKEN` is still honoured when no platform token exists (read
+per call, audited as `secret.resolve`). The ACME email, public addresses and challenge are stored
+platform settings there too, with the `JENDOCK_INGRESS_*` variables as defaults. Use a token scoped to **Zone:DNS:Edit** for the single zone (plus
 **Zone:Zone:Read**, needed to look the zone up by name); nothing else.
 
 - Zone lookup by walking up the hostname (`a.b.example.com` -> `b.example.com` -> `example.com`).

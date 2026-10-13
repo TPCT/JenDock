@@ -10,6 +10,11 @@ from sqlalchemy import Engine
 from backend.adapters.container_client import ContainerClient, ContainersGateway
 from backend.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from backend.adapters.inspector_client import InspectorGateway, WorkerInspectorClient
+from backend.adapters.integrations_client import (
+    IntegrationsClient,
+    IntegrationsGateway,
+    UnavailableIntegrations,
+)
 from backend.adapters.notification_client import NotificationGateway, WorkerNotificationClient
 from backend.adapters.worker_client import (
     GithubGateway,
@@ -38,6 +43,7 @@ from backend.services.deployments import DeploymentService
 from backend.services.domain_status import DomainStatusService
 from backend.services.domains import DomainService
 from backend.services.environments import EnvironmentService
+from backend.services.integrations import IntegrationsService
 from backend.services.notification_rules import NotificationQueryService, NotificationRuleService
 from backend.services.passwords import PasswordHasher
 from backend.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
@@ -73,6 +79,8 @@ class AppContainer:
     github: GithubGateway
     ingress: IngressGateway = field(default_factory=UnavailableIngress)
     ingress_settings: IngressSettings = field(default_factory=IngressSettings)
+    # Cloudflare credential, test connection and deploy keys: all worker-side.
+    integrations: IntegrationsGateway = field(default_factory=UnavailableIntegrations)
     repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
     # Failed webhook signatures per client IP (separate from the login limiter).
     webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
@@ -115,6 +123,7 @@ class AppContainer:
             containers=containers or ContainerClient(worker),
             terminal_tickets=TicketStore(clock),
             ingress=IngressClient(settings.worker_socket_path),
+            integrations=IntegrationsClient(settings.worker_socket_path),
             ingress_settings=get_ingress_settings(),
             github=github or worker,
             repository=worker,
@@ -194,6 +203,12 @@ class AppContainer:
             retry_after=timedelta(hours=self.ingress_settings.renew_retry_hours),
         )
         return DomainStatusService(self.uow(), self.domain_service(), policy, self.clock)
+
+    def integrations_service(self) -> IntegrationsService:
+        """Return the Integrations pages' service (settings, status, webhook summary)."""
+        return IntegrationsService(
+            self.uow(), self.integrations, self.settings, self.ingress_settings, self.clock
+        )
 
     def pipeline_editor(self) -> PipelineEditorService:
         """Return the parse/render/validate service with its own unit of work."""

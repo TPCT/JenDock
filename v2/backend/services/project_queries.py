@@ -36,6 +36,7 @@ class EnvironmentView:
 
     environment: Environment
     last_run: RunSummaryData | None
+    has_pipeline: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,4 +101,5 @@ class ProjectQueryService:
     def _environment_view(self, project: Project, environment: Environment) -> EnvironmentView:
         latest = self._uow.runs.latest_for_environment(environment.id)
         summary = RunSummaryData(latest, project.slug, environment.name.value) if latest else None
-        return EnvironmentView(environment, summary)
+        has_pipeline = self._uow.pipelines.get_latest(environment.id) is not None
+        return EnvironmentView(environment, summary, has_pipeline)

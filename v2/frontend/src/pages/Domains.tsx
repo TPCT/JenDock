@@ -8,6 +8,7 @@ import {
 import {
   ActionList,
   ActionMenu,
+  Banner,
   Button,
   Checkbox,
   ConfirmationDialog,
@@ -20,7 +21,7 @@ import {
   TextInput,
 } from "@primer/react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   useCheckDomain,
   useCreateDomain,
@@ -38,8 +39,17 @@ import type {
   Plan,
   PlanOperation,
 } from "../api/adminTypes";
+import { useIngressReadiness, useZonePicker } from "../api/integrationHooks";
 import { isApiError } from "../api/client";
+import { useProject } from "../api/hooks";
 import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
+import {
+  DomainFields,
+  domainBody,
+  emptyDomainDraft,
+  validateDomainDraft,
+  type DomainDraft,
+} from "../components/DomainFields";
 import { EnvToolbar } from "../components/EnvSwitch";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { RelativeTime } from "../components/Time";
@@ -309,29 +319,21 @@ function AddDomainDialog({
   onClose: () => void;
 }) {
   const create = useCreateDomain(slug, env);
-  const [hostname, setHostname] = useState("");
-  const [service, setService] = useState("web");
-  const [containerPort, setContainerPort] = useState("8080");
-  const [publishedPort, setPublishedPort] = useState("20001");
+  const project = useProject(slug);
+  const picker = useZonePicker();
+  const services = project.data?.environments.find((item) => item.name === env)?.services ?? [];
+  const [draft, setDraft] = useState<DomainDraft>(() => emptyDomainDraft());
   const [type, setType] = useState<DnsRecordType>("A");
   const [target, setTarget] = useState("");
-  const [proxied, setProxied] = useState(false);
   const [tls, setTls] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
 
   const submit = () => {
-    const container = Number(containerPort);
-    const published = Number(publishedPort);
-    let found: string | null = null;
-    if (hostname.trim() === "") found = "Enter the host name, for example app.example.com.";
-    else if (service.trim() === "") found = "Enter the service that should answer.";
-    else if (!Number.isInteger(container) || container < 1 || container > 65535) {
-      found = "The container port must be a number from 1 to 65535.";
-    } else if (!Number.isInteger(published) || published < 1024 || published > 65535) {
-      found = "The published port must be a number from 1024 to 65535.";
-    } else if (type === "CNAME" && target.trim() === "") {
-      found = "A CNAME record needs a target host name.";
-    }
+    const found =
+      validateDomainDraft(draft) ??
+      (type === "CNAME" && target.trim() === ""
+        ? "A CNAME record needs a target host name."
+        : null);
     if (found !== null) {
       setProblem(found);
       return;
@@ -339,13 +341,9 @@ function AddDomainDialog({
     setProblem(null);
     create.mutate(
       {
-        hostname: hostname.trim(),
-        service: service.trim(),
-        container_port: container,
-        published_port: published,
+        ...domainBody(draft),
         dns_record_type: type,
         dns_target: target.trim() === "" ? null : target.trim(),
-        dns_proxied: proxied,
         tls_enabled: tls,
       },
       { onSuccess: onClose },
@@ -369,68 +367,26 @@ function AddDomainDialog({
       ]}
     >
       <div className={box.stack}>
-        <FormControl required>
-          <FormControl.Label>Host name</FormControl.Label>
-          <TextInput
-            block
-            monospace
-            value={hostname}
-            placeholder="app.example.com"
-            autoCapitalize="none"
-            spellCheck={false}
-            onChange={(event) => {
-              setHostname(event.target.value);
-            }}
-          />
-          <FormControl.Caption>
-            The address people type. Its domain must be in your Cloudflare account.
-          </FormControl.Caption>
-        </FormControl>
-        <FormControl required>
-          <FormControl.Label>Service</FormControl.Label>
-          <TextInput
-            block
-            monospace
-            value={service}
-            onChange={(event) => {
-              setService(event.target.value);
-            }}
-          />
-          <FormControl.Caption>
-            The name of the service in this environment that should answer, as in the
-            pipeline&apos;s deploy step.
-          </FormControl.Caption>
-        </FormControl>
-        <div className={styles.two}>
-          <FormControl required>
-            <FormControl.Label>Container port</FormControl.Label>
-            <TextInput
-              block
-              type="number"
-              value={containerPort}
-              onChange={(event) => {
-                setContainerPort(event.target.value);
-              }}
-            />
-            <FormControl.Caption>
-              The port the application listens on inside its container.
-            </FormControl.Caption>
-          </FormControl>
-          <FormControl required>
-            <FormControl.Label>Published port</FormControl.Label>
-            <TextInput
-              block
-              type="number"
-              value={publishedPort}
-              onChange={(event) => {
-                setPublishedPort(event.target.value);
-              }}
-            />
-            <FormControl.Caption>
-              The port on this server (1024 to 65535) that the web server forwards to.
-            </FormControl.Caption>
-          </FormControl>
-        </div>
+        {picker.configured === false ? (
+          <Callout variant="warning" title="Cloudflare is not connected yet">
+            You can save the draft, but it cannot be applied until a token is stored in{" "}
+            <Link to="/settings/integrations">Settings, Integrations</Link>.
+          </Callout>
+        ) : null}
+        {picker.problem ? (
+          <Callout variant="warning" title="The zone list is not available">
+            {picker.problem} Type the full host name instead, or check the token in{" "}
+            <Link to="/settings/integrations">Settings, Integrations</Link>.
+          </Callout>
+        ) : null}
+        <DomainFields
+          draft={draft}
+          zones={picker.zones}
+          services={services}
+          onChange={(patch) => {
+            setDraft((current) => ({ ...current, ...patch }));
+          }}
+        />
         <FormControl>
           <FormControl.Label>DNS record type</FormControl.Label>
           <Select
@@ -460,18 +416,6 @@ function AddDomainDialog({
             />
           </FormControl>
         ) : null}
-        <FormControl>
-          <Checkbox
-            checked={proxied}
-            onChange={(event) => {
-              setProxied(event.target.checked);
-            }}
-          />
-          <FormControl.Label>Proxy through Cloudflare</FormControl.Label>
-          <FormControl.Caption>
-            Hides the server address and adds Cloudflare protection.
-          </FormControl.Caption>
-        </FormControl>
         <FormControl>
           <Checkbox
             checked={tls}
@@ -657,12 +601,85 @@ function DomainRow({
   );
 }
 
+/** Handed over by the project wizard through the router state. */
+interface CreatedState {
+  created?: string[];
+  failed?: { hostname: string; message: string }[];
+}
+
+/** Why domains cannot be applied yet, with the way out: a Banner linking to Integrations. */
+function ReadinessBanner({ slug, env }: { slug: string; env: EnvironmentName }) {
+  const readiness = useIngressReadiness(slug, env);
+  const blocking = readiness.data?.reasons.filter((reason) => reason.blocking) ?? [];
+  if (!readiness.data || blocking.length === 0) return null;
+  return (
+    <Banner
+      variant="warning"
+      title={
+        readiness.data.token_configured
+          ? "Domains cannot be applied yet"
+          : "Cloudflare is not set up yet"
+      }
+      description={
+        <>
+          {blocking.map((reason) => (
+            <span key={reason.code} className={styles.reason}>
+              {reason.message}
+            </span>
+          ))}{" "}
+          You can still add drafts; applying them needs this fixed in{" "}
+          <Link to="/settings/integrations">Settings, Integrations</Link>.
+        </>
+      }
+      primaryAction={
+        <Button as={Link} to="/settings/integrations">
+          Open Integrations
+        </Button>
+      }
+    />
+  );
+}
+
+function CreatedBanner({ state, env }: { state: CreatedState; env: EnvironmentName }) {
+  const hostnames = state.created ?? [];
+  return (
+    <>
+      {hostnames.length > 0 ? (
+        <Banner
+          variant="success"
+          title="Project created. Next step: put your domain online"
+          description={
+            <>
+              {hostnames.join(", ")} {hostnames.length === 1 ? "is" : "are"} saved as{" "}
+              {hostnames.length === 1 ? "a draft" : "drafts"} for {capitalize(env)}. Press Preview
+              and apply below: Jendock shows the DNS record, the Apache site and the HTTPS
+              certificate before it changes anything.
+            </>
+          }
+        />
+      ) : null}
+      {state.failed?.map((item) => (
+        <Banner
+          key={item.hostname}
+          variant="critical"
+          title={`${item.hostname} was not saved`}
+          description={`${item.message} The project itself was created; add the domain again with Add domain.`}
+        />
+      ))}
+    </>
+  );
+}
+
 export function DomainsPage() {
   const { slug = "", env: rawEnv } = useParams();
   const env = ENVIRONMENTS.find((name) => name === rawEnv) ?? null;
   const domains = useDomains(slug, env ?? "development");
   const remove = useDeleteDomain(slug, env ?? "development");
-  const [action, setAction] = useState<Action | null>(null);
+  const [search] = useSearchParams();
+  const created = useLocation().state as CreatedState | null;
+  const [action, setAction] = useState<Action | null>(
+    search.get("add") === "1" ? { kind: "add" } : null,
+  );
   const [notice, setNotice] = useState<{ variant: "success" | "danger"; text: string } | null>(
     null,
   );
@@ -707,6 +724,8 @@ export function DomainsPage() {
           </Button>
         }
       />
+      {created ? <CreatedBanner state={created} env={env} /> : null}
+      <ReadinessBanner slug={slug} env={env} />
       {notice ? (
         <Callout variant={notice.variant} role={notice.variant === "danger" ? "alert" : "status"}>
           {notice.text}

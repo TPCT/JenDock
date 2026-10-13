@@ -6,6 +6,7 @@ import { resetContainersMock } from "./src/mocks/containers";
 import { resetDatabasesMock } from "./src/mocks/databases";
 import { resetNotificationsMock } from "./src/mocks/notifications";
 import { resetMockData } from "./src/mocks/data";
+import { resetIntegrationsMock } from "./src/mocks/integrations";
 import { server } from "./src/mocks/server";
 import { setMockAuthenticated } from "./src/mocks/handlers";
 import { FakeEventSource } from "./src/test/fakeEventSource";
@@ -56,6 +57,7 @@ afterEach(() => {
   resetContainersMock();
   resetDatabasesMock();
   resetNotificationsMock();
+  resetIntegrationsMock();
 });
 afterAll(() => {
   server.close();

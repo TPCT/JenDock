@@ -75,3 +75,6 @@
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--base-size-12);
 }
+.reason {
+  display: block;
+}

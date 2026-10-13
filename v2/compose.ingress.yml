@@ -4,8 +4,9 @@
 #   docker compose -f compose.yml -f compose.ingress.yml up -d
 #
 # Prerequisites: docs/ingress-host-helper.md (helper installed and running on the host).
-# The Cloudflare token is NOT configured here: it is the environment secret
-# CLOUDFLARE_API_TOKEN, stored through the secrets API.
+# The Cloudflare token is NOT configured here: store it in Settings > Integrations (it is kept
+# encrypted by the worker). The ACME email and public addresses below are only defaults; the
+# same page can override them.
 services:
   api:
     environment:
@@ -18,7 +19,7 @@ services:
       JENDOCK_INGRESS_PUBLIC_IPV4: "${INGRESS_PUBLIC_IPV4:-}"
       JENDOCK_INGRESS_PUBLIC_IPV6: "${INGRESS_PUBLIC_IPV6:-}"
       JENDOCK_INGRESS_ALLOW_WILDCARDS: "${INGRESS_ALLOW_WILDCARDS:-false}"
-      JENDOCK_INGRESS_ACME_EMAIL: "${INGRESS_ACME_EMAIL:?set INGRESS_ACME_EMAIL}"
+      JENDOCK_INGRESS_ACME_EMAIL: "${INGRESS_ACME_EMAIL:-}"
       # Use the staging directory until the setup is proven:
       #   https://acme-staging-v02.api.letsencrypt.org/directory
       JENDOCK_INGRESS_ACME_DIRECTORY_URL: "${INGRESS_ACME_DIRECTORY_URL:-https://acme-v02.api.letsencrypt.org/directory}"

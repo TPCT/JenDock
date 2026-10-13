@@ -1,7 +1,7 @@
 """notifications: channels, rules and the delivery outbox
 
-Revision ID: 0005_notifications
-Revises: 0004_task10
+Revision ID: 0006_notifications
+Revises: 0005_platform
 Create Date: 2026-10-13 21:00:00.000000
 """
 
@@ -12,8 +12,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0005_notifications"
-down_revision: str | None = "0004_task10"
+revision: str = "0006_notifications"
+down_revision: str | None = "0005_platform"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

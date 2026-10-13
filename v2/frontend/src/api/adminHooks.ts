@@ -33,11 +33,32 @@ export function useTemplates() {
   });
 }
 
-/** Creates the project, then (optionally) stores the chosen starter pipeline in both environments. */
+export interface WizardDomain {
+  env: EnvironmentName;
+  body: CreateDomainBody;
+}
+
+export interface CreateProjectResult {
+  project: Project;
+  /** Domains saved as drafts, in the order given. */
+  created: WizardDomain[];
+  /** Domains the server refused; the project exists anyway. */
+  failed: { domain: WizardDomain; message: string }[];
+}
+
+/**
+ * Creates the project, then (optionally) stores the chosen starter pipeline in both environments
+ * and saves each chosen domain as a draft. A domain that is refused does not undo the project:
+ * it comes back in `failed` so the next page can say so.
+ */
 export function useCreateProject() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { body: CreateProjectBody; jenkinsfile: string | null }) => {
+    mutationFn: async (input: {
+      body: CreateProjectBody;
+      jenkinsfile: string | null;
+      domains?: WizardDomain[];
+    }): Promise<CreateProjectResult> => {
       const project = await api.post<Project>("/api/projects", input.body);
       if (input.jenkinsfile !== null) {
         for (const env of ["development", "production"] as const) {
@@ -47,7 +68,17 @@ export function useCreateProject() {
           });
         }
       }
-      return project;
+      const result: CreateProjectResult = { project, created: [], failed: [] };
+      for (const domain of input.domains ?? []) {
+        try {
+          await api.post<Domain>(`${envPath(project.slug, domain.env)}/domains`, domain.body);
+          result.created.push(domain);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "the request failed";
+          result.failed.push({ domain, message });
+        }
+      }
+      return result;
     },
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: keys.projects });
@@ -72,6 +103,41 @@ export function useUpdateEnvironment(slug: string, env: EnvironmentName) {
     mutationFn: (body: { branch?: string; auto_deploy?: boolean }) =>
       api.patch<EnvironmentSummary>(envPath(slug, env), body),
     onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: keys.projects });
+    },
+  });
+}
+
+export interface AutoDeployTarget {
+  slug: string;
+  env: EnvironmentName;
+}
+
+export interface BulkAutoDeployResult {
+  enabled: AutoDeployTarget[];
+  failed: { target: AutoDeployTarget; message: string }[];
+}
+
+/** One PATCH per environment (each audited on its own); a failure does not stop the rest. */
+export function useEnableAutoDeploy() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (targets: AutoDeployTarget[]): Promise<BulkAutoDeployResult> => {
+      const result: BulkAutoDeployResult = { enabled: [], failed: [] };
+      for (const target of targets) {
+        try {
+          await api.patch<EnvironmentSummary>(envPath(target.slug, target.env), {
+            auto_deploy: true,
+          });
+          result.enabled.push(target);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "request failed";
+          result.failed.push({ target, message });
+        }
+      }
+      return result;
+    },
+    onSettled: async () => {
       await client.invalidateQueries({ queryKey: keys.projects });
     },
   });
