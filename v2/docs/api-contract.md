@@ -230,7 +230,7 @@ Scope `run`, CSRF. 200 `{outcome: "cancelled" | "requested", run: RunResponse}`.
 (`cancel_requested_at` set, status still `running`). The UI offers cancel only while
 `queued|running`, behind a confirmation, and shows "Cancel requested" afterwards.
 
-## Pipelines (proposed)
+## Pipelines (implemented)
 
 The browser never parses or serializes Jenkinsfile text. The server is the single source of
 truth: `parse` turns text into an editing **model**, `render` turns a model back into the
@@ -369,6 +369,62 @@ because single-quoted strings must stay literal (shell `$HOME` in `sh` scripts).
 steps/args are preserved as given (`name`, `args`) so the UI can show "not in the catalogue"
 and keep them untouched. Comments are not part of the model (same as the serializer today).
 
+### Details of the implementation (status: exists)
+
+- **Context pair.** `project` and `environment` of `parse`/`render`/`validate` must be given
+  together (422 otherwise); an unknown project is 404. Without the pair the validator does not
+  judge `credentials('NAME')` (an editor without a project cannot know the secret names), every
+  other check still runs. With the pair, the secret names of that environment are used.
+- **Size.** Pipeline text is limited to 256 KiB (422 `validation_error`).
+- **Repository detection.** `GET .../pipeline` asks the worker (`pipeline.repository_file`) for the
+  `Jenkinsfile` at the head of the environment's branch. If git cannot read the repository at all
+  the worker answers "unreachable" and the API falls back to the stored pipeline (`platform` or
+  `none`); a run decides again at its own commit. If the worker itself is down the answer is 503
+  `worker_unavailable`, not a guess. `PUT` while the repository has a `Jenkinsfile` is 409.
+- **`updated_at`/`updated_by`** are `null` for `source: "repository"`. `updated_by` is the user
+  name of the session that saved; versions saved with an API token have `created_by: null`.
+- **Template strings.** In `{template: ...}` a literal `$` is written `\$` and a literal backslash
+  `\\`; every other backslash stands for itself. A lone `$` or an unterminated `${` stays literal
+  (a half-typed template still renders). Variables are always rendered as `${NAME}`,
+  `${env.NAME}`, `${params.NAME}`.
+- **Unnamed arguments.** Arguments of unknown steps that have no name are keyed `$0`, `$1`, ...
+  in `args`, so they survive a round trip. If an argument is written twice in one call the model
+  keeps the first one (the diagnostics of the original text still report the duplicate).
+- **Catalogue.** `deploy.services` has `role: "uses_image"` too (its map values are images).
+  Argument order and step order follow `steps.py`.
+
+### `GET /api/pipelines/templates` (status: exists)
+
+Scope `read`. 200 `[{name, title, description, jenkinsfile}]` for Laravel (`laravel`), Next.js
+(`nextjs`), Node API (`node-api`), Python/FastAPI (`python-fastapi`), static site (`static-site`)
+and any project with a Dockerfile (`dockerfile`). Every template validates without errors and is
+accepted by a real Jenkins linter (`make lint-jenkins`). They use placeholder service names and
+addresses; the comment at the top of each says what to change.
+
+### `POST /api/projects/{slug}/environments/{env}/pipeline/dry-run` (status: exists)
+
+Scope `read`, CSRF. Body `{jenkinsfile?: string | null, branch?: string | null}`: unsaved text (else
+the pipeline in force: repository file, else the stored one; 422 when there is none) and the
+branch to plan for (else the environment's branch). Nothing is executed, no secret is read.
+
+200 `{valid, diagnostics, plan}`. `valid` is false when there are syntax or validation errors;
+`plan` is then `null`. Otherwise:
+
+```
+plan { branch, environment, agent: string|null,       // "any", "none", "docker <image>"
+       stages: DryStage[], post: DryPost[] }
+DryStage { name, path,                                 // path = "Parent / Child"
+           will_run: bool, skip_reason: string|null,   // evaluated like a real run (`when`)
+           agent: string|null, mode: "steps"|"parallel"|"stages",
+           steps: DryStep[], stages: DryStage[], post: DryPost[] }
+DryStep  { name, label, children: DryStep[] }          // label as shown in a run, e.g. "sh: npm ci"
+DryPost  { condition, steps: DryStep[] }
+```
+
+Stages inside a skipped stage are `will_run: false` with an explanatory `skip_reason`.
+`environment` conditions see the built-in variables (`ENVIRONMENT`, `BRANCH_NAME`, `PROJECT`...)
+and the literal values of `environment` sections; credentials are never read.
+
 ### UI behaviour the backend should know about
 
 - **Presets** are composed by the UI from model parts: `when` presets use `branch` /
@@ -383,3 +439,14 @@ ${BRANCH_NAME}` to `failure` / `success`, and `cleanup`. A condition tree that m
 - Sync: Visual -> Text: model -> `render` (debounced 250 ms) -> text replaces the buffer.
   Text -> Visual: text -> `parse` on entering the Visual tab. Text tab: `validate` 400 ms after
   typing stops.
+
+## Serving the UI (status: exists)
+
+When `SHIFTCODES_FRONTEND_DIST` points to a Vite `dist` directory (the API image sets it) the API
+serves it: static files at `/`, any other `GET` that is not below `/api` or `/healthz` and does not
+look like a missing file (`.js`, `.css`, `.png`...) answers `index.html` (client-side routes).
+Unknown `/api/*` paths, missing `/assets/*` files and missing files with a file suffix keep the JSON
+error envelope (404 `not_found`). `/assets/*` (content-hashed) is sent with
+`Cache-Control: public, max-age=31536000, immutable`; everything else keeps `no-store`. The
+Content-Security-Policy is unchanged (`default-src 'self'; frame-ancestors 'none'; base-uri 'none'`):
+the built UI, including CodeMirror in its shadow root, runs under it.

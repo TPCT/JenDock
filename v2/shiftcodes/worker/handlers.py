@@ -83,7 +83,7 @@ class SecretHandlers:
 def build_handlers(
     factory: SecretServiceFactory, extra: Mapping[str, Handler] | None = None
 ) -> Mapping[str, Handler]:
-    """Return the allowlist of RPC methods; ``extra`` adds the methods of other modules."""
+    """Return the allowlist of RPC methods; ``extra`` adds methods of other modules."""
     secrets = SecretHandlers(factory)
     return {
         **(extra or {}),

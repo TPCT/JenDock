@@ -12,6 +12,7 @@ import secrets
 import socket
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -34,6 +35,8 @@ from shiftcodes.services.secrets import SecretInfo
 DEFAULT_TIMEOUT = 5.0
 # A branch lookup runs git against GitHub in the worker (ssh connect timeout 15 s).
 GIT_TIMEOUT = 45.0
+# Reading a file from a remote repository can take a while (network, large trees).
+REPOSITORY_TIMEOUT = 70.0  # branch lookup (25 s) plus the fetch of the file (30 s)
 _CHUNK = 65536
 
 
@@ -68,6 +71,40 @@ class GithubGateway(Protocol):
         self, slug: str, branch: str, actor: Actor, *, details: bool = False
     ) -> BranchHead:
         """The head of ``branch`` of the project's repository (``NotFoundError`` if missing)."""
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryFile:
+    """The ``Jenkinsfile`` of a repository branch as the worker saw it.
+
+    ``reachable`` is false when the repository could not be read at all; ``text`` is ``None``
+    when the branch or the file does not exist.
+    """
+
+    reachable: bool
+    text: str | None
+
+
+class RepositoryGateway(Protocol):
+    """Repository questions the API asks the worker; implemented by ``WorkerClient``."""
+
+    def repository_jenkinsfile(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> RepositoryFile:
+        """The ``Jenkinsfile`` at the head of the environment's branch."""
+
+
+class UnavailableRepositoryGateway:
+    """Default when no worker is wired (tests that do not read repositories)."""
+
+    def repository_jenkinsfile(
+        self,
+        slug: str,  # noqa: ARG002
+        env: EnvironmentName,  # noqa: ARG002
+        actor: Actor,  # noqa: ARG002
+    ) -> RepositoryFile:
+        """Always fails: nobody can read the repository."""
+        raise WorkerUnavailableError("worker is not reachable")
 
 
 class WorkerClient:
@@ -124,6 +161,20 @@ class WorkerClient:
         params = {"slug": slug, "branch": branch, "details": details}
         result = self._call("github.branch_head", actor, params, timeout=GIT_TIMEOUT)
         return _branch_head(result)
+
+    def repository_jenkinsfile(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> RepositoryFile:
+        """Ask the worker for the ``Jenkinsfile`` at the head of the environment's branch."""
+        params = {"slug": slug, "env": env.value}
+        result = self._call("pipeline.repository_file", actor, params, REPOSITORY_TIMEOUT)
+        if not isinstance(result, dict):
+            raise WorkerError("worker returned an unexpected response")
+        text = result.get("text")
+        reachable = result.get("reachable")
+        if not isinstance(reachable, bool) or not (text is None or isinstance(text, str)):
+            raise WorkerError("worker returned an unexpected response")
+        return RepositoryFile(reachable, text)
 
     def _call(
         self,

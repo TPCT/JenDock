@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # environment). Empty means nobody is trusted and the peer address is the client address.
     trusted_proxies: Annotated[list[str], NoDecode] = []
     secret_key_file: Path
+    # Directory of the built web UI (Vite ``dist``) served by the API; ``None`` = API only
+    # (development uses the Vite dev server). The container image sets it.
+    frontend_dist: Path | None = None
 
     @field_validator("container_memory", "build_memory")
     @classmethod

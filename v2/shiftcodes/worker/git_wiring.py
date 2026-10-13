@@ -9,7 +9,7 @@ from shiftcodes.adapters.git_access import (
     ssh_access,
     unavailable_ssh_access,
 )
-from shiftcodes.adapters.git_remote import GitBranchHeads
+from shiftcodes.adapters.git_remote import GitBranchHeads, HeadFileReader
 from shiftcodes.adapters.git_sources import GitAccessSource, TransportRoutingSource
 from shiftcodes.config import Settings
 from shiftcodes.domain.enums import GitTransport
@@ -31,6 +31,11 @@ def build_source(settings: Settings) -> TransportRoutingSource:
         for transport, access in git_accesses(settings).items()
     }
     return TransportRoutingSource(providers)
+
+
+def build_branch_files(settings: Settings) -> HeadFileReader:
+    """Reads single files at a branch head: the editor and the run resolver share this path."""
+    return HeadFileReader(build_heads(settings), build_source(settings))
 
 
 def build_heads(settings: Settings) -> GitBranchHeads:

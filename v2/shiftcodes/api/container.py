@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.worker_client import GithubGateway, SecretsGateway, WorkerClient
+from shiftcodes.adapters.worker_client import (
+    GithubGateway,
+    RepositoryGateway,
+    SecretsGateway,
+    UnavailableRepositoryGateway,
+    WorkerClient,
+)
 from shiftcodes.api.cookies import CookiePolicy
 from shiftcodes.config import Settings
 from shiftcodes.domain.clock import Clock, utcnow
@@ -20,6 +26,8 @@ from shiftcodes.repositories.database import (
 from shiftcodes.services.auth import AuthService
 from shiftcodes.services.environments import EnvironmentService
 from shiftcodes.services.passwords import PasswordHasher
+from shiftcodes.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
+from shiftcodes.services.pipelines import PipelineService
 from shiftcodes.services.project_queries import ProjectQueryService
 from shiftcodes.services.projects import ProjectService
 from shiftcodes.services.rate_limit import LoginRateLimiter
@@ -49,6 +57,7 @@ class AppContainer:
     cookies: CookiePolicy
     # Webhook verification and branch lookups: both run in the worker (keys and git live there).
     github: GithubGateway
+    repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
 
     @classmethod
     def build(  # noqa: PLR0913 - one optional override per collaborator
@@ -74,6 +83,7 @@ class AppContainer:
             secrets=secrets or worker,
             cookies=CookiePolicy.for_settings(settings),
             github=github or worker,
+            repository=worker,
         )
 
     def uow(self) -> UnitOfWork:
@@ -101,6 +111,19 @@ class AppContainer:
     def run_lifecycle(self) -> RunLifecycleService:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
+
+    def pipeline_editor(self) -> PipelineEditorService:
+        """Return the parse/render/validate service with its own unit of work."""
+        return PipelineEditorService(self.uow())
+
+    def pipeline_documents(self) -> PipelineDocumentService:
+        """Return the stored-pipeline service (repository file, versions, dry run)."""
+        return PipelineDocumentService(
+            self.uow(),
+            PipelineService(self.uow(), clock=self.clock),
+            self.pipeline_editor(),
+            self.repository,
+        )
 
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""

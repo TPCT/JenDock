@@ -235,7 +235,7 @@ def test_the_provisional_snapshot_is_the_latest_stored_pipeline(
         "pipeline {\n  agent none\n  stages {\n    stage('A') {\n"
         "      steps { echo 'x' }\n    }\n  }\n}\n"
     )
-    PipelineService(hook_container.uow()).save(auto, DEV, text, None)
+    PipelineService(hook_container.uow()).save(auto, DEV, text)
     _post(hook, push_payload())
     [run] = _runs(hook_container)
     assert run.pipeline_source is PipelineSource.PLATFORM

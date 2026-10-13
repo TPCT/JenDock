@@ -11,6 +11,7 @@ from typing import Protocol
 from shiftcodes.adapters.errors import SourceError
 from shiftcodes.adapters.git_access import GitAccess
 from shiftcodes.adapters.git_runner import GitRunner
+from shiftcodes.adapters.sources import CheckoutRequest, SourceProvider
 from shiftcodes.domain.enums import GitTransport
 from shiftcodes.domain.git import BranchHead
 from shiftcodes.domain.values import BranchName
@@ -30,6 +31,35 @@ class BranchHeadReader(Protocol):
 
         With ``details`` the commit's message, author and date are fetched too.
         """
+
+
+class BranchFileReader(Protocol):
+    """Reads a file at the head of a branch (the pipeline editor's repository detection)."""
+
+    def read_file(
+        self, repository: str, transport: GitTransport, branch: str, path: str
+    ) -> str | None:
+        """The text of ``path`` at the head of ``branch``; ``None`` when the branch or the file
+        does not exist; ``SourceError`` when the repository cannot be read."""
+
+
+class HeadFileReader:
+    """The one code path for reading a repository file: resolve the head with
+    ``GitBranchHeads``, then read the file at that exact commit with the same
+    ``SourceProvider`` runs use (so the deploy key or https choice of the project applies)."""
+
+    def __init__(self, heads: BranchHeadReader, source: SourceProvider) -> None:
+        self._heads = heads
+        self._source = source
+
+    def read_file(
+        self, repository: str, transport: GitTransport, branch: str, path: str
+    ) -> str | None:
+        """See ``BranchFileReader``."""
+        head = self._heads.head(repository, transport, branch, details=False)
+        if head is None:
+            return None
+        return self._source.read_file(CheckoutRequest(repository, head.commit_sha, transport), path)
 
 
 class GitBranchHeads:

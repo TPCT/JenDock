@@ -16,6 +16,8 @@ from shiftcodes.domain.enums import GitTransport
 FORBIDDEN_NAMES = frozenset({".env", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"})
 # Same bound as the Jenkinsfile parser (256 KiB), so a bigger file fails early and clearly.
 MAX_REPOSITORY_FILE_BYTES = 256 * 1024
+# An interactive read (or the start of a run) must not hang for the full clone timeout.
+READ_FETCH_TIMEOUT = 30.0
 _REGULAR_FILE_MODES = frozenset({"100644", "100755"})
 
 
@@ -101,7 +103,11 @@ class LocalGitSource:
         with tempfile.TemporaryDirectory(prefix="sc-read-") as scratch:
             repo = Path(scratch)
             self._git.run(["init", "--bare", "--quiet", str(repo)])
-            self._git.run(["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha], repo)
+            self._git.run(
+                ["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha],
+                repo,
+                timeout=READ_FETCH_TIMEOUT,
+            )
             return self._read_blob(repo, sha, path)
 
     def _read_blob(self, repo: Path, sha: str, path: str) -> str | None:
