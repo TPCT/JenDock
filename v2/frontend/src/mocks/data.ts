@@ -25,6 +25,8 @@ interface ProjectSeed {
   repository: string;
   development: { branch: string; autoDeploy: boolean };
   production: { branch: string; autoDeploy: boolean };
+  /** Environments with compose settings and a stored pipeline (default: both). */
+  configured?: { development: boolean; production: boolean };
   gitTransport?: "ssh" | "https";
 }
 
@@ -56,6 +58,7 @@ const INITIAL_SEEDS: ProjectSeed[] = [
     repository: "acme/internal-tools",
     development: { branch: "main", autoDeploy: false },
     production: { branch: "main", autoDeploy: false },
+    configured: { development: false, production: false },
   },
 ];
 
@@ -256,6 +259,12 @@ export function projects(): Project[] {
       name,
       branch: seed[name].branch,
       auto_deploy: seed[name].autoDeploy,
+      compose_project: seed.configured?.[name] === false ? null : `${seed.slug}-${name}`,
+      compose_files:
+        seed.configured?.[name] === false ? [] : [`/opt/projects/${seed.slug}/${name}/compose.yml`],
+      compose_env_files: [],
+      services: seed.configured?.[name] === false ? [] : ["web", "worker"],
+      has_pipeline: seed.configured?.[name] !== false,
       last_run: runsFor(seed.slug, name)[0] ?? null,
     })),
   }));
@@ -467,6 +476,7 @@ export function createProject(body: {
       repository: body.repository,
       development: { branch: body.development_branch, autoDeploy: true },
       production: { branch: body.production_branch, autoDeploy: false },
+      configured: { development: false, production: false },
       gitTransport: body.git_transport,
     },
   ];

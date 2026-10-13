@@ -23,7 +23,7 @@ describe("project creation wizard", () => {
     expect(slugFrom("Shop API v2!")).toBe("shop-api-v2");
   });
 
-  it("walks through five steps and creates the project with its starter pipeline", async () => {
+  it("walks through six steps and creates the project with its starter pipeline", async () => {
     const user = userEvent.setup();
     renderApp("/projects/new");
     await screen.findByRole("heading", { name: "Create a project" });
@@ -69,8 +69,15 @@ describe("project creation wizard", () => {
     expect(await screen.findByLabelText("Jenkinsfile of Laravel")).toHaveTextContent("pipeline {");
     await continueTo(user);
 
-    // 5 review and create
+    // 5 domain (optional): nothing chosen here
+    expect(
+      await screen.findByRole("heading", { name: /Give it a web address/ }),
+    ).toBeInTheDocument();
+    await continueTo(user);
+
+    // 6 review and create
     expect(await screen.findByRole("heading", { name: "Review and create" })).toBeInTheDocument();
+    expect(screen.getByText("None yet")).toBeInTheDocument();
     expect(screen.getByText("acme/new-app")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("heading", { name: "GitHub connection" })).toBeInTheDocument();
@@ -84,6 +91,7 @@ describe("project creation wizard", () => {
     await continueTo(user);
     expect(await screen.findByText(/Write it as owner\/name/)).toBeInTheDocument();
     await user.type(screen.getByLabelText(/GitHub repository/), "acme/shop-api");
+    await continueTo(user);
     await continueTo(user);
     await continueTo(user);
     await continueTo(user);
@@ -113,29 +121,42 @@ describe("project settings", () => {
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
   });
 
-  it("saves the branch and auto-deploy of an environment and refuses equal branches", async () => {
+  it("turns automatic deploy on with its consequence and refuses equal branches", async () => {
     const user = userEvent.setup();
     renderApp("/projects/shop-api/settings/environments");
-    const form = await screen.findByRole("form", { name: "Production environment" });
-    const auto = within(form).getByLabelText("Deploy automatically on push");
-    expect(auto).not.toBeChecked();
-    expect(within(form).getByText(/Off: GitHub is still told/)).toBeInTheDocument();
+    const group = await screen.findByRole("group", { name: "Production environment" });
+    const auto = within(group).getByRole("button", { name: "Automatic deploy" });
+    expect(auto).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(group).getByText(/nothing runs until you press Run pipeline/),
+    ).toBeInTheDocument();
     await user.click(auto);
-    await user.click(within(form).getByRole("button", { name: "Save production" }));
     await waitFor(() => {
       expect(
-        within(screen.getByRole("form", { name: "Production environment" })).getByLabelText(
-          "Deploy automatically on push",
-        ),
-      ).toBeChecked();
+        within(screen.getByRole("group", { name: "Production environment" })).getByRole("button", {
+          name: "Automatic deploy",
+        }),
+      ).toHaveAttribute("aria-pressed", "true");
     });
-    const branch = within(
-      screen.getByRole("form", { name: "Production environment" }),
-    ).getByLabelText("Production branch");
+    expect(
+      within(screen.getByRole("group", { name: "Production environment" })).getByText(
+        /builds and deploys production/,
+      ),
+    ).toBeInTheDocument();
+    const branch = within(screen.getByRole("form", { name: "Production branch" })).getByLabelText(
+      "Production branch",
+    );
     await user.clear(branch);
     await user.type(branch, "develop");
-    await user.click(screen.getByRole("button", { name: "Save production" }));
+    await user.click(screen.getByRole("button", { name: "Save production branch" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("different branches");
+  });
+
+  it("warns when automatic deploy is on but nothing is configured to deploy", async () => {
+    renderApp("/projects/internal-tools/settings/environments");
+    const group = await screen.findByRole("group", { name: "Development environment" });
+    await userEvent.setup().click(within(group).getByRole("button", { name: "Automatic deploy" }));
+    expect(await within(group).findByText("Not ready to deploy yet")).toBeInTheDocument();
   });
 });
 
@@ -240,14 +261,6 @@ describe("API tokens", () => {
       expect(screen.queryByRole("button", { name: "Revoke CI deploy" })).not.toBeInTheDocument();
     });
   });
-
-  it("points to the MCP endpoint as coming soon", async () => {
-    renderApp("/settings/agents");
-    expect(
-      await screen.findByRole("heading", { name: "MCP access is coming soon" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("/mcp")).toBeInTheDocument();
-  });
 });
 
 describe("domains", () => {
@@ -297,7 +310,7 @@ describe("domains", () => {
     await user.click(await screen.findByRole("button", { name: "Add domain" }));
     const add = await screen.findByRole("dialog", { name: "Add a domain to Development" });
     await user.click(within(add).getByRole("button", { name: "Add domain" }));
-    expect(await within(add).findByRole("alert")).toHaveTextContent("Enter the host name");
+    expect(await within(add).findByRole("alert")).toHaveTextContent("Enter a host name such as");
     await user.type(within(add).getByLabelText(/Host name/), "Taken.Example.com");
     await user.click(within(add).getByRole("button", { name: "Add domain" }));
     await waitFor(() => {
