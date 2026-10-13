@@ -41,10 +41,8 @@ function activeTab(pathname: string): TabId {
   if (pathname.includes("/pipeline")) return "pipeline";
   if (pathname.includes("/domains")) return "domains";
   if (pathname.includes("/containers")) return "containers";
+  if (pathname.includes("/databases")) return "database";
   if (pathname.includes("/settings")) return "settings";
-  for (const id of ["database"] as const) {
-    if (pathname.endsWith(`/${id}`)) return id;
-  }
   return "overview";
 }
 
@@ -99,6 +97,8 @@ export function ProjectLayout() {
         return `${base}/environments/${env}/domains`;
       case "containers":
         return `${base}/environments/${env}/containers`;
+      case "database":
+        return `${base}/environments/${env}/databases`;
       default:
         return `${base}/${id}`;
     }

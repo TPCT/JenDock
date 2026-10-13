@@ -213,9 +213,11 @@ describe("project tabs", () => {
     expect(await screen.findByRole("heading", { name: "Production runs" })).toBeInTheDocument();
   });
 
-  it.each(["database"])("has a placeholder for the %s tab", async (tab) => {
-    renderApp(`/projects/shop-api/${tab}`);
-    expect(await screen.findByRole("heading", { name: /coming soon/ })).toBeInTheDocument();
+  it("the Database tab leads to the development databases", async () => {
+    renderApp("/projects/shop-api/database");
+    expect(
+      await screen.findByRole("heading", { name: "Development databases" }),
+    ).toBeInTheDocument();
   });
 });
 
