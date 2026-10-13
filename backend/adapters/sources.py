@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
-from backend.adapters.errors import SourceError
+from backend.adapters.errors import SourceError, SourceTimeoutError
 from backend.adapters.git_runner import GitRunner
 from backend.domain.enums import GitTransport
 
@@ -18,8 +18,10 @@ from backend.domain.enums import GitTransport
 FORBIDDEN_NAMES = frozenset({".env", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"})
 # Same bound as the Jenkinsfile parser (256 KiB), so a bigger file fails early and clearly.
 MAX_REPOSITORY_FILE_BYTES = 256 * 1024
-# An interactive read (or the start of a run) must not hang for the full clone timeout.
-READ_FETCH_TIMEOUT = 30.0
+# An interactive read (or the start of a run) must not hang for the full clone timeout; a read
+# that times out is tried once more, since a slow moment of the network is not a bad repository.
+READ_FETCH_TIMEOUT = 45.0
+READ_FETCH_ATTEMPTS = 2
 _REGULAR_FILE_MODES = frozenset({"100644", "100755"})
 
 
@@ -113,12 +115,24 @@ class LocalGitSource:
         with tempfile.TemporaryDirectory(prefix="jd-read-") as scratch:
             repo = Path(scratch)
             git.run(["init", "--bare", "--quiet", str(repo)])
-            git.run(
-                ["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha],
-                repo,
-                timeout=READ_FETCH_TIMEOUT,
-            )
+            self._fetch_commit(git, repo, url, sha)
             return self._read_blob(git, repo, sha, path)
+
+    @staticmethod
+    def _fetch_commit(git: GitRunner, repo: Path, url: str, sha: str) -> None:
+        """Fetch one commit (depth 1), trying again once when the fetch only timed out."""
+        for attempt in range(1, READ_FETCH_ATTEMPTS + 1):
+            try:
+                git.run(
+                    ["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha],
+                    repo,
+                    timeout=READ_FETCH_TIMEOUT,
+                )
+            except SourceTimeoutError:
+                if attempt == READ_FETCH_ATTEMPTS:
+                    raise
+            else:
+                return
 
     @staticmethod
     def _read_blob(git: GitRunner, repo: Path, sha: str, path: str) -> str | None:

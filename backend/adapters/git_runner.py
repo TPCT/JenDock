@@ -8,7 +8,7 @@ import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
-from backend.adapters.errors import SourceError
+from backend.adapters.errors import SourceError, SourceTimeoutError
 
 CLONE_TIMEOUT = 900.0
 GIT_TIMEOUT = 120.0
@@ -59,6 +59,10 @@ class GitRunner:
                 stdin=subprocess.DEVNULL,
                 check=False,
             )
+        except subprocess.TimeoutExpired as error:
+            raise SourceTimeoutError(
+                f"git {args[0]} did not finish within {timeout:g} seconds"
+            ) from error
         except (OSError, subprocess.SubprocessError) as error:
             raise SourceError(f"git {args[0]} could not run: {error}") from error
         if result.returncode != 0:
