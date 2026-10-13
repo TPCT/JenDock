@@ -49,7 +49,7 @@ function ProfileForm({ profile }: { profile: Profile }) {
   };
 
   return (
-    <form className={box.stack} onSubmit={submit} noValidate>
+    <form className={`${box.stack} ${styles.form}`} onSubmit={submit} noValidate>
       <div className={styles.identity}>
         <Initials displayName={name} username={profile.username} size={64} />
         <div>
@@ -134,9 +134,6 @@ export function ProfilePage() {
         ) : null}
         {profile.data ? <ProfileForm profile={profile.data} /> : null}
       </SettingsSection>
-      <AccountPage />
-      <TwoFactorSection />
-      <SessionsSection />
     </>
   );
 }

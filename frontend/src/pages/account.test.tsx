@@ -80,9 +80,16 @@ describe("public profile", () => {
 });
 
 describe("profile page", () => {
-  it("is the default settings page and holds profile, password, two-factor and sessions", async () => {
+  it("is the default settings page and holds only the public profile", async () => {
     renderApp("/settings");
-    for (const name of ["Public profile", "Account", "Two-factor authentication", "Sessions"]) {
+    expect(await screen.findByRole("heading", { name: "Public profile" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Update profile" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change password" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the password and two-factor on the Account page", async () => {
+    renderApp("/settings/account");
+    for (const name of ["Account", "Two-factor authentication"]) {
       expect(await screen.findByRole("heading", { name })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
@@ -90,7 +97,7 @@ describe("profile page", () => {
 
   it("ticks the password hints as the user types", async () => {
     const user = userEvent.setup();
-    renderApp("/settings/profile");
+    renderApp("/settings/account");
     const hints = await screen.findByRole("list", { name: "Password hints" });
     expect(within(hints).getAllByText(/\(not yet\)/)).toHaveLength(3);
     await user.type(screen.getByLabelText("New password"), "a brand new passphrase");
@@ -100,7 +107,7 @@ describe("profile page", () => {
 
   it("checks the form, then changes the password and confirms it", async () => {
     const user = userEvent.setup();
-    renderApp("/settings/profile");
+    renderApp("/settings/account");
     await user.type(await screen.findByLabelText("Current password"), "current-secret-1");
     await user.type(screen.getByLabelText("New password"), "short");
     await user.click(screen.getByRole("button", { name: "Change password" }));
@@ -116,7 +123,7 @@ describe("profile page", () => {
 describe("two-factor authentication", () => {
   it("sets up with a QR code and a key, then shows the recovery codes once", async () => {
     const user = userEvent.setup();
-    renderApp("/settings/profile");
+    renderApp("/settings/account");
     await user.click(await screen.findByRole("button", { name: "Set up" }));
     const dialog = await screen.findByRole("dialog", { name: "Set up two-factor authentication" });
     expect(await within(dialog).findByRole("img", { name: /QR code/ })).toBeInTheDocument();
@@ -155,7 +162,7 @@ describe("two-factor authentication", () => {
 
   it("generates new recovery codes after a valid code", async () => {
     const user = userEvent.setup();
-    renderApp("/settings/profile");
+    renderApp("/settings/account");
     await enable(user);
     await user.click(screen.getByRole("button", { name: "New codes" }));
     const dialog = await screen.findByRole("dialog", { name: "Generate new recovery codes" });
@@ -170,7 +177,7 @@ describe("two-factor authentication", () => {
 
   it("turns off only with the password and a code", async () => {
     const user = userEvent.setup();
-    renderApp("/settings/profile");
+    renderApp("/settings/account");
     await enable(user);
     await user.click(screen.getByRole("button", { name: "Turn off" }));
     const dialog = await screen.findByRole("dialog", {
