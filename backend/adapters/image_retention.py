@@ -3,7 +3,8 @@
 Only images that carry both ``jendock.project`` and ``jendock.environment`` labels of
 the environment are ever considered, so foreign and unlabelled images are never touched. An
 image stays when it is among the newest ``keep`` of its logical image (its repository), is used
-by any container, or is named in ``protected`` (the images of the last deployment).
+by any container, or is named in ``protected`` (the images of the current deployment). After
+that, untagged layers older than an hour are pruned.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from backend.adapters.errors import ContainerRuntimeError
 logger = logging.getLogger(__name__)
 PROJECT_LABEL = "jendock.project"
 ENVIRONMENT_LABEL = "jendock.environment"
+# Untagged layers younger than this are left alone (a concurrent build may still need them).
+DANGLING_MIN_AGE = "1h"
 _FRACTION_DIGITS = 6
 _TIMESTAMP = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?(Z|[+-]\d\d:\d\d)?")
 
@@ -99,7 +102,21 @@ class ImageRetention:
                 sink(f"removed old image {tag}")
             else:
                 logger.warning("cannot remove image", extra={"image": tag})
+        self._prune_dangling(sink)
         return removed
+
+    def _prune_dangling(self, sink: LineSink) -> None:
+        """Remove untagged layers left by earlier builds (older than an hour, so a build that
+        is still running keeps its own)."""
+        result = self._docker.capture(
+            ["image", "prune", "--force", "--filter", f"until={DANGLING_MIN_AGE}"]
+        )
+        if result.returncode == 0:
+            reclaimed = result.stdout.strip().splitlines()[-1:] if result.stdout.strip() else []
+            if reclaimed:
+                sink(f"build cache cleanup: {reclaimed[0]}")
+        else:
+            logger.warning("cannot prune dangling images", extra={"stderr": result.stderr[:200]})
 
     def _labelled_images(self, project: str, environment: str) -> list[ImageInfo]:
         listing = self._docker.capture(

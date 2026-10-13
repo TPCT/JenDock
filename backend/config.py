@@ -86,10 +86,11 @@ class Settings(BaseSettings):
     telemetry_interval: float = Field(default=15.0, gt=0)
     telemetry_history: int = Field(default=240, ge=1, le=10000)
     # Deployment: how long a new container may take to become healthy, how long it must stay
-    # up and unrestarted, and how many images per logical image an environment keeps.
+    # up and unrestarted, and how many older images per logical image an environment keeps
+    # besides the ones it runs (0: only the deployed images stay).
     deploy_health_timeout: int = Field(default=120, gt=0)
     deploy_settle_seconds: float = Field(default=3.0, ge=0)
-    image_retention: int = Field(default=5, ge=1)
+    image_retention: int = Field(default=0, ge=0)
     # Scheduled backups in the worker (off by default): one archive per day at ``backup_hour_utc``
     # into ``backup_dir``, keeping the newest ``backup_keep``. The secret key is never included.
     backup_enabled: bool = False

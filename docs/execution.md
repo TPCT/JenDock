@@ -77,11 +77,13 @@ an environment and nothing else:
    image (pinned by id when the tag moved; a service that did not exist before is removed) and
    verifies them again: the deployment becomes `rolled_back`, or `rollback_failed` (the run fails
    with a message starting `ROLLBACK FAILED`). Either way the step fails.
-6. After success it removes old images (`JENDOCK_IMAGE_RETENTION`, default 5): per logical
+6. After success it removes old images (`JENDOCK_IMAGE_RETENTION`, default 0): per logical
    image (repository) of this project and environment (labels `jendock.project` and
    `jendock.environment` are required, so foreign images are never touched) only the newest N
-   remain, plus any image used by a container and the images of the latest deployment
-   (previous and new).
+   older images remain besides the deployed ones (with the default 0, only the images the
+   environment now runs and any image used by a container stay; the previous deployment's images
+   go). Untagged layers older than an hour are pruned as well. When a deployment rolled back,
+   both of its sides are kept.
 
 At worker start `recover_interrupted_deployments` (before runs are marked `interrupted`) rolls
 back every deployment whose journal is still on disk and marks deployments left `deploying`
