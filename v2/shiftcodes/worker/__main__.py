@@ -26,6 +26,7 @@ from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
 from shiftcodes.worker.container_handlers import build_container_handlers
 from shiftcodes.worker.container_wiring import build_container_parts
+from shiftcodes.worker.database_wiring import build_inspection_handlers
 from shiftcodes.worker.git_wiring import build_branch_files, build_heads
 from shiftcodes.worker.github_handlers import github_handlers, project_source
 from shiftcodes.worker.handlers import build_handlers
@@ -82,7 +83,8 @@ def build_rpc_server(
         project_source(lambda: UnitOfWork(session_factory)),
     )
     pipelines = PipelineHandlers(lambda: UnitOfWork(session_factory), build_branch_files(settings))
-    extra = {**github, **pipelines.handlers(), **(extra_handlers or {})}
+    inspection = build_inspection_handlers(settings, session_factory, cipher, redactor)
+    extra = {**github, **pipelines.handlers(), **inspection, **(extra_handlers or {})}
     handlers = build_handlers(secret_service, extra)
     return RpcServer(settings.worker_socket_path, handlers)
 

@@ -81,6 +81,18 @@ services:
       - ${COMPOSE_PROJECTS_DIR:-/opt/docker-engine/projects}:${COMPOSE_PROJECTS_DIR:-/opt/docker-engine/projects}:ro
     restart: unless-stopped
 
+  # Never started by `up`: the worker runs short-lived containers from this image to inspect an
+  # environment's databases on that environment's own network. Build it once (and after
+  # upgrades):  docker compose --profile tools build inspector
+  inspector:
+    # Built as shiftcodes-v2-inspector:latest (compose project name + service), which is the
+    # worker's SHIFTCODES_INSPECTOR_IMAGE default.
+    build:
+      context: .
+      dockerfile: docker/inspector.Dockerfile
+    profiles:
+      - tools
+
 volumes:
   data:
   worker-socket:

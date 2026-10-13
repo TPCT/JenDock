@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     workspace_host_dir: Path | None = None
     workspace_max_bytes: int = Field(default=2 * 1024**3, gt=0)
     step_log_max_bytes: int = Field(default=5 * 1024**2, gt=0)
+    # Image of the short-lived helper container that runs database inspector operations on an
+    # environment's network (docker/inspector.Dockerfile).
+    inspector_image: str = "shiftcodes-v2-inspector:latest"
     parallel_workers: int = Field(default=2, ge=1, le=16)
     max_concurrent_runs: int = Field(default=1, ge=1, le=16)
     # Upper bounds for step containers and image builds; a pipeline may only lower them.

@@ -43,6 +43,9 @@ services:
       # The isolated daemon is reached through the socket mounted by compose.yml
       # (DOCKER_SOCKET_PATH=/run/docker-isolation.sock in .env); in the container it is always
       # /var/run/docker.sock. DOCKER_GID must be that socket's group id.
+      # Image of the short-lived database-inspector helper containers (built in docs/deployment.md
+      # section 7 with `--profile tools build inspector`); compose names it <project>-<service>.
+      SHIFTCODES_INSPECTOR_IMAGE: "${INSPECTOR_IMAGE:-shiftcodes-v2-inspector:latest}"
       SHIFTCODES_BACKUP_ENABLED: "${BACKUP_ENABLED:-false}"
       SHIFTCODES_BACKUP_DIR: /backups
       SHIFTCODES_BACKUP_KEEP: "${BACKUP_KEEP:-7}"

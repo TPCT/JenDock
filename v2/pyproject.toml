@@ -16,6 +16,9 @@ dependencies = [
     "alembic>=1.14",
     "cryptography>=43",
     "argon2-cffi>=23.1",
+    "psycopg[binary]>=3.2",
+    # 1.2.x fails the first caching_sha2_password login of a non-root user (AttributeError).
+    "PyMySQL>=1.1,<1.2",
     "httpx>=0.27",
     "idna>=3.7",
     "pyyaml>=6",
@@ -60,6 +63,11 @@ quote-style = "double"
 strict = true
 python_version = "3.13"
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# PyMySQL ships no type information (and no types-PyMySQL dependency is pinned).
+module = ["pymysql", "pymysql.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
