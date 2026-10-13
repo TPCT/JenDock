@@ -69,7 +69,7 @@ class Sim:
     def deploy(self, request: DeployRequest) -> None:
         self.deployer.deploy(request, self.lines.append, NotCancelled())
 
-    def new_image(self, tag: str = "sc/demo-development-web:aaa-r2") -> str:
+    def new_image(self, tag: str = "jendock/demo-development-web:aaa-r2") -> str:
         self.docker.add_image(tag, LABELS)
         return tag
 
@@ -151,9 +151,9 @@ def test_up_never_pulls_builds_or_follows_dependencies(sim: Sim) -> None:
 
 
 def test_managed_override_keeps_other_services_and_the_previous_version(sim: Sim) -> None:
-    first = sim.new_image("sc/demo-development-web:aaa-r2")
+    first = sim.new_image("jendock/demo-development-web:aaa-r2")
     sim.deploy(sim.request(("web", first)))
-    worker = sim.new_image("sc/demo-development-worker:bbb-r3")
+    worker = sim.new_image("jendock/demo-development-worker:bbb-r3")
     sim.deploy(sim.request(("worker", worker)))
     assert sim.overrides.current("demo-dev") == {"web": first, "worker": worker}
     assert sim.overrides.previous("demo-dev") == {"web": first}
@@ -161,7 +161,7 @@ def test_managed_override_keeps_other_services_and_the_previous_version(sim: Sim
 
 def test_a_service_that_was_not_running_has_no_previous_image(sim: Sim) -> None:
     del sim.docker.containers["worker"]
-    sim.deploy(sim.request(("worker", sim.new_image("sc/demo-development-worker:x-r1"))))
+    sim.deploy(sim.request(("worker", sim.new_image("jendock/demo-development-worker:x-r1"))))
     change = sim.ledger.last.changes[0]
     assert change.previous_image is None
     assert change.previous_image_id is None
@@ -213,7 +213,7 @@ def test_a_journal_that_was_not_recovered_blocks_the_environment(sim: Sim) -> No
     entry = JournalEntry(1, 7, "demo", "development", "demo-dev", sim.files, {}, ())
     DeployJournal(sim.root).write(entry)
     with pytest.raises(DeployError, match="not been recovered"):
-        sim.deploy(sim.request(("web", sim.new_image("sc/demo-development-web:ccc-r4"))))
+        sim.deploy(sim.request(("web", sim.new_image("jendock/demo-development-web:ccc-r4"))))
 
 
 # --- failure and rollback --------------------------------------------------------------------
@@ -233,9 +233,9 @@ def test_unhealthy_new_containers_are_rolled_back(sim: Sim, behaviour: str) -> N
 
 
 def test_rollback_restores_the_override_of_the_earlier_deployment(sim: Sim) -> None:
-    good = sim.new_image("sc/demo-development-web:aaa-r2")
+    good = sim.new_image("jendock/demo-development-web:aaa-r2")
     sim.deploy(sim.request(("web", good)))
-    bad = sim.new_image("sc/demo-development-web:bbb-r3")
+    bad = sim.new_image("jendock/demo-development-web:bbb-r3")
     sim.docker.behaviour[bad] = "unhealthy"
     with pytest.raises(DeployError, match="rolled back"):
         sim.deploy(sim.request(("web", bad)))
@@ -265,7 +265,7 @@ def test_failing_compose_up_is_rolled_back(sim: Sim) -> None:
 
 def test_first_deployment_of_a_service_is_rolled_back_by_removing_it(sim: Sim) -> None:
     del sim.docker.containers["worker"]
-    new = sim.new_image("sc/demo-development-worker:x-r1")
+    new = sim.new_image("jendock/demo-development-worker:x-r1")
     sim.docker.behaviour[new] = "unhealthy"
     with pytest.raises(DeployError, match="rolled back"):
         sim.deploy(sim.request(("worker", new)))
@@ -335,7 +335,7 @@ def test_recovery_fails_deployments_that_never_reached_the_journal(sim: Sim) -> 
 
 def test_retention_keeps_newest_protected_running_and_foreign_images(tmp_path: Path) -> None:
     sim = build_sim(tmp_path, keep=2)
-    repo = "sc/demo-development-web"
+    repo = "jendock/demo-development-web"
     docker = sim.docker
     for number in range(1, 6):
         docker.add_image(
@@ -343,7 +343,7 @@ def test_retention_keeps_newest_protected_running_and_foreign_images(tmp_path: P
         )
     foreign = docker.add_image("nginx:latest")
     other_env = docker.add_image(
-        "sc/demo-production-web:old-r1",
+        "jendock/demo-production-web:old-r1",
         {"jendock.project": "demo", "jendock.environment": "production"},
         created="2026-10-01T00:00:00Z",
     )
@@ -352,13 +352,13 @@ def test_retention_keeps_newest_protected_running_and_foreign_images(tmp_path: P
     assert {f"{repo}:s5-r5", f"{repo}:s4-r4"} <= remaining
     assert not {f"{repo}:s3-r3", f"{repo}:s2-r2", f"{repo}:s1-r1"} & remaining
     assert docker.image_id("nginx:latest") == foreign
-    assert docker.image_id("sc/demo-production-web:old-r1") == other_env
+    assert docker.image_id("jendock/demo-production-web:old-r1") == other_env
     assert "app-web:1" in remaining  # previous image of the last deployment
 
 
 def test_retention_never_touches_images_used_by_a_container(tmp_path: Path) -> None:
     sim = build_sim(tmp_path, keep=1)
-    repo = "sc/demo-development-web"
+    repo = "jendock/demo-development-web"
     sim.docker.add_image(f"{repo}:old", LABELS, created="2026-10-01T00:00:00Z")
     sim.docker.start("worker", f"{repo}:old")
     sim.docker.add_image(f"{repo}:mid", LABELS, created="2026-10-02T00:00:00Z")
@@ -416,7 +416,7 @@ def test_parse_created_and_repository_of() -> None:
     assert parse_created("2026-10-13T10:00:00.123456789Z").microsecond == 123456
     assert parse_created("2026-10-13T10:00:00Z") < parse_created("2026-10-13T10:00:00.5Z")
     assert parse_created("garbage").year == 1
-    assert repository_of("sc/p-e-web:abc-r3") == "sc/p-e-web"
+    assert repository_of("jendock/p-e-web:abc-r3") == "jendock/p-e-web"
     assert repository_of("localhost:5000/app:1") == "localhost:5000/app"
     assert repository_of("localhost:5000/app") == "localhost:5000/app"
 

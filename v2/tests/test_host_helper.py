@@ -32,7 +32,7 @@ def test_put_writes_the_rendered_file_tests_then_reloads(
 ) -> None:
     service, apache, vhosts = helper
     assert put(service) == {"changed": True}
-    path = vhosts / f"sc-{HOST}.conf"
+    path = vhosts / f"jendock-{HOST}.conf"
     expected = render_vhost(
         VhostSpec(HOST, 20001, False, True), VhostPaths(tmp_path / "certs", tmp_path / "webroot")
     )
@@ -59,7 +59,7 @@ def test_configtest_failure_reverts_an_updated_file_and_never_reloads(
 ) -> None:
     service, apache, vhosts = helper
     put(service, port=20001)
-    path = vhosts / f"sc-{HOST}.conf"
+    path = vhosts / f"jendock-{HOST}.conf"
     before = path.read_text()
     apache.events.clear()
     apache.configtest_ok = False
@@ -87,7 +87,7 @@ def test_reload_failure_reverts_the_file_and_reloads_the_old_state_again(
 ) -> None:
     service, apache, vhosts = helper
     put(service, port=20001)
-    path = vhosts / f"sc-{HOST}.conf"
+    path = vhosts / f"jendock-{HOST}.conf"
     before = path.read_text()
     apache.events.clear()
     apache.reload_ok = False
@@ -103,7 +103,7 @@ def test_remove_deletes_the_managed_file_and_reverts_on_failure(
 ) -> None:
     service, apache, vhosts = helper
     put(service)
-    path = vhosts / f"sc-{HOST}.conf"
+    path = vhosts / f"jendock-{HOST}.conf"
     before = path.read_text()
     apache.configtest_ok = False
     with pytest.raises(HelperError):
@@ -119,7 +119,7 @@ def test_a_file_without_the_marker_is_never_overwritten_or_removed(
     helper: tuple[HelperService, ScriptedApache, Path],
 ) -> None:
     service, _apache, vhosts = helper
-    foreign = vhosts / f"sc-{HOST}.conf"
+    foreign = vhosts / f"jendock-{HOST}.conf"
     foreign.write_text("<VirtualHost *:80>\n# hand written\n</VirtualHost>\n")
     calls: list[Callable[[], object]] = [
         lambda: put(service),
@@ -250,7 +250,7 @@ def test_unknown_operations_extra_params_and_wrong_types_are_rejected(
 def test_wildcards_work_only_when_the_administrator_enabled_them(tmp_path: Path) -> None:
     service, _apache, config = make_service(tmp_path, allow_wildcards=True)
     assert put(service, hostname="*.example.com") == {"changed": True}
-    assert (config.vhost_dir / "sc-_wildcard_.example.com.conf").is_file()
+    assert (config.vhost_dir / "jendock-_wildcard_.example.com.conf").is_file()
     with pytest.raises(InvalidRequestError):
         put(service, hostname="*.evil.net")
     with pytest.raises(InvalidRequestError):

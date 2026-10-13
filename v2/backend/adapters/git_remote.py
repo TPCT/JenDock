@@ -91,7 +91,7 @@ class GitBranchHeads:
 
     @staticmethod
     def _with_details(runner: GitRunner, url: str, branch: str, sha: str) -> BranchHead:
-        with tempfile.TemporaryDirectory(prefix="sc-head-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="jd-head-") as scratch:
             repo = Path(scratch)
             runner.run(["init", "--bare", "--quiet", str(repo)])
             fetch = ["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha]

@@ -1,6 +1,6 @@
 """The Compose deployer against a real Docker daemon (``make test-docker``).
 
-Each test starts a throwaway Compose project ``sctest-<random>`` with two services (``web`` has
+Each test starts a throwaway Compose project ``jdtest-<random>`` with two services (``web`` has
 a healthcheck, ``worker`` does not). Every container and image carries ``jendock.test=1``
 and a label with the stack's own name; teardown removes exactly those and the project's
 network, and the fixture verifies that nothing is left.
@@ -36,7 +36,7 @@ pytestmark = [
 ]
 PROJECT = "demo"
 ENVIRONMENT = "development"
-REPOSITORY = f"sc/{PROJECT}-{ENVIRONMENT}"
+REPOSITORY = f"jendock/{PROJECT}-{ENVIRONMENT}"
 POLICY = HealthPolicy(timeout=60.0, settle=2.0, interval=0.5)
 PLATFORM_LABELS = (f"jendock.project={PROJECT}", f"jendock.environment={ENVIRONMENT}")
 
@@ -135,7 +135,7 @@ class Stack:
         assert result.returncode == 0, result.stderr
 
     def build(self, service: str, version: int, *, healthy: bool = True) -> str:
-        """Build ``sc/demo-development-<service>:v<version>``."""
+        """Build ``jendock/demo-development-<service>:v<version>``."""
         tag = f"{REPOSITORY}-{service}:v{version}"
         touch = "RUN touch /ok" if healthy else "RUN true"
         self.build_image(tag, PLATFORM_LABELS, f"LABEL version={version}", touch, "CMD sleep 3600")
@@ -242,7 +242,7 @@ def base_image() -> Iterator[str]:
 
 @pytest.fixture
 def stack(tmp_path: Path, base_image: str) -> Iterator[Stack]:
-    name = f"sctest-{uuid.uuid4().hex[:8]}"
+    name = f"jdtest-{uuid.uuid4().hex[:8]}"
     built = Stack(name, base_image, tmp_path, DockerCommands(), MemoryLedger())
     try:
         yield built
@@ -312,8 +312,8 @@ def test_failing_healthcheck_rolls_back_to_the_previous_image(running: Stack) ->
 def test_retention_removes_only_old_labelled_images(running: Stack) -> None:
     stack = running
     tags = [f"{REPOSITORY}-web:v1", *(stack.build("web", n) for n in range(2, 6))]
-    foreign = f"sctest-foreign-{uuid.uuid4().hex[:6]}:1"
-    other_env = f"sc/{PROJECT}-production-web:v1"
+    foreign = f"jdtest-foreign-{uuid.uuid4().hex[:6]}:1"
+    other_env = f"jendock/{PROJECT}-production-web:v1"
     stack.build_image(foreign, (), "RUN touch /other")
     other_labels = (f"jendock.project={PROJECT}", "jendock.environment=production")
     stack.build_image(other_env, other_labels, "RUN touch /other")

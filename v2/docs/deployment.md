@@ -25,7 +25,7 @@ without a trace on v1.
 
 Both stacks talk to the **same Docker daemon and see the same containers**. v2 only ever starts,
 stops and recreates the compose services that an environment explicitly names (never anything
-else, never with `--remove-orphans`), and builds images tagged `sc/<project>-<env>-<image>:...`,
+else, never with `--remove-orphans`), and builds images tagged `jendock/<project>-<env>-<image>:...`,
 a namespace v1 does not use. The rule that matters is operational: **a project is deployed by v1
 or by v2, never both**. Environments in v2 start with auto-deploy off; a project is cut over
 only after its v1 hook is disabled (section 10).
@@ -220,7 +220,7 @@ v2 never edits v1's files, volumes, vhost or containers, so backing out is remov
    `curl -sI https://monitoring.example.com/` as before.
 5. **Remove everything** (only when abandoning v2 for good): `$DC down -v`, delete the
    checkout, `/var/lib/jendock-workspaces`, the backup directory and the GitHub webhooks and
-   deploy keys of v2. The images `sc/...` that v2 built can be removed with `docker rmi`.
+   deploy keys of v2. The images `jendock/...` that v2 built can be removed with `docker rmi`.
 
 ## 12. Known limits
 

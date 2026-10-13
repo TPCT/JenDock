@@ -30,7 +30,7 @@ from backend.hosthelper.names import (
 from backend.hosthelper.vhost import MARKER_PREFIX, VhostPaths, VhostSpec, render_vhost
 
 PROTOCOL_VERSION = 1
-VHOST_PREFIX = "sc-"
+VHOST_PREFIX = "jendock-"
 VHOST_SUFFIX = ".conf"
 VHOST_MODE = 0o644
 CERT_MODE = 0o644

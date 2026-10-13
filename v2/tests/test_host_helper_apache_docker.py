@@ -57,7 +57,7 @@ PidFile /tmp/httpd.pid
 User daemon
 Group daemon
 {modules}
-IncludeOptional {vhosts}/sc-*.conf
+IncludeOptional {vhosts}/jendock-*.conf
 """
 
 WRAPPER = """#!/bin/sh
@@ -159,7 +159,7 @@ def site(tmp_path_factory: pytest.TempPathFactory) -> Site:
 
 def test_real_apache_accepts_the_generated_http_vhost(site: Site) -> None:
     assert site.put() == {"changed": True}
-    assert (site.vhosts / f"sc-{HOST}.conf").is_file()
+    assert (site.vhosts / f"jendock-{HOST}.conf").is_file()
     assert site.reloads == 1
     assert site.service.execute("apache.configtest", {})["ok"] is True
 
@@ -195,7 +195,7 @@ def test_a_config_that_apache_rejects_is_reverted_for_a_new_vhost(site: Site) ->
 
 def test_a_config_that_apache_rejects_restores_the_previous_vhost(site: Site) -> None:
     site.put(port=20001)
-    path = site.vhosts / f"sc-{HOST}.conf"
+    path = site.vhosts / f"jendock-{HOST}.conf"
     before = path.read_text()
     site.write_httpd([m for m in MODULES if m != "headers"])
     with pytest.raises(HelperError) as raised:
@@ -212,7 +212,7 @@ def test_a_config_that_apache_rejects_restores_the_previous_vhost(site: Site) ->
 
 def test_a_failed_reload_after_a_passing_configtest_is_reverted(site: Site) -> None:
     site.put(port=20001)
-    path = site.vhosts / f"sc-{HOST}.conf"
+    path = site.vhosts / f"jendock-{HOST}.conf"
     before = path.read_text()
     (site.root / "fail-reload").write_text("1")
     with pytest.raises(HelperError) as raised:

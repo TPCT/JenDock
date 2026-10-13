@@ -256,8 +256,8 @@ Scope `read`. `env` is `development|production`; `limit` 1-100, `offset` >= 0. 2
     "commit_sha": "0123456789abcdef0123456789abcdef01234567",
     "services": [{
       "service": "web",
-      "previous_image": "sc/shop-production-web:aaaaaaaaaaaa-r8", "previous_image_id": "sha256:...",
-      "new_image": "sc/shop-production-web:bbbbbbbbbbbb-r9", "new_image_id": "sha256:..."
+      "previous_image": "jendock/shop-production-web:aaaaaaaaaaaa-r8", "previous_image_id": "sha256:...",
+      "new_image": "jendock/shop-production-web:bbbbbbbbbbbb-r9", "new_image_id": "sha256:..."
     }],
     "message": null, "redeploy_of": null,
     "created_at": "2026-10-13T10:00:00Z", "started_at": "...", "finished_at": "..."

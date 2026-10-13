@@ -73,7 +73,7 @@ def test_resource_parsing() -> None:
 def test_image_tag_format() -> None:
     assert (
         image_tag("shop", "production", "api", "a" * 40, 12)
-        == "sc/shop-production-api:aaaaaaaaaaaa-r12"
+        == "jendock/shop-production-api:aaaaaaaaaaaa-r12"
     )
 
 

@@ -100,7 +100,7 @@ class LocalGitSource:
         """Fetch only the pinned commit (depth 1, no checkout) and read one file from it."""
         url = self._resolve(request.repository)
         sha = request.commit_sha
-        with tempfile.TemporaryDirectory(prefix="sc-read-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="jd-read-") as scratch:
             repo = Path(scratch)
             self._git.run(["init", "--bare", "--quiet", str(repo)])
             self._git.run(

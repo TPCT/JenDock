@@ -24,10 +24,10 @@ def test_defaults() -> None:
 
 
 def test_data_dir_drives_derived_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("JENDOCK_DATA_DIR", "/srv/sc")
+    monkeypatch.setenv("JENDOCK_DATA_DIR", "/srv/jendock")
     settings = Settings()
-    assert settings.database_url == "sqlite:////srv/sc/jendock.db"
-    assert settings.secret_key_file == Path("/srv/sc/secret.key")
+    assert settings.database_url == "sqlite:////srv/jendock/jendock.db"
+    assert settings.secret_key_file == Path("/srv/jendock/secret.key")
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

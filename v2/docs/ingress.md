@@ -107,7 +107,7 @@ Validation (all inside the helper, none trusted from the caller): hostnames must
 canonical lowercase ASCII, match the administrator's zone allowlist on a label boundary and
 cannot contain `/`, `..`, whitespace, quotes, newlines or `;`; ports must be integers inside the
 allowlisted ranges (>= 1024); unknown parameters are rejected (no free-form configuration);
-file names are derived from validated hostnames (`sc-<host>.conf`) inside one fixed directory;
+file names are derived from validated hostnames (`jendock-<host>.conf`) inside one fixed directory;
 an existing file without the `# jendock-managed:` marker is never overwritten or deleted;
 the `apachectl` argv comes from the root-owned config, never from a request; certificate
 material is parsed (key must match the leaf, SAN must cover the hostname, must be valid now,

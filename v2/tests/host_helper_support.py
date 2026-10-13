@@ -26,7 +26,7 @@ class ScriptedApache(ApacheControl):
         self.events.append("configtest")
         if self.watch is not None:
             self.seen_at_configtest.append(
-                {p.name: p.read_text() for p in self.watch.glob("sc-*.conf")}
+                {p.name: p.read_text() for p in self.watch.glob("jendock-*.conf")}
             )
         return CommandResult(
             self.configtest_ok, "" if self.configtest_ok else "AH00526: Syntax error"
