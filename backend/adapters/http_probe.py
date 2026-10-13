@@ -9,6 +9,9 @@ from typing import Protocol
 from backend.adapters.errors import AdapterError
 
 MAX_READ = 64 * 1024
+# Sent with every probe. urllib's default ("Python-urllib/x.y") is refused by CDNs such as
+# Cloudflare (error 1010, status 403), which made a healthy site fail its deploy health check.
+USER_AGENT = "Jendock-HealthCheck/1.0"
 
 
 class HttpProbe(Protocol):
@@ -33,7 +36,9 @@ class UrllibProbe:
         if not url.startswith(("http://", "https://")):
             raise AdapterError("only http and https URLs can be probed")
         opener = urllib.request.build_opener(_NoRedirect)
-        request = urllib.request.Request(url, method="GET")  # noqa: S310 - scheme checked above
+        request = urllib.request.Request(  # noqa: S310 - scheme checked above
+            url, method="GET", headers={"User-Agent": USER_AGENT}
+        )
         try:
             with opener.open(request, timeout=timeout) as response:
                 response.read(MAX_READ)
