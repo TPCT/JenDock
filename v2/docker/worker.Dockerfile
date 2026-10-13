@@ -8,11 +8,14 @@ RUN python -m venv /opt/venv && /opt/venv/bin/pip install -c requirements.lock .
 
 FROM python:3.13.9-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH
-# git clones the pinned commit of each run; the pinned docker CLI talks to the host daemon.
+# git clones the pinned commit of each run (over ssh with the deploy key, hence openssh-client);
+# the pinned docker CLI talks to the host daemon.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=docker:27.5.1-cli /usr/local/bin/docker /usr/local/bin/docker
+# Pinned GitHub host key: the ssh transport only trusts this file (StrictHostKeyChecking=yes).
+COPY docker/github_known_hosts /etc/shiftcodes/github_known_hosts
 # The worker user needs access to the Docker socket; compose adds the host docker GID via group_add.
 RUN groupadd --system --gid 10001 shiftcodes \
     && useradd --system --uid 10001 --gid shiftcodes --home-dir /var/lib/shiftcodes shiftcodes \

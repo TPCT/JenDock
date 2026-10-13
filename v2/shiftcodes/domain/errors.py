@@ -61,3 +61,7 @@ class UpstreamError(DomainError):
     Unlike ``WorkerError`` the message is meant for the operator and is shown as is; whoever
     raises it must keep credentials and internal paths out of it.
     """
+
+
+class SourceUnavailableError(DomainError):
+    """The source repository could not be reached or read (git, SSH key, network)."""

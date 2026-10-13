@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from shiftcodes.repositories.audit import AuditRepository
+from shiftcodes.repositories.deliveries import WebhookDeliveryRepository
 from shiftcodes.repositories.domains import (
     CertificateRepository,
     DomainCheckRepository,
@@ -172,3 +173,8 @@ class UnitOfWork:
     def domain_checks(self) -> DomainCheckRepository:
         """Domain status check repository bound to the active session."""
         return DomainCheckRepository(self.session)
+
+    @property
+    def deliveries(self) -> WebhookDeliveryRepository:
+        """Webhook delivery repository bound to the active session."""
+        return WebhookDeliveryRepository(self.session)

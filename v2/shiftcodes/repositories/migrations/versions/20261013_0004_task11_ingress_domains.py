@@ -1,7 +1,7 @@
 """ingress: domains, certificates and status checks
 
 Revision ID: 0004_task11
-Revises: 0003
+Revises: 0004_task06
 Create Date: 2026-10-13 18:00:00.000000
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0004_task11"
-down_revision: str | None = "0003"
+down_revision: str | None = "0004_task06"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

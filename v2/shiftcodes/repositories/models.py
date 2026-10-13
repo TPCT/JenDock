@@ -35,6 +35,7 @@ from shiftcodes.domain.clock import utcnow
 from shiftcodes.domain.enums import (
     ActorType,
     EnvironmentName,
+    GitTransport,
     PipelineSource,
     RunStatus,
     RunTrigger,
@@ -147,6 +148,9 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     repository: Mapped[str] = mapped_column(String(160))
+    git_transport: Mapped[GitTransport] = mapped_column(
+        _enum(GitTransport), default=GitTransport.HTTPS, server_default=GitTransport.HTTPS.value
+    )
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
 
@@ -348,3 +352,17 @@ class DomainCheck(Base):
     checked_at: Mapped[datetime] = mapped_column(UtcDateTime)
     ok: Mapped[bool]
     results: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+
+
+class WebhookDelivery(Base):
+    """A GitHub webhook delivery that was verified and handled (idempotency by delivery id)."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (Index("ix_webhook_deliveries_received_at", "received_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    delivery_id: Mapped[str] = mapped_column(String(64), unique=True)
+    event: Mapped[str] = mapped_column(String(32))
+    repository: Mapped[str | None] = mapped_column(String(160), default=None)
+    outcome: Mapped[str] = mapped_column(String(32))
+    received_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

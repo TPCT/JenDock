@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 
 from shiftcodes.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from shiftcodes.adapters.worker_client import (
+    GithubGateway,
     RepositoryGateway,
     SecretsGateway,
     UnavailableRepositoryGateway,
@@ -29,14 +30,19 @@ from shiftcodes.services.auth import AuthService
 from shiftcodes.services.certificates import RenewalPolicy
 from shiftcodes.services.domain_status import DomainStatusService
 from shiftcodes.services.domains import DomainService
+from shiftcodes.services.environments import EnvironmentService
 from shiftcodes.services.passwords import PasswordHasher
 from shiftcodes.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
 from shiftcodes.services.pipelines import PipelineService
-from shiftcodes.services.rate_limit import LoginRateLimiter
+from shiftcodes.services.project_queries import ProjectQueryService
+from shiftcodes.services.projects import ProjectService
+from shiftcodes.services.rate_limit import LoginRateLimiter, webhook_failure_limiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
 from shiftcodes.services.run_queries import RunQueryService
+from shiftcodes.services.run_triggers import RunTriggerService
 from shiftcodes.services.sessions import SessionService
 from shiftcodes.services.tokens import TokenService
+from shiftcodes.services.webhooks import WebhookService
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,16 +61,21 @@ class AppContainer:
     limiter: LoginRateLimiter
     secrets: SecretsGateway
     cookies: CookiePolicy
+    # Webhook verification and branch lookups: both run in the worker (keys and git live there).
+    github: GithubGateway
     ingress: IngressGateway = field(default_factory=UnavailableIngress)
     ingress_settings: IngressSettings = field(default_factory=IngressSettings)
     repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
+    # Failed webhook signatures per client IP (separate from the login limiter).
+    webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
 
     @classmethod
-    def build(
+    def build(  # noqa: PLR0913 - one optional override per collaborator
         cls,
         settings: Settings,
         *,
         secrets: SecretsGateway | None = None,
+        github: GithubGateway | None = None,
         clock: Clock = utcnow,
         hasher: PasswordHasher | None = None,
         limiter: LoginRateLimiter | None = None,
@@ -83,7 +94,9 @@ class AppContainer:
             cookies=CookiePolicy.for_settings(settings),
             ingress=IngressClient(settings.worker_socket_path),
             ingress_settings=get_ingress_settings(),
+            github=github or worker,
             repository=worker,
+            webhook_limiter=webhook_failure_limiter(clock),
         )
 
     def uow(self) -> UnitOfWork:
@@ -142,3 +155,23 @@ class AppContainer:
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""
         return LogStore(self.settings.data_dir / "logs")
+
+    def project_queries(self) -> ProjectQueryService:
+        """Return the project and run list read model with its own unit of work."""
+        return ProjectQueryService(self.uow())
+
+    def run_triggers(self) -> RunTriggerService:
+        """Return the manual run and retry service with its own unit of work."""
+        return RunTriggerService(self.uow(), self.github, self.clock)
+
+    def webhook_service(self) -> WebhookService:
+        """Return the webhook delivery service with its own unit of work."""
+        return WebhookService(self.uow(), self.clock)
+
+    def project_service(self) -> ProjectService:
+        """Return the project use cases with their own unit of work."""
+        return ProjectService(self.uow(), self.clock)
+
+    def environment_service(self) -> EnvironmentService:
+        """Return the environment use cases with their own unit of work."""
+        return EnvironmentService(self.uow(), self.clock)

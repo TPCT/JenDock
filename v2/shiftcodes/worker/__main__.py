@@ -22,12 +22,14 @@ from shiftcodes.repositories.database import (
 )
 from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
+from shiftcodes.worker.git_wiring import build_branch_files, build_heads
+from shiftcodes.worker.github_handlers import github_handlers, project_source
 from shiftcodes.worker.handlers import build_handlers
 from shiftcodes.worker.ingress_handlers import build_ingress_handlers
 from shiftcodes.worker.ingress_wiring import IngressFactory
 from shiftcodes.worker.pipeline_handlers import PipelineHandlers
 from shiftcodes.worker.rpc import Handler, RpcServer
-from shiftcodes.worker.wiring import build_execution_env, build_repository_reader
+from shiftcodes.worker.wiring import build_execution_env
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +72,13 @@ def build_rpc_server(
     def secret_service() -> SecretService:
         return SecretService(UnitOfWork(session_factory), cipher, redactor)
 
-    pipelines = PipelineHandlers(
-        lambda: UnitOfWork(session_factory), build_repository_reader(settings)
+    github = github_handlers(
+        settings.github_webhook_secret_file,
+        build_heads(settings),
+        project_source(lambda: UnitOfWork(session_factory)),
     )
-    extra = {**pipelines.handlers(), **(extra_handlers or {})}
+    pipelines = PipelineHandlers(lambda: UnitOfWork(session_factory), build_branch_files(settings))
+    extra = {**github, **pipelines.handlers(), **(extra_handlers or {})}
     handlers = build_handlers(secret_service, extra)
     return RpcServer(settings.worker_socket_path, handlers)
 
