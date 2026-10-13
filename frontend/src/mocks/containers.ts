@@ -130,6 +130,8 @@ export function resetContainersMock(): void {
 
 const key = (slug: unknown, env: unknown) => `${String(slug)}/${String(env)}`;
 const list = (slug: unknown, env: unknown): ContainerView[] => containers.get(key(slug, env)) ?? [];
+/** The mock containers of an environment (the resource-limit mock updates them live). */
+export const containersOf = list;
 const find = (slug: unknown, env: unknown, id: unknown) =>
   list(slug, env).find((item) => item.id === id);
 

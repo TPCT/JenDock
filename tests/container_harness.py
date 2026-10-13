@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 
 from backend.adapters.compose_overrides import ComposeOverrideStore
+from backend.adapters.resource_overrides import ResourceOverrideStore
 from backend.containers.base import ContainerAuditor, Membership, TargetResolver
 from backend.containers.config import ContainerConfig
 from backend.containers.confirmations import ConfirmationStore
@@ -17,7 +18,17 @@ from backend.containers.lifecycle import ContainerInventory, LifecycleService
 from backend.containers.limits import LimitsService
 from backend.containers.locks import EnvironmentLocks
 from backend.containers.logs import LogService
-from backend.containers.recreate import ServiceRecreator, StoreOverrideFiles
+from backend.containers.recreate import (
+    CombinedOverrideFiles,
+    ServiceRecreator,
+    StoreOverrideFiles,
+)
+from backend.containers.resource_store import ResourceLimitStore
+from backend.containers.resources import (
+    HostCapacityReader,
+    ResourceOverrideFiles,
+    ResourceService,
+)
 from backend.containers.telemetry import HostSampler, TelemetryService
 from backend.domain.enums import EnvironmentName
 from backend.repositories.database import UnitOfWork, create_session_factory
@@ -44,6 +55,9 @@ class Stack:
     engine: FakeEngine
     compose: FakeCompose
     store: ComposeOverrideStore
+    limit_store: ResourceLimitStore
+    limit_files: ResourceOverrideStore
+    environment_id: int
     locks: EnvironmentLocks
     confirmations: ConfirmationStore
     services: ContainerServices
@@ -77,7 +91,12 @@ def build_stack(tmp_path: Path, db: Engine, slug: str, config: ContainerConfig =
     resolver = TargetResolver(factory)
     membership = Membership(engine)
     auditor = ContainerAuditor(factory)
-    recreator = ServiceRecreator(engine, compose, StoreOverrideFiles(store), config)
+    limit_store = ResourceLimitStore(factory)
+    limit_files = ResourceOverrideStore(tmp_path / "overrides")
+    override_files = CombinedOverrideFiles(
+        StoreOverrideFiles(store), ResourceOverrideFiles(limit_store, limit_files)
+    )
+    recreator = ServiceRecreator(engine, compose, override_files, config)
     telemetry = TelemetryService(
         HostSampler(tmp_path), engine, resolver, membership, lambda: [PROJECT], 10
     )
@@ -89,7 +108,32 @@ def build_stack(tmp_path: Path, db: Engine, slug: str, config: ContainerConfig =
         logs=LogService(resolver, engine, membership),
         env=EnvironmentEditor(resolver, membership, store, recreator, locks, auditor, config),
         limits=LimitsService(resolver, engine, membership, store, locks, auditor, config),
+        resources=ResourceService(
+            resolver,
+            engine,
+            limit_store,
+            limit_files,
+            store,
+            locks,
+            auditor,
+            config,
+            HostCapacityReader(engine),
+        ),
         files=FileBrowser(resolver, engine, membership, auditor),
         telemetry=telemetry,
     )
-    return Stack(engine, compose, store, locks, confirmations, services, slug, web, other, foreign)
+    return Stack(
+        engine,
+        compose,
+        store,
+        limit_store,
+        limit_files,
+        resolver.resolve(slug, DEV).environment_id,
+        locks,
+        confirmations,
+        services,
+        slug,
+        web,
+        other,
+        foreign,
+    )

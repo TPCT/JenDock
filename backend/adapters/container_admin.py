@@ -16,11 +16,13 @@ from backend.adapters.docker_client import DockerClient
 from backend.adapters.docker_stats import ContainerStats, parse_stats
 from backend.adapters.errors import ContainerNotFoundError, ContainerRuntimeError
 from backend.domain.containers import COMPOSE_PROJECT_LABEL
+from backend.domain.resources import HostCapacity
 
 Record = Mapping[str, object]
 STOP_TIMEOUT_SECONDS = 10
 LIFECYCLE_TIMEOUT = 60.0
 STATS_TIMEOUT = 60.0
+HOST_INFO_FIELDS = 2
 TAR_BLOCK = 512
 MAX_LOG_BYTES = 900 * 1024
 MAX_ERROR_CHARS = 300
@@ -45,6 +47,35 @@ class FileRead:
     truncated: bool
 
 
+@dataclass(frozen=True, slots=True)
+class LiveUpdate:
+    """What ``docker update`` should change on a running container; ``None`` leaves a value.
+
+    ``docker update`` treats 0 as "unchanged", so a limit can only be moved, never unset;
+    ``memory_swap_bytes=-1`` is the one exception (unlimited swap).
+    """
+
+    cpus: float | None = None
+    memory_bytes: int | None = None
+    memory_swap_bytes: int | None = None
+    memory_reservation_bytes: int | None = None
+    cpu_shares: int | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether there is nothing to change."""
+        return all(
+            item is None
+            for item in (
+                self.cpus,
+                self.memory_bytes,
+                self.memory_swap_bytes,
+                self.memory_reservation_bytes,
+                self.cpu_shares,
+            )
+        )
+
+
 class ContainerEngine(Protocol):
     """What container management needs from Docker; the CLI implements it, tests fake it."""
 
@@ -67,6 +98,12 @@ class ContainerEngine(Protocol):
         self, container_id: str, cpus: float | None, memory_bytes: int | None
     ) -> None:
         """Apply CPU and/or memory limits to a live container (``None`` leaves one alone)."""
+
+    def update_resources(self, container_id: str, update: LiveUpdate) -> None:
+        """``docker update`` of CPU, memory, swap, reservation and shares of a live container."""
+
+    def host_capacity(self) -> HostCapacity:
+        """CPUs and memory of the Docker host (what ``docker info`` reports)."""
 
     def logs(self, container_id: str, *, tail: int, since: str | None) -> list[str]:
         """Raw ``<timestamp> <text>`` lines (stdout and stderr merged), oldest first."""
@@ -167,6 +204,34 @@ class DockerContainerEngine:
         result = self._client.run(["container", *args, container_id])
         if result.returncode != 0:
             raise _failure("cannot update limits", result.stderr)
+
+    def update_resources(self, container_id: str, update: LiveUpdate) -> None:
+        """``docker update`` with exactly the given values; no restart."""
+        args = ["update"]
+        for flag, value in (
+            ("--cpus", None if update.cpus is None else f"{update.cpus:g}"),
+            ("--memory", update.memory_bytes),
+            ("--memory-swap", update.memory_swap_bytes),
+            ("--memory-reservation", update.memory_reservation_bytes),
+            ("--cpu-shares", update.cpu_shares),
+        ):
+            if value is not None:
+                args += [flag, str(value)]
+        if len(args) == 1:
+            return
+        result = self._client.run(["container", *args, container_id])
+        if result.returncode != 0:
+            raise _failure("cannot update resources", result.stderr)
+
+    def host_capacity(self) -> HostCapacity:
+        """CPUs and memory of the daemon's host (``docker info``)."""
+        result = self._client.run(["info", "--format", "{{.NCPU}} {{.MemTotal}}"])
+        if result.returncode != 0:
+            raise _failure("cannot read host capacity", result.stderr)
+        parts = result.stdout.split()
+        if len(parts) != HOST_INFO_FIELDS or not all(part.isdigit() for part in parts):
+            raise ContainerRuntimeError("docker returned unreadable host information")
+        return HostCapacity(cpus=int(parts[0]), memory_bytes=int(parts[1]))
 
     def logs(self, container_id: str, *, tail: int, since: str | None) -> list[str]:
         """Timestamped log lines, stdout and stderr merged."""

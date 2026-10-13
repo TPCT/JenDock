@@ -1,0 +1,40 @@
+.sizeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--base-size-8);
+}
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+}
+.service {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-12);
+}
+.meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--base-size-16);
+}
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+.meterLabel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+.limits {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.note {
+  font-weight: var(--base-text-weight-normal);
+  font-size: var(--text-body-size-small);
+}

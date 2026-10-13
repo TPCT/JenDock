@@ -29,6 +29,7 @@ from backend.api.routers import (
     notifications,
     pipelines,
     projects,
+    resources,
     runs,
     secrets,
     telemetry,
@@ -83,6 +84,7 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(domains.router)
     app.include_router(runs.router)
     app.include_router(containers.router)
+    app.include_router(resources.router)
     app.include_router(terminal.router)
     app.include_router(telemetry.router)
     app.include_router(deployments.router)

@@ -833,6 +833,33 @@ host_port}], mounts: [{type, source, destination, read_only}]}`. No env values.
 - `PUT "/{id}/limits"` body `{cpus?, memory?}` (`1.5`, `"512m"`; at least one; capped by
   `JENDOCK_MANAGED_MAX_CPUS` / `JENDOCK_MANAGED_MAX_MEMORY`, 422 above) -> `ContainerView`.
   Applied live with `docker update` and persisted in the override file so recreates keep them.
+### Resource limits (per compose service)
+
+Under `/api/projects/{slug}/environments/{env}/resources`. The row in `resource_limits` is the
+source of truth; the worker renders `<data>/overrides/<project>/<env>/resource-limits.yml`
+(`cpus`, `mem_limit`, `memswap_limit` = `mem_limit`, `mem_reservation`, `cpu_shares`; the
+repository's `deploy.resources.limits` is reset with `!reset`, Compose 2.24+) and appends it to every
+deploy and recreate before the deployer's image override. Docker cannot unset a limit on a running
+container: removing one with `apply_now` raises the containers to the host's capacity and the next
+deploy drops it. Memory is in bytes. Reading needs `container.read` (a member sees only the
+services they may read); changing needs `container.limits` (scope `containers`, maintainer on the
+environment, production included, the role a deploy needs).
+
+- `GET ""` -> `{host: {cpus, memory_bytes}, services: [{service, limits | null, updated_at}]}`.
+- `GET "/stats"` -> `{host, containers: [{id, name, service, cpu_percent (of one core),
+  memory_used, memory_percent, cpu_limit | null, memory_limit | null}]}` (a `docker stats
+  --no-stream` of the running containers; limits are the ones applied now).
+- `PUT "/{service}"` body `{cpus?, memory_bytes?, memory_reservation_bytes?, cpu_shares?,
+  apply_now?}` is the complete set (omitted = no limit; at least one). cpus > 0 and <= host CPUs,
+  memory and reservation >= 6 MiB and <= host memory, reservation <= memory, shares 2..262144:
+  422 with the reason. 404 for an unknown service. -> `{service, limits, applied: [{id, name, ok,
+  error}], notes}`. With `apply_now` `docker update --cpus --memory --memory-swap ...` runs on the
+  service's running containers, no restart (swap equals memory so lowering memory never fails).
+- `DELETE "/{service}?apply_now=false"` -> same shape with `limits: null`; 404 when none saved.
+- `POST "/{service}/apply"` copies the saved limits onto the running containers.
+- Audit: `container.resources.update|remove|apply` (target = the service name).
+- MCP: `get_resource_limits`, `get_resource_usage` (`read`); `set_resource_limits`,
+  `remove_resource_limits` (`containers`).
 - `GET "/{id}/files?path=/app"` -> `{path, entries: [{name, kind: directory|file}], truncated}`
   (running container with `ls`; max 500 entries; credential-like names hidden).
 - `GET "/{id}/files/content?path=/app/x&max_bytes=65536"` (max 262144) -> `{path, size,

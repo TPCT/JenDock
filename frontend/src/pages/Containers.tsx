@@ -15,6 +15,7 @@ import { EnvToolbar } from "../components/EnvSwitch";
 import { EmptyState } from "../components/Feedback";
 import { HostCard } from "../components/HostCard";
 import { PagedList } from "../components/PagedList";
+import { ResourcesSection } from "../components/Resources";
 import { capitalize, shortSha } from "../lib/format";
 import { useListParams, type FilterDef, type ListSpec, type SortOption } from "../lib/listParams";
 import box from "../styles/box.module.css";
@@ -155,6 +156,7 @@ export function ContainersPage() {
           </div>
         )}
       </PagedList>
+      <ResourcesSection slug={slug} env={env} />
       <HostCard />
     </div>
   );

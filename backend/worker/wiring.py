@@ -11,9 +11,12 @@ from backend.adapters.deploy_ledger import DeploymentLedger
 from backend.adapters.docker_cli import DockerCliRuntime
 from backend.adapters.docker_commands import DockerCommands
 from backend.adapters.http_probe import UrllibProbe
+from backend.adapters.resource_overrides import ResourceOverrideStore
 from backend.adapters.workspace import WorkspaceManager
 from backend.config import Settings
 from backend.containers.locks import EnvironmentLocks, LockedDeployer, managed_files
+from backend.containers.resource_store import ResourceLimitStore
+from backend.containers.resources import ResourceOverrideFiles
 from backend.execution.config import ExecutionConfig
 from backend.execution.environment import ExecutionEnv
 from backend.execution.logs import LogStore
@@ -76,6 +79,11 @@ def build_execution_env(  # noqa: PLR0913, PLR0917 - one optional collaborator e
         ),
     )
 
+    resource_files = ResourceOverrideFiles(
+        ResourceLimitStore(session_factory),
+        ResourceOverrideStore(data_dir / OVERRIDES_DIR_NAME),
+    )
+
     return ExecutionEnv(
         config=ExecutionConfig.from_settings(settings),
         runtime=DockerCliRuntime(
@@ -85,7 +93,9 @@ def build_execution_env(  # noqa: PLR0913, PLR0917 - one optional collaborator e
         ),
         source=build_source(settings),
         deployer=LockedDeployer(
-            deployer, locks or EnvironmentLocks(), managed_files(data_dir / OVERRIDES_DIR_NAME)
+            deployer,
+            locks or EnvironmentLocks(),
+            managed_files(data_dir / OVERRIDES_DIR_NAME, resource_files.render),
         ),
         probe=probe,
         workspaces=WorkspaceManager(

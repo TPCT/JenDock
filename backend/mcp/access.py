@@ -87,6 +87,10 @@ TOOL_ACCESS: dict[str, ToolAccess] = {
     "preview_container_action": ToolAccess(A.CONTAINER_ACTION, At.CONTAINER),
     "confirm_container_action": ToolAccess(A.CONTAINER_ACTION, At.CONTAINER),
     "update_container_limits": ToolAccess(A.CONTAINER_LIMITS, At.CONTAINER),
+    "get_resource_limits": ToolAccess(A.CONTAINER_READ),
+    "get_resource_usage": ToolAccess(A.CONTAINER_READ),
+    "set_resource_limits": ToolAccess(A.CONTAINER_LIMITS),
+    "remove_resource_limits": ToolAccess(A.CONTAINER_LIMITS),
     # databases
     "list_database_connections": ToolAccess(A.DATABASE_READ),
     "get_database_connection": ToolAccess(A.DATABASE_READ),

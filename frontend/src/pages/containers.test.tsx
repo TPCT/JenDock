@@ -427,35 +427,74 @@ describe("files", () => {
   });
 });
 
-describe("limits", () => {
-  const LIMITS = `${WEB}?tab=limits`;
-
-  it("saves CPU and memory within the server maximum", async () => {
-    const user = userEvent.setup();
-    renderApp(LIMITS);
-    const cpus = await screen.findByLabelText("CPUs");
-    expect(cpus).toHaveValue("1");
-    await user.clear(cpus);
-    await user.type(cpus, "2");
-    await user.type(screen.getByLabelText("Memory"), "1g");
-    await user.click(screen.getByRole("button", { name: "Save limits" }));
-    expect(await screen.findByText("Limits updated.")).toBeInTheDocument();
-    expect(screen.getByText("2 CPUs")).toBeInTheDocument();
-    expect(screen.getByText("1.0 GiB")).toBeInTheDocument();
+describe("resources", () => {
+  it("shows usage against the limits on the container page and on the list", async () => {
+    const detail = renderApp(WEB);
+    const section = await screen.findByRole("region", { name: "Resources" });
+    const web = await within(section).findByRole("group", { name: "web resources" });
+    expect(within(web).getByText("1 CPU · 512.0 MiB")).toBeInTheDocument();
+    expect(await within(web).findByRole("progressbar", { name: "CPU used" })).toBeInTheDocument();
+    expect(within(web).getByRole("progressbar", { name: "Memory used" })).toBeInTheDocument();
+    expect(
+      within(section).queryByRole("group", { name: "worker resources" }),
+    ).not.toBeInTheDocument();
+    detail.unmount();
+    renderApp(LIST);
+    const all = await screen.findByRole("region", { name: "Resources" });
+    for (const service of ["web", "worker", "cache"]) {
+      expect(
+        await within(all).findByRole("group", { name: `${service} resources` }),
+      ).toBeInTheDocument();
+    }
+    expect(
+      within(all).getByText("No running container, so there is no usage to show."),
+    ).toBeInTheDocument();
   });
 
-  it("shows the server's maximum when a value is too high, and checks the format first", async () => {
+  it("saves a preset and applies it to the running container", async () => {
     const user = userEvent.setup();
-    renderApp(LIMITS);
-    const cpus = await screen.findByLabelText("CPUs");
+    renderApp(WEB);
+    await user.click(await screen.findByRole("button", { name: "Edit limits" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit limits for web" });
+    expect(
+      within(dialog).getByText(/Limits are always saved and kept for every future deploy/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: /Large: 2 CPU, 4 GiB/ }));
+    expect(within(dialog).getByLabelText("CPU cores")).toHaveValue(2);
+    expect(within(dialog).getByLabelText("Memory")).toHaveValue("4");
+    expect(within(dialog).getByRole("combobox", { name: "Memory unit" })).toHaveValue("GiB");
+    await user.click(within(dialog).getByRole("button", { name: "Save limits" }));
+    expect(
+      await screen.findByText(/Limits saved for future deploys. Applied to 1 running container/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("2 CPUs · 4.0 GiB")).toBeInTheDocument();
+  });
+
+  it("states the server's reason when the host cannot give that much", async () => {
+    const user = userEvent.setup();
+    renderApp(WEB);
+    await user.click(await screen.findByRole("button", { name: "Edit limits" }));
+    const dialog = await screen.findByRole("dialog");
+    const cpus = within(dialog).getByLabelText("CPU cores");
     await user.clear(cpus);
-    await user.type(cpus, "99");
-    await user.click(screen.getByRole("button", { name: "Save limits" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("above the server maximum of 8");
-    await user.clear(cpus);
-    await user.type(cpus, "1");
-    await user.type(screen.getByLabelText("Memory"), "lots");
-    await user.click(screen.getByRole("button", { name: "Save limits" }));
-    expect(await screen.findByText("Memory looks like 512m or 2g.")).toBeInTheDocument();
+    await user.type(cpus, "9");
+    await user.click(within(dialog).getByRole("button", { name: "Save limits" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "cannot exceed the host's 4 CPUs",
+    );
+  });
+
+  it("removes the limit", async () => {
+    const user = userEvent.setup();
+    renderApp(WEB);
+    await user.click(await screen.findByRole("button", { name: "Edit limits" }));
+    await user.click(await screen.findByRole("button", { name: "Save limits" }));
+    await screen.findByText(/Limits saved/);
+    await user.click(screen.getByRole("button", { name: "Edit limits" }));
+    await user.click(await screen.findByRole("button", { name: "Remove limit" }));
+    expect(
+      await screen.findByText(/Limit removed. Future deploys run without it./),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("No limit set")).toBeInTheDocument();
   });
 });

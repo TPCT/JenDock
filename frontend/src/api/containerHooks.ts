@@ -120,18 +120,6 @@ export function useUpdateEnv(slug: string, env: EnvironmentName, id: string) {
   });
 }
 
-export function useUpdateLimits(slug: string, env: EnvironmentName, id: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { cpus?: number; memory?: string }) =>
-      api.put<ContainerView>(`${one(slug, env, id)}/limits`, body),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: containerKeys.one(slug, env, id) });
-      await client.invalidateQueries({ queryKey: containerKeys.list(slug, env) });
-    },
-  });
-}
-
 export function useDirectory(slug: string, env: EnvironmentName, id: string, path: string) {
   return useQuery({
     queryKey: ["container-files", slug, env, id, path] as const,

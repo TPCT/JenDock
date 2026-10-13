@@ -9,6 +9,7 @@ import {
   shortImageId,
 } from "../../components/ContainerBits";
 import { CopyField } from "../../components/CopyField";
+import { ResourcesSection } from "../../components/Resources";
 import { Sparkline } from "../../components/Sparkline";
 import { RelativeTime } from "../../components/Time";
 import { formatBytes } from "../../lib/format";
@@ -29,6 +30,7 @@ export function OverviewPanel({
   const latest = stats.data?.latest;
   return (
     <div className={box.stack}>
+      <ResourcesSection slug={slug} env={env} service={container.service} />
       <section className={box.box} aria-label="Resource use">
         <div className={box.header}>Resource use</div>
         <div className={box.row}>

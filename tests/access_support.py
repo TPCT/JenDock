@@ -15,14 +15,21 @@ from backend.containers.logs import LogCursor
 from backend.containers.wire import (
     ActionPlanView,
     ContainerView,
+    HostCapacityView,
     LogLineView,
     LogPageView,
+    ResourceChangeView,
+    ResourceLimitsView,
+    ResourceOverviewView,
+    ResourceUsageView,
+    ServiceResourcesView,
 )
 from backend.domain.access import AccessRole, ContainerPermission, GlobalRole
 from backend.domain.actor import Actor
 from backend.domain.containers import LifecycleAction
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import NotFoundError
+from backend.domain.resources import ResourceLimits
 from tests.api_support import PASSWORD, login, make_client, mutation_headers
 
 WEB = "a" * 64
@@ -129,7 +136,64 @@ def _view(container_id: str, service: str) -> ContainerView:
     )
 
 
-class FakeContainers:
+_HOST = HostCapacityView(cpus=4, memory_bytes=8 * 1024**3)
+
+
+class _FakeResources:
+    """The resource-limits half of the fake gateway (records calls like the rest)."""
+
+    calls: list[str]
+
+    def resources_list(self, slug: str, env: EnvironmentName, actor: Actor) -> ResourceOverviewView:
+        self.calls.append("resources_list")
+        return ResourceOverviewView(
+            host=_HOST,
+            services=tuple(
+                ServiceResourcesView(service=name, limits=None, updated_at=None)
+                for name in ("web", "worker")
+            ),
+        )
+
+    def resources_usage(self, slug: str, env: EnvironmentName, actor: Actor) -> ResourceUsageView:
+        self.calls.append("resources_usage")
+        return ResourceUsageView(host=_HOST, containers=())
+
+    def resources_save(
+        self,
+        slug: str,
+        env: EnvironmentName,
+        service: str,
+        limits: ResourceLimits,
+        apply_now: bool,
+        actor: Actor,
+    ) -> ResourceChangeView:
+        self.calls.append("resources_save")
+        return ResourceChangeView(
+            service=service,
+            limits=ResourceLimitsView(
+                cpus=limits.cpus,
+                memory_bytes=limits.memory_bytes,
+                memory_reservation_bytes=limits.memory_reservation_bytes,
+                cpu_shares=limits.cpu_shares,
+            ),
+            applied=(),
+            notes=(),
+        )
+
+    def resources_remove(
+        self, slug: str, env: EnvironmentName, service: str, apply_now: bool, actor: Actor
+    ) -> ResourceChangeView:
+        self.calls.append("resources_remove")
+        return ResourceChangeView(service=service, limits=None, applied=(), notes=())
+
+    def resources_apply(
+        self, slug: str, env: EnvironmentName, service: str, actor: Actor
+    ) -> ResourceChangeView:
+        self.calls.append("resources_apply")
+        return ResourceChangeView(service=service, limits=None, applied=(), notes=())
+
+
+class FakeContainers(_FakeResources):
     """Just enough of the worker's container gateway for the policy tests."""
 
     def __init__(self) -> None:

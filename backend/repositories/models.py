@@ -17,9 +17,11 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     DateTime,
     Dialect,
     Enum,
+    Float,
     ForeignKey,
     Index,
     LargeBinary,
@@ -440,6 +442,31 @@ class Domain(Base):
     last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     last_verified_ok: Mapped[bool | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class ResourceLimit(Base):
+    """CPU and memory limits of one compose service of an environment (at most one row).
+
+    The row is the single source of truth: the managed compose override is rendered from it at
+    every deploy and recreate, and "apply now" copies it onto the running containers. A column
+    that is ``NULL`` means that limit is not set. Removed with its environment; ``updated_by``
+    is ``NULL`` once that user is gone.
+    """
+
+    __tablename__ = "resource_limits"
+    __table_args__ = (UniqueConstraint("environment_id", "service"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="CASCADE"))
+    service: Mapped[str] = mapped_column(String(64))
+    cpus: Mapped[float | None] = mapped_column(Float, default=None)
+    memory_bytes: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    memory_reservation_bytes: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    cpu_shares: Mapped[int | None] = mapped_column(default=None)
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 

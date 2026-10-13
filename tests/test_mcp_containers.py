@@ -36,12 +36,16 @@ READ_TOOLS = {
     "container_stats",
     "host_telemetry",
     "list_container_env_names",
+    "get_resource_limits",
+    "get_resource_usage",
 }
 CONTAINERS_TOOLS = {
     "tail_container_logs",
     "preview_container_action",
     "confirm_container_action",
     "update_container_limits",
+    "set_resource_limits",
+    "remove_resource_limits",
 }
 
 
@@ -268,6 +272,34 @@ def test_limits_update_within_the_maxima(wired: Wired) -> None:
         wired.container, manager, "update_container_limits", {**wired.target(), "cpus": 64}
     )
     assert "error" in too_big
+
+
+def test_resource_limits_tools_read_set_apply_and_remove(wired: Wired) -> None:
+    reader = _real_principal(wired.container, TokenScope.READ)
+    manager = _real_principal(wired.container, TokenScope.CONTAINERS)
+    target = {**TARGET, "service": "web"}
+    listed = _call(wired.container, reader, "get_resource_limits", TARGET)
+    assert listed["host"]["cpus"] == 4 and listed["services"][0]["limits"] is None
+    denied = _call(wired.container, reader, "set_resource_limits", {**target, "cpus": 1})
+    assert denied["error"]["code"] == "forbidden"
+    saved = _call(
+        wired.container,
+        manager,
+        "set_resource_limits",
+        {**target, "cpus": 1.5, "memory": "512m", "apply_now": True},
+    )
+    assert saved["limits"]["memory_bytes"] == 512 * 1024**2
+    assert saved["applied"][0]["ok"] is True
+    again = _call(wired.container, reader, "get_resource_limits", TARGET)
+    assert again["services"][0]["limits"]["cpus"] == 1.5
+    too_big = _call(wired.container, manager, "set_resource_limits", {**target, "cpus": 64})
+    assert "error" in too_big
+    bad = _call(wired.container, manager, "set_resource_limits", {**target, "memory": "lots"})
+    assert "error" in bad
+    removed = _call(wired.container, manager, "remove_resource_limits", target)
+    assert removed["limits"] is None
+    usage = _call(wired.container, reader, "get_resource_usage", TARGET)
+    assert usage["host"]["memory_bytes"] > 0
 
 
 # --- audit -----------------------------------------------------------------------------------

@@ -16,11 +16,10 @@ import box from "../styles/box.module.css";
 import { containersPath } from "./Containers";
 import { EnvPanel } from "./container/EnvPanel";
 import { FilesPanel } from "./container/FilesPanel";
-import { LimitsPanel } from "./container/LimitsPanel";
 import { LogsPanel } from "./container/LogsPanel";
 import { OverviewPanel } from "./container/OverviewPanel";
 
-const TABS = ["overview", "logs", "environment", "files", "limits"] as const;
+const TABS = ["overview", "logs", "environment", "files"] as const;
 type Tab = (typeof TABS)[number];
 /** The permission each tab needs (the overview only needs to see the container). */
 const TAB_ACTION: Record<Tab, Action> = {
@@ -28,14 +27,12 @@ const TAB_ACTION: Record<Tab, Action> = {
   logs: "container.logs",
   environment: "container.env_update",
   files: "container.files",
-  limits: "container.limits",
 };
 const TAB_LABEL: Record<Tab, string> = {
   overview: "Overview",
   logs: "Logs",
   environment: "Environment",
   files: "Files",
-  limits: "Limits",
 };
 
 const ACTION_ICON = { start: PlayIcon, stop: StopIcon, restart: SyncIcon } as const;
@@ -241,10 +238,8 @@ export function ContainerDetailPage() {
                 <LogsPanel slug={slug} env={env} container={data} />
               ) : item === "environment" ? (
                 <EnvPanel slug={slug} env={env} container={data} />
-              ) : item === "files" ? (
-                <FilesPanel slug={slug} env={env} container={data} />
               ) : (
-                <LimitsPanel slug={slug} env={env} container={data} />
+                <FilesPanel slug={slug} env={env} container={data} />
               )}
             </div>
           </UnderlinePanels.Panel>
