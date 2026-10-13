@@ -47,10 +47,17 @@ class ComposeProject:
             args += ["-f", str(self._override)]
         return args
 
+    def _all_profiles(self) -> list[str]:
+        """The prefix without the override, with every profile enabled: services behind a
+        compose profile (e.g. queue workers) are listed and found. Only read-only queries use
+        it; ``up`` names its services explicitly, which enables their profiles by itself."""
+        return [*self.base_command(with_override=False), "--profile", "*"]
+
     def defined_services(self) -> set[str]:
-        """Services defined by the environment's own compose files (not the managed override)."""
+        """Services defined by the environment's own compose files (not the managed override),
+        including services that are only active under a compose profile."""
         result = self._docker.capture(
-            [*self.base_command(with_override=False), "config", "--services"],
+            [*self._all_profiles(), "config", "--services"],
             SERVICE_LIST_TIMEOUT,
         )
         if result.returncode != 0:
@@ -59,9 +66,7 @@ class ComposeProject:
 
     def container_ids(self, service: str) -> list[str]:
         """Ids of the containers of ``service`` in any state."""
-        result = self._docker.capture(
-            [*self.base_command(with_override=False), "ps", "--all", "--quiet", service]
-        )
+        result = self._docker.capture([*self._all_profiles(), "ps", "--all", "--quiet", service])
         if result.returncode != 0:
             raise ContainerRuntimeError(f"docker compose ps failed: {_brief(result.stderr)}")
         return result.stdout.split()
