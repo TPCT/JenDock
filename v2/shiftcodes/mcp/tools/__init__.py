@@ -5,12 +5,12 @@ from __future__ import annotations
 from types import ModuleType
 
 from shiftcodes.mcp.registry import ToolRegistry, registry_from_modules
-from shiftcodes.mcp.tools import containers, deploy, domains, pipelines, projects, runs
+from shiftcodes.mcp.tools import containers, databases, deploy, domains, pipelines, projects, runs
 
 
 def tool_modules() -> tuple[ModuleType, ...]:
     """Every tool module; containers, databases and domains join here when those tasks merge."""
-    return (projects, runs, pipelines, domains, deploy, containers)
+    return (projects, runs, pipelines, domains, deploy, containers, databases)
 
 
 def default_registry() -> ToolRegistry:

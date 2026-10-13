@@ -13,6 +13,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
+from shiftcodes.api.data_scope import require_data_scope
 from shiftcodes.api.deps import Container, require_scope
 from shiftcodes.api.principal import Principal
 from shiftcodes.api.schemas.databases import (
@@ -32,7 +33,6 @@ from shiftcodes.api.schemas.databases import (
 )
 from shiftcodes.domain.database import ConnectionRef, TableRef
 from shiftcodes.domain.enums import EnvironmentName, TokenScope
-from shiftcodes.domain.errors import PermissionDeniedError
 from shiftcodes.inspector.model import DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS
 from shiftcodes.services.database_connections import ConnectionChange, NewConnection
 
@@ -81,12 +81,6 @@ class TablePath(SchemaPath):
     def table_ref(self) -> TableRef:
         """The table as a reference for the services."""
         return TableRef(self.ref, self.schema, self.table)
-
-
-def _require_data_scope(principal: Principal, env: EnvironmentName) -> None:
-    """Production rows and console are admin-only."""
-    if env is EnvironmentName.PRODUCTION and not principal.has_scope(TokenScope.ADMIN):
-        raise PermissionDeniedError("production data requires the admin scope")
 
 
 # --- configuration -------------------------------------------------------------------------
@@ -213,7 +207,7 @@ def get_rows(  # noqa: PLR0913, PLR0917 - path, scope, container and three pagin
     cursor: Annotated[str | None, Query(max_length=2048)] = None,
 ) -> RowsResponse:
     """One page of rows ordered by primary key (``cursor`` keyset paging beats ``offset``)."""
-    _require_data_scope(principal, path.env)
+    require_data_scope(principal, path.env)
     page: dict[str, object] = {"limit": limit, "offset": offset}
     if cursor is not None:
         page["after"] = decode_cursor(cursor)
@@ -229,6 +223,6 @@ def run_query(
     container: Container,
 ) -> QueryResponse:
     """Run one read-only statement (SELECT, WITH, SHOW or EXPLAIN); audited, results are not."""
-    _require_data_scope(principal, path.env)
+    require_data_scope(principal, path.env)
     result = container.inspector_gateway().query(path.ref, body.statement, principal.actor)
     return parse_worker(QueryResponse, result)
