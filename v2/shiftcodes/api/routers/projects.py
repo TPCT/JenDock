@@ -89,8 +89,16 @@ def update_environment(
     principal: Admin,
     container: Container,
 ) -> EnvironmentResponse:
-    """Change the branch an environment tracks and whether a push deploys automatically."""
-    change = EnvironmentUpdate(branch=body.branch, auto_deploy=body.auto_deploy)
+    """Change the branch, auto-deploy and the Compose project, files, env files and services."""
+    change = EnvironmentUpdate(
+        branch=body.branch,
+        auto_deploy=body.auto_deploy,
+        compose_project=body.compose_project,
+        clear_compose_project=body.clears_compose_project,
+        compose_files=body.compose_files,
+        compose_env_files=body.compose_env_files,
+        services=body.services,
+    )
     container.environment_service().update(path.slug, path.env, change, principal.actor)
     return EnvironmentResponse.from_view(
         container.project_queries().environment(path.slug, path.env)

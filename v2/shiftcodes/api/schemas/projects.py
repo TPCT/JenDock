@@ -18,6 +18,10 @@ class EnvironmentResponse(BaseModel):
     name: str
     branch: str
     auto_deploy: bool
+    compose_project: str | None
+    compose_files: list[str]
+    compose_env_files: list[str]
+    services: list[str]
     last_run: RunSummary | None
 
     @classmethod
@@ -28,6 +32,10 @@ class EnvironmentResponse(BaseModel):
             name=environment.name.value,
             branch=environment.branch,
             auto_deploy=environment.auto_deploy,
+            compose_project=environment.compose_project,
+            compose_files=list(environment.compose_files),
+            compose_env_files=list(environment.compose_env_files),
+            services=list(environment.services),
             last_run=RunSummary.from_data(view.last_run) if view.last_run else None,
         )
 
@@ -92,12 +100,26 @@ class UpdateEnvironmentRequest(BaseModel):
 
     branch: str | None = Field(default=None, min_length=1, max_length=200)
     auto_deploy: bool | None = None
+    # The Docker Compose project the platform deploys to and manages. ``null`` clears the name;
+    # the file lists replace the stored ones; every path is absolute (README "Deployment").
+    compose_project: str | None = Field(default=None, max_length=63)
+    compose_files: list[str] | None = Field(default=None, max_length=16)
+    compose_env_files: list[str] | None = Field(default=None, max_length=16)
+    services: list[str] | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def _require_a_change(self) -> UpdateEnvironmentRequest:
-        if self.branch is None and self.auto_deploy is None:
+        if not self.model_fields_set:
             raise ValueError("at least one field is required")
+        for name in ("branch", "auto_deploy", "compose_files", "compose_env_files", "services"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                raise ValueError(f"{name} cannot be null")
         return self
+
+    @property
+    def clears_compose_project(self) -> bool:
+        """Whether the request names ``compose_project`` explicitly as null."""
+        return "compose_project" in self.model_fields_set and self.compose_project is None
 
 
 class BranchHeadResponse(BaseModel):

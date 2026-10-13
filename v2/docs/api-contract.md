@@ -87,11 +87,17 @@ Audited as `project.update`. Lets a project switch between the deploy key and pu
 
 ### `PATCH /api/projects/{slug}/environments/{env}`
 
-Branch mapping and auto-deploy toggle. Scope `admin`, CSRF. Body with at least one of
-`branch` (a push to this branch triggers the environment) and `auto_deploy` (when false a push is
-recorded but queues no run). The two environments of a project must track different branches
-(422). 200 `{name, branch, auto_deploy, last_run}` (the `Project.environments[]` entry). Audited
-as `environment.update` (before and after values).
+Branch mapping, auto-deploy toggle and Docker Compose settings. Scope `admin`, CSRF. Body with at
+least one of `branch` (a push to this branch triggers the environment), `auto_deploy` (when false a
+push is recorded but queues no run), `compose_project` (the Compose project name, or `null` to clear
+it), `compose_files` and `compose_env_files` (lists of absolute paths, replaced as a whole; the
+env files supply the variable interpolation of the compose files) and `services` (the service
+names the environment manages). A key that is absent is left unchanged. The two environments of a
+project must track different branches (422); paths must be absolute and clean, names valid (422).
+200 `{name, branch, auto_deploy, compose_project, compose_files, compose_env_files, services,
+last_run}` (the `Project.environments[]` entry has the same keys). Audited as
+`environment.update` (before and after branch and auto-deploy, plus the resulting compose
+settings).
 
 ### `GET /api/projects/{slug}/environments/{env}/runs?limit=20&offset=0`
 
