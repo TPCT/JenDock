@@ -157,6 +157,10 @@ the chunk (`CHUNK_BYTES`); continue with `offset=next_offset`; `complete` is tru
 finished and nothing is left. The text is already secret-masked. The UI loops until `complete`
 or `next_offset == offset`.
 
+**Optional log timestamps (proposed):** if each log line starts with an RFC 3339 timestamp followed by a
+space (`2026-01-15T10:00:01.250Z text`, as `docker logs -t` writes), the UI hides it from the text and
+shows it in the gutter when the user turns on "Show timestamps". Without them the toggle is disabled.
+
 ### `GET /api/runs/{run_id}/events` (exists)
 
 `text/event-stream`, session cookie (no idle-timer extension). Events (JSON `data`):
