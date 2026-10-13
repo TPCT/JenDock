@@ -57,6 +57,8 @@ class RunSpec:
     memory: str | None = None
     cpu_shares: int = DEFAULT_CPU_SHARES
     user: str | None = None
+    # Read-only root filesystem, no capabilities, a small /tmp and a process limit.
+    hardened: bool = False
 
 
 @dataclass(frozen=True, slots=True)

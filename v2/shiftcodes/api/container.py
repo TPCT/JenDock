@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import Engine
 
+from shiftcodes.adapters.inspector_client import InspectorGateway, WorkerInspectorClient
 from shiftcodes.adapters.worker_client import SecretsGateway, WorkerClient
 from shiftcodes.api.cookies import CookiePolicy
 from shiftcodes.config import Settings
@@ -18,6 +19,7 @@ from shiftcodes.repositories.database import (
     create_session_factory,
 )
 from shiftcodes.services.auth import AuthService
+from shiftcodes.services.database_connections import DatabaseConnectionService
 from shiftcodes.services.passwords import PasswordHasher
 from shiftcodes.services.rate_limit import LoginRateLimiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
@@ -42,13 +44,16 @@ class AppContainer:
     limiter: LoginRateLimiter
     secrets: SecretsGateway
     cookies: CookiePolicy
+    # Database inspector calls to the worker; ``None`` means the default socket client.
+    inspector: InspectorGateway | None = None
 
     @classmethod
-    def build(
+    def build(  # noqa: PLR0913 - every collaborator is optional and injectable
         cls,
         settings: Settings,
         *,
         secrets: SecretsGateway | None = None,
+        inspector: InspectorGateway | None = None,
         clock: Clock = utcnow,
         hasher: PasswordHasher | None = None,
         limiter: LoginRateLimiter | None = None,
@@ -64,6 +69,7 @@ class AppContainer:
             limiter=limiter or LoginRateLimiter(clock),
             secrets=secrets or WorkerClient(settings.worker_socket_path),
             cookies=CookiePolicy.for_settings(settings),
+            inspector=inspector,
         )
 
     def uow(self) -> UnitOfWork:
@@ -91,6 +97,16 @@ class AppContainer:
     def run_lifecycle(self) -> RunLifecycleService:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
+
+    def database_connections(self) -> DatabaseConnectionService:
+        """Return the connection configuration service (passwords go through the worker)."""
+        return DatabaseConnectionService(self.uow(), self.secrets, self.clock)
+
+    def inspector_gateway(self) -> InspectorGateway:
+        """Return the worker gateway for database inspection."""
+        if self.inspector is not None:
+            return self.inspector
+        return WorkerInspectorClient(WorkerClient(self.settings.worker_socket_path))
 
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""

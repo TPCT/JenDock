@@ -24,6 +24,17 @@ _RESERVED_PREFIXES = ("LD_", "DOCKER_", "BUILDKIT_", "XDG_", "SSH_", "GIT_", "LC
 _PROXY_NAMES = frozenset({"http_proxy", "https_proxy", "no_proxy", "all_proxy"})
 
 
+HARDENED_ARGS = [
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--pids-limit",
+    "128",
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,size=16m",  # noqa: S108 - inside the container
+]
+
+
 def check_env_name(name: str) -> None:
     """Reject names that cannot be written to an env file."""
     if _NAME.fullmatch(name) is None:
@@ -95,6 +106,8 @@ def run_argv(
     argv += ["--cpu-shares", str(spec.cpu_shares)]
     if spec.user:
         argv += ["--user", spec.user]
+    if spec.hardened:
+        argv += HARDENED_ARGS
     if spec.entrypoint is not None:
         argv += ["--entrypoint", spec.entrypoint]
     return [*argv, spec.image, *spec.command]

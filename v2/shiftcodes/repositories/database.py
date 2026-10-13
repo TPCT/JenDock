@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from shiftcodes.repositories.audit import AuditRepository
+from shiftcodes.repositories.database_connections import DatabaseConnectionRepository
 from shiftcodes.repositories.environments import EnvironmentRepository
 from shiftcodes.repositories.pipelines import PipelineRepository
 from shiftcodes.repositories.projects import ProjectRepository
@@ -147,6 +148,11 @@ class UnitOfWork:
     def secrets(self) -> SecretRepository:
         """Secret repository bound to the active session."""
         return SecretRepository(self.session)
+
+    @property
+    def database_connections(self) -> DatabaseConnectionRepository:
+        """Database connection repository bound to the active session."""
+        return DatabaseConnectionRepository(self.session)
 
     @property
     def audit(self) -> AuditRepository:

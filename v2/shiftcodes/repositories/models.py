@@ -32,6 +32,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
 from shiftcodes.domain.clock import utcnow
+from shiftcodes.domain.database import DatabaseEngine, TlsMode
 from shiftcodes.domain.enums import (
     ActorType,
     EnvironmentName,
@@ -280,3 +281,29 @@ class AuditEvent(Base):
     target_type: Mapped[str] = mapped_column(String(32))
     target_id: Mapped[str | None] = mapped_column(String(64), default=None)
     details: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+
+
+class DatabaseConnection(Base):
+    """A database an environment's inspector may connect to.
+
+    ``password_secret`` names a secret of the same environment (the password itself is only
+    ever stored encrypted there). Rows go away with their environment.
+    """
+
+    __tablename__ = "database_connections"
+    __table_args__ = (UniqueConstraint("environment_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(48))
+    engine: Mapped[DatabaseEngine] = mapped_column(_enum(DatabaseEngine))
+    host: Mapped[str] = mapped_column(String(253))
+    port: Mapped[int]
+    database: Mapped[str] = mapped_column(String(128))
+    username: Mapped[str] = mapped_column(String(128))
+    password_secret: Mapped[str] = mapped_column(String(128))
+    tls_mode: Mapped[TlsMode] = mapped_column(_enum(TlsMode), default=TlsMode.DISABLE)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    last_tested_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    last_test_ok: Mapped[bool | None] = mapped_column(default=None)

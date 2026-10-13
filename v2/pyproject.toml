@@ -16,6 +16,8 @@ dependencies = [
     "alembic>=1.14",
     "cryptography>=43",
     "argon2-cffi>=23.1",
+    "psycopg[binary]>=3.2",
+    "PyMySQL>=1.1",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +57,11 @@ quote-style = "double"
 strict = true
 python_version = "3.13"
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# PyMySQL ships no type information (and no types-PyMySQL dependency is pinned).
+module = ["pymysql", "pymysql.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

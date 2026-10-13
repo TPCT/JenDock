@@ -20,6 +20,7 @@ from shiftcodes.repositories.database import (
 )
 from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
+from shiftcodes.worker.database_wiring import build_inspection_handlers
 from shiftcodes.worker.handlers import build_handlers
 from shiftcodes.worker.rpc import RpcServer
 from shiftcodes.worker.wiring import build_execution_env
@@ -62,7 +63,8 @@ def build_rpc_server(
     def secret_service() -> SecretService:
         return SecretService(UnitOfWork(session_factory), cipher, redactor)
 
-    return RpcServer(settings.worker_socket_path, build_handlers(secret_service))
+    inspection = build_inspection_handlers(settings, session_factory, cipher, redactor)
+    return RpcServer(settings.worker_socket_path, build_handlers(secret_service, inspection))
 
 
 def build_scheduler(

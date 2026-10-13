@@ -68,6 +68,17 @@ services:
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
     restart: unless-stopped
 
+  # Never started by `up`: the worker runs short-lived containers from this image to inspect an
+  # environment's databases on that environment's own network. Build it once (and after
+  # upgrades):  docker compose --profile tools build inspector
+  inspector:
+    image: shiftcodes-v2-inspector:latest  # SHIFTCODES_INSPECTOR_IMAGE of the worker
+    build:
+      context: .
+      dockerfile: docker/inspector.Dockerfile
+    profiles:
+      - tools
+
 volumes:
   data:
   worker-socket:

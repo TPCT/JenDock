@@ -11,7 +11,7 @@ from starlette.types import ASGIApp
 from shiftcodes.api.container import AppContainer
 from shiftcodes.api.errors import register_error_handlers
 from shiftcodes.api.middleware import SecurityHeadersMiddleware
-from shiftcodes.api.routers import auth, runs, secrets, tokens
+from shiftcodes.api.routers import auth, databases, runs, secrets, tokens
 from shiftcodes.config import Settings, get_settings
 
 
@@ -43,6 +43,7 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(auth.router)
     app.include_router(tokens.router)
     app.include_router(secrets.router)
+    app.include_router(databases.router)
     app.include_router(runs.router)
 
     @app.get("/healthz")
