@@ -3,9 +3,9 @@ from dataclasses import replace
 
 import pytest
 
-from shiftcodes.pipeline import Pipeline, parse, serialize
-from shiftcodes.pipeline.ast import StepsBody, StringValue, TextPart
-from shiftcodes.pipeline.errors import Span
+from backend.pipeline import Pipeline, parse, serialize
+from backend.pipeline.ast import StepsBody, StringValue, TextPart
+from backend.pipeline.errors import Span
 from tests.pipeline_support import parse_wrapped, wrap
 
 SAMPLE = """

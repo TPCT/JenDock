@@ -2,12 +2,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.audit import AuditTarget
-from shiftcodes.domain.enums import ActorType
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.services.audit import AuditService
+from backend.domain.actor import Actor
+from backend.domain.audit import AuditTarget
+from backend.domain.enums import ActorType
+from backend.domain.errors import ValidationError
+from backend.repositories.database import UnitOfWork
+from backend.services.audit import AuditService
 
 USER = Actor(ActorType.USER, "1")
 START = datetime(2026, 1, 1, tzinfo=UTC)

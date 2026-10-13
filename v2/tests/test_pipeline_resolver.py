@@ -6,18 +6,18 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.errors import SourceError
-from shiftcodes.adapters.sources import CheckoutRequest
-from shiftcodes.domain.enums import GitTransport, PipelineSource, RunStatus
-from shiftcodes.execution.context import RunJob
-from shiftcodes.execution.pipeline_resolver import (
+from backend.adapters.errors import SourceError
+from backend.adapters.sources import CheckoutRequest
+from backend.domain.enums import GitTransport, PipelineSource, RunStatus
+from backend.execution.context import RunJob
+from backend.execution.pipeline_resolver import (
     JENKINSFILE_PATH,
     PipelineResolver,
     PipelineUnavailableError,
 )
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.pipelines import PipelineService
-from shiftcodes.services.secret_cipher import SecretCipher
+from backend.repositories.models import Run
+from backend.services.pipelines import PipelineService
+from backend.services.secret_cipher import SecretCipher
 from tests.conftest import DEV
 from tests.execution_support import SHA, FakeSource, Harness, make_harness
 from tests.test_pipeline_runner import pipeline, stage

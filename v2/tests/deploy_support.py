@@ -8,10 +8,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from shiftcodes.adapters.container_runtime import CancelSignal, ExecResult, LineSink
-from shiftcodes.adapters.deploy_health import Clock
-from shiftcodes.adapters.deploy_ledger import ServiceChange
-from shiftcodes.domain.enums import DeploymentStatus
+from backend.adapters.container_runtime import CancelSignal, ExecResult, LineSink
+from backend.adapters.deploy_health import Clock
+from backend.adapters.deploy_ledger import ServiceChange
+from backend.domain.enums import DeploymentStatus
 
 
 @dataclass(slots=True)

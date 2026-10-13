@@ -7,22 +7,22 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.compose_overrides import ComposeOverrideStore
-from shiftcodes.containers.base import ContainerAuditor, Membership, TargetResolver
-from shiftcodes.containers.config import ContainerConfig
-from shiftcodes.containers.confirmations import ConfirmationStore
-from shiftcodes.containers.environment import EnvironmentEditor
-from shiftcodes.containers.files import FileBrowser
-from shiftcodes.containers.lifecycle import ContainerInventory, LifecycleService
-from shiftcodes.containers.limits import LimitsService
-from shiftcodes.containers.locks import EnvironmentLocks
-from shiftcodes.containers.logs import LogService
-from shiftcodes.containers.recreate import ServiceRecreator, StoreOverrideFiles
-from shiftcodes.containers.telemetry import HostSampler, TelemetryService
-from shiftcodes.domain.enums import EnvironmentName
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.worker.container_handlers import ContainerServices
+from backend.adapters.compose_overrides import ComposeOverrideStore
+from backend.containers.base import ContainerAuditor, Membership, TargetResolver
+from backend.containers.config import ContainerConfig
+from backend.containers.confirmations import ConfirmationStore
+from backend.containers.environment import EnvironmentEditor
+from backend.containers.files import FileBrowser
+from backend.containers.lifecycle import ContainerInventory, LifecycleService
+from backend.containers.limits import LimitsService
+from backend.containers.locks import EnvironmentLocks
+from backend.containers.logs import LogService
+from backend.containers.recreate import ServiceRecreator, StoreOverrideFiles
+from backend.containers.telemetry import HostSampler, TelemetryService
+from backend.domain.enums import EnvironmentName
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.worker.container_handlers import ContainerServices
 from tests.container_support import FakeCompose, FakeEngine, make_record
 
 PROJECT = "demo-dev"

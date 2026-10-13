@@ -5,15 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType
-from shiftcodes.domain.errors import ConfigurationError, NotFoundError, ValidationError
-from shiftcodes.logging import REDACTED, SecretRedactor
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.environments import EnvironmentService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType
+from backend.domain.errors import ConfigurationError, NotFoundError, ValidationError
+from backend.logging import REDACTED, SecretRedactor
+from backend.repositories.database import UnitOfWork
+from backend.services.audit import AuditService
+from backend.services.environments import EnvironmentService
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
 from tests.conftest import DEV, PROD
 
 VALUE = "s3cr3t-value-XYZ"

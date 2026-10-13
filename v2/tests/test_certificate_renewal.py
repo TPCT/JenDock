@@ -5,15 +5,15 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.acme.client import AcmeError
-from shiftcodes.domain.enums import ActorType
-from shiftcodes.domain.errors import UpstreamError
-from shiftcodes.domain.ingress import CertificateState, DomainStatus
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.certificates import certificate_state
-from shiftcodes.services.domain_status import DomainStatusService
-from shiftcodes.services.renewal import RenewalScheduler
+from backend.adapters.acme.client import AcmeError
+from backend.domain.enums import ActorType
+from backend.domain.errors import UpstreamError
+from backend.domain.ingress import CertificateState, DomainStatus
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.certificates import certificate_state
+from backend.services.domain_status import DomainStatusService
+from backend.services.renewal import RenewalScheduler
 from tests.api_support import FakeClock
 from tests.ingress_support import HOST
 from tests.ingress_world import ACTOR, IngressWorld

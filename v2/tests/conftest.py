@@ -7,16 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.enums import EnvironmentName
-from shiftcodes.repositories.database import (
+from backend.api.container import AppContainer
+from backend.domain.enums import EnvironmentName
+from backend.repositories.database import (
     UnitOfWork,
     create_db_engine,
     create_session_factory,
 )
-from shiftcodes.repositories.models import Base
-from shiftcodes.services.projects import ProjectService
-from shiftcodes.services.secret_cipher import SecretCipher
+from backend.repositories.models import Base
+from backend.services.projects import ProjectService
+from backend.services.secret_cipher import SecretCipher
 from tests.api_support import FakeClock, create_user, make_client, make_container, make_settings
 from tests.execution_support import Harness, make_harness
 

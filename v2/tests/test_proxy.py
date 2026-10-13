@@ -3,11 +3,11 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from shiftcodes.api.__main__ import server_options
-from shiftcodes.api.app import create_app
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.deps import client_ip
-from shiftcodes.config import Settings
+from backend.api.__main__ import server_options
+from backend.api.app import create_app
+from backend.api.container import AppContainer
+from backend.api.deps import client_ip
+from backend.config import Settings
 from tests.api_support import ORIGIN, PASSWORD, USERNAME, make_settings
 
 PROXY = "10.0.0.5"
@@ -26,7 +26,7 @@ def _app_with_ip_route(container: AppContainer) -> FastAPI:
 
 
 def _client(container: AppContainer, trusted: str, peer: str = PROXY) -> TestClient:
-    """The app behind uvicorn's real proxy-headers middleware, as ``python -m shiftcodes.api``."""
+    """The app behind uvicorn's real proxy-headers middleware, as ``python -m backend.api``."""
     app = _app_with_ip_route(container)
     wrapped = ProxyHeadersMiddleware(app, trusted_hosts=trusted)  # type: ignore[arg-type]
     return TestClient(wrapped, base_url=ORIGIN, client=(peer, 1234))  # type: ignore[arg-type]
@@ -43,7 +43,7 @@ def test_options_trust_nobody_by_default(tmp_path) -> None:  # type: ignore[no-u
 
 
 def test_options_use_configured_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SHIFTCODES_TRUSTED_PROXIES", "172.18.0.1, 10.0.0.0/8")
+    monkeypatch.setenv("JENDOCK_TRUSTED_PROXIES", "172.18.0.1, 10.0.0.0/8")
     settings = Settings()
     assert settings.trusted_proxies == ["172.18.0.1", "10.0.0.0/8"]
     options = server_options(settings)
@@ -53,13 +53,13 @@ def test_options_use_configured_proxies(monkeypatch: pytest.MonkeyPatch) -> None
 
 @pytest.mark.parametrize("value", ["*", "not-an-ip", "10.0.0.1,bogus"])
 def test_invalid_trusted_proxies_rejected(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    monkeypatch.setenv("SHIFTCODES_TRUSTED_PROXIES", value)
+    monkeypatch.setenv("JENDOCK_TRUSTED_PROXIES", value)
     with pytest.raises(ValueError, match="trusted_proxies"):
         Settings()
 
 
 def test_empty_env_means_no_trusted_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SHIFTCODES_TRUSTED_PROXIES", "")
+    monkeypatch.setenv("JENDOCK_TRUSTED_PROXIES", "")
     assert Settings().trusted_proxies == []
 
 

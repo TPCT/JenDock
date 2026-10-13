@@ -7,8 +7,8 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
-from shiftcodes.repositories.database import UnitOfWork, create_db_engine
-from shiftcodes.repositories.models import Project, User
+from backend.repositories.database import UnitOfWork, create_db_engine
+from backend.repositories.models import Project, User
 
 
 def _project(slug: str = "p") -> Project:

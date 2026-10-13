@@ -11,18 +11,18 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.principal import Principal
-from shiftcodes.domain.enums import TokenScope
-from shiftcodes.mcp.dispatcher import ToolDispatcher
-from shiftcodes.mcp.tools import default_registry
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
-from shiftcodes.worker.container_handlers import build_container_handlers
-from shiftcodes.worker.handlers import build_handlers
-from shiftcodes.worker.rpc import RpcServer
+from backend.api.container import AppContainer
+from backend.api.principal import Principal
+from backend.domain.enums import TokenScope
+from backend.mcp.dispatcher import ToolDispatcher
+from backend.mcp.tools import default_registry
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
+from backend.worker.container_handlers import build_container_handlers
+from backend.worker.handlers import build_handlers
+from backend.worker.rpc import RpcServer
 from tests.api_support import FakeClock, make_container, make_settings
 from tests.container_harness import Stack, build_stack
 from tests.test_mcp import _real_principal, _run, _session, _text, _token

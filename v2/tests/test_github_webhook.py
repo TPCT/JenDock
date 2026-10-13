@@ -9,13 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.enums import PipelineSource, RunStatus, RunTrigger
-from shiftcodes.repositories.models import Run, WebhookDelivery
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.services.pipelines import PipelineService
-from shiftcodes.services.projects import ProjectService
+from backend.api.container import AppContainer
+from backend.domain.enums import PipelineSource, RunStatus, RunTrigger
+from backend.repositories.models import Run, WebhookDelivery
+from backend.services.audit import AuditService
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.pipelines import PipelineService
+from backend.services.projects import ProjectService
 from tests.api_support import FakeClock, make_client, make_container, make_settings
 from tests.conftest import DEV, PROD
 from tests.github_support import (

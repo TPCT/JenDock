@@ -9,17 +9,17 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.deployer import UnavailableDeployer
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import EnvironmentName, RunStatus
-from shiftcodes.execution.config import ExecutionConfig
-from shiftcodes.execution.step_registry import STEP_CLASSES
-from shiftcodes.pipeline.steps import STEPS
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
+from backend.adapters.deployer import UnavailableDeployer
+from backend.domain.actor import Actor
+from backend.domain.enums import EnvironmentName, RunStatus
+from backend.execution.config import ExecutionConfig
+from backend.execution.step_registry import STEP_CLASSES
+from backend.pipeline.steps import STEPS
+from backend.repositories.models import Run
+from backend.services.audit import AuditService
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
 from tests.conftest import DEV
 from tests.execution_support import SHA, Behavior, FakeSource, Harness, make_harness
 
@@ -570,7 +570,7 @@ def test_cancel_stops_between_steps_kills_containers_and_runs_post(harness: Harn
     thread.join(10)
     assert not thread.is_alive()
     assert results == [RunStatus.CANCELLED]
-    assert any(label.startswith("shiftcodes.run_id=") for label in harness.runtime.kills)
+    assert any(label.startswith("jendock.run_id=") for label in harness.runtime.kills)
     assert "second step" not in harness.runtime.script_order
     assert "b" not in harness.runtime.script_order
     statuses = harness.stage_statuses(run)

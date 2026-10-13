@@ -100,7 +100,7 @@ export function LoginPage() {
       <div className={styles.card}>
         <TerminalIcon size={48} className={styles.logo} aria-hidden="true" />
         <Heading as="h1" className={styles.title}>
-          Sign in to Shiftcodes
+          Sign in to Jendock
         </Heading>
         {formError ? (
           <Callout variant="danger" role="alert">

@@ -1,13 +1,13 @@
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.domain.errors import ConflictError, NotFoundError, ValidationError
-from shiftcodes.domain.ingress import DnsRecordType, DomainStatus
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.domains import DomainDraft, DomainPatch, DomainService
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.services.projects import ProjectService
+from backend.domain.errors import ConflictError, NotFoundError, ValidationError
+from backend.domain.ingress import DnsRecordType, DomainStatus
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.domains import DomainDraft, DomainPatch, DomainService
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.projects import ProjectService
 from tests.api_support import FakeClock
 from tests.conftest import DEV, PROD
 from tests.ingress_world import ACTOR

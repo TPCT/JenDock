@@ -9,13 +9,13 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.principal import Principal
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import TokenScope
-from shiftcodes.mcp.dispatcher import ToolDispatcher
-from shiftcodes.mcp.tools import default_registry
-from shiftcodes.services.audit import AuditService
+from backend.api.container import AppContainer
+from backend.api.principal import Principal
+from backend.domain.actor import Actor
+from backend.domain.enums import TokenScope
+from backend.mcp.dispatcher import ToolDispatcher
+from backend.mcp.tools import default_registry
+from backend.services.audit import AuditService
 from tests import test_domains_api
 from tests.ingress_support import HOST
 from tests.test_domains_api import Api

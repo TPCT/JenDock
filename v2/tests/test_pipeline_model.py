@@ -8,14 +8,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from shiftcodes.pipeline import ValidationContext, parse, serialize
-from shiftcodes.pipeline.analysis import analyze, render, to_editing_model
-from shiftcodes.pipeline.ast import StringPart, TextPart, VariablePart, VarSource
-from shiftcodes.pipeline.errors import Severity, Span
-from shiftcodes.pipeline.model import Call, Model, TemplateText
-from shiftcodes.pipeline.model_from_ast import to_model
-from shiftcodes.pipeline.model_template import decode, encode
-from shiftcodes.pipeline.model_to_ast import to_ast
+from backend.pipeline import ValidationContext, parse, serialize
+from backend.pipeline.analysis import analyze, render, to_editing_model
+from backend.pipeline.ast import StringPart, TextPart, VariablePart, VarSource
+from backend.pipeline.errors import Severity, Span
+from backend.pipeline.model import Call, Model, TemplateText
+from backend.pipeline.model_from_ast import to_model
+from backend.pipeline.model_template import decode, encode
+from backend.pipeline.model_to_ast import to_ast
 from tests.pipeline_support import CONTEXT, FIXTURES, wrap
 
 VALID = sorted((FIXTURES / "valid").glob("*.groovy"))

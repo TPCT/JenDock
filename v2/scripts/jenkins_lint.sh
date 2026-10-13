@@ -8,8 +8,8 @@
 set -euo pipefail
 
 TAG="2.541.3-lts-jdk17"
-IMAGE="shiftcodes-jenkins-lint:${TAG}"
-NAME="shiftcodes-jenkins-lint-$$"
+IMAGE="jendock-jenkins-lint:${TAG}"
+NAME="jendock-jenkins-lint-$$"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-${ROOT}/.venv/bin/python}"
 PURGE=0

@@ -9,11 +9,11 @@ from dataclasses import replace
 import pytest
 from fastapi.testclient import TestClient
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import RunStatus
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.audit import AuditService
+from backend.api.container import AppContainer
+from backend.domain.actor import Actor
+from backend.domain.enums import RunStatus
+from backend.repositories.models import Run
+from backend.services.audit import AuditService
 from tests.api_support import FakeClock, create_user, login, make_client, mutation_headers
 from tests.execution_support import Harness
 from tests.test_pipeline_runner import pipeline, stage

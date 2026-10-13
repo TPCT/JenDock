@@ -14,13 +14,13 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.containers.locks import EnvironmentLocks, LockedDeployer, managed_files
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.containers import EnvChange, LimitChange
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.worker.container_wiring import build_container_parts
+from backend.containers.locks import EnvironmentLocks, LockedDeployer, managed_files
+from backend.domain.actor import Actor
+from backend.domain.containers import EnvChange, LimitChange
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.worker.container_wiring import build_container_parts
 from tests.api_support import make_settings
 from tests.deploy_support import NotCancelled
 from tests.docker_support import docker_available

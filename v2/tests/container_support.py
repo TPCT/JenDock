@@ -8,12 +8,12 @@ import secrets
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from shiftcodes.adapters.compose_cli import ComposeTarget
-from shiftcodes.adapters.compose_overrides import FILE_NAME
-from shiftcodes.adapters.container_admin import FileRead, Record
-from shiftcodes.adapters.docker_stats import ContainerStats
-from shiftcodes.adapters.errors import ContainerNotFoundError, ContainerRuntimeError
-from shiftcodes.domain.containers import COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL
+from backend.adapters.compose_cli import ComposeTarget
+from backend.adapters.compose_overrides import FILE_NAME
+from backend.adapters.container_admin import FileRead, Record
+from backend.adapters.docker_stats import ContainerStats
+from backend.adapters.errors import ContainerNotFoundError, ContainerRuntimeError
+from backend.domain.containers import COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL
 
 STARTED = "2026-10-13T12:00:00.123456789Z"
 

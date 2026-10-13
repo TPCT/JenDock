@@ -186,7 +186,7 @@ def test_missing_apache_modules_are_listed(host: dict[str, Path]) -> None:
             "PUBLIC_ORIGIN",
         ),
         (
-            "PUBLIC_ORIGIN=https://monitoring.shiftcodes.net\n" + OTHER_KEYS,
+            "PUBLIC_ORIGIN=https://monitoring.example.com\n" + OTHER_KEYS,
             "PUBLIC_ORIGIN",
         ),
         ("PUBLIC_ORIGIN=https://x.test\n", "compose .env"),

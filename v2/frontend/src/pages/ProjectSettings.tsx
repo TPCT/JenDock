@@ -119,7 +119,7 @@ export function GeneralSettingsPage() {
     <>
       <SettingsSection
         title="General"
-        intro="How the project is shown and how Shiftcodes reads the code."
+        intro="How the project is shown and how Jendock reads the code."
       >
         <form
           className={box.stack}
@@ -328,7 +328,7 @@ export function WebhookSettingsPage() {
       intro={
         <>
           What to set up in GitHub for <span className="ltr">{project.repository}</span> so that
-          Shiftcodes can read the code and learn about pushes.
+          Jendock can read the code and learn about pushes.
         </>
       }
     >

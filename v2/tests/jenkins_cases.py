@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shiftcodes.domain.diagnostics import Severity
-from shiftcodes.pipeline import PipelineSyntaxError, ValidationContext, parse, serialize, validate
-from shiftcodes.pipeline.templates import load_templates
+from backend.domain.diagnostics import Severity
+from backend.pipeline import PipelineSyntaxError, ValidationContext, parse, serialize, validate
+from backend.pipeline.templates import load_templates
 from tests.jenkins_probes import PROBES
 from tests.pipeline_support import FIXTURES
 

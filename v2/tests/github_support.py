@@ -7,10 +7,10 @@ import hmac
 import json
 from collections.abc import Mapping
 
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.errors import NotFoundError
-from shiftcodes.domain.git import BranchHead
-from shiftcodes.worker.github_handlers import signature_matches
+from backend.domain.actor import Actor
+from backend.domain.errors import NotFoundError
+from backend.domain.git import BranchHead
+from backend.worker.github_handlers import signature_matches
 
 SECRET = b"webhook-secret-for-tests"
 ZERO = "0" * 40

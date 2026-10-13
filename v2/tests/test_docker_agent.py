@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.workspace import WorkspaceManager
-from shiftcodes.domain.enums import RunStatus
-from shiftcodes.execution.config import ExecutionConfig
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.services.secret_cipher import SecretCipher
+from backend.adapters.workspace import WorkspaceManager
+from backend.domain.enums import RunStatus
+from backend.execution.config import ExecutionConfig
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.secret_cipher import SecretCipher
 from tests.conftest import DEV
 from tests.execution_support import Harness, make_harness
 from tests.test_pipeline_runner import AGENT, pipeline, stage
@@ -36,10 +36,10 @@ def test_docker_build_tags_labels_and_limits(harness: Harness) -> None:
     assert spec.build_args == {"MODE": "fast"}
     assert spec.memory == "2g"
     assert spec.labels == {
-        "shiftcodes.project": "demo",
-        "shiftcodes.environment": "development",
-        "shiftcodes.run_id": str(run.id),
-        "shiftcodes.commit": "0123456789abcdef0123456789abcdef01234567",
+        "jendock.project": "demo",
+        "jendock.environment": "development",
+        "jendock.run_id": str(run.id),
+        "jendock.commit": "0123456789abcdef0123456789abcdef01234567",
     }
     workspace = harness.env.workspaces.path(run.id)
     assert spec.dockerfile == workspace.resolve() / "Dockerfile"
@@ -108,10 +108,10 @@ def test_every_container_has_labels_name_and_cpu_shares(harness: Harness) -> Non
     first, second = harness.runtime.runs
     step_ids = [s.id for s in harness.detail(run).stages[1].steps]
     assert first.labels == {
-        "shiftcodes.run_id": str(run.id),
-        "shiftcodes.step_id": str(step_ids[0]),
+        "jendock.run_id": str(run.id),
+        "jendock.step_id": str(step_ids[0]),
     }
-    assert second.labels["shiftcodes.step_id"] == str(step_ids[1])
+    assert second.labels["jendock.step_id"] == str(step_ids[1])
     assert first.name != second.name
     assert first.name.startswith(f"sc-r{run.id}-s{step_ids[0]}-")
     assert first.cpu_shares == 512

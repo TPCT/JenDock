@@ -8,9 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.middleware import CONTENT_SECURITY_POLICY
-from shiftcodes.domain.errors import ConfigurationError
+from backend.api.container import AppContainer
+from backend.api.middleware import CONTENT_SECURITY_POLICY
+from backend.domain.errors import ConfigurationError
 from tests.api_support import FakeClock, login, make_client, make_container, make_settings
 
 INDEX = "<!doctype html><title>app</title><script type=module src=/assets/app-abc123.js></script>"

@@ -2,14 +2,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from shiftcodes.api.errors import register_error_handlers
-from shiftcodes.domain.diagnostics import Diagnostic, Severity, Span
-from shiftcodes.domain.errors import NotFoundError, ValidationError
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.repositories.models import Secret
-from shiftcodes.services.jenkinsfile_validator import JenkinsfileValidator
-from shiftcodes.services.lookup import require_environment
-from shiftcodes.services.pipelines import PipelineService, PipelineValidator
+from backend.api.errors import register_error_handlers
+from backend.domain.diagnostics import Diagnostic, Severity, Span
+from backend.domain.errors import NotFoundError, ValidationError
+from backend.repositories.database import UnitOfWork
+from backend.repositories.models import Secret
+from backend.services.jenkinsfile_validator import JenkinsfileValidator
+from backend.services.lookup import require_environment
+from backend.services.pipelines import PipelineService, PipelineValidator
 from tests.conftest import DEV, PROD
 from tests.pipeline_support import FIXTURES, wrap
 

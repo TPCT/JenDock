@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.host_helper_client import HostHelperError
-from shiftcodes.adapters.probes import HttpResult, StdlibHttpProber
-from shiftcodes.domain.errors import NotFoundError
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.domain_checks import CheckProbes, DomainCheckService
-from shiftcodes.services.domains import DomainDraft, DomainService
+from backend.adapters.host_helper_client import HostHelperError
+from backend.adapters.probes import HttpResult, StdlibHttpProber
+from backend.domain.errors import NotFoundError
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.domain_checks import CheckProbes, DomainCheckService
+from backend.services.domains import DomainDraft, DomainService
 from tests.api_support import FakeClock
 from tests.conftest import DEV
 from tests.ingress_support import HOST, make_certificate

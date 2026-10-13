@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.domain.resources import parse_cpus, parse_memory
-from shiftcodes.execution.cancel import CancelReason, CancelToken
-from shiftcodes.execution.conditions import glob_regex
-from shiftcodes.execution.docker_agent import limited_cpus, limited_memory, parse_agent_args
-from shiftcodes.execution.errors import RunCancelled, StepFailed
-from shiftcodes.execution.retry import run_with_retries
-from shiftcodes.execution.scope import Scope
-from shiftcodes.execution.steps_docker import image_tag
-from shiftcodes.pipeline import parse
-from shiftcodes.pipeline.ast import Stage, StepsBody, StringValue
+from backend.domain.errors import ValidationError
+from backend.domain.resources import parse_cpus, parse_memory
+from backend.execution.cancel import CancelReason, CancelToken
+from backend.execution.conditions import glob_regex
+from backend.execution.docker_agent import limited_cpus, limited_memory, parse_agent_args
+from backend.execution.errors import RunCancelled, StepFailed
+from backend.execution.retry import run_with_retries
+from backend.execution.scope import Scope
+from backend.execution.steps_docker import image_tag
+from backend.pipeline import parse
+from backend.pipeline.ast import Stage, StepsBody, StringValue
 
 
 @pytest.mark.parametrize(

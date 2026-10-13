@@ -37,7 +37,7 @@ describe("project creation wizard", () => {
 
     // 2 GitHub: deploy key + webhook instructions with the exact values
     expect(
-      await screen.findByRole("heading", { name: /How should Shiftcodes reach/ }),
+      await screen.findByRole("heading", { name: /How should Jendock reach/ }),
     ).toBeInTheDocument();
     expect(screen.getByText("Allow write access", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByLabelText("Payload URL")).toHaveTextContent(
@@ -275,7 +275,7 @@ describe("domains", () => {
     );
     const dialog = await screen.findByRole("dialog", { name: "Apply staging.example.com" });
     expect(
-      await within(dialog).findByText(/Shiftcodes will create this DNS record/),
+      await within(dialog).findByText(/Jendock will create this DNS record/),
     ).toBeInTheDocument();
     const diff = within(dialog).getByLabelText("Web server configuration changes");
     expect(diff).toHaveTextContent("+<VirtualHost *:80>");
@@ -308,7 +308,7 @@ describe("domains", () => {
     );
     const dialog = await screen.findByRole("dialog", { name: "Apply taken.example.com" });
     const alert = await within(dialog).findByRole("alert");
-    expect(alert).toHaveTextContent("not created by Shiftcodes");
+    expect(alert).toHaveTextContent("not created by Jendock");
     expect(alert).toHaveTextContent("never overwrites a record it does not own");
     expect(within(dialog).getByRole("button", { name: "Apply changes" })).toBeDisabled();
   });
@@ -343,7 +343,7 @@ describe("domains", () => {
     await user.click(await screen.findByRole("menuitem", { name: /Remove from server/ }));
     const dialog = await screen.findByRole("dialog", { name: "Remove shop.example.com" });
     expect(
-      await within(dialog).findByText(/Shiftcodes will delete the DNS record it created/),
+      await within(dialog).findByText(/Jendock will delete the DNS record it created/),
     ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Remove from server" }));
     expect(await within(dialog).findByText(/Removed\./)).toBeInTheDocument();

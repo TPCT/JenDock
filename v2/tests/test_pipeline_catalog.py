@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from shiftcodes.pipeline import ValidationContext, parse, serialize, validate
-from shiftcodes.pipeline.ast import PostCondition
-from shiftcodes.pipeline.catalog import ArgType, StepInfo, build_catalog
-from shiftcodes.pipeline.errors import Severity
-from shiftcodes.pipeline.steps import OPTIONS, PARAMETERS, STEPS, ImageRole
-from shiftcodes.pipeline.templates import Template, load_templates
+from backend.pipeline import ValidationContext, parse, serialize, validate
+from backend.pipeline.ast import PostCondition
+from backend.pipeline.catalog import ArgType, StepInfo, build_catalog
+from backend.pipeline.errors import Severity
+from backend.pipeline.steps import OPTIONS, PARAMETERS, STEPS, ImageRole
+from backend.pipeline.templates import Template, load_templates
 
 CATALOG = build_catalog()
 SECTIONS = {"steps": STEPS, "options": OPTIONS, "parameters": PARAMETERS}

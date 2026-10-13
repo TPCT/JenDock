@@ -8,14 +8,14 @@ import pytest
 from alembic import command
 from sqlalchemy import inspect, text
 
-from shiftcodes.repositories.database import create_db_engine
-from shiftcodes.repositories.migrate import build_config, upgrade_to_head
+from backend.repositories.database import create_db_engine
+from backend.repositories.migrate import build_config, upgrade_to_head
 
 
 @pytest.fixture
 def url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     database = f"sqlite:///{tmp_path / 'fresh' / 'migrated.db'}"
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", database)
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", database)
     return database
 
 

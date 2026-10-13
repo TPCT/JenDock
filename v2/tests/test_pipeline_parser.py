@@ -1,7 +1,7 @@
 import pytest
 
-from shiftcodes.pipeline import PipelineSyntaxError, parse
-from shiftcodes.pipeline.ast import (
+from backend.pipeline import PipelineSyntaxError, parse
+from backend.pipeline.ast import (
     AgentAny,
     AgentDocker,
     AgentNone,
@@ -25,7 +25,7 @@ from shiftcodes.pipeline.ast import (
     VariablePart,
     VarSource,
 )
-from shiftcodes.pipeline.errors import Span
+from backend.pipeline.errors import Span
 from tests.pipeline_support import parse_wrapped, wrap
 
 

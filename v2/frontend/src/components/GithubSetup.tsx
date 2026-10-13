@@ -5,7 +5,7 @@ import { CopyField } from "./CopyField";
 import styles from "./GithubSetup.module.css";
 
 export const WEBHOOK_PATH = "/api/github/webhook";
-const SECRET_COMMAND = "docker compose exec worker cat /run/shiftcodes-keys/github_webhook_secret";
+const SECRET_COMMAND = "docker compose exec worker cat /run/jendock-keys/github_webhook_secret";
 const PUBLIC_KEY_COMMAND = "ssh-keygen -y -f deploy_key";
 
 function ghLink(repository: string, path: string): string {
@@ -30,18 +30,18 @@ export function GithubSetup({
     <div className={box.stack}>
       <section className={styles.part} aria-labelledby="gh-key">
         <Heading as="h3" id="gh-key" className={styles.title}>
-          1. Let Shiftcodes read the code
+          1. Let Jendock read the code
         </Heading>
         {transport === "ssh" ? (
           <>
             <p>
               Private repositories are cloned with a <strong>deploy key</strong>: a read-only SSH
-              key that only works for this repository. Shiftcodes already holds the private half;
-              you add the public half to GitHub.
+              key that only works for this repository. Jendock already holds the private half; you
+              add the public half to GitHub.
             </p>
             <ol className={styles.steps}>
               <li>
-                Get the public key. On the server that runs Shiftcodes, in the folder where the key{" "}
+                Get the public key. On the server that runs Jendock, in the folder where the key{" "}
                 <code>deploy_key</code> was created, run:
                 <CopyField label="Command that prints the public key" value={PUBLIC_KEY_COMMAND} />
               </li>
@@ -57,7 +57,7 @@ export function GithubSetup({
                 .
               </li>
               <li>
-                Give it any title (for example <em>Shiftcodes</em>), paste the key, and leave{" "}
+                Give it any title (for example <em>Jendock</em>), paste the key, and leave{" "}
                 <strong>Allow write access</strong> unchecked. Read-only is enough.
               </li>
             </ol>
@@ -76,11 +76,11 @@ export function GithubSetup({
 
       <section className={styles.part} aria-labelledby="gh-hook">
         <Heading as="h3" id="gh-hook" className={styles.title}>
-          2. Tell Shiftcodes about every push (webhook)
+          2. Tell Jendock about every push (webhook)
         </Heading>
         <p>
-          The webhook makes GitHub call Shiftcodes after each push, so the matching environment
-          deploys automatically. Without it you can still start runs by hand.
+          The webhook makes GitHub call Jendock after each push, so the matching environment deploys
+          automatically. Without it you can still start runs by hand.
         </p>
         <ol className={styles.steps}>
           <li>
@@ -99,7 +99,7 @@ export function GithubSetup({
             </div>
             <p className="muted">
               The <strong>Secret</strong> is the text stored in <code>github_webhook_secret</code>{" "}
-              on the server. Shiftcodes never displays it; the command above prints it. Paste its
+              on the server. Jendock never displays it; the command above prints it. Paste its
               output into the Secret box.
             </p>
           </li>
@@ -110,7 +110,7 @@ export function GithubSetup({
           </li>
           <li>
             GitHub sends a test (<code>ping</code>). On the webhook&apos;s{" "}
-            <em>Recent Deliveries</em> tab a green tick means Shiftcodes answered.
+            <em>Recent Deliveries</em> tab a green tick means Jendock answered.
           </li>
         </ol>
       </section>

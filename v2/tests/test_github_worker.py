@@ -10,27 +10,27 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.errors import SourceError
-from shiftcodes.adapters.worker_client import WorkerClient
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType, GitTransport
-from shiftcodes.domain.errors import (
+from backend.adapters.errors import SourceError
+from backend.adapters.worker_client import WorkerClient
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType, GitTransport
+from backend.domain.errors import (
     ConfigurationError,
     NotFoundError,
     SourceUnavailableError,
     ValidationError,
 )
-from shiftcodes.domain.git import BranchHead
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.projects import ProjectService
-from shiftcodes.worker.github_handlers import (
+from backend.domain.git import BranchHead
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.projects import ProjectService
+from backend.worker.github_handlers import (
     github_handlers,
     project_source,
     read_webhook_secret,
     signature_matches,
 )
-from shiftcodes.worker.handlers import build_handlers
-from shiftcodes.worker.rpc import RpcServer
+from backend.worker.handlers import build_handlers
+from backend.worker.rpc import RpcServer
 from tests.api_support import FakeClock, make_client, make_container, make_settings
 from tests.github_support import SECRET, SHA_A, push_payload, sign, webhook_headers
 

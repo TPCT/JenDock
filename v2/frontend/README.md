@@ -1,4 +1,4 @@
-# Shiftcodes frontend
+# Jendock frontend
 
 React 19 + Vite + TypeScript (strict, `noUncheckedIndexedAccess`), React Router, TanStack Query,
 GitHub's design system (`@primer/react` 38.40.1, `@primer/primitives` CSS variables for light, dark and dark dimmed, `@primer/octicons-react`). Tests: Vitest + Testing Library + MSW.
@@ -18,7 +18,7 @@ The API contract (what exists, what is proposed) is in `../docs/api-contract.md`
 
 ### Real backend in development
 
-Set `SHIFTCODES_PUBLIC_ORIGIN=http://localhost:5173` for the API: it requires `Origin` to equal
+Set `JENDOCK_PUBLIC_ORIGIN=http://localhost:5173` for the API: it requires `Origin` to equal
 that value exactly on login and every mutation (the Vite proxy forwards the browser's Origin).
 Use an `http://` origin so the plain (non-`__Host-`) cookie name is used.
 

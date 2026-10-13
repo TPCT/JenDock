@@ -4,13 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType, TokenScope
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.repositories.models import ApiToken
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.tokens import LAST_USED_RESOLUTION, TOKEN_PREFIX, TokenService
+from backend.api.container import AppContainer
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType, TokenScope
+from backend.domain.errors import ValidationError
+from backend.repositories.models import ApiToken
+from backend.services.audit import AuditService
+from backend.services.tokens import LAST_USED_RESOLUTION, TOKEN_PREFIX, TokenService
 from tests.api_support import FakeClock, login, make_client, mutation_headers
 
 ORIGIN = {"Origin": "https://app.example.test"}
@@ -97,7 +97,7 @@ def test_bearer_requires_no_csrf_but_never_falls_back_to_cookie(
 ) -> None:
     value = _create(client, csrf, ["read"])["token"]
     # the client carries a valid session cookie; an invalid bearer must not fall back to it
-    response = client.get("/api/auth/session", headers=_bearer("sct_invalid"))
+    response = client.get("/api/auth/session", headers=_bearer("jdt_invalid"))
     assert response.status_code == 401
     response = client.get("/api/tokens", headers=_bearer(value))
     assert response.status_code == 403  # token principal, not the cookie session
@@ -162,7 +162,7 @@ def test_token_management_requires_csrf(client: TestClient, csrf: str) -> None:
 
 def test_unknown_or_malformed_tokens_rejected(client: TestClient, admin: int) -> None:
     bare = TestClient(client.app, base_url=str(client.base_url))
-    for value in ("sct_" + "a" * 43, "nope", "sct_" + "a" * 500, ""):
+    for value in ("jdt_" + "a" * 43, "nope", "jdt_" + "a" * 500, ""):
         assert bare.get("/api/auth/session", headers=_bearer(value)).status_code == 401
 
 

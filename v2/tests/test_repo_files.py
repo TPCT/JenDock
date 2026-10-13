@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.errors import SourceError
-from shiftcodes.adapters.git_access import GitAccess
-from shiftcodes.adapters.git_remote import GitBranchHeads, HeadFileReader
-from shiftcodes.adapters.sources import LocalGitSource
-from shiftcodes.adapters.worker_client import RepositoryFile, WorkerClient
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType, GitTransport
-from shiftcodes.domain.errors import NotFoundError, WorkerError
-from shiftcodes.repositories.database import SessionFactory, UnitOfWork, create_session_factory
-from shiftcodes.worker.pipeline_handlers import PipelineHandlers
-from shiftcodes.worker.rpc import BadRequestError, RpcCall, RpcServer
+from backend.adapters.errors import SourceError
+from backend.adapters.git_access import GitAccess
+from backend.adapters.git_remote import GitBranchHeads, HeadFileReader
+from backend.adapters.sources import LocalGitSource
+from backend.adapters.worker_client import RepositoryFile, WorkerClient
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType, GitTransport
+from backend.domain.errors import NotFoundError, WorkerError
+from backend.repositories.database import SessionFactory, UnitOfWork, create_session_factory
+from backend.worker.pipeline_handlers import PipelineHandlers
+from backend.worker.rpc import BadRequestError, RpcCall, RpcServer
 from tests.conftest import DEV, PROD, SLUG
 from tests.git_support import commit, git, requires_git
 

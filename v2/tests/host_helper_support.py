@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from shiftcodes.hosthelper.apache import ApacheControl, CommandResult
-from shiftcodes.hosthelper.config import HelperConfig, PortRange
-from shiftcodes.hosthelper.service import HelperService
+from backend.hosthelper.apache import ApacheControl, CommandResult
+from backend.hosthelper.config import HelperConfig, PortRange
+from backend.hosthelper.service import HelperService
 
 
 class ScriptedApache(ApacheControl):

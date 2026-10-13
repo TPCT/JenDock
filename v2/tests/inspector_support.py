@@ -9,16 +9,16 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.inspector_runner import HelperRequest
-from shiftcodes.domain.errors import DomainError
-from shiftcodes.inspector.model import InspectorError
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.database_inspection import HelperPort, InspectionService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
-from shiftcodes.worker.database_handlers import build_database_handlers
-from shiftcodes.worker.handlers import build_handlers
-from shiftcodes.worker.rpc import RpcServer
+from backend.adapters.inspector_runner import HelperRequest
+from backend.domain.errors import DomainError
+from backend.inspector.model import InspectorError
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.database_inspection import HelperPort, InspectionService
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
+from backend.worker.database_handlers import build_database_handlers
+from backend.worker.handlers import build_handlers
+from backend.worker.rpc import RpcServer
 
 Responder = Callable[[HelperRequest], dict[str, object]]
 SERVER = {

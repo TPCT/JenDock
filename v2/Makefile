@@ -16,7 +16,7 @@ format:
 	$(BIN)/ruff format .
 
 typecheck:
-	$(BIN)/mypy shiftcodes tests
+	$(BIN)/mypy backend tests
 
 test:
 	$(BIN)/pytest
@@ -25,12 +25,12 @@ test-docker:
 	$(BIN)/pytest -m docker -p no:cacheprovider
 
 migrate:
-	$(BIN)/python -m shiftcodes.repositories.migrate
+	$(BIN)/python -m backend.repositories.migrate
 
 lock:
 	docker run --rm -v "$(CURDIR):/src:ro" $(PY_IMAGE) sh -c \
 	  'cp -r /src /tmp/w && cd /tmp/w && rm -rf .venv && python -m venv /tmp/v \
-	  && /tmp/v/bin/pip install -q . && /tmp/v/bin/pip freeze --exclude shiftcodes' \
+	  && /tmp/v/bin/pip install -q . && /tmp/v/bin/pip freeze --exclude jendock' \
 	  | grep -v '^\[notice\]' > requirements.lock
 
 test-py313:

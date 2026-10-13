@@ -1,4 +1,4 @@
-# Shiftcodes Platform v2 — Plan
+# Jendock Platform v2 — Plan
 
 Jenkins-like CI/CD on the same VPS. GitHub push → pipeline (Declarative Jenkinsfile) →
 Docker images → deploy. Full container control and per-container terminal. Development
@@ -19,7 +19,7 @@ and Production environments, database inspector, Apache/Cloudflare ingress, MCP 
   mounted at `/workspace` (Jenkins docker-agent semantics). Docker `args` are allowlisted.
 - **Secrets:** per-environment secret store, exposed only through Jenkins
   `credentials('NAME')`, masked in logs.
-- **Architecture:** Python 3.13, package `shiftcodes/`, layered (domain / services /
+- **Architecture:** Python 3.13, package `jendock/`, layered (domain / services /
   repositories / adapters / api). FastAPI + Pydantic + SQLAlchemy 2 + Alembic. React 19 +
   Vite frontend. ruff + mypy (strict) + pytest enforced in CI-like `make check`.
 - **Rollout:** v2 lives in `v2/`. v1 keeps running in production until v2 reaches parity,
@@ -31,7 +31,7 @@ and Production environments, database inspector, Apache/Cloudflare ingress, MCP 
 Jira: Epic [PWI-956](https://monglish1.atlassian.net/browse/PWI-956). Main tasks PWI-957…PWI-971, sub-tasks PWI-972…PWI-1068 (numbered `N.M` in their titles).
 
 ### 1. Foundation and tooling — PWI-957
-1. Package layout `shiftcodes/{domain,services,repositories,adapters,api,worker,mcp}`
+1. Package layout `jendock/{domain,services,repositories,adapters,api,worker,mcp}`
 2. `pyproject.toml`: dependencies, ruff (lint + format), mypy strict, pytest config
 3. `Makefile` / scripts: `make check` = ruff + mypy + pytest
 4. Settings via Pydantic Settings (env vars, paths, Docker socket, domain)

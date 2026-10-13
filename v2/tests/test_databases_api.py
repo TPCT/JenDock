@@ -9,12 +9,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.schemas.databases import decode_cursor, encode_cursor
-from shiftcodes.domain.enums import ActorType
-from shiftcodes.inspector.model import ErrorCode, InspectorError
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.api.container import AppContainer
+from backend.api.schemas.databases import decode_cursor, encode_cursor
+from backend.domain.enums import ActorType
+from backend.inspector.model import ErrorCode, InspectorError
+from backend.services.audit import AuditService
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
 from tests.api_support import (
     FakeClock,
     create_user,

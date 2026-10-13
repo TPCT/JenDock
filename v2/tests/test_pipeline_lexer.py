@@ -1,9 +1,9 @@
 import pytest
 
-from shiftcodes.pipeline.ast import StringPart, TextPart, VariablePart
-from shiftcodes.pipeline.errors import PipelineSyntaxError, Span
-from shiftcodes.pipeline.interpolation import decode_string
-from shiftcodes.pipeline.lexer import MAX_DEPTH, MAX_INPUT_BYTES, Quote, TokenKind, tokenize
+from backend.pipeline.ast import StringPart, TextPart, VariablePart
+from backend.pipeline.errors import PipelineSyntaxError, Span
+from backend.pipeline.interpolation import decode_string
+from backend.pipeline.lexer import MAX_DEPTH, MAX_INPUT_BYTES, Quote, TokenKind, tokenize
 
 K = TokenKind
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shiftcodes.terminal.session import TerminalLimits
+from backend.terminal.session import TerminalLimits
 from tests.terminal_support import Client, terminal_server, wait_for
 
 

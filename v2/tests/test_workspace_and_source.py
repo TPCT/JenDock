@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.errors import SourceError, WorkspaceError
-from shiftcodes.adapters.sources import (
+from backend.adapters.errors import SourceError, WorkspaceError
+from backend.adapters.sources import (
     CheckoutRequest,
     LocalGitSource,
     UnavailableSource,
     forbidden_tracked,
 )
-from shiftcodes.adapters.workspace import WorkspaceManager
+from backend.adapters.workspace import WorkspaceManager
 from tests.git_support import commit, git, requires_git
 
 

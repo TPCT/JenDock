@@ -1,0 +1,192 @@
+"""Worker process entrypoint."""
+
+from __future__ import annotations
+
+import logging
+import signal
+import threading
+from collections.abc import Mapping
+from types import FrameType
+
+from backend.backup.schedule import BackupScheduler
+from backend.config import Settings, get_settings
+from backend.config_ingress import get_ingress_settings
+from backend.containers.locks import EnvironmentLocks
+from backend.execution.recovery import recover_interrupted_runs
+from backend.execution.scheduler import RunScheduler
+from backend.logging import SecretRedactor, configure_logging
+from backend.process import apply_shared_umask
+from backend.repositories.database import (
+    SessionFactory,
+    UnitOfWork,
+    create_db_engine,
+    create_session_factory,
+)
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
+from backend.worker.container_handlers import build_container_handlers
+from backend.worker.container_wiring import build_container_parts
+from backend.worker.database_wiring import build_inspection_handlers
+from backend.worker.git_wiring import build_branch_files, build_heads
+from backend.worker.github_handlers import github_handlers, project_source
+from backend.worker.handlers import build_handlers
+from backend.worker.ingress_handlers import build_ingress_handlers
+from backend.worker.ingress_wiring import IngressFactory
+from backend.worker.pipeline_handlers import PipelineHandlers
+from backend.worker.rpc import Handler, RpcServer
+from backend.worker.wiring import build_execution_env
+
+logger = logging.getLogger(__name__)
+
+
+class ShutdownHandler:
+    """Signal handler that flips a stop event so loops can exit gracefully."""
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+
+    @property
+    def requested(self) -> bool:
+        """Whether shutdown has been requested."""
+        return self._stop.is_set()
+
+    def handle(self, signum: int, _frame: FrameType | None) -> None:
+        """Record the shutdown request."""
+        logger.info("shutdown requested", extra={"signal": signum})
+        self._stop.set()
+
+    def wait(self, timeout: float) -> bool:
+        """Sleep up to ``timeout`` seconds; return True if shutdown was requested."""
+        return self._stop.wait(timeout)
+
+    def install(self) -> None:
+        """Register for SIGTERM and SIGINT."""
+        signal.signal(signal.SIGTERM, self.handle)
+        signal.signal(signal.SIGINT, self.handle)
+
+
+def build_rpc_server(
+    settings: Settings,
+    session_factory: SessionFactory,
+    redactor: SecretRedactor,
+    extra_handlers: Mapping[str, Handler] | None = None,
+) -> RpcServer:
+    """Create the RPC server; the worker is the only process that loads the key file."""
+    cipher = SecretCipher(settings.secret_key_file)
+
+    def secret_service() -> SecretService:
+        return SecretService(UnitOfWork(session_factory), cipher, redactor)
+
+    github = github_handlers(
+        settings.github_webhook_secret_file,
+        build_heads(settings),
+        project_source(lambda: UnitOfWork(session_factory)),
+    )
+    pipelines = PipelineHandlers(lambda: UnitOfWork(session_factory), build_branch_files(settings))
+    inspection = build_inspection_handlers(settings, session_factory, cipher, redactor)
+    extra = {**github, **pipelines.handlers(), **inspection, **(extra_handlers or {})}
+    handlers = build_handlers(secret_service, extra)
+    return RpcServer(settings.worker_socket_path, handlers)
+
+
+def build_ingress(
+    settings: Settings, session_factory: SessionFactory, redactor: SecretRedactor
+) -> IngressFactory | None:
+    """Create the ingress wiring when ``JENDOCK_INGRESS_ENABLED`` is set."""
+    ingress_settings = get_ingress_settings()
+    if not ingress_settings.enabled:
+        return None
+    cipher = SecretCipher(settings.secret_key_file)
+    return IngressFactory(settings, ingress_settings, session_factory, cipher, redactor)
+
+
+def build_scheduler(
+    settings: Settings,
+    session_factory: SessionFactory,
+    redactor: SecretRedactor,
+    locks: EnvironmentLocks | None = None,
+) -> RunScheduler:
+    """Create the run queue; it shares the key file with the RPC server (same process)."""
+    cipher = SecretCipher(settings.secret_key_file)
+    return RunScheduler(build_execution_env(settings, session_factory, cipher, redactor, locks))
+
+
+def _start_renewal(
+    ingress: IngressFactory | None, shutdown: ShutdownHandler
+) -> threading.Thread | None:
+    """Run the certificate renewal loop on its own thread when ingress is enabled."""
+    if ingress is None:
+        return None
+    thread = threading.Thread(
+        target=ingress.renewal_scheduler().run_forever,
+        args=(shutdown,),
+        name="certificate-renewal",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _start_backups(settings: Settings, shutdown: ShutdownHandler) -> threading.Thread | None:
+    """Run the daily backup loop on its own thread when ``JENDOCK_BACKUP_ENABLED`` is set."""
+    if not settings.backup_enabled:
+        return None
+    thread = threading.Thread(
+        target=BackupScheduler(settings).run_forever,
+        args=(shutdown,),
+        name="backup-schedule",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def main() -> None:
+    """Configure logging, recover interrupted runs, serve RPC and run the queue until SIGTERM."""
+    apply_shared_umask()
+    settings = get_settings()
+    redactor = configure_logging(settings)
+    engine = create_db_engine(settings.database_url)
+    session_factory = create_session_factory(engine)
+    locks = EnvironmentLocks()  # shared by deployments and container operations
+    containers = build_container_parts(settings, session_factory, locks)
+    ingress = build_ingress(settings, session_factory, redactor)
+    extra = {
+        **build_container_handlers(containers.services),
+        **(
+            build_ingress_handlers(ingress.ingress_service, ingress.check_service)
+            if ingress
+            else {}
+        ),
+    }
+    server = build_rpc_server(settings, session_factory, redactor, extra)
+    scheduler = build_scheduler(settings, session_factory, redactor, locks)
+    shutdown = ShutdownHandler()
+    shutdown.install()
+    server.start()
+    containers.terminals.start()
+    containers.terminal_server.start()
+    containers.collector.start()
+    recover_interrupted_runs(scheduler.env)
+    renewal = _start_renewal(ingress, shutdown)
+    backups = _start_backups(settings, shutdown)
+    logger.info("worker started")
+    try:
+        scheduler.run_forever(shutdown)
+    finally:
+        containers.collector.stop()
+        containers.terminal_server.stop()
+        containers.terminals.shutdown()
+        if backups is not None:
+            backups.join(timeout=5)
+        if renewal is not None:
+            renewal.join(timeout=5)
+        server.stop()
+        if ingress is not None:
+            ingress.close()
+        engine.dispose()
+    logger.info("worker stopped")
+
+
+if __name__ == "__main__":
+    main()

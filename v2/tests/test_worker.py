@@ -1,14 +1,14 @@
 import signal
 from pathlib import Path
 
-from shiftcodes.adapters.docker_cli import DockerCliRuntime
-from shiftcodes.adapters.http_probe import UrllibProbe
-from shiftcodes.adapters.worker_client import WorkerClient
-from shiftcodes.config import Settings
-from shiftcodes.logging import SecretRedactor
-from shiftcodes.repositories.database import create_db_engine, create_session_factory
-from shiftcodes.repositories.models import Base
-from shiftcodes.worker.__main__ import ShutdownHandler, build_rpc_server, build_scheduler
+from backend.adapters.docker_cli import DockerCliRuntime
+from backend.adapters.http_probe import UrllibProbe
+from backend.adapters.worker_client import WorkerClient
+from backend.config import Settings
+from backend.logging import SecretRedactor
+from backend.repositories.database import create_db_engine, create_session_factory
+from backend.repositories.models import Base
+from backend.worker.__main__ import ShutdownHandler, build_rpc_server, build_scheduler
 
 
 def test_handler_sets_flag() -> None:

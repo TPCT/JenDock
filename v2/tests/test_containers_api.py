@@ -16,27 +16,27 @@ from sqlalchemy import Engine
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
-from shiftcodes.adapters.container_admin import FileRead
-from shiftcodes.adapters.docker_stats import ContainerStats
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.container_logs import ContainerLogStream
-from shiftcodes.api.principal import Principal
-from shiftcodes.containers.base import ContainerAuditor
-from shiftcodes.containers.logs import LogCursor
-from shiftcodes.containers.wire import LogCursorView, LogLineView, LogPageView
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.domain.errors import NotFoundError
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
-from shiftcodes.services.sessions import SessionContext
-from shiftcodes.terminal.opener import AuditTerminalListener
-from shiftcodes.terminal.server import TerminalServer
-from shiftcodes.terminal.session import TerminalLimits, TerminalManager
-from shiftcodes.worker.container_handlers import build_container_handlers
-from shiftcodes.worker.handlers import build_handlers
-from shiftcodes.worker.rpc import RpcServer
+from backend.adapters.container_admin import FileRead
+from backend.adapters.docker_stats import ContainerStats
+from backend.api.container import AppContainer
+from backend.api.container_logs import ContainerLogStream
+from backend.api.principal import Principal
+from backend.containers.base import ContainerAuditor
+from backend.containers.logs import LogCursor
+from backend.containers.wire import LogCursorView, LogLineView, LogPageView
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.domain.errors import NotFoundError
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
+from backend.services.sessions import SessionContext
+from backend.terminal.opener import AuditTerminalListener
+from backend.terminal.server import TerminalServer
+from backend.terminal.session import TerminalLimits, TerminalManager
+from backend.worker.container_handlers import build_container_handlers
+from backend.worker.handlers import build_handlers
+from backend.worker.rpc import RpcServer
 from tests.api_support import (
     FakeClock,
     create_user,
@@ -564,7 +564,7 @@ def _terminal_token(wired: Wired) -> tuple[int, dict[str, str]]:
 def test_token_terminal_ends_and_is_audited_when_the_token_is_revoked(
     wired: Wired, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("shiftcodes.api.terminal_bridge.SESSION_CHECK_SECONDS", 0.2)
+    monkeypatch.setattr("backend.api.terminal_bridge.SESSION_CHECK_SECONDS", 0.2)
     token_id, headers = _terminal_token(wired)
     anonymous = wired.bare()
     url = f"{BASE}/{wired.web}/terminal/tickets"
@@ -587,7 +587,7 @@ def test_token_terminal_ends_and_is_audited_when_the_token_is_revoked(
 def test_session_terminal_ends_and_is_audited_on_logout(
     wired: Wired, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("shiftcodes.api.terminal_bridge.SESSION_CHECK_SECONDS", 0.2)
+    monkeypatch.setattr("backend.api.terminal_bridge.SESSION_CHECK_SECONDS", 0.2)
     ticket = _ticket(wired)
     with wired.client.websocket_connect("/api/terminal/ws", headers=wired.ws_headers()) as socket:
         assert _auth(socket, ticket)["type"] == "ready"

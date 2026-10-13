@@ -1,7 +1,7 @@
 """The host helper against a real Apache (``httpd:2.4``) running ``configtest`` in a container.
 
 Run with ``make test-docker``. The container is started per configtest with ``--rm`` and the
-label ``shiftcodes.test=1``; an ``httpd:2.4`` image that was not present is pulled and removed
+label ``jendock.test=1``; an ``httpd:2.4`` image that was not present is pulled and removed
 again. Graceful reload is simulated by the wrapper script (there is no running server to
 reload); everything that decides whether a change is kept is real: the file is written by the
 helper, Apache itself parses it, and a failure must restore the previous file.
@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.hosthelper.apache import ApacheControl
-from shiftcodes.hosthelper.config import HelperConfig, PortRange
-from shiftcodes.hosthelper.errors import HelperError
-from shiftcodes.hosthelper.service import HelperService
+from backend.hosthelper.apache import ApacheControl
+from backend.hosthelper.config import HelperConfig, PortRange
+from backend.hosthelper.errors import HelperError
+from backend.hosthelper.service import HelperService
 from tests.docker_support import TEST_LABEL, docker_available, image_present, remove_image
 from tests.ingress_support import make_certificate
 
@@ -33,7 +33,7 @@ pytestmark = [
 IMAGE = "httpd:2.4"
 # Besides the shared test label every container carries a label unique to this module, so the
 # leftover check is not confused by resources other test runs create in parallel.
-OWN_LABEL = f"shiftcodes.test.owner=apache-{uuid.uuid4().hex[:12]}"
+OWN_LABEL = f"jendock.test.owner=apache-{uuid.uuid4().hex[:12]}"
 HOST = "app.example.com"
 MODULES = [
     "mpm_event",

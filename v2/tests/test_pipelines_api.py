@@ -10,16 +10,16 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
-from shiftcodes.adapters.worker_client import RepositoryFile
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.domain.errors import WorkerUnavailableError
-from shiftcodes.pipeline.templates import load_templates
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.repositories.models import Secret
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.lookup import require_environment
+from backend.adapters.worker_client import RepositoryFile
+from backend.api.container import AppContainer
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.domain.errors import WorkerUnavailableError
+from backend.pipeline.templates import load_templates
+from backend.repositories.database import UnitOfWork
+from backend.repositories.models import Secret
+from backend.services.audit import AuditService
+from backend.services.lookup import require_environment
 from tests.api_support import login, make_client, mutation_headers
 from tests.conftest import DEV, PROD
 from tests.pipeline_support import FIXTURES, wrap

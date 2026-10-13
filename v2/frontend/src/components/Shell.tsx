@@ -166,7 +166,7 @@ export function Shell() {
         <Header.Item>
           <Header.Link as={Link} to="/projects" className={styles.brand}>
             <TerminalIcon size={24} aria-hidden="true" />
-            <span>Shiftcodes</span>
+            <span>Jendock</span>
           </Header.Link>
         </Header.Item>
         <Header.Item full />

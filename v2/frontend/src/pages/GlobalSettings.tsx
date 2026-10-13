@@ -51,10 +51,7 @@ export function GlobalSettingsLayout() {
   ];
   return (
     <>
-      <PageHead
-        title="Settings"
-        description="Your access to Shiftcodes from scripts and AI agents."
-      />
+      <PageHead title="Settings" description="Your access to Jendock from scripts and AI agents." />
       <div className={box.section}>
         <SettingsLayout label="Settings" items={items} />
       </div>
@@ -220,7 +217,7 @@ export function TokensPage() {
       ) : null}
       {tokens.data?.length === 0 ? (
         <EmptyState icon={<KeyIcon size={32} aria-hidden="true" />} title="No tokens yet">
-          Create a token when a script or an AI agent needs to call Shiftcodes.
+          Create a token when a script or an AI agent needs to call Jendock.
         </EmptyState>
       ) : null}
       {tokens.data && tokens.data.length > 0 ? (
@@ -312,7 +309,7 @@ export function TokensPage() {
         >
           <div className={box.stack}>
             <Callout variant="warning" title="This is the only time you will see it">
-              Copy the token now and store it somewhere safe, such as a password manager. Shiftcodes
+              Copy the token now and store it somewhere safe, such as a password manager. Jendock
               keeps only a fingerprint, so a lost token cannot be shown again; create a new one
               instead.
             </Callout>
@@ -360,8 +357,8 @@ export function AgentsPage() {
         icon={<CommentDiscussionIcon size={32} aria-hidden="true" />}
         title="MCP access is coming soon"
       >
-        Shiftcodes will offer an MCP server at <code>/mcp</code> on this address. When it is ready
-        you will create an API token here with only the permissions the agent needs, then paste the
+        Jendock will offer an MCP server at <code>/mcp</code> on this address. When it is ready you
+        will create an API token here with only the permissions the agent needs, then paste the
         address and the token into the agent&apos;s settings. The server is not available yet.
       </EmptyState>
     </SettingsSection>

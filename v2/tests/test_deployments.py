@@ -8,15 +8,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from shiftcodes.adapters.container_runtime import CancelSignal, LineSink
-from shiftcodes.adapters.deploy_ledger import ServiceChange
-from shiftcodes.adapters.deployer import DeployRequest
-from shiftcodes.adapters.errors import DeployError
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.enums import DeploymentStatus, RunStatus, RunTrigger
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.deployments import DatabaseLedger, DeploymentService, DeploymentView
+from backend.adapters.container_runtime import CancelSignal, LineSink
+from backend.adapters.deploy_ledger import ServiceChange
+from backend.adapters.deployer import DeployRequest
+from backend.adapters.errors import DeployError
+from backend.api.container import AppContainer
+from backend.domain.enums import DeploymentStatus, RunStatus, RunTrigger
+from backend.repositories.models import Run
+from backend.services.audit import AuditService
+from backend.services.deployments import DatabaseLedger, DeploymentService, DeploymentView
 from tests.api_support import FakeClock, login, make_client, mutation_headers
 from tests.conftest import DEV, PROD
 from tests.execution_support import Harness

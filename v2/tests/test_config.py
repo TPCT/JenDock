@@ -4,13 +4,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from shiftcodes.config import Settings, get_settings
+from backend.config import Settings, get_settings
 
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in list(os.environ):
-        if name.startswith("SHIFTCODES_"):
+        if name.startswith("JENDOCK_"):
             monkeypatch.delenv(name)
 
 
@@ -18,21 +18,21 @@ def test_defaults() -> None:
     settings = Settings()
     assert settings.environment == "development"
     assert settings.docker_host == "unix:///var/run/docker.sock"
-    assert settings.database_url == f"sqlite:///{settings.data_dir / 'shiftcodes.db'}"
+    assert settings.database_url == f"sqlite:///{settings.data_dir / 'jendock.db'}"
     assert settings.secret_key_file == settings.data_dir / "secret.key"
     assert settings.log_level == "INFO"
 
 
 def test_data_dir_drives_derived_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SHIFTCODES_DATA_DIR", "/srv/sc")
+    monkeypatch.setenv("JENDOCK_DATA_DIR", "/srv/sc")
     settings = Settings()
-    assert settings.database_url == "sqlite:////srv/sc/shiftcodes.db"
+    assert settings.database_url == "sqlite:////srv/sc/jendock.db"
     assert settings.secret_key_file == Path("/srv/sc/secret.key")
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SHIFTCODES_LOG_LEVEL", "DEBUG")
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", "postgresql://x/y")
+    monkeypatch.setenv("JENDOCK_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", "postgresql://x/y")
     settings = Settings()
     assert settings.log_level == "DEBUG"
     assert settings.database_url == "postgresql://x/y"
@@ -83,10 +83,10 @@ def test_execution_defaults() -> None:
 
 
 def test_execution_settings_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SHIFTCODES_DOCKER_BINARY", "/opt/docker/bin/docker")
-    monkeypatch.setenv("SHIFTCODES_MAX_CONCURRENT_RUNS", "3")
-    monkeypatch.setenv("SHIFTCODES_CONTAINER_MEMORY", "512m")
-    monkeypatch.setenv("SHIFTCODES_CONTAINER_CPUS", "1.5")
+    monkeypatch.setenv("JENDOCK_DOCKER_BINARY", "/opt/docker/bin/docker")
+    monkeypatch.setenv("JENDOCK_MAX_CONCURRENT_RUNS", "3")
+    monkeypatch.setenv("JENDOCK_CONTAINER_MEMORY", "512m")
+    monkeypatch.setenv("JENDOCK_CONTAINER_CPUS", "1.5")
     settings = Settings()
     assert settings.docker_binary == "/opt/docker/bin/docker"
     assert settings.max_concurrent_runs == 3

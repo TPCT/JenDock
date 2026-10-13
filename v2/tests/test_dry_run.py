@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from shiftcodes.execution.dry_run import DryRun, DryStage, StageMode, plan_dry_run
-from shiftcodes.pipeline import parse
+from backend.execution.dry_run import DryRun, DryStage, StageMode, plan_dry_run
+from backend.pipeline import parse
 from tests.pipeline_support import FIXTURES
 
 NEXTJS = (FIXTURES / "valid" / "nextjs.groovy").read_text()

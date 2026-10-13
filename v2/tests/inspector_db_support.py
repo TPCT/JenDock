@@ -1,6 +1,6 @@
 """Throwaway database servers for the inspector tests (``make test-docker``).
 
-Pinned images, every container labelled ``shiftcodes.test=1`` and removed again. The servers
+Pinned images, every container labelled ``jendock.test=1`` and removed again. The servers
 publish their port on 127.0.0.1 only. ``seed`` builds the same logical schema in all engines,
 including tables and columns with hostile names.
 """
@@ -17,7 +17,7 @@ from typing import Any
 import psycopg
 import pymysql
 
-from shiftcodes.inspector.model import ConnectionSpec, Engine, TlsMode
+from backend.inspector.model import ConnectionSpec, Engine, TlsMode
 from tests.docker_support import label_args
 
 ROOT_PASSWORD = "Root-Pass-" + secrets.token_hex(6)

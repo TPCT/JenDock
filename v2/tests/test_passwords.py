@@ -1,6 +1,6 @@
 from argon2 import PasswordHasher as Argon2Hasher
 
-from shiftcodes.services.passwords import PasswordHasher
+from backend.services.passwords import PasswordHasher
 from tests.api_support import fast_hasher
 
 

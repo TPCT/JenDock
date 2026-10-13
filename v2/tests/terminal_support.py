@@ -10,12 +10,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from shiftcodes.containers.base import EnvironmentTarget
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.containers import EnvironmentKey
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.domain.errors import DomainError
-from shiftcodes.terminal.protocol import (
+from backend.containers.base import EnvironmentTarget
+from backend.domain.actor import Actor
+from backend.domain.containers import EnvironmentKey
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.domain.errors import DomainError
+from backend.terminal.protocol import (
     Frame,
     FrameDecoder,
     FrameType,
@@ -26,8 +26,8 @@ from shiftcodes.terminal.protocol import (
     encode_frame,
     encode_json,
 )
-from shiftcodes.terminal.server import OpenRequest, TerminalServer
-from shiftcodes.terminal.session import (
+from backend.terminal.server import OpenRequest, TerminalServer
+from backend.terminal.session import (
     OpenSpec,
     TerminalLimits,
     TerminalManager,

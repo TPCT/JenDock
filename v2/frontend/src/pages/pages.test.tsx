@@ -110,9 +110,7 @@ describe("login", () => {
 
   it("redirects unauthenticated visitors to the login page", async () => {
     renderApp("/runs/101");
-    expect(
-      await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to Jendock" })).toBeInTheDocument();
   });
 });
 
@@ -122,9 +120,7 @@ describe("session expiry", () => {
     await screen.findByRole("heading", { name: "Projects" });
     server.use(http.get("/api/runs", () => apiError(401, "unauthenticated", "expired")));
     await userEvent.setup().click(screen.getByRole("link", { name: "Runs" }));
-    expect(
-      await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to Jendock" })).toBeInTheDocument();
   });
 });
 
@@ -154,9 +150,7 @@ describe("shell", () => {
     await screen.findByRole("heading", { name: "Projects" });
     await user.click(screen.getByRole("button", { name: "User menu" }));
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
-    expect(
-      await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to Jendock" })).toBeInTheDocument();
   });
 
   it("marks the current section in the sidebar", async () => {

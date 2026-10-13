@@ -1,7 +1,7 @@
 """End-to-end pipeline runs against a real Docker daemon.
 
 Run with ``make test-docker``. Skipped when Docker or git is unavailable. Every container and
-image created here carries ``shiftcodes.test=1`` and the session label and is removed in the
+image created here carries ``jendock.test=1`` and the session label and is removed in the
 teardown, which also verifies that nothing is left behind.
 """
 
@@ -16,15 +16,15 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.docker_cli import DockerCliRuntime
-from shiftcodes.adapters.sources import LocalGitSource
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import RunStatus
-from shiftcodes.execution.cancel import CancelToken
-from shiftcodes.execution.config import ExecutionConfig
-from shiftcodes.execution.runner import RunOutcome
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.secret_cipher import SecretCipher
+from backend.adapters.docker_cli import DockerCliRuntime
+from backend.adapters.sources import LocalGitSource
+from backend.domain.actor import Actor
+from backend.domain.enums import RunStatus
+from backend.execution.cancel import CancelToken
+from backend.execution.config import ExecutionConfig
+from backend.execution.runner import RunOutcome
+from backend.repositories.models import Run
+from backend.services.secret_cipher import SecretCipher
 from tests.docker_support import (
     SESSION_LABEL,
     assert_nothing_left,
@@ -266,7 +266,7 @@ def test_timeout_kills_the_container(live: Live) -> None:
     assert time.monotonic() - started < 40
     assert outcome.status is RunStatus.FAILED
     assert "timed out" in (outcome.message or "")
-    assert running_with_label(f"shiftcodes.run_id={run.id}") == []
+    assert running_with_label(f"jendock.run_id={run.id}") == []
 
 
 def test_cancel_kills_a_long_running_container_within_seconds(live: Live) -> None:
@@ -298,7 +298,7 @@ def test_cancel_kills_a_long_running_container_within_seconds(live: Live) -> Non
         target=lambda: outcomes.append(live.harness.execute(run, CancelToken()))
     )
     thread.start()
-    label = f"shiftcodes.run_id={run.id}"
+    label = f"jendock.run_id={run.id}"
     deadline = time.monotonic() + 90
     while not running_with_label(label) and time.monotonic() < deadline:
         time.sleep(0.2)

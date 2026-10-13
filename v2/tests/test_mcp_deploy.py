@@ -9,21 +9,21 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.deploy_ledger import ServiceChange
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.principal import Principal
-from shiftcodes.domain.enums import (
+from backend.adapters.deploy_ledger import ServiceChange
+from backend.api.container import AppContainer
+from backend.api.principal import Principal
+from backend.domain.enums import (
     DeploymentStatus,
     EnvironmentName,
     PipelineSource,
     RunTrigger,
     TokenScope,
 )
-from shiftcodes.mcp.dispatcher import ToolDispatcher
-from shiftcodes.mcp.tools import default_registry
-from shiftcodes.repositories.models import Deployment
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.runs import RunService
+from backend.mcp.dispatcher import ToolDispatcher
+from backend.mcp.tools import default_registry
+from backend.repositories.models import Deployment
+from backend.services.audit import AuditService
+from backend.services.runs import RunService
 from tests.api_support import FakeClock, make_container, make_settings
 from tests.conftest import DEV, PROD
 from tests.github_support import SHA_A

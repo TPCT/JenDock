@@ -10,31 +10,31 @@ from pathlib import Path
 
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.container_runtime import (
+from backend.adapters.container_runtime import (
     BuildSpec,
     CancelSignal,
     ExecResult,
     LineSink,
     RunSpec,
 )
-from shiftcodes.adapters.deployer import DeployRequest
-from shiftcodes.adapters.errors import AdapterError, DeployError
-from shiftcodes.adapters.sources import CheckoutRequest
-from shiftcodes.adapters.workspace import WorkspaceManager
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import EnvironmentName, PipelineSource, RunStatus, RunTrigger
-from shiftcodes.execution.cancel import CancelToken
-from shiftcodes.execution.config import ExecutionConfig
-from shiftcodes.execution.environment import ExecutionEnv
-from shiftcodes.execution.logs import LogStore
-from shiftcodes.execution.run_executor import RunExecutor
-from shiftcodes.execution.runner import RunOutcome
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.run_queries import RunDetail, RunQueryService
-from shiftcodes.services.runs import RunService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
+from backend.adapters.deployer import DeployRequest
+from backend.adapters.errors import AdapterError, DeployError
+from backend.adapters.sources import CheckoutRequest
+from backend.adapters.workspace import WorkspaceManager
+from backend.domain.actor import Actor
+from backend.domain.enums import EnvironmentName, PipelineSource, RunStatus, RunTrigger
+from backend.execution.cancel import CancelToken
+from backend.execution.config import ExecutionConfig
+from backend.execution.environment import ExecutionEnv
+from backend.execution.logs import LogStore
+from backend.execution.run_executor import RunExecutor
+from backend.execution.runner import RunOutcome
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.repositories.models import Run
+from backend.services.run_queries import RunDetail, RunQueryService
+from backend.services.runs import RunService
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 POLL = 0.01

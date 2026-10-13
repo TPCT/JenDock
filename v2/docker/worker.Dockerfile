@@ -3,7 +3,7 @@ FROM python:3.13.9-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /build
 COPY pyproject.toml requirements.lock ./
-COPY shiftcodes ./shiftcodes
+COPY backend ./backend
 RUN python -m venv /opt/venv && /opt/venv/bin/pip install -c requirements.lock .
 
 FROM python:3.13.9-slim AS runtime
@@ -19,17 +19,17 @@ COPY --from=docker:27.5.1-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker:27.5.1-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 =======
 # Pinned GitHub host key: the ssh transport only trusts this file (StrictHostKeyChecking=yes).
-COPY docker/github_known_hosts /etc/shiftcodes/github_known_hosts
+COPY docker/github_known_hosts /etc/jendock/github_known_hosts
 >>>>>>> v2-platform
 # The worker user needs access to the Docker socket; compose adds the host docker GID via group_add.
-RUN groupadd --system --gid 10001 shiftcodes \
-    && useradd --system --uid 10001 --gid shiftcodes --home-dir /var/lib/shiftcodes shiftcodes \
-    && mkdir -p /var/lib/shiftcodes /run/shiftcodes /run/shiftcodes-keys \
-    && chown shiftcodes:shiftcodes /var/lib/shiftcodes /run/shiftcodes /run/shiftcodes-keys \
-    && chmod 2770 /var/lib/shiftcodes /run/shiftcodes \
-    && chmod 0700 /run/shiftcodes-keys
-# /run/shiftcodes-keys holds the secret key: a worker-only volume, never mounted in the API.
+RUN groupadd --system --gid 10001 jendock \
+    && useradd --system --uid 10001 --gid jendock --home-dir /var/lib/jendock jendock \
+    && mkdir -p /var/lib/jendock /run/jendock /run/jendock-keys \
+    && chown jendock:jendock /var/lib/jendock /run/jendock /run/jendock-keys \
+    && chmod 2770 /var/lib/jendock /run/jendock \
+    && chmod 0700 /run/jendock-keys
+# /run/jendock-keys holds the secret key: a worker-only volume, never mounted in the API.
 COPY --from=builder /opt/venv /opt/venv
-USER shiftcodes
+USER jendock
 STOPSIGNAL SIGTERM
-CMD ["python", "-m", "shiftcodes.worker"]
+CMD ["python", "-m", "backend.worker"]
