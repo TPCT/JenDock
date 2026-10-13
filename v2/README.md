@@ -338,7 +338,10 @@ No session, token or CSRF: the HMAC signature is the authentication.
 
 - Order of checks: signature header format (401), `Content-Type: application/json` (415), body
   at most 1 MiB, also when chunked (413), signature verified by the worker (401), delivery id
-  `X-GitHub-Delivery` (422), JSON object (422). Nothing is stored or audited for a rejected
+  `X-GitHub-Delivery` (422), JSON object (422). Requests that fail signature verification
+  (missing, malformed or wrong) are counted per client IP; 30 per minute answers 429 with
+  `Retry-After` before the worker is called (the same in-memory limiter as logins, so a restart
+  resets it). Valid deliveries are never counted. Nothing is stored or audited for a rejected
   request (a warning is logged).
 - Events: `ping` answers 200 `{"outcome": "pong"}`. `push` is routed; any other signed event is
   acknowledged with 202 `ignored`.
@@ -400,7 +403,9 @@ When the worker starts the run it reads `Jenkinsfile` at the repository root of 
 commit** (a depth-1 fetch of that commit, no clone): if present it is the pipeline (source
 `repository`), otherwise the latest stored platform pipeline (source `platform`; the snapshot taken
 at queue time is the fallback when nothing is stored), and with neither the run fails with a
-clear message. A repository that cannot be read fails the run; it never silently falls back to
+clear message. The pipeline editor's repository detection (`pipeline.repository_file`) uses the same code path
+(branch head via `git ls-remote`, then the file at that commit through the project's transport).
+A repository that cannot be read fails the run; it never silently falls back to
 the stored pipeline. The chosen source and the exact text are written back to the run, then the
 text is validated like any save. A missing pipeline or any diagnostic of an invalid one is written
 to the step log of a failed `Pipeline` stage (the run's other stages are not created); a valid run

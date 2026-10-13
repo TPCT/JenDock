@@ -18,6 +18,7 @@ from shiftcodes.config import Settings
 from shiftcodes.domain.actor import Actor
 from shiftcodes.repositories.database import UnitOfWork, create_session_factory
 from shiftcodes.services.passwords import PasswordHasher
+from shiftcodes.services.rate_limit import webhook_failure_limiter
 from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
 from shiftcodes.services.users import UserService
@@ -90,6 +91,7 @@ def make_container(
         clock=clock,
         hasher=base.hasher,
         limiter=base.limiter,
+        webhook_limiter=webhook_failure_limiter(clock),
         secrets=base.secrets,
         cookies=base.cookies,
         github=github or base.github,

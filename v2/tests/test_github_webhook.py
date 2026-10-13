@@ -396,3 +396,45 @@ def test_the_delivery_and_the_run_are_audited(
     assert run_event.details["trigger"] == "push"
     assert run_event.details["commit"] == SHA_B
     assert "secret" not in repr([e.details for e in audit.list()]).lower()
+
+
+# --- failed-signature limiter ----------------------------------------------------------------
+
+
+def test_repeated_bad_signatures_are_limited_per_ip_before_the_worker(
+    hook: TestClient, hook_container: AppContainer, clock: FakeClock, auto: str
+) -> None:
+    github = hook_container.github
+    calls: list[int] = []
+    original = github.verify_webhook
+
+    def counting(signature: str, body: bytes) -> bool:
+        calls.append(1)
+        return original(signature, body)
+
+    github.verify_webhook = counting  # type: ignore[method-assign]
+    body = push_payload()
+    bad = webhook_headers(body, signature=sign(body, b"wrong"))
+    for _ in range(30):
+        assert hook.post(URL, content=body, headers=bad).status_code == 401
+    blocked = hook.post(URL, content=body, headers=bad)
+    assert blocked.status_code == 429
+    assert int(blocked.headers["retry-after"]) >= 1
+    assert len(calls) == 30  # the 31st never reached the worker
+    clock.advance(seconds=61)
+    assert hook.post(URL, content=body, headers=webhook_headers(body)).status_code == 202
+
+
+def test_valid_deliveries_are_never_counted(hook: TestClient, auto: str) -> None:
+    for number in range(40):
+        body = push_payload()
+        headers = webhook_headers(body, delivery=f"delivery-{number:04d}-x")
+        assert hook.post(URL, content=body, headers=headers).status_code == 202
+
+
+def test_malformed_signatures_count_as_failures(hook: TestClient, auto: str) -> None:
+    body = push_payload()
+    headers = webhook_headers(body, signature="garbage")
+    for _ in range(30):
+        assert hook.post(URL, content=body, headers=headers).status_code == 401
+    assert hook.post(URL, content=body, headers=headers).status_code == 429

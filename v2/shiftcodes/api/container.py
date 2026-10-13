@@ -30,7 +30,7 @@ from shiftcodes.services.pipeline_editor import PipelineDocumentService, Pipelin
 from shiftcodes.services.pipelines import PipelineService
 from shiftcodes.services.project_queries import ProjectQueryService
 from shiftcodes.services.projects import ProjectService
-from shiftcodes.services.rate_limit import LoginRateLimiter
+from shiftcodes.services.rate_limit import LoginRateLimiter, webhook_failure_limiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
 from shiftcodes.services.run_queries import RunQueryService
 from shiftcodes.services.run_triggers import RunTriggerService
@@ -58,6 +58,8 @@ class AppContainer:
     # Webhook verification and branch lookups: both run in the worker (keys and git live there).
     github: GithubGateway
     repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
+    # Failed webhook signatures per client IP (separate from the login limiter).
+    webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
 
     @classmethod
     def build(  # noqa: PLR0913 - one optional override per collaborator
@@ -84,6 +86,7 @@ class AppContainer:
             cookies=CookiePolicy.for_settings(settings),
             github=github or worker,
             repository=worker,
+            webhook_limiter=webhook_failure_limiter(clock),
         )
 
     def uow(self) -> UnitOfWork:
