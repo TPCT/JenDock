@@ -267,11 +267,13 @@ def test_the_ssh_source_runs_git_without_a_shell_and_with_the_ssh_command(tmp_pa
         CheckoutRequest("octo/demo", SHA, GitTransport.SSH), destination
     )
     calls = fake.calls()
-    clone = calls[0]
-    assert clone["args"][-3:] == ["--", "ssh://git@github.com/octo/demo.git", str(destination)]  # type: ignore[index]
-    assert clone["ssh"] == ssh_command(settings, _key(settings))
-    assert clone["home"] == "/dev/null"
-    assert clone["prompt"] == "0"
+    remote = next(call for call in calls if "remote" in call["args"])  # type: ignore[operator]
+    assert remote["args"][-3:] == ["add", "origin", "ssh://git@github.com/octo/demo.git"]  # type: ignore[index]
+    fetch = next(call for call in calls if "fetch" in call["args"])  # type: ignore[operator]
+    assert fetch["args"][-2:] == ["origin", SHA]  # type: ignore[index]
+    assert fetch["ssh"] == ssh_command(settings, _key(settings))
+    assert fetch["home"] == "/dev/null"
+    assert fetch["prompt"] == "0"
     assert {call["ssh"] for call in calls} == {ssh_command(settings, _key(settings))}
 
 

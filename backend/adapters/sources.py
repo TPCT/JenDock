@@ -90,11 +90,15 @@ class LocalGitSource:
         return GitRunner(self._git_binary, self._env_for(repository))
 
     def checkout(self, request: CheckoutRequest, destination: Path) -> None:
-        """Clone without checkout, vet the tree, check out the commit and verify ``HEAD``."""
+        """Fetch the commit alone, vet its tree, check it out and verify ``HEAD``."""
         url = self._resolve(request.repository)
         sha = request.commit_sha
         git = self._runner(request.repository)
-        git.run(["clone", "--no-checkout", "--quiet", "--", url, str(destination)])
+        # Only the pinned commit is fetched (depth 1): a build needs its files, not the history,
+        # and a repository whose history carries large assets would otherwise take many minutes.
+        git.run(["init", "--quiet", str(destination)])
+        git.run(["remote", "add", "origin", url], destination)
+        git.run(["fetch", "--quiet", "--depth", "1", "--no-tags", "origin", sha], destination)
         listing = git.run(["ls-tree", "-r", "--name-only", "-z", sha], destination)
         bad = forbidden_tracked([p for p in listing.split("\0") if p])
         if bad:
