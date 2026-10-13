@@ -1,0 +1,66 @@
+# Production overlay for running Shiftcodes v2 next to v1 on the VPS (docs/deployment.md).
+#
+#   cd /opt/docker-engine/projects/shiftcodes-v2        # a checkout of this release
+#   cp deployment/env.production.example .env && chmod 0640 .env   # then edit it
+#   docker-compose -f compose.yml -f deployment/compose.production.yml config   # review
+#   docker-compose -f compose.yml -f deployment/compose.production.yml up -d
+#
+# It never touches v1: a separate compose project (`shiftcodes-v2`, set in compose.yml), its own
+# named volumes (`shiftcodes-v2_*`), its own loopback port (127.0.0.1:8000; v1 uses 19190 and
+# 19192) and its own public name. It joins v1's isolated Docker daemon only as a client.
+#
+# What this overlay adds to compose.yml:
+#   * PUBLIC_ORIGIN (the v2 sub-domain; compose.yml's default is v1's host name);
+#   * the host's pinned docker CLI and the standalone docker-compose binary of v1, mounted
+#     read-only (the worker deploys with `docker compose`, which finds the binary as a CLI
+#     plugin);
+#   * a backup directory for scheduled backups (off until BACKUP_ENABLED=true);
+#   * hardening (dropped capabilities, no-new-privileges, memory/CPU/PID limits, log rotation,
+#     a read-only root file system for the internet-facing API).
+#
+# Variables come from `.env` (deployment/env.production.example); none of them is a secret.
+# Secrets (secret.key, deploy key, webhook secret) live only in the worker's `keys` volume.
+
+services:
+  api:
+    environment:
+      SHIFTCODES_PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN, e.g. https://deploy.shiftcodes.net}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}
+
+  worker:
+    environment:
+      SHIFTCODES_PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN, e.g. https://deploy.shiftcodes.net}"
+      # The isolated daemon is reached through the socket mounted by compose.yml
+      # (DOCKER_SOCKET_PATH=/run/docker-isolation.sock in .env); in the container it is always
+      # /var/run/docker.sock. DOCKER_GID must be that socket's group id.
+      SHIFTCODES_BACKUP_ENABLED: "${BACKUP_ENABLED:-false}"
+      SHIFTCODES_BACKUP_DIR: /backups
+      SHIFTCODES_BACKUP_KEEP: "${BACKUP_KEEP:-7}"
+      SHIFTCODES_BACKUP_HOUR_UTC: "${BACKUP_HOUR_UTC:-3}"
+    volumes:
+      # The CLI v1 uses (29.8.2 at the time of writing); read-only, replaces the one in the image.
+      - ${DOCKER_BINARY_HOST_PATH:-/opt/docker-engine/29.8.2/docker/docker}:/usr/local/bin/docker:ro
+      # v1's standalone docker-compose, found by `docker compose` as a CLI plugin.
+      - ${DOCKER_COMPOSE_HOST_PATH:-/opt/docker-engine/tools/docker-compose}:/usr/local/lib/docker/cli-plugins/docker-compose:ro
+      # Host directory for scheduled backups, owned by uid 10001 (mode 0750).
+      - ${BACKUP_HOST_DIR:-/var/backups/shiftcodes}:/backups
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 512
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}
+    # The worker's root file system is not read-only: git, ssh and `docker compose` write
+    # under HOME (/var/lib/shiftcodes, the data volume) and /tmp.

@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     deploy_health_timeout: int = Field(default=120, gt=0)
     deploy_settle_seconds: float = Field(default=3.0, ge=0)
     image_retention: int = Field(default=5, ge=1)
+    # Scheduled backups in the worker (off by default): one archive per day at ``backup_hour_utc``
+    # into ``backup_dir``, keeping the newest ``backup_keep``. The secret key is never included.
+    backup_enabled: bool = False
+    backup_dir: Path | None = None
+    backup_keep: int = Field(default=7, ge=1)
+    backup_hour_utc: int = Field(default=3, ge=0, le=23)
+    backup_include_logs: bool = False
     queue_poll_interval: float = Field(default=1.0, gt=0)
     cancel_poll_interval: float = Field(default=1.0, gt=0)
     sse_poll_interval: float = Field(default=0.5, gt=0)

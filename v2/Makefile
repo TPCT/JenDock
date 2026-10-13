@@ -1,6 +1,6 @@
 BIN := .venv/bin
 
-.PHONY: install lint format typecheck test test-docker test-py313 lock check migrate lint-jenkins
+.PHONY: install lint format typecheck test test-docker test-py313 lock check migrate lint-jenkins preflight
 
 PY_IMAGE := python:3.13.9-slim
 
@@ -43,3 +43,7 @@ check: lint typecheck test
 
 lint-jenkins:
 	scripts/jenkins_lint.sh
+
+# Read-only host check before starting v2 (docs/deployment.md); extra flags via PREFLIGHT_ARGS.
+preflight:
+	python3 scripts/preflight.py $(PREFLIGHT_ARGS)

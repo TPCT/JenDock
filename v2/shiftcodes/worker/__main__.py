@@ -8,6 +8,7 @@ import threading
 from collections.abc import Mapping
 from types import FrameType
 
+from shiftcodes.backup.schedule import BackupScheduler
 from shiftcodes.config import Settings, get_settings
 from shiftcodes.config_ingress import get_ingress_settings
 from shiftcodes.containers.locks import EnvironmentLocks
@@ -124,6 +125,20 @@ def _start_renewal(
     return thread
 
 
+def _start_backups(settings: Settings, shutdown: ShutdownHandler) -> threading.Thread | None:
+    """Run the daily backup loop on its own thread when ``SHIFTCODES_BACKUP_ENABLED`` is set."""
+    if not settings.backup_enabled:
+        return None
+    thread = threading.Thread(
+        target=BackupScheduler(settings).run_forever,
+        args=(shutdown,),
+        name="backup-schedule",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 def main() -> None:
     """Configure logging, recover interrupted runs, serve RPC and run the queue until SIGTERM."""
     apply_shared_umask()
@@ -152,6 +167,7 @@ def main() -> None:
     containers.collector.start()
     recover_interrupted_runs(scheduler.env)
     renewal = _start_renewal(ingress, shutdown)
+    backups = _start_backups(settings, shutdown)
     logger.info("worker started")
     try:
         scheduler.run_forever(shutdown)
@@ -159,6 +175,8 @@ def main() -> None:
         containers.collector.stop()
         containers.terminal_server.stop()
         containers.terminals.shutdown()
+        if backups is not None:
+            backups.join(timeout=5)
         if renewal is not None:
             renewal.join(timeout=5)
         server.stop()
