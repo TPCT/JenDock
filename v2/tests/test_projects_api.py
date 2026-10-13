@@ -345,6 +345,7 @@ def test_patch_environment_branch_and_auto_deploy(
         "compose_files": [],
         "compose_env_files": [],
         "services": [],
+        "has_pipeline": False,
         "last_run": None,
     }
     only = client.patch(f"{ENV_URL}/development", json={"auto_deploy": False}, headers=headers)

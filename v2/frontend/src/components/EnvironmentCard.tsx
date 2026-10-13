@@ -1,4 +1,10 @@
-import { GitBranchIcon, HistoryIcon, PlayIcon, WorkflowIcon } from "@primer/octicons-react";
+import {
+  GitBranchIcon,
+  GlobeIcon,
+  HistoryIcon,
+  PlayIcon,
+  WorkflowIcon,
+} from "@primer/octicons-react";
 import { BranchName, Heading, Label, LinkButton, VisuallyHidden } from "@primer/react";
 import { Link } from "react-router-dom";
 import type { EnvironmentSummary, Project } from "../api/types";
@@ -11,6 +17,10 @@ import { Duration, RelativeTime } from "./Time";
 
 export function runsPath(slug: string, env: string): string {
   return `/projects/${encodeURIComponent(slug)}/environments/${env}/runs`;
+}
+
+export function domainsPath(slug: string, env: string): string {
+  return `/projects/${encodeURIComponent(slug)}/environments/${env}/domains`;
 }
 
 export function pipelinePath(slug: string, env: string): string {
@@ -37,7 +47,9 @@ export function EnvironmentCard({
         <Heading as="h3" id={headingId} className={styles.title}>
           {capitalize(environment.name)}
         </Heading>
-        <Label>{environment.auto_deploy ? "Auto-deploy on" : "Manual deploys"}</Label>
+        <Label variant={environment.auto_deploy ? "success" : "secondary"}>
+          {environment.auto_deploy ? "Auto-deploy on" : "Auto-deploy off"}
+        </Label>
       </div>
       <p className={styles.branch}>
         <GitBranchIcon size={14} aria-hidden="true" />
@@ -72,7 +84,7 @@ export function EnvironmentCard({
         <p className="muted">
           No runs yet.{" "}
           {environment.auto_deploy
-            ? `Push to ${environment.branch} to start one.`
+            ? `Every push to ${environment.branch} builds and deploys.`
             : "Open runs to start one manually."}
         </p>
       )}
@@ -95,6 +107,17 @@ export function EnvironmentCard({
         >
           Pipeline
         </LinkButton>
+        {detailed ? (
+          <LinkButton
+            as={Link}
+            to={`${domainsPath(project.slug, environment.name)}?add=1`}
+            size="small"
+            leadingVisual={GlobeIcon}
+            aria-label={`Add a domain to ${environment.name} of ${project.name}`}
+          >
+            Add domain
+          </LinkButton>
+        ) : null}
         {detailed ? (
           <LinkButton
             as={Link}

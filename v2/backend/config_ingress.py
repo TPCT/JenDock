@@ -47,6 +47,13 @@ class IngressSettings(BaseSettings):
     renewal_interval_seconds: float = Field(default=3600.0, gt=0)
     check_timeout_seconds: float = Field(default=10.0, gt=0)
 
+    @field_validator("public_ipv4", "public_ipv6", "acme_email", mode="before")
+    @classmethod
+    def _empty_means_unset(cls, value: object) -> object:
+        """An empty value (an unset compose variable) means "not configured": the stored
+        platform setting, or the domain's own DNS target, applies instead."""
+        return None if isinstance(value, str) and value.strip() == "" else value
+
     @field_validator("public_ipv4")
     @classmethod
     def _check_ipv4(cls, value: str | None) -> str | None:

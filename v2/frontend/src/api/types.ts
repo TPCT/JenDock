@@ -42,6 +42,13 @@ export interface EnvironmentSummary {
   name: EnvironmentName;
   branch: string;
   auto_deploy: boolean;
+  /** Docker Compose settings the deployer needs; empty until configured. */
+  compose_project: string | null;
+  compose_files: string[];
+  compose_env_files: string[];
+  services: string[];
+  /** Whether a pipeline is stored (a repository Jenkinsfile alone does not count). */
+  has_pipeline: boolean;
   last_run: RunSummary | null;
 }
 

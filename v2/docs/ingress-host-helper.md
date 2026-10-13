@@ -95,8 +95,12 @@ up -d`): it bind-mounts the socket directory into the worker and sets the
 `JENDOCK_INGRESS_*` variables (set `INGRESS_PUBLIC_IPV4`, `INGRESS_ACME_EMAIL`, and use the
 Let's Encrypt **staging** directory first). Then, per environment:
 
-1. Store the Cloudflare token as secret `CLOUDFLARE_API_TOKEN` of the environment (token scoped
-   to Zone:DNS:Edit + Zone:Zone:Read for that zone only).
+1. Store the Cloudflare token in **Settings > Integrations** (token scoped to Zone:DNS:Edit +
+   Zone:Zone:Read for the zones you use only) and press *Test connection*; the same page shows
+   whether ingress is enabled and the helper's socket answers, and repeats the commands of this
+   document when it does not. (The per-environment secret `CLOUDFLARE_API_TOKEN` keeps working as
+   a fallback.) The ACME email, public addresses and challenge can be set there as well; the
+   `INGRESS_*` variables are their defaults.
 2. Create the domain, preview, review the DNS/vhost/TLS plan, apply.
 
 ## Operations

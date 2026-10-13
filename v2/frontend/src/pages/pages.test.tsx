@@ -226,6 +226,7 @@ describe("projects", () => {
         .map((h) => h.textContent),
     ).toEqual(["Development", "Production"]);
     expect(within(shop).getByText("Auto-deploy on")).toBeInTheDocument();
+    expect(within(shop).getByText("Auto-deploy off")).toBeInTheDocument();
     expect(within(shop).getByText("Running")).toBeInTheDocument();
     expect(within(shop).getByText("Succeeded")).toBeInTheDocument();
     expect(screen.getAllByRole("article")).toHaveLength(4);
@@ -237,7 +238,7 @@ describe("projects", () => {
     server.use(http.get("/api/projects", () => HttpResponse.json([])));
     renderApp("/projects");
     expect(await screen.findByRole("heading", { name: "No projects yet" })).toBeInTheDocument();
-    expect(screen.getByText(/ask an administrator/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create your first project" })).toBeInTheDocument();
   });
 
   it("shows an error with retry", async () => {

@@ -25,6 +25,7 @@ from backend.repositories.domains import (
 )
 from backend.repositories.environments import EnvironmentRepository
 from backend.repositories.pipelines import PipelineRepository
+from backend.repositories.platform import PlatformRepository
 from backend.repositories.projects import ProjectRepository
 from backend.repositories.runs import RunRepository
 from backend.repositories.secrets import SecretRepository
@@ -190,3 +191,8 @@ class UnitOfWork:
     def deliveries(self) -> WebhookDeliveryRepository:
         """Webhook delivery repository bound to the active session."""
         return WebhookDeliveryRepository(self.session)
+
+    @property
+    def platform(self) -> PlatformRepository:
+        """Platform secret and setting repository bound to the active session."""
+        return PlatformRepository(self.session)

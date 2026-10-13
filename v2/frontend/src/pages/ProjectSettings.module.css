@@ -1,0 +1,24 @@
+/* The automatic-deploy switch is the most consequential setting of an environment, so it gets
+   its own tinted band: green when every push deploys, neutral when it does not. */
+.auto {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: var(--base-size-16);
+  padding: var(--base-size-16);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-muted);
+}
+
+.auto[data-on="true"] {
+  border-color: var(--borderColor-success-muted);
+  background: var(--bgColor-success-muted);
+}
+
+.autoText {
+  min-width: 0;
+}
+
+.autoText p {
+  margin: var(--base-size-4) 0 0;
+}

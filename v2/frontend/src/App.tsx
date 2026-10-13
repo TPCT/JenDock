@@ -21,7 +21,9 @@ import { ContainersPage } from "./pages/Containers";
 import { DatabaseBrowserPage } from "./pages/DatabaseBrowser";
 import { DatabasesPage } from "./pages/Databases";
 import { DomainsPage } from "./pages/Domains";
-import { AgentsPage, GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
+import { AgentsPage } from "./pages/AgentsPage";
+import { GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
+import { IntegrationsPage } from "./pages/Integrations";
 import { NewProjectPage } from "./pages/NewProject";
 import { NotFoundPage } from "./pages/Placeholder";
 import {
@@ -188,6 +190,7 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <Navigate to="/settings/tokens" replace /> },
               { path: "tokens", element: <TokensPage /> },
               { path: "agents", element: <AgentsPage /> },
+              { path: "integrations", element: <IntegrationsPage /> },
             ],
           },
           { path: "*", element: <NotFoundPage /> },

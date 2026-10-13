@@ -32,6 +32,7 @@ from backend.worker.github_handlers import github_handlers, project_source
 from backend.worker.handlers import build_handlers
 from backend.worker.ingress_handlers import build_ingress_handlers
 from backend.worker.ingress_wiring import IngressFactory
+from backend.worker.integrations_wiring import build_integrations
 from backend.worker.pipeline_handlers import PipelineHandlers
 from backend.worker.rpc import Handler, RpcServer
 from backend.worker.wiring import build_execution_env
@@ -84,7 +85,16 @@ def build_rpc_server(
     )
     pipelines = PipelineHandlers(lambda: UnitOfWork(session_factory), build_branch_files(settings))
     inspection = build_inspection_handlers(settings, session_factory, cipher, redactor)
-    extra = {**github, **pipelines.handlers(), **inspection, **(extra_handlers or {})}
+    integrations = build_integrations(
+        settings, get_ingress_settings(), session_factory, cipher, redactor
+    )
+    extra = {
+        **github,
+        **pipelines.handlers(),
+        **inspection,
+        **integrations,
+        **(extra_handlers or {}),
+    }
     handlers = build_handlers(secret_service, extra)
     return RpcServer(settings.worker_socket_path, handlers)
 

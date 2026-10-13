@@ -1,12 +1,13 @@
 import { GearIcon, KeyIcon, RocketIcon, WebhookIcon } from "@primer/octicons-react";
 import {
+  BranchName,
   Button,
-  Checkbox,
   ConfirmationDialog,
   FormControl,
   Radio,
   RadioGroup,
   TextInput,
+  ToggleSwitch,
 } from "@primer/react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
@@ -20,6 +21,7 @@ import { SettingsLayout, type SettingsItem } from "../components/SettingsLayout"
 import { SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { capitalize } from "../lib/format";
 import box from "../styles/box.module.css";
+import styles from "./ProjectSettings.module.css";
 
 export function ProjectSettingsLayout() {
   const { slug = "" } = useParams();
@@ -236,64 +238,98 @@ function EnvironmentForm({
 }) {
   const update = useUpdateEnvironment(project.slug, environment.name);
   const [branch, setBranch] = useState(environment.branch);
-  const [auto, setAuto] = useState(environment.auto_deploy);
-  const dirty = branch.trim() !== environment.branch || auto !== environment.auto_deploy;
+  const dirty = branch.trim() !== environment.branch;
+  const auto = environment.auto_deploy;
+  const switchId = `auto-${environment.name}`;
+  const configured = environment.compose_files.length > 0 && environment.has_pipeline;
+  const toggled = update.variables?.auto_deploy !== undefined;
   return (
-    <form
+    <div
       className={`${box.box} ${box.row} ${box.stack}`}
+      role="group"
       aria-label={`${capitalize(environment.name)} environment`}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (branch.trim() === "") return;
-        update.mutate({ branch: branch.trim(), auto_deploy: auto });
-      }}
     >
       <strong>{capitalize(environment.name)}</strong>
-      <FormControl>
-        <FormControl.Label>{capitalize(environment.name)} branch</FormControl.Label>
-        <TextInput
-          block
-          monospace
-          value={branch}
-          onChange={(event) => {
-            setBranch(event.target.value);
-          }}
-        />
-        <FormControl.Caption>
-          A push to this branch deploys the {environment.name} environment. The two environments
-          must use different branches.
-        </FormControl.Caption>
-      </FormControl>
-      <FormControl>
-        <Checkbox
+      <div className={`${box.cluster} ${styles.auto}`} data-on={auto ? "true" : "false"}>
+        <ToggleSwitch
+          aria-labelledby={switchId}
           checked={auto}
-          onChange={(event) => {
-            setAuto(event.target.checked);
+          loading={update.isPending && toggled}
+          statusLabelPosition="end"
+          onChange={(next) => {
+            update.mutate({ auto_deploy: next });
           }}
         />
-        <FormControl.Label>Deploy automatically on push</FormControl.Label>
-        <FormControl.Caption>
-          On: every push to the branch starts a run. Off: GitHub is still told, the push is
-          recorded, but no run starts until you press Run pipeline yourself. Choose Off for
-          Production if you want to release deliberately.
-        </FormControl.Caption>
-      </FormControl>
-      {update.isError ? (
+        <div className={styles.autoText}>
+          <strong id={switchId}>Automatic deploy</strong>
+          <p>
+            {auto ? (
+              <>
+                Every push to <BranchName as="span">{environment.branch}</BranchName> builds and
+                deploys {environment.name}.
+              </>
+            ) : (
+              <>
+                Pushes to <BranchName as="span">{environment.branch}</BranchName> are recorded, but
+                nothing runs until you press Run pipeline yourself.
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+      {auto && !configured ? (
+        <Callout variant="warning" title="Not ready to deploy yet">
+          {environment.has_pipeline
+            ? "This environment has no Docker Compose settings, so a deployment would fail."
+            : "This environment has no stored pipeline. Add one in the Pipeline tab unless the repository has its own Jenkinsfile."}
+        </Callout>
+      ) : null}
+      {update.isError && toggled ? (
         <Callout variant="danger" role="alert">
           {errorMessage(update.error)}
         </Callout>
       ) : null}
-      {update.isSuccess && !dirty ? (
-        <Callout variant="success" role="status">
-          Saved.
-        </Callout>
-      ) : null}
-      <div>
-        <Button type="submit" variant="primary" disabled={!dirty || update.isPending}>
-          {update.isPending ? "Saving…" : `Save ${environment.name}`}
-        </Button>
-      </div>
-    </form>
+      <form
+        className={box.stack}
+        aria-label={`${capitalize(environment.name)} branch`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (branch.trim() === "") return;
+          update.mutate({ branch: branch.trim() });
+        }}
+      >
+        <FormControl>
+          <FormControl.Label>{capitalize(environment.name)} branch</FormControl.Label>
+          <TextInput
+            block
+            monospace
+            value={branch}
+            onChange={(event) => {
+              setBranch(event.target.value);
+            }}
+          />
+          <FormControl.Caption>
+            A push to this branch deploys the {environment.name} environment when automatic deploy
+            is on. The two environments must use different branches.
+          </FormControl.Caption>
+        </FormControl>
+        {update.isError && !toggled ? (
+          <Callout variant="danger" role="alert">
+            {errorMessage(update.error)}
+          </Callout>
+        ) : null}
+        {update.isSuccess && !toggled && !dirty ? (
+          <Callout variant="success" role="status">
+            Saved.
+          </Callout>
+        ) : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={!dirty || update.isPending}>
+            {update.isPending && !toggled ? "Saving…" : `Save ${environment.name} branch`}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -303,13 +339,13 @@ export function EnvironmentsSettingsPage() {
   return (
     <SettingsSection
       title="Environments"
-      intro="Every project has exactly two environments. Choose which branch each one deploys and whether pushes deploy by themselves."
+      intro="Every project has exactly two environments. Choose which branch each one deploys and whether every push builds and deploys by itself."
     >
       {ENVIRONMENTS.map((name) => {
         const environment = project.environments.find((item) => item.name === name);
         return environment ? (
           <EnvironmentForm
-            key={`${name}-${environment.branch}-${String(environment.auto_deploy)}`}
+            key={`${name}-${environment.branch}`}
             project={project}
             environment={environment}
           />
