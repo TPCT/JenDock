@@ -108,9 +108,12 @@ def test_fail_unfinished_marks_only_deploying_rows(ledger: DatabaseLedger, deplo
     assert ledger.fail_unfinished("interrupted") == []
 
 
-def test_protected_images_cover_the_last_deployment(ledger: DatabaseLedger, deployed: Run) -> None:
+def test_after_a_successful_deployment_only_its_new_images_are_protected(
+    ledger: DatabaseLedger, deployed: Run
+) -> None:
     protected = ledger.protected_images("demo", "development")
-    assert {WEB_TAG, OLD_TAG, "sha256:old", "sha256:web"} <= protected
+    assert {WEB_TAG, "sha256:web"} <= protected
+    assert not {OLD_TAG, "sha256:old"} & protected  # the previous images may be removed
     assert ledger.protected_images("demo", "production") == frozenset()
 
 

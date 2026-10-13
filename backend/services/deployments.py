@@ -119,16 +119,23 @@ class DatabaseLedger:
             return [row.id for row in rows]
 
     def protected_images(self, project: str, environment: str) -> frozenset[str]:
-        """Images of the last deployment (previous and new) and of the last successful one."""
+        """Images retention must keep: what the environment runs now.
+
+        After a successful deployment that is its new images only, so the previous ones can be
+        removed. When the latest deployment did not succeed (rolled back, failed), both its
+        sides stay, together with the new images of the last successful deployment.
+        """
         with self._uow_factory() as uow:
             env = require_environment(uow, project, EnvironmentName(environment))
             rows = list(uow.deployments.list_for_environment(env.id, limit=50, offset=0))
         latest = next((r for r in rows if r.status is not DeploymentStatus.PENDING), None)
         succeeded = next((r for r in rows if r.status is DeploymentStatus.SUCCEEDED), None)
         protected: set[str] = set()
-        for row in (latest, succeeded):
-            for item in row.services if row else ():
+        if latest is not None and latest is not succeeded:
+            for item in latest.services:
                 protected.update(v for v in item.values() if v)
+        for item in succeeded.services if succeeded else ():
+            protected.update(v for k, v in item.items() if v and k.startswith("new_"))
         protected.discard("")
         return frozenset(protected)
 
