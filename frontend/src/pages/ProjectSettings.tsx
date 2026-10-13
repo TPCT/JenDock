@@ -1,4 +1,11 @@
-import { BellIcon, GearIcon, KeyIcon, RocketIcon, WebhookIcon } from "@primer/octicons-react";
+import {
+  BellIcon,
+  GearIcon,
+  KeyIcon,
+  PeopleIcon,
+  RocketIcon,
+  WebhookIcon,
+} from "@primer/octicons-react";
 import {
   BranchName,
   Button,
@@ -20,18 +27,25 @@ import { GithubSetup } from "../components/GithubSetup";
 import { SettingsLayout, type SettingsItem } from "../components/SettingsLayout";
 import { SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { capitalize } from "../lib/format";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 import styles from "./ProjectSettings.module.css";
 
 export function ProjectSettingsLayout() {
   const { slug = "" } = useParams();
+  const can = useCan();
   const base = `/projects/${encodeURIComponent(slug)}/settings`;
   const items: SettingsItem[] = [
     { to: base, label: "General", icon: GearIcon },
     { to: `${base}/environments`, label: "Environments", icon: RocketIcon },
     { to: `${base}/webhook`, label: "GitHub connection", icon: WebhookIcon },
     { to: `${base}/secrets`, label: "Secrets", icon: KeyIcon },
-    { to: `${base}/notifications`, label: "Notifications", icon: BellIcon },
+    ...(can("access.manage", { project: slug })
+      ? [{ to: `${base}/access`, label: "Access", icon: PeopleIcon }]
+      : []),
+    ...(can("notification.manage")
+      ? [{ to: `${base}/notifications`, label: "Notifications", icon: BellIcon }]
+      : []),
   ];
   return <SettingsLayout label="Project settings" items={items} />;
 }

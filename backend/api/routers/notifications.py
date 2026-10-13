@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.notifications import (
     ChannelResponse,
@@ -26,14 +26,15 @@ from backend.api.schemas.notifications import (
     UpdateChannelRequest,
 )
 from backend.config_notifications import get_notification_settings
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.access import Action
+from backend.domain.enums import EnvironmentName
 from backend.domain.errors import ValidationError
 from backend.domain.notifications import DeliveryStatus
 from backend.services.notification_rules import RuleScope
 
 router = APIRouter(prefix="/api", tags=["notifications"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Admin = Annotated[Principal, Depends(require_scope(TokenScope.ADMIN))]
+Reader = Annotated[Principal, Depends(require(Action.NOTIFICATION_POLICY, Target.NONE))]
+Admin = Annotated[Principal, Depends(require(Action.NOTIFICATION_MANAGE, Target.NONE))]
 DEFAULT_PAGE = 50
 
 

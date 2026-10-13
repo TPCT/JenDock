@@ -7,7 +7,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from backend.api.deps import Container, require_scope
+from backend.api import authz
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.projects import (
     BranchHeadResponse,
@@ -19,14 +20,19 @@ from backend.api.schemas.projects import (
     UpdateProjectRequest,
 )
 from backend.api.schemas.runs import RunPage, RunSummary
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.access import Action
+from backend.domain.enums import EnvironmentName
 from backend.domain.values import BranchName
 from backend.services.environments import EnvironmentUpdate
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Runner = Annotated[Principal, Depends(require_scope(TokenScope.RUN))]
-Admin = Annotated[Principal, Depends(require_scope(TokenScope.ADMIN))]
+Lister = Annotated[Principal, Depends(require(Action.PROJECT_LIST, Target.NONE))]
+Creator = Annotated[Principal, Depends(require(Action.PROJECT_CREATE, Target.NONE))]
+Reader = Annotated[Principal, Depends(require(Action.PROJECT_READ, Target.PROJECT))]
+Editor = Annotated[Principal, Depends(require(Action.PROJECT_UPDATE, Target.PROJECT))]
+EnvEditor = Annotated[Principal, Depends(require(Action.ENVIRONMENT_UPDATE))]
+RunReader = Annotated[Principal, Depends(require(Action.RUN_READ))]
+Runner = Annotated[Principal, Depends(require(Action.RUN_CREATE))]
 MAX_PAGE = 100
 
 
@@ -39,14 +45,15 @@ class EnvPath:
 
 
 @router.get("")
-def list_projects(_principal: Reader, container: Container) -> list[ProjectResponse]:
-    """Active projects ordered by name, each with its environments and newest runs."""
-    return [ProjectResponse.from_view(view) for view in container.project_queries().list_projects()]
+def list_projects(principal: Lister, container: Container) -> list[ProjectResponse]:
+    """Projects the caller can see, ordered by name, each with its environments and newest runs."""
+    views = container.project_queries().list_projects(authz.project_filter(principal))
+    return [ProjectResponse.from_view(view) for view in views]
 
 
 @router.post("", status_code=201)
 def create_project(
-    body: CreateProjectRequest, principal: Admin, container: Container
+    body: CreateProjectRequest, principal: Creator, container: Container
 ) -> ProjectResponse:
     """Create a project with its development and production environments."""
     container.project_service().create(
@@ -62,14 +69,15 @@ def create_project(
 
 
 @router.get("/{slug}")
-def get_project(slug: str, _principal: Reader, container: Container) -> ProjectResponse:
+def get_project(slug: str, principal: Reader, container: Container) -> ProjectResponse:
     """One project; archived projects are not found."""
-    return ProjectResponse.from_view(container.project_queries().get(slug))
+    view = container.project_queries().get(slug, authz.project_filter(principal))
+    return ProjectResponse.from_view(view)
 
 
 @router.patch("/{slug}")
 def update_project(
-    slug: str, body: UpdateProjectRequest, principal: Admin, container: Container
+    slug: str, body: UpdateProjectRequest, principal: Editor, container: Container
 ) -> ProjectResponse:
     """Change the name, repository or git transport (ssh deploy key or public https)."""
     container.project_service().update(
@@ -86,7 +94,7 @@ def update_project(
 def update_environment(
     path: Annotated[EnvPath, Depends()],
     body: UpdateEnvironmentRequest,
-    principal: Admin,
+    principal: EnvEditor,
     container: Container,
 ) -> EnvironmentResponse:
     """Change the branch, auto-deploy and the Compose project, files, env files and services."""
@@ -108,7 +116,7 @@ def update_environment(
 @router.get("/{slug}/environments/{env}/runs")
 def list_environment_runs(
     path: Annotated[EnvPath, Depends()],
-    _principal: Reader,
+    _principal: RunReader,
     container: Container,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -124,7 +132,7 @@ def list_environment_runs(
 def branch_head(
     path: Annotated[EnvPath, Depends()],
     branch: Annotated[str, Query(min_length=1, max_length=200)],
-    principal: Reader,
+    principal: RunReader,
     container: Container,
 ) -> BranchHeadResponse:
     """The current head of ``branch`` (resolved by the worker with ``git ls-remote``)."""

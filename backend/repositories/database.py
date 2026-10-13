@@ -24,6 +24,7 @@ from backend.repositories.domains import (
     DomainRepository,
 )
 from backend.repositories.environments import EnvironmentRepository
+from backend.repositories.grants import AccessGrantRepository
 from backend.repositories.pipelines import PipelineRepository
 from backend.repositories.platform import PlatformRepository
 from backend.repositories.projects import ProjectRepository
@@ -121,6 +122,11 @@ class UnitOfWork:
     def users(self) -> UserRepository:
         """User repository bound to the active session."""
         return UserRepository(self.session)
+
+    @property
+    def grants(self) -> AccessGrantRepository:
+        """Access grant repository bound to the active session."""
+        return AccessGrantRepository(self.session)
 
     @property
     def sessions(self) -> SessionRepository:

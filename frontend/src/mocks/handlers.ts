@@ -2,15 +2,16 @@ import { http, HttpResponse, sse, type HttpHandler } from "msw";
 import type { EnvironmentName, Page, RunSummary, Session } from "../api/types";
 import type { Model } from "../api/pipelineTypes";
 import { adminHandlers } from "./admin";
+import { accessHandlers, mockSession } from "./access";
 import { containerHandlers } from "./containers";
 import { databaseHandlers } from "./databases";
 import { notificationHandlers } from "./notifications";
 import { integrationHandlers } from "./integrations";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
-  MOCK_CSRF,
   MOCK_LOCKED_USERNAME,
   MOCK_PASSWORD,
+  MOCK_CSRF,
   MOCK_USERNAME,
   allRuns,
   cancelRun,
@@ -55,13 +56,7 @@ function error(status: number, code: string, message: string, headers?: Record<s
 
 const unauthenticated = () => error(401, "unauthenticated", "session expired or invalid");
 
-function session(): Session {
-  return {
-    user: { id: 1, username: MOCK_USERNAME },
-    csrf_token: MOCK_CSRF,
-    expires_at: new Date(Date.now() + 12 * 3600_000).toISOString(),
-  };
-}
+const session = (): Session => mockSession();
 
 function paginate(items: RunSummary[], url: string): Page<RunSummary> {
   const params = new URL(url).searchParams;
@@ -78,6 +73,7 @@ const SIMULATED_LINES = 10;
 
 export const handlers: HttpHandler[] = [
   ...adminHandlers({ authenticated: () => authenticated, error, unauthenticated }),
+  ...accessHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...containerHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...databaseHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...notificationHandlers({ authenticated: () => authenticated, error, unauthenticated }),

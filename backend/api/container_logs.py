@@ -6,11 +6,13 @@ import json
 import time
 from collections.abc import Iterator
 
+from backend.api import authz
 from backend.api.container import AppContainer
 from backend.api.events import sse
 from backend.api.principal import Principal
 from backend.containers.logs import LogCursor
 from backend.containers.wire import LogPageView
+from backend.domain.access import Action
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import DomainError
 
@@ -81,7 +83,12 @@ class ContainerLogStream:
         )
 
     def _session_alive(self) -> bool:
-        token = self._principal.session_token
-        if token is None:
-            return True
-        return self._container.session_service().resolve(token, touch=False) is not None
+        """Still authenticated and still allowed to read this container's logs."""
+        return authz.container_still_allowed(
+            self._container,
+            self._principal,
+            Action.CONTAINER_LOGS,
+            self._slug,
+            self._env,
+            self._container_id,
+        )

@@ -2,7 +2,7 @@
 
 Mirrors ``api/routers/databases.py``: connection listing and metadata need ``read``; rows and the
 console need ``read`` on development and ``admin`` on production (the shared
-``require_data_scope`` rule, enforced inside the handler because it depends on the environment).
+policy action ``database.data``, which depends on the environment).
 The worker runs every query in a helper container; passwords never reach the API or MCP.
 
 Deliberate gap: creating, changing, deleting or testing a connection is operator-only (``admin``
@@ -11,7 +11,6 @@ REST endpoints) and is not exposed over MCP, so an agent can never read or chang
 
 from __future__ import annotations
 
-from backend.api.data_scope import require_data_scope
 from backend.api.schemas.databases import (
     ConnectionResponse,
     QueryRequest,
@@ -86,7 +85,6 @@ def get_table(ctx: ToolContext, args: Args) -> object:
 
 def read_rows(ctx: ToolContext, args: Args) -> object:
     """One page of rows ordered by primary key; continue with the opaque next_cursor."""
-    require_data_scope(ctx.principal, args.environment())
     page: dict[str, object] = {
         "limit": args.integer("limit", DEFAULT_PAGE_ROWS),
         "offset": args.integer("offset", 0),
@@ -101,7 +99,6 @@ def read_rows(ctx: ToolContext, args: Args) -> object:
 def run_query(ctx: ToolContext, args: Args) -> object:
     """Run one read-only statement (SELECT, WITH, SHOW or EXPLAIN); the statement is audited,
     the results are not."""
-    require_data_scope(ctx.principal, args.environment())
     statement = QueryRequest(statement=args.text("statement")).statement
     result = ctx.container.inspector_gateway().query(_ref(args), statement, ctx.actor)
     return parse_worker(QueryResponse, result).model_dump(mode="json")

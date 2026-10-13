@@ -20,6 +20,7 @@ from backend.adapters.deploy_keys import DeployKeyStore
 from backend.backup.cli import add_backup_parser, run_backup
 from backend.config import get_settings
 from backend.deploy_keys_cli import add_deploy_key_parser, audit_recorder, run_deploy_key
+from backend.domain.access import GlobalRole
 from backend.domain.actor import Actor
 from backend.domain.errors import DomainError, ValidationError
 from backend.importer.apply import ImportServices
@@ -48,6 +49,13 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in (("create", "create a user"), ("reset-password", "set a new password")):
         command = users.add_parser(name, help=help_text)
         command.add_argument("username")
+        if name == "create":
+            command.add_argument(
+                "--role",
+                choices=[role.value for role in GlobalRole],
+                default=GlobalRole.OWNER.value,
+                help="global role of the new user (default: owner, for the first operator)",
+            )
         command.add_argument(
             "--password-stdin",
             action="store_true",
@@ -84,7 +92,7 @@ def run(
     try:
         password = read_password(args.password_stdin, stdin or sys.stdin, prompt)
         if args.command == "create":
-            service.create(args.username, password, CLI_ACTOR)
+            service.create(args.username, password, CLI_ACTOR, role=GlobalRole(args.role))
             print(f"created user {args.username}")
         else:
             service.reset_password(args.username, password, CLI_ACTOR)

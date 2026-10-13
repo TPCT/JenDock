@@ -71,16 +71,18 @@ def test_no_conflict_markers_in_the_tree() -> None:
 # parts so that this file does not contain it either).
 
 FORMER_NAME = "shift" + "codes"
-# Nor may its two-letter abbreviation followed by a dash or slash start a name (an image or
-# container prefix); a letter, digit or underscore before it makes it part of another word.
-FORMER_PREFIX = re.compile(r"(?<![A-Za-z0-9_])" + "s" + "c" + r"[-/]")
+# Nor may its two-letter abbreviation followed by a dash, slash or underscore start a name (an
+# image, container or token prefix); a letter, digit or underscore before it makes it part of
+# another word.
+SOURCE_DIRS = {"backend", "tests", "frontend"}
+FORMER_PREFIX = re.compile(r"(?<![A-Za-z0-9_])" + "s" + "c" + r"[-/_]")
 
 
 def test_the_former_abbreviation_is_not_used_as_a_name_prefix() -> None:
     offenders = []
     for path in _text_files():
         relative = path.relative_to(ROOT)
-        if relative.parts[0] not in {"backend", "tests"} or "fixtures" in relative.parts:
+        if relative.parts[0] not in SOURCE_DIRS or "fixtures" in relative.parts:
             continue
         try:
             text = path.read_text(encoding="utf-8")

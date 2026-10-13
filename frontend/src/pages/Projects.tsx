@@ -9,6 +9,7 @@ import { EnvironmentCard } from "../components/EnvironmentCard";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { capitalize } from "../lib/format";
 import { PageHead } from "../components/PageHead";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 import styles from "./Projects.module.css";
 
@@ -148,15 +149,18 @@ function BulkAutoDeploy({ projects }: { projects: Project[] }) {
 
 export function ProjectsPage() {
   const projects = useProjects();
+  const can = useCan();
 
   return (
     <>
       <PageHead
         title="Projects"
         actions={
-          <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
-            New project
-          </Button>
+          can("project.create") ? (
+            <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
+              New project
+            </Button>
+          ) : null
         }
         description="Each project has a Development and a Production environment, each with its own branch."
       />
@@ -174,13 +178,16 @@ export function ProjectsPage() {
             icon={<RepoIcon size={32} aria-hidden="true" />}
             title="No projects yet"
             action={
-              <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
-                Create your first project
-              </Button>
+              can("project.create") ? (
+                <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
+                  Create your first project
+                </Button>
+              ) : undefined
             }
           >
-            A project connects one GitHub repository to a Development and a Production environment.
-            It appears here with both environments as soon as it exists.
+            {can("project.create")
+              ? "A project connects one GitHub repository to a Development and a Production environment. It appears here with both environments as soon as it exists."
+              : "Nothing has been shared with you yet. Ask an owner or admin to give you access to a project."}
           </EmptyState>
         ) : null}
         {projects.data && projects.data.length > 0 ? (

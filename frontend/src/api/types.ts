@@ -8,15 +8,50 @@ export type RunStatus =
 export type RunTrigger = "push" | "manual" | "redeploy";
 export type PipelineSource = "repository" | "platform";
 
+/** Platform-wide role: owners and admins can do everything (only owners manage owners). */
+export type GlobalRole = "owner" | "admin" | "member";
+/** What a grant on a project or environment allows (cumulative, like GitHub repository roles). */
+export type AccessRole = "viewer" | "developer" | "maintainer";
+/** What a grant on one container service allows. */
+export type ContainerPermission = "logs" | "terminal" | "actions";
+
 export interface User {
   id: number;
   username: string;
+  display_name: string;
+  email: string | null;
+  role: GlobalRole;
+}
+
+/** What the current user may do in one environment (and in its granted services). */
+export interface EnvironmentPermissions {
+  role: AccessRole | null;
+  /** Action names such as `run.create`; see docs/api-contract.md. */
+  actions: string[];
+  services: Record<string, string[]>;
+}
+
+/**
+ * Effective permissions. Owners and admins have `all: true`; for members `projects` lists what
+ * their grants give. The API stays the authority: this only decides what the UI shows.
+ */
+export interface Permissions {
+  role: GlobalRole;
+  all: boolean;
+  global: string[];
+  projects: Record<
+    string,
+    { environments: Partial<Record<EnvironmentName, EnvironmentPermissions>> }
+  >;
 }
 
 export interface Session {
   user: User;
   csrf_token: string;
   expires_at: string;
+  /** After an administrator reset the password: the user must change it before anything else. */
+  must_change_password: boolean;
+  permissions: Permissions;
 }
 
 export interface RunSummary {

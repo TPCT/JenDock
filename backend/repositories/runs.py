@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
 from sqlalchemy import CursorResult, func, select, update
@@ -69,11 +69,17 @@ class RunRepository:
         return self._session.scalar(query)
 
     def page(
-        self, *, environment_id: int | None, limit: int, offset: int
+        self,
+        *,
+        environment_id: int | None,
+        limit: int,
+        offset: int,
+        environment_ids: Collection[int] | None = None,
     ) -> Sequence[tuple[Run, str, EnvironmentName]]:
         """Return runs with their project slug and environment name, newest first.
 
         ``environment_id`` limits the page to one environment; ``None`` spans all of them.
+        ``environment_ids`` limits it to those environments (an empty collection matches none).
         """
         query = (
             select(Run, Project.slug, Environment.name)
@@ -85,13 +91,19 @@ class RunRepository:
         )
         if environment_id is not None:
             query = query.where(Run.environment_id == environment_id)
+        if environment_ids is not None:
+            query = query.where(Run.environment_id.in_(environment_ids))
         return [(row[0], row[1], row[2]) for row in self._session.execute(query).all()]
 
-    def count(self, *, environment_id: int | None = None) -> int:
-        """Return the number of runs, optionally of one environment."""
+    def count(
+        self, *, environment_id: int | None = None, environment_ids: Collection[int] | None = None
+    ) -> int:
+        """Return the number of runs, optionally of one environment or a set of them."""
         query = select(func.count()).select_from(Run)
         if environment_id is not None:
             query = query.where(Run.environment_id == environment_id)
+        if environment_ids is not None:
+            query = query.where(Run.environment_id.in_(environment_ids))
         return self._session.scalar(query) or 0
 
     def list_by_status(self, status: RunStatus) -> Sequence[Run]:

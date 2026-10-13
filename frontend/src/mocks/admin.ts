@@ -135,7 +135,7 @@ function initialTokens(): TokenInfo[] {
     {
       id: 1,
       name: "CI deploy",
-      prefix: "sc_k3j9",
+      prefix: "jdt_k3j9",
       scopes: ["read", "run", "deploy"],
       created_at: ago(30 * DAY),
       last_used_at: ago(2 * 3_600_000),
@@ -145,7 +145,7 @@ function initialTokens(): TokenInfo[] {
     {
       id: 2,
       name: "Old laptop",
-      prefix: "sc_x81q",
+      prefix: "jdt_x81q",
       scopes: ["read"],
       created_at: ago(200 * DAY),
       last_used_at: null,
@@ -539,7 +539,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         return error(422, "validation_error", "choose at least one valid scope");
       }
       const id = nextTokenId++;
-      const value = `sc_${id.toString(16).padStart(4, "0")}${"f3a9c1d7e5b20486".repeat(2)}`;
+      const value = `jdt_${id.toString(16).padStart(4, "0")}${"f3a9c1d7e5b20486".repeat(2)}`;
       const info: TokenInfo = {
         id,
         name: body.name,

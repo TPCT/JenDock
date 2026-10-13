@@ -10,8 +10,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, WebSocket
 from starlette.concurrency import run_in_threadpool
 
+from backend.api import authz
 from backend.api.container import AppContainer
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.routers.containers import ContainerPath
 from backend.api.schemas.containers import TerminalTicketRequest, TerminalTicketResponse
@@ -22,15 +23,15 @@ from backend.api.terminal_bridge import (
     TerminalBridge,
 )
 from backend.api.terminal_tickets import PrincipalKind, TicketGrant
-from backend.domain.enums import TokenScope
+from backend.domain.access import Action
 from backend.domain.errors import ConflictError, PermissionDeniedError
 from backend.terminal.pty_process import clamp_size
 from backend.terminal.server import DEFAULT_COLS, DEFAULT_ROWS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["terminal"])
-TerminalUser = Annotated[Principal, Depends(require_scope(TokenScope.TERMINAL))]
-Target = Annotated[ContainerPath, Depends()]
+TerminalUser = Annotated[Principal, Depends(require(Action.CONTAINER_TERMINAL, Target.CONTAINER))]
+ContainerTarget = Annotated[ContainerPath, Depends()]
 WEBSOCKET_PATH = "/api/terminal/ws"
 AUTH_TIMEOUT = 5.0
 MAX_AUTH_BYTES = 1024
@@ -38,7 +39,10 @@ MAX_AUTH_BYTES = 1024
 
 @router.post("/api/projects/{slug}/environments/{env}/containers/{container_id}/terminal/tickets")
 def create_ticket(
-    path: Target, body: TerminalTicketRequest, principal: TerminalUser, container: Container
+    path: ContainerTarget,
+    body: TerminalTicketRequest,
+    principal: TerminalUser,
+    container: Container,
 ) -> TerminalTicketResponse:
     """Authorize one terminal connection: returns a single-use ticket valid for 30 seconds.
 
@@ -161,7 +165,9 @@ def _verify_session(
 
     def check(touch: bool) -> bool:
         live = container.session_service().resolve(cookie, touch=touch)
-        return live is not None and live.session_id == grant.principal_id
+        if live is None or live.session_id != grant.principal_id:
+            return False
+        return _terminal_allowed(container, Principal(session=live, session_token=cookie), grant)
 
     return check
 
@@ -171,7 +177,18 @@ def _token_check(container: AppContainer, grant: TicketGrant) -> SessionCheck:
 
     def check(_touch: bool) -> bool:
         current = container.token_service().current(grant.principal_id)
-        scopes = current.scopes if current else frozenset()
-        return TokenScope.TERMINAL in scopes or TokenScope.ADMIN in scopes
+        return current is not None and _terminal_allowed(container, Principal(token=current), grant)
 
     return check
+
+
+def _terminal_allowed(container: AppContainer, principal: Principal, grant: TicketGrant) -> bool:
+    """Whether the principal, with the grants it holds now, may still use this terminal."""
+    return authz.container_still_allowed(
+        container,
+        principal,
+        Action.CONTAINER_TERMINAL,
+        grant.slug,
+        grant.env,
+        grant.container_id,
+    )

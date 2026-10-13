@@ -1,6 +1,7 @@
 """Domain endpoints: definition, preview-then-apply, removal, status and certificates.
 
-Reads need scope ``read``; every mutation needs ``admin`` and is audited by the service or the
+Reads need ``viewer`` on the environment; every mutation needs ``maintainer`` (token scope
+``admin``) and is audited by the service or the
 worker. Changes to DNS, Apache and TLS happen in the worker, never in the API process.
 """
 
@@ -11,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.domains import (
     CertificateOverviewResponse,
@@ -25,11 +26,13 @@ from backend.api.schemas.domains import (
     PreviewRequest,
     UpdateDomainRequest,
 )
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.access import Action
+from backend.domain.enums import EnvironmentName
 
 router = APIRouter(tags=["domains"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Admin = Annotated[Principal, Depends(require_scope(TokenScope.ADMIN))]
+Reader = Annotated[Principal, Depends(require(Action.DOMAIN_READ))]
+Admin = Annotated[Principal, Depends(require(Action.DOMAIN_MANAGE))]
+CertificateReader = Annotated[Principal, Depends(require(Action.CERTIFICATE_LIST, Target.NONE))]
 BASE = "/api/projects/{slug}/environments/{env}/domains"
 
 
@@ -171,7 +174,7 @@ def issue_certificate(
 
 @router.get("/api/ingress/certificates")
 def list_certificates(
-    _principal: Reader, container: Container
+    _principal: CertificateReader, container: Container
 ) -> list[CertificateOverviewResponse]:
     """Expiry monitoring across all domains, soonest expiry first."""
     items = container.domain_status_service().certificates()

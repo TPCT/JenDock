@@ -14,6 +14,7 @@ from backend.api.errors import register_error_handlers
 from backend.api.frontend import mount_frontend
 from backend.api.middleware import SecurityHeadersMiddleware
 from backend.api.routers import (
+    access,
     auth,
     containers,
     databases,
@@ -30,6 +31,7 @@ from backend.api.routers import (
     telemetry,
     terminal,
     tokens,
+    users,
 )
 from backend.config import Settings, get_settings
 from backend.mcp.server import MCP_PATH, McpEndpoint
@@ -68,6 +70,8 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     register_error_handlers(app)
     app.include_router(auth.router)
     app.include_router(tokens.router)
+    app.include_router(users.router)
+    app.include_router(access.router)
     app.include_router(secrets.router)
     app.include_router(databases.router)
     app.include_router(domains.router)

@@ -11,7 +11,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from backend.api.deps import Container, require_scope, require_session
+from backend.api import authz
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.integrations import (
     CloudflareResponse,
@@ -23,11 +24,12 @@ from backend.api.schemas.integrations import (
     IngressValuesResponse,
     SetCloudflareTokenRequest,
 )
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.access import Action, Resource
+from backend.domain.enums import EnvironmentName
 
 router = APIRouter(tags=["integrations"])
-SessionPrincipal = Annotated[Principal, Depends(require_session())]
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
+SessionPrincipal = Annotated[Principal, Depends(require(Action.INTEGRATION_MANAGE, Target.NONE))]
+Reader = Annotated[Principal, Depends(require(Action.INGRESS_READINESS, Target.NONE))]
 BASE = "/api/integrations"
 
 
@@ -93,11 +95,19 @@ def create_deploy_key(
 
 @router.get("/api/ingress/readiness")
 def ingress_readiness(
-    _principal: Reader,
+    principal: Reader,
     container: Container,
     project: Annotated[str | None, Query(max_length=64)] = None,
     environment: Annotated[EnvironmentName | None, Query()] = None,
 ) -> IngressReadinessResponse:
-    """Whether domains can be applied; with a project and environment its own token counts."""
+    """Whether domains can be applied; with a project and environment its own token counts.
+
+    Asking about a project needs the right to read its domains.
+    """
+    if project is not None:
+        scope = Resource(project, environment)
+        authz.authorize(
+            principal, Action.DOMAIN_READ if environment else Action.PROJECT_READ, scope
+        )
     overview = container.integrations_service().readiness(project, environment)
     return IngressReadinessResponse.from_overview(overview)

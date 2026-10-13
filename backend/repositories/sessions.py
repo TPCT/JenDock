@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import delete, or_, select
@@ -25,6 +26,10 @@ class SessionRepository:
     def get_by_token_hash(self, token_hash: str) -> Session | None:
         """Return the session with ``token_hash`` or ``None``."""
         return self._session.scalar(select(Session).where(Session.token_hash == token_hash))
+
+    def list_for_user(self, user_id: int) -> Sequence[Session]:
+        """Return every session of a user."""
+        return self._session.scalars(select(Session).where(Session.user_id == user_id)).all()
 
     def delete_for_user(self, user_id: int) -> int:
         """Delete every session of a user; return how many."""

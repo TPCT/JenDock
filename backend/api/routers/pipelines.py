@@ -7,7 +7,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from backend.api.deps import Container, require_scope
+from backend.api import authz
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.pipelines import (
     CatalogResponse,
@@ -26,7 +27,8 @@ from backend.api.schemas.pipelines import (
     VersionResponse,
     diagnostics_of,
 )
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.access import Action, Resource
+from backend.domain.enums import EnvironmentName
 from backend.pipeline.catalog import build_catalog
 from backend.pipeline.templates import load_templates
 
@@ -34,8 +36,17 @@ environment_router = APIRouter(
     prefix="/api/projects/{slug}/environments/{env}/pipeline", tags=["pipelines"]
 )
 editor_router = APIRouter(prefix="/api/pipelines", tags=["pipelines"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Writer = Annotated[Principal, Depends(require_scope(TokenScope.PIPELINES))]
+Reader = Annotated[Principal, Depends(require(Action.PIPELINE_READ))]
+Writer = Annotated[Principal, Depends(require(Action.PIPELINE_WRITE))]
+Tools = Annotated[Principal, Depends(require(Action.PIPELINE_TOOLS, Target.NONE))]
+
+
+def _authorize_context(
+    principal: Principal, project: str | None, env: EnvironmentName | None
+) -> None:
+    """The editor checks credential names of an environment; that needs listing its secrets."""
+    if project is not None and env is not None:
+        authz.authorize(principal, Action.SECRET_LIST, Resource.of_environment(project, env))
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,30 +122,30 @@ def dry_run(
 
 
 @editor_router.get("/catalog")
-def get_catalog(_principal: Reader) -> CatalogResponse:
+def get_catalog(_principal: Tools) -> CatalogResponse:
     """Step definitions for the editor forms, generated from the engine's own registries."""
     return CatalogResponse.from_catalog(build_catalog())
 
 
 @editor_router.get("/templates")
-def get_templates(_principal: Reader) -> list[TemplateResponse]:
+def get_templates(_principal: Tools) -> list[TemplateResponse]:
     """Starter pipelines for common project types."""
     return [TemplateResponse.from_template(item) for item in load_templates()]
 
 
 @editor_router.post("/parse")
-def parse_pipeline(body: ParseRequest, _principal: Reader, container: Container) -> ParseResponse:
+def parse_pipeline(body: ParseRequest, principal: Tools, container: Container) -> ParseResponse:
     """Text to editing model; ``model`` is ``null`` only after a syntax error."""
+    _authorize_context(principal, body.project, body.environment)
     editor = container.pipeline_editor()
     outcome = editor.parse(body.jenkinsfile, editor.context(body.project, body.environment))
     return ParseResponse(model=outcome.model, diagnostics=diagnostics_of(outcome.diagnostics))
 
 
 @editor_router.post("/render")
-def render_pipeline(
-    body: RenderRequest, _principal: Reader, container: Container
-) -> RenderResponse:
+def render_pipeline(body: RenderRequest, principal: Tools, container: Container) -> RenderResponse:
     """Editing model to canonical text; half-filled models render and are diagnosed."""
+    _authorize_context(principal, body.project, body.environment)
     editor = container.pipeline_editor()
     rendering = editor.render(body.model, editor.context(body.project, body.environment))
     return RenderResponse(
@@ -144,9 +155,10 @@ def render_pipeline(
 
 @editor_router.post("/validate")
 def validate_pipeline(
-    body: ValidateRequest, _principal: Reader, container: Container
+    body: ValidateRequest, principal: Tools, container: Container
 ) -> ValidateResponse:
     """Diagnostics of Jenkinsfile text."""
+    _authorize_context(principal, body.project, body.environment)
     editor = container.pipeline_editor()
     found = editor.validate(body.jenkinsfile, editor.context(body.project, body.environment))
     return ValidateResponse(diagnostics=diagnostics_of(found))

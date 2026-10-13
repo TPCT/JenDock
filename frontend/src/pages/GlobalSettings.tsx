@@ -2,6 +2,8 @@ import {
   BellIcon,
   CommentDiscussionIcon,
   KeyIcon,
+  PeopleIcon,
+  PersonIcon,
   PlugIcon,
   PlusIcon,
 } from "@primer/octicons-react";
@@ -31,6 +33,7 @@ import { SettingsLayout, type SettingsItem } from "../components/SettingsLayout"
 import { SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { RelativeTime } from "../components/Time";
 import { formatDateTime } from "../lib/format";
+import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 
 export const SCOPE_HELP: Record<TokenScope, string> = {
@@ -51,11 +54,20 @@ const EXPIRY = [
 ] as const;
 
 export function GlobalSettingsLayout() {
+  const can = useCan();
   const items: SettingsItem[] = [
+    { to: "/settings/account", label: "Account", icon: PersonIcon },
     { to: "/settings/tokens", label: "API tokens", icon: KeyIcon },
-    { to: "/settings/notifications", label: "Notifications", icon: BellIcon },
+    ...(can("notification.manage")
+      ? [{ to: "/settings/notifications", label: "Notifications", icon: BellIcon }]
+      : []),
     { to: "/settings/agents", label: "Connect an AI agent", icon: CommentDiscussionIcon },
-    { to: "/settings/integrations", label: "Integrations", icon: PlugIcon },
+    ...(can("user.manage")
+      ? [{ to: "/settings/members", label: "Members", icon: PeopleIcon }]
+      : []),
+    ...(can("integration.manage")
+      ? [{ to: "/settings/integrations", label: "Integrations", icon: PlugIcon }]
+      : []),
   ];
   return (
     <>

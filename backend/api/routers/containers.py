@@ -8,8 +8,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
+from backend.api import authz
 from backend.api.container_logs import ContainerLogStream
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, Target, require
 from backend.api.principal import Principal
 from backend.api.schemas.containers import (
     ActionRequest,
@@ -31,16 +32,22 @@ from backend.containers.wire import (
     FileView,
     LogPageView,
 )
+from backend.domain.access import Action
 from backend.domain.containers import validate_container_id, validate_container_path
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.enums import EnvironmentName
 
 router = APIRouter(prefix="/api/projects/{slug}/environments/{env}/containers", tags=["containers"])
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Manager = Annotated[Principal, Depends(require_scope(TokenScope.CONTAINERS))]
-BackgroundManager = Annotated[
-    Principal, Depends(require_scope(TokenScope.CONTAINERS, background=True))
+Lister = Annotated[Principal, Depends(require(Action.CONTAINER_READ))]
+Reader = Annotated[Principal, Depends(require(Action.CONTAINER_READ, Target.CONTAINER))]
+Operator = Annotated[Principal, Depends(require(Action.CONTAINER_ACTION, Target.CONTAINER))]
+LogReader = Annotated[Principal, Depends(require(Action.CONTAINER_LOGS, Target.CONTAINER))]
+BackgroundLogReader = Annotated[
+    Principal, Depends(require(Action.CONTAINER_LOGS, Target.CONTAINER, background=True))
 ]
-Admin = Annotated[Principal, Depends(require_scope(TokenScope.ADMIN))]
+EnvEditor = Annotated[Principal, Depends(require(Action.CONTAINER_ENV_UPDATE, Target.CONTAINER))]
+EnvRevealer = Annotated[Principal, Depends(require(Action.CONTAINER_ENV_REVEAL, Target.CONTAINER))]
+LimitEditor = Annotated[Principal, Depends(require(Action.CONTAINER_LIMITS, Target.CONTAINER))]
+FileReader = Annotated[Principal, Depends(require(Action.CONTAINER_FILES, Target.CONTAINER))]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,21 +84,25 @@ class EnvVarPath:
 
 
 EnvironmentPath = Annotated[EnvPath, Depends()]
-Target = Annotated[ContainerPath, Depends()]
+ContainerTarget = Annotated[ContainerPath, Depends()]
 VarTarget = Annotated[EnvVarPath, Depends()]
 
 
 @router.get("")
 def list_containers(
-    path: EnvironmentPath, principal: Reader, container: Container
+    path: EnvironmentPath, principal: Lister, container: Container
 ) -> list[ContainerView]:
-    """The containers of the environment's compose project (no other container is visible)."""
+    """The containers of the environment's compose project (no other container is visible).
+
+    A member with only container grants sees just the granted services.
+    """
     gateway = container.container_gateway()
-    return list(gateway.list_containers(path.slug, path.env, principal.actor))
+    found = gateway.list_containers(path.slug, path.env, principal.actor)
+    return authz.visible_containers(principal, path.slug, path.env, found)
 
 
 @router.get("/{container_id}")
-def get_container(path: Target, principal: Reader, container: Container) -> ContainerView:
+def get_container(path: ContainerTarget, principal: Reader, container: Container) -> ContainerView:
     """One container by its exact id."""
     gateway = container.container_gateway()
     return gateway.get_container(path.slug, path.env, path.container_id, principal.actor)
@@ -99,7 +110,7 @@ def get_container(path: Target, principal: Reader, container: Container) -> Cont
 
 @router.post("/{container_id}/actions")
 def plan_action(
-    path: Target, body: ActionRequest, principal: Manager, container: Container
+    path: ContainerTarget, body: ActionRequest, principal: Operator, container: Container
 ) -> ActionPlanView:
     """Step one of start/stop/restart: what would happen and a single-use confirmation."""
     gateway = container.container_gateway()
@@ -108,7 +119,7 @@ def plan_action(
 
 @router.post("/{container_id}/actions/confirm")
 def confirm_action(
-    path: Target, body: ConfirmRequest, principal: Manager, container: Container
+    path: ContainerTarget, body: ConfirmRequest, principal: Operator, container: Container
 ) -> ActionResultView:
     """Step two: execute the planned action on exactly that container id."""
     gateway = container.container_gateway()
@@ -119,8 +130,8 @@ def confirm_action(
 
 @router.get("/{container_id}/logs")
 def tail_logs(  # noqa: PLR0913, PLR0917 - path, principal, container and three query values
-    path: Target,
-    principal: Manager,
+    path: ContainerTarget,
+    principal: LogReader,
     container: Container,
     tail: Annotated[int, Query(ge=1, le=MAX_TAIL)] = DEFAULT_TAIL,
     since: Annotated[str | None, Query(max_length=40)] = None,
@@ -136,8 +147,8 @@ def tail_logs(  # noqa: PLR0913, PLR0917 - path, principal, container and three 
 
 @router.get("/{container_id}/logs/stream")
 def follow_logs(
-    path: Target,
-    principal: BackgroundManager,
+    path: ContainerTarget,
+    principal: BackgroundLogReader,
     container: Container,
     tail: Annotated[int, Query(ge=1, le=MAX_TAIL)] = 100,
 ) -> StreamingResponse:
@@ -153,14 +164,14 @@ def follow_logs(
 
 
 @router.get("/{container_id}/env")
-def list_env(path: Target, principal: Reader, container: Container) -> list[EnvVarView]:
+def list_env(path: ContainerTarget, principal: Reader, container: Container) -> list[EnvVarView]:
     """Variable names with masked values."""
     gateway = container.container_gateway()
     return list(gateway.env_list(path.slug, path.env, path.container_id, principal.actor))
 
 
 @router.post("/{container_id}/env/{name}/reveal")
-def reveal_env(path: VarTarget, principal: Admin, container: Container) -> EnvRevealView:
+def reveal_env(path: VarTarget, principal: EnvRevealer, container: Container) -> EnvRevealView:
     """The plaintext of one variable; the worker audits the reveal."""
     gateway = container.container_gateway()
     return gateway.env_reveal(path.slug, path.env, path.container_id, path.name, principal.actor)
@@ -168,7 +179,7 @@ def reveal_env(path: VarTarget, principal: Admin, container: Container) -> EnvRe
 
 @router.put("/{container_id}/env")
 def update_env(
-    path: Target, body: EnvUpdateRequest, principal: Manager, container: Container
+    path: ContainerTarget, body: EnvUpdateRequest, principal: EnvEditor, container: Container
 ) -> EnvUpdateView:
     """Store overrides for the container's service and recreate only that service."""
     gateway = container.container_gateway()
@@ -179,7 +190,7 @@ def update_env(
 
 @router.put("/{container_id}/limits")
 def update_limits(
-    path: Target, body: LimitsRequest, principal: Manager, container: Container
+    path: ContainerTarget, body: LimitsRequest, principal: LimitEditor, container: Container
 ) -> ContainerView:
     """Set CPU and/or memory limits (within the configured maxima); persisted as an override."""
     gateway = container.container_gateway()
@@ -190,8 +201,8 @@ def update_limits(
 
 @router.get("/{container_id}/files")
 def list_files(
-    path: Target,
-    principal: Manager,
+    path: ContainerTarget,
+    principal: FileReader,
     container: Container,
     directory: Annotated[str, Query(alias="path", max_length=1024)] = "/",
 ) -> DirectoryView:
@@ -203,8 +214,8 @@ def list_files(
 
 @router.get("/{container_id}/files/content")
 def read_file(
-    path: Target,
-    principal: Manager,
+    path: ContainerTarget,
+    principal: FileReader,
     container: Container,
     file_path: Annotated[str, Query(alias="path", max_length=1024)],
     max_bytes: Annotated[int, Query(ge=1, le=MAX_READ_BYTES)] = DEFAULT_READ_BYTES,
@@ -218,7 +229,9 @@ def read_file(
 
 
 @router.get("/{container_id}/stats")
-def container_stats(path: Target, principal: Reader, container: Container) -> ContainerStatsView:
+def container_stats(
+    path: ContainerTarget, principal: Reader, container: Container
+) -> ContainerStatsView:
     """Latest ``docker stats`` sample and the in-memory history of the container."""
     gateway = container.container_gateway()
     return gateway.container_stats(path.slug, path.env, path.container_id, principal.actor)

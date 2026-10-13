@@ -204,7 +204,7 @@ def test_audit_has_the_statement_and_never_results_or_the_password(wired: AppCon
     mcp = [e for e in events if e.action == "mcp.tool_call"]
     assert [(e.details["tool"], e.details["outcome"]) for e in reversed(mcp)] == [
         ("run_readonly_query", "ok"),
-        ("read_table_rows", "error"),
+        ("read_table_rows", "denied"),
     ]
     assert reader.token is not None
     assert {(e.actor_type.value, e.actor_id) for e in mcp} == {("token", str(reader.token.id))}

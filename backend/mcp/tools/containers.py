@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from backend.api import authz
 from backend.api.schemas.containers import ActionRequest, ConfirmRequest, LimitsRequest
 from backend.containers.logs import DEFAULT_TAIL, MAX_TAIL, LogCursor
 from backend.domain.containers import LifecycleAction, validate_container_id
@@ -38,8 +39,10 @@ def _container_id(args: Args) -> str:
 def list_containers(ctx: ToolContext, args: Args) -> object:
     """The containers of the environment's compose project."""
     gateway = ctx.container.container_gateway()
-    views = gateway.list_containers(args.text("slug"), args.environment(), ctx.actor)
-    return [view.model_dump(mode="json") for view in views]
+    slug, env = args.text("slug"), args.environment()
+    views = gateway.list_containers(slug, env, ctx.actor)
+    visible = authz.visible_containers(ctx.principal, slug, env, views)
+    return [view.model_dump(mode="json") for view in visible]
 
 
 def get_container(ctx: ToolContext, args: Args) -> object:

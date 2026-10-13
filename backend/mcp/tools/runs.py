@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from backend.api import authz
 from backend.api.schemas.projects import BranchHeadResponse
 from backend.api.schemas.runs import CancelResponse, RunPage, RunResponse, RunSummary
 from backend.domain.enums import TokenScope
@@ -21,7 +22,7 @@ def list_runs(ctx: ToolContext, args: Args) -> object:
     if slug is not None and env is not None:
         page = queries.environment_runs(slug, env, limit=limit, offset=offset)
     else:
-        page = queries.all_runs(limit=limit, offset=offset)
+        page = queries.all_runs(limit=limit, offset=offset, only=authz.run_predicate(ctx.principal))
     return RunPage.from_page(page).model_dump(mode="json")
 
 

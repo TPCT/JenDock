@@ -6,17 +6,18 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from backend.api.deps import Container, require_scope
+from backend.api.deps import Container, require
 from backend.api.principal import Principal
 from backend.api.schemas.deployments import DeploymentPageResponse, RedeployResponse
-from backend.domain.enums import EnvironmentName, TokenScope
+from backend.domain.access import Action
+from backend.domain.enums import EnvironmentName
 from backend.services.deployments import MAX_PAGE_SIZE
 
 router = APIRouter(
     prefix="/api/projects/{slug}/environments/{env}/deployments", tags=["deployments"]
 )
-Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
-Deployer = Annotated[Principal, Depends(require_scope(TokenScope.DEPLOY))]
+Reader = Annotated[Principal, Depends(require(Action.DEPLOYMENT_READ))]
+Deployer = Annotated[Principal, Depends(require(Action.DEPLOYMENT_REDEPLOY))]
 
 
 @router.get("")

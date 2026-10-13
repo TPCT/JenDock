@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from backend.domain.access import GlobalRole
 from backend.domain.actor import Actor
 from backend.domain.audit import AuditEntry, AuditTarget
 from backend.domain.clock import Clock, utcnow
@@ -28,6 +29,8 @@ class LoginResult:
     session: NewSession
     user_id: int
     username: str
+    role: GlobalRole
+    must_change_password: bool
 
 
 class AuthService:
@@ -61,7 +64,7 @@ class AuthService:
         self._limiter.reset_username(name)
         session = self._sessions.create(user.id)
         self._record(Actor(ActorType.USER, str(user.id)), "auth.login", user)
-        return LoginResult(session, user.id, user.username)
+        return LoginResult(session, user.id, user.username, user.role, user.must_change_password)
 
     def logout(self, token: str, user_id: int) -> None:
         """End the session and audit it."""

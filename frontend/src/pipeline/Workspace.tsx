@@ -11,6 +11,7 @@ import type { Diagnostic, EnvironmentName, Project } from "../api/types";
 import { api } from "../api/client";
 import { Callout, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { RelativeTime } from "../components/Time";
+import { useCan } from "../lib/permissions";
 import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiagnosticsList } from "./DiagnosticsList";
 import { History } from "./History";
@@ -51,7 +52,10 @@ export function Workspace({
   const environment = project.environments.find((item) => item.name === env);
   const branch = environment?.branch ?? "main";
   const context = { project: slug, environment: env };
-  const readOnly = doc.source === "repository";
+  const can = useCan();
+  const fromRepository = doc.source === "repository";
+  const canWrite = can("pipeline.write", { project: slug, env });
+  const readOnly = fromRepository || !canWrite;
   const client = useQueryClient();
   const catalog = useCatalog();
   const secrets = useSecretNames(slug, env);
@@ -280,7 +284,12 @@ export function Workspace({
 
   return (
     <div className={styles.workspace}>
-      {readOnly ? (
+      {!fromRepository && !canWrite ? (
+        <Callout role="status" title="You can look at this pipeline but not change it.">
+          Saving needs the developer role on development or the maintainer role on production.
+        </Callout>
+      ) : null}
+      {fromRepository ? (
         <Callout
           role="status"
           title={`This pipeline is defined by the Jenkinsfile in ${project.repository}@${branch}; edit it in the repository.`}

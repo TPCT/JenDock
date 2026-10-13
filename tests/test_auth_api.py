@@ -11,10 +11,10 @@ from sqlalchemy import Engine, select
 
 from backend.api.app import create_app
 from backend.api.container import AppContainer
-from backend.api.deps import require_scope
+from backend.api.deps import Target, require
 from backend.api.principal import Principal
 from backend.config import SESSION_ABSOLUTE_TIMEOUT, SESSION_IDLE_TIMEOUT
-from backend.domain.enums import TokenScope
+from backend.domain.access import Action
 from backend.domain.errors import RateLimitedError
 from backend.repositories.models import Session, User
 from backend.services.audit import AuditService
@@ -57,12 +57,21 @@ def test_login_success_returns_user_and_csrf(client: TestClient, admin: int) -> 
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["user"] == {"id": admin, "username": USERNAME}
+    assert body["user"] == {
+        "id": admin,
+        "username": USERNAME,
+        "display_name": "",
+        "email": None,
+        "role": "owner",
+    }
+    assert body["must_change_password"] is False
+    assert body["permissions"]["all"] is True
     assert len(body["csrf_token"]) == 64
     session = client.get("/api/auth/session")
     assert session.status_code == 200
     assert session.json()["csrf_token"] == body["csrf_token"]
-    assert "password" not in response.text
+    assert PASSWORD not in response.text and "password_hash" not in response.text
+    assert "argon2" not in response.text
 
 
 def test_session_requires_login(client: TestClient) -> None:
@@ -226,7 +235,7 @@ def _client_with_background_route(container: AppContainer) -> TestClient:
     app = create_app(container=container)
 
     def background(
-        principal: Principal = Depends(require_scope(TokenScope.READ, background=True)),  # noqa: B008
+        principal: Principal = Depends(require(Action.PROJECT_LIST, Target.NONE, background=True)),  # noqa: B008
     ) -> dict[str, bool]:
         return {"session": principal.is_session}
 
