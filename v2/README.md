@@ -63,6 +63,30 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
   below it; the deployer refuses to start a deployment when one is not readable.
 
+## Importing v1 projects (Task 15.1)
+
+```
+python -m shiftcodes.cli import-v1 --projects-json <v1>/projects.json [--v1-db <v1 sqlite>] \
+    [--compose-root <copy of /opt/docker-engine/projects>] [--dry-run]
+```
+
+Reads v1 read-only and creates v2 projects, environments (branch, auto deploy, compose project,
+compose files, services) and one canonical Jenkinsfile per recipe (`dockerBuild` per image, a
+`Test` stage per v1 test with its environment as stage `environment`, `deploy services: [...]`,
+`healthCheck`), each validated by the Jenkinsfile engine. `--dry-run` prints the whole plan and
+never opens the database. Re-running is safe: missing things are created, blank compose settings
+are filled, anything that exists and differs is only reported. Secrets are never imported; the
+report lists what the operator must provide (the compose env file is only referenced, never read).
+v1 has one branch per project: it is assigned to development or production (from the v1
+registry binding when `--v1-db` is given, else from the branch name) and every guess is a warning.
+The service -> image mapping is exact when `--compose-root` makes the compose files readable and
+a flagged name-based guess otherwise. The field mapping is the table `ENVIRONMENT_FIELDS` in
+`shiftcodes/importer/plan.py` (v1 `env_file` -> `compose_env_files`). Projects default to
+`git_transport = ssh` like v1 (deploy key `SHIFTCODES_GIT_SSH_KEY_FILE` must exist and be a
+deploy key of each repository); `--https` overrides. The dry run starts with a "needs operator
+decision" summary (ambiguous guesses, misspelled-looking branches, missing environment data,
+dropped tmpfs).
+
 ## Reproducible builds
 
 `requirements.lock` pins runtime dependencies and is used as pip constraints in both

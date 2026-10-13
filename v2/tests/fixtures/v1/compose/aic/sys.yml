@@ -1,0 +1,13 @@
+# Synthetic stand-in for /opt/docker-engine/projects/aic/sys.yml (the real compose files are not
+# available outside the VPS); it only models the image wiring the importer reads.
+services:
+  sys-app:
+    image: ${AIC_SYS_APP_IMAGE}
+  sys-web:
+    image: ${AIC_SYS_WEB_IMAGE:-aic-sys-web:latest}
+  sys-queue:
+    image: ${AIC_SYS_APP_IMAGE}
+  sys-scheduler:
+    image: ${AIC_SYS_APP_IMAGE}
+  sys-reverb:
+    image: ${AIC_SYS_WEB_IMAGE}
