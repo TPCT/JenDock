@@ -43,7 +43,8 @@ describe("connections", () => {
   it("marks production clearly, with the audit and read-only-user advice", async () => {
     renderApp("/projects/shop-api/environments/production/databases");
     expect(await screen.findByText("Production data")).toBeInTheDocument();
-    expect(screen.getAllByText(/only has SELECT privileges/).length).toBeGreaterThan(0);
+    // the advice appears once on a production page: in the banner, not again under the card
+    expect(screen.getAllByText(/only has SELECT privileges/)).toHaveLength(1);
     expect(screen.getByText(/every access is recorded in the audit log/)).toBeInTheDocument();
   });
 
