@@ -352,7 +352,9 @@ function RecentRunsCard() {
           No runs yet. Push to a tracked branch, or open a project and press Run pipeline.
         </Hint>
       ) : null}
-      {runs.data && runs.data.items.length > 0 ? <RunList runs={runs.data.items} showProject /> : null}
+      {runs.data && runs.data.items.length > 0 ? (
+        <RunList runs={runs.data.items} showProject />
+      ) : null}
     </Card>
   );
 }
