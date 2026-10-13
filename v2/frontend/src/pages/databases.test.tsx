@@ -1,12 +1,16 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../mocks/server";
 import { editorViews } from "../pipeline/CodeEditor";
 import { renderApp } from "../test/render";
 import { hexLines } from "../components/ResultTable";
 import { explainTestError } from "./Databases";
+
+beforeAll(async () => {
+  await import("./DatabaseConsole");
+}, 60_000);
 
 let consoleError: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {

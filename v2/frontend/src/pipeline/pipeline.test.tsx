@@ -1,11 +1,15 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveAsSomeoneElse } from "../mocks/pipelines";
 import { renderApp } from "../test/render";
 import { editorViews } from "./CodeEditor";
 
 const DEV = "/projects/shop-api/environments/development/pipeline";
+beforeAll(async () => {
+  await import("../pages/Pipeline");
+}, 60_000);
+
 let consoleError: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
