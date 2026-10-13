@@ -331,7 +331,7 @@ Every `sh` runs in a container started with `--rm`, labels `shiftcodes.run_id` a
 win under contention) and `--entrypoint sh -c <script>`.
 
 - **Logical image** (built by `dockerBuild`, tagged `sc/<project>-<env>-<image>:<sha12>-r<run
-  number>` with labels `shiftcodes.project|environment|run_id|commit`): runs with the image's own
+  number>` with labels `shiftcodes.project|environment|build_run|commit`): runs with the image's own
   `WORKDIR`, user and no workspace mount. `dir()` becomes a `cd` at the start of the script.
 - **External image** (`node:22`): pulled when not present locally (once per run), the workspace is
   mounted at `/workspace`, which is the working directory (`dir()` is relative to it), and the

@@ -18,6 +18,10 @@ WORKSPACE_TARGET = "/workspace"
 DEFAULT_HOME = "/tmp"  # noqa: S108 - a path inside the container, not on the host
 RUN_ID_LABEL = "shiftcodes.run_id"
 STEP_ID_LABEL = "shiftcodes.step_id"
+# Images record the run that built them under a name of their own: a container started from an
+# image inherits its labels, and a deployed service must never carry RUN_ID_LABEL (the label
+# the worker kills by when a run ends).
+BUILD_RUN_LABEL = "shiftcodes.build_run"
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,7 +7,7 @@ from pathlib import Path
 from shiftcodes.adapters.container_runtime import BuildSpec
 from shiftcodes.execution.context import StepContext
 from shiftcodes.execution.docker_agent import (
-    RUN_ID_LABEL,
+    BUILD_RUN_LABEL,
     ContainerPlanner,
     limited_memory,
     raise_unless_ok,
@@ -83,7 +83,7 @@ class DockerBuildStep(Step):
             labels={
                 "shiftcodes.project": job.project,
                 "shiftcodes.environment": job.environment,
-                RUN_ID_LABEL: str(job.run_id),
+                BUILD_RUN_LABEL: str(job.run_id),
                 "shiftcodes.commit": job.commit_sha,
             },
             memory=limited_memory(None, ctx.run.config.build_memory),
