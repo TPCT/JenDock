@@ -34,7 +34,10 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make test` - pytest (tests marked `docker` are deselected)
 - `make test-docker` - the real-Docker integration tests (`pytest -m docker`); they are skipped
   when no Docker daemon or git is available. They build and run containers in the local daemon,
-  label everything `shiftcodes.test=1`, and the teardown removes it and fails if anything is left
+  label everything `shiftcodes.test=1` plus a per-session `shiftcodes.test.session=<uuid>`
+  (`tests/docker_support.py`: `session_labels()`), and the teardown removes and checks only that
+  session's containers, images, networks and volumes, so parallel suites on one daemon do not
+  interfere
 - `make migrate` - `python -m shiftcodes.repositories.migrate` (upgrade head on
   `SHIFTCODES_DATABASE_URL`); the same command works inside the api/worker images
 - `make lock` - regenerate `requirements.lock` (needs Docker)
