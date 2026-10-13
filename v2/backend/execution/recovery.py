@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from backend.adapters.deployer import Recoverable
+from backend.domain.enums import RunStatus
 from backend.execution.docker_agent import RUN_ID_LABEL
 from backend.execution.environment import ExecutionEnv
 
@@ -48,4 +49,6 @@ def recover_interrupted_runs(env: ExecutionEnv) -> list[int]:
     interrupted = lifecycle.interrupt_running(INTERRUPTED_MESSAGE)
     if interrupted:
         logger.warning("interrupted runs recovered", extra={"run_ids": interrupted})
+    for run_id in interrupted:
+        env.notifications.run_finished(run_id, RunStatus.INTERRUPTED)
     return interrupted

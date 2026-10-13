@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { resetAdminMock } from "./src/mocks/admin";
 import { resetContainersMock } from "./src/mocks/containers";
 import { resetDatabasesMock } from "./src/mocks/databases";
+import { resetNotificationsMock } from "./src/mocks/notifications";
 import { resetMockData } from "./src/mocks/data";
 import { server } from "./src/mocks/server";
 import { setMockAuthenticated } from "./src/mocks/handlers";
@@ -54,6 +55,7 @@ afterEach(() => {
   resetAdminMock();
   resetContainersMock();
   resetDatabasesMock();
+  resetNotificationsMock();
 });
 afterAll(() => {
   server.close();

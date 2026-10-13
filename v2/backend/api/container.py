@@ -10,6 +10,7 @@ from sqlalchemy import Engine
 from backend.adapters.container_client import ContainerClient, ContainersGateway
 from backend.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from backend.adapters.inspector_client import InspectorGateway, WorkerInspectorClient
+from backend.adapters.notification_client import NotificationGateway, WorkerNotificationClient
 from backend.adapters.worker_client import (
     GithubGateway,
     RepositoryGateway,
@@ -37,6 +38,7 @@ from backend.services.deployments import DeploymentService
 from backend.services.domain_status import DomainStatusService
 from backend.services.domains import DomainService
 from backend.services.environments import EnvironmentService
+from backend.services.notification_rules import NotificationQueryService, NotificationRuleService
 from backend.services.passwords import PasswordHasher
 from backend.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
 from backend.services.pipelines import PipelineService
@@ -80,6 +82,9 @@ class AppContainer:
     # ``container_gateway``). Tickets of the terminal WebSocket live here, in process memory.
     containers: ContainersGateway | None = None
     terminal_tickets: TicketStore = field(default_factory=TicketStore)
+    # Notification channel configuration goes through the worker (it encrypts); ``None`` means
+    # the default socket client (see ``notification_gateway``).
+    notifications: NotificationGateway | None = None
 
     @classmethod
     def build(  # noqa: PLR0913 - one optional override per collaborator
@@ -121,6 +126,20 @@ class AppContainer:
         if self.containers is not None:
             return self.containers
         return ContainerClient(WorkerClient(self.settings.worker_socket_path))
+
+    def notification_gateway(self) -> NotificationGateway:
+        """Channel writes and test sends (always through the worker, which holds the key)."""
+        if self.notifications is not None:
+            return self.notifications
+        return WorkerNotificationClient(WorkerClient(self.settings.worker_socket_path))
+
+    def notification_queries(self) -> NotificationQueryService:
+        """Channel and delivery history read models."""
+        return NotificationQueryService(self.uow())
+
+    def notification_rules(self) -> NotificationRuleService:
+        """Rule sets of the default, project and environment scopes."""
+        return NotificationRuleService(self.uow(), self.clock)
 
     def uow(self) -> UnitOfWork:
         """Return a fresh unit of work."""

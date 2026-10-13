@@ -1,4 +1,4 @@
-import { CommentDiscussionIcon, KeyIcon, PlusIcon } from "@primer/octicons-react";
+import { BellIcon, CommentDiscussionIcon, KeyIcon, PlusIcon } from "@primer/octicons-react";
 import {
   Button,
   Checkbox,
@@ -47,6 +47,7 @@ const EXPIRY = [
 export function GlobalSettingsLayout() {
   const items: SettingsItem[] = [
     { to: "/settings/tokens", label: "API tokens", icon: KeyIcon },
+    { to: "/settings/notifications", label: "Notifications", icon: BellIcon },
     { to: "/settings/agents", label: "Connect an AI agent", icon: CommentDiscussionIcon },
   ];
   return (

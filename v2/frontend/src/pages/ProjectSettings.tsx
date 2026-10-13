@@ -1,4 +1,4 @@
-import { GearIcon, KeyIcon, RocketIcon, WebhookIcon } from "@primer/octicons-react";
+import { BellIcon, GearIcon, KeyIcon, RocketIcon, WebhookIcon } from "@primer/octicons-react";
 import {
   Button,
   Checkbox,
@@ -29,6 +29,7 @@ export function ProjectSettingsLayout() {
     { to: `${base}/environments`, label: "Environments", icon: RocketIcon },
     { to: `${base}/webhook`, label: "GitHub connection", icon: WebhookIcon },
     { to: `${base}/secrets`, label: "Secrets", icon: KeyIcon },
+    { to: `${base}/notifications`, label: "Notifications", icon: BellIcon },
   ];
   return <SettingsLayout label="Project settings" items={items} />;
 }

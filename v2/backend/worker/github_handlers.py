@@ -80,11 +80,16 @@ class GithubHandlers:
     """Adapts the GitHub operations to RPC calls."""
 
     def __init__(
-        self, secret_file: Path | None, heads: BranchHeadReader, projects: ProjectSource
+        self,
+        secret_file: Path | None,
+        heads: BranchHeadReader,
+        projects: ProjectSource,
+        on_invalid_signature: Callable[[], None] | None = None,
     ) -> None:
         self._secret_file = secret_file
         self._heads = heads
         self._projects = projects
+        self._on_invalid = on_invalid_signature
 
     def verify_webhook(self, call: RpcCall) -> object:
         """``github.verify_webhook``: ``{"valid": bool}``."""
@@ -94,7 +99,10 @@ class GithubHandlers:
         except (binascii.Error, ValueError) as error:
             raise BadRequestError("invalid params") from error
         secret = read_webhook_secret(self._secret_file)
-        return {"valid": signature_matches(secret, body, params.signature)}
+        valid = signature_matches(secret, body, params.signature)
+        if not valid and self._on_invalid is not None:
+            self._on_invalid()  # counts failures for the notification spike alert
+        return {"valid": valid}
 
     def branch_head(self, call: RpcCall) -> object:
         """``github.branch_head``: the head of a branch of the project's repository."""
@@ -133,10 +141,13 @@ def project_source(uow_factory: Callable[[], UnitOfWork]) -> ProjectSource:
 
 
 def github_handlers(
-    secret_file: Path | None, heads: BranchHeadReader, projects: ProjectSource
+    secret_file: Path | None,
+    heads: BranchHeadReader,
+    projects: ProjectSource,
+    on_invalid_signature: Callable[[], None] | None = None,
 ) -> Mapping[str, Handler]:
     """The GitHub entries of the RPC allowlist."""
-    handlers = GithubHandlers(secret_file, heads, projects)
+    handlers = GithubHandlers(secret_file, heads, projects, on_invalid_signature)
     return {
         "github.verify_webhook": handlers.verify_webhook,
         "github.branch_head": handlers.branch_head,

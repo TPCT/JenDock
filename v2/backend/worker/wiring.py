@@ -7,6 +7,7 @@ from collections.abc import Callable
 from backend.adapters.commit_status import GithubStatusPublisher
 from backend.adapters.compose_deployer import DEPLOYMENTS_DIR_NAME, ComposeDeployer, DeployConfig
 from backend.adapters.deploy_health import HealthPolicy
+from backend.adapters.deploy_ledger import DeploymentLedger
 from backend.adapters.docker_cli import DockerCliRuntime
 from backend.adapters.docker_commands import DockerCommands
 from backend.adapters.http_probe import UrllibProbe
@@ -24,29 +25,33 @@ from backend.execution.status_reporter import (
 from backend.logging import SecretRedactor
 from backend.repositories.database import SessionFactory, UnitOfWork
 from backend.services.deployments import DatabaseLedger
+from backend.services.notification_events import NoRunNotifications, NotifyingLedger
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
 from backend.worker.container_wiring import OVERRIDES_DIR_NAME
 from backend.worker.git_wiring import build_source
+from backend.worker.notification_wiring import NotificationParts
 
 PRIVATE_DIR_NAME = "worker-private"
 WORKSPACES_DIR_NAME = "workspaces"
 LOGS_DIR_NAME = "logs"
 
 
-def build_execution_env(
+def build_execution_env(  # noqa: PLR0913, PLR0917 - one optional collaborator each
     settings: Settings,
     session_factory: SessionFactory,
     cipher: SecretCipher,
     redactor: SecretRedactor,
     locks: EnvironmentLocks | None = None,
+    notifications: NotificationParts | None = None,
 ) -> ExecutionEnv:
     """Wire the docker CLI runtime, git source, workspaces, logs and secret access.
 
     Deployment goes through ``ComposeDeployer`` (journals and managed overrides live under
     ``<data_dir>/deployments``), wrapped so every deployment holds its environment's lock, shared
     with container operations (``locks``). The git source clones over ssh (deploy key) or https
-    depending on the project; commit status reporting is off unless enabled.
+    depending on the project; commit status reporting is off unless enabled. With
+    ``notifications`` runs and deployments announce their outcome (``notification_wiring``).
     """
     data_dir = settings.data_dir
 
@@ -54,9 +59,12 @@ def build_execution_env(
         return SecretService(UnitOfWork(session_factory), cipher, redactor)
 
     probe = UrllibProbe()
+    ledger: DeploymentLedger = DatabaseLedger(lambda: UnitOfWork(session_factory))
+    if notifications is not None:
+        ledger = NotifyingLedger(ledger, notifications.deployments)
     deployer = ComposeDeployer(
         DockerCommands(settings.docker_binary, settings.docker_host),
-        DatabaseLedger(lambda: UnitOfWork(session_factory)),
+        ledger,
         data_dir / DEPLOYMENTS_DIR_NAME,
         probe,
         config=DeployConfig(
@@ -89,6 +97,7 @@ def build_execution_env(
         session_factory=session_factory,
         secret_service=secret_service,
         status=_status_reporter(settings, secret_service),
+        notifications=notifications.runs if notifications else NoRunNotifications(),
     )
 
 

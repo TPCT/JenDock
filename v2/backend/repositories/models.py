@@ -429,3 +429,6 @@ class WebhookDelivery(Base):
     repository: Mapped[str | None] = mapped_column(String(160), default=None)
     outcome: Mapped[str] = mapped_column(String(32))
     received_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+import backend.repositories.notification_models  # noqa: E402, F401 - registers the tables
