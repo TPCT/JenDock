@@ -12,9 +12,20 @@
 .skip:focus {
   top: var(--base-size-8);
 }
+/* The top bar stays in place, like the sidebar below it. */
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 64px;
   align-items: center;
   gap: var(--base-size-8);
+}
+/* The sidebar is exactly one screen below the top bar, so its divider always reaches the bottom,
+   on short pages as on long ones. */
+.pane {
+  height: calc(100dvh - 64px);
+  border-right: var(--borderWidth-thin) solid var(--borderColor-default);
 }
 .brand {
   display: inline-flex;

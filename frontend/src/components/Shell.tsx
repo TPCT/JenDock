@@ -31,6 +31,9 @@ import { MOBILE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
 import { Initials } from "./Initials";
 import styles from "./Shell.module.css";
 
+/** Height of the top bar in px; the sidebar fills the screen below it. Keep in sync with Shell.module.css. */
+const HEADER_HEIGHT = 64;
+
 function NavItem({
   to,
   icon: Icon,
@@ -232,7 +235,15 @@ export function Shell() {
       </Header>
       <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none">
         {mobile ? null : (
-          <PageLayout.Pane position="start" width="small" divider="line" padding="condensed" sticky>
+          <PageLayout.Pane
+            position="start"
+            width="small"
+            divider="none"
+            padding="condensed"
+            sticky
+            offsetHeader={HEADER_HEIGHT}
+            className={styles.pane}
+          >
             <MainNav />
           </PageLayout.Pane>
         )}
