@@ -115,7 +115,7 @@ def test_token_scopes_for_secrets(
     client.put(f"{BASE}/K", json={"value": VALUE}, headers=mutation_headers(client, csrf))
     reader = _token(client, csrf, ["read"])
     admin = _token(client, csrf, ["admin"])
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     assert bare.get(BASE, headers=reader).status_code == 200
     assert bare.post(f"{BASE}/K/reveal", headers=reader).status_code == 403
     assert bare.put(f"{BASE}/K", json={"value": "x"}, headers=reader).status_code == 403
@@ -130,7 +130,7 @@ def test_unauthenticated_and_csrf(
     wired: AppContainer, session_client: tuple[TestClient, str]
 ) -> None:
     client, _csrf = session_client
-    anonymous = TestClient(client.app, base_url=client.base_url)
+    anonymous = TestClient(client.app, base_url=str(client.base_url))
     assert anonymous.get(BASE).status_code == 401
     origin = {"Origin": "https://app.example.test"}
     assert client.put(f"{BASE}/K", json={"value": "v"}, headers=origin).status_code == 403

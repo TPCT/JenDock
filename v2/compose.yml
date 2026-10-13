@@ -14,6 +14,8 @@ services:
       # per-IP limit becomes a global one. Apache on the host reaches the published port via
       # the compose network gateway, e.g. TRUSTED_PROXIES=172.18.0.1 (docker network inspect).
       SHIFTCODES_TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
+      # Extra Host header values accepted at /mcp (DNS rebinding protection), comma separated.
+      SHIFTCODES_MCP_ALLOWED_HOSTS: "${MCP_ALLOWED_HOSTS:-}"
     # api = uid 10002, worker = uid 10001, shared group 10001 (see the Dockerfiles): the socket
     # is 0660 in a setgid 2770 directory, so a compromised API cannot act as the worker user.
     ports:

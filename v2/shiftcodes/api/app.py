@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from shiftcodes.api.container import AppContainer
@@ -23,6 +24,7 @@ from shiftcodes.api.routers import (
     tokens,
 )
 from shiftcodes.config import Settings, get_settings
+from shiftcodes.mcp.server import MCP_PATH, McpEndpoint
 
 
 def create_app(settings: Settings | None = None, container: AppContainer | None = None) -> FastAPI:
@@ -35,9 +37,15 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     wired = container or AppContainer.build(resolved)
     production = resolved.environment == "production"
 
+    mcp = McpEndpoint(wired) if resolved.mcp_enabled else None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
+        if mcp is None:
+            yield
+        else:
+            async with mcp.lifespan():
+                yield
         wired.engine.dispose()
 
     # No Swagger UI: its CDN assets conflict with the strict CSP. The schema is development-only.
@@ -59,6 +67,9 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(github.router)
     app.include_router(pipelines.environment_router)
     app.include_router(pipelines.editor_router)
+
+    if mcp is not None:
+        app.router.routes.append(Route(MCP_PATH, endpoint=mcp))  # bearer tokens only, see mcp/
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
