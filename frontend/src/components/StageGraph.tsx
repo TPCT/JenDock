@@ -31,7 +31,7 @@ export function StageGraph({
 }) {
   const columns = groupColumns(stages);
   if (columns.length === 0) {
-    return <p className="muted">Stages appear here once the pipeline starts.</p>;
+    return <p className={`muted ${styles.empty}`}>Stages appear here once the pipeline starts.</p>;
   }
   return (
     <ol className={styles.graph} aria-label="Pipeline stages">

@@ -19,6 +19,10 @@ class SourceError(AdapterError):
     """The source code could not be fetched or is not acceptable."""
 
 
+class SourceTimeoutError(SourceError):
+    """A git command did not finish in time (a slow network, not a bad repository)."""
+
+
 class WorkspaceError(AdapterError):
     """A workspace could not be prepared or exceeds its bounds."""
 

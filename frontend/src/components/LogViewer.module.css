@@ -7,7 +7,8 @@
 }
 .scroll {
   max-height: 32rem;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: var(--base-size-8) 0;
   background: var(--bgColor-inset);
   border: var(--borderWidth-thin) solid var(--borderColor-default);
@@ -24,7 +25,6 @@
 .line {
   display: flex;
   align-items: flex-start;
-  min-width: max-content;
   padding-right: var(--base-size-16);
 }
 .line:hover {
@@ -43,8 +43,12 @@
   padding-right: var(--base-size-12);
   color: var(--fgColor-muted);
 }
+/* Long lines wrap (as in the GitHub Actions log) instead of scrolling sideways. */
 .text {
-  white-space: pre;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .mark {
   background: var(--bgColor-attention-emphasis);

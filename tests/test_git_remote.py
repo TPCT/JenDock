@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC
 from pathlib import Path
 
 import pytest
 
-from backend.adapters.errors import SourceError
+from backend.adapters.errors import SourceError, SourceTimeoutError
 from backend.adapters.git_access import GitAccess, SshSettings, ssh_access
 from backend.adapters.git_remote import GitBranchHeads
+from backend.adapters.git_runner import GitRunner
 from backend.adapters.sources import (
     MAX_REPOSITORY_FILE_BYTES,
     CheckoutRequest,
@@ -92,6 +94,63 @@ def test_read_file_errors_for_an_unknown_commit_or_repository(tmp_path: Path) ->
         LocalGitSource(lambda _n: str(tmp_path / "nope")).read_file(
             CheckoutRequest("o/r", "f" * 40), "Jenkinsfile"
         )
+
+
+def test_a_read_whose_fetch_times_out_once_is_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    sha = commit(repo, {"Jenkinsfile": "pipeline {}\n"})
+    real_run = GitRunner.run
+    fetches: list[float | None] = []
+
+    def slow_once(
+        self: GitRunner, args: list[str], cwd: Path | None = None, timeout: float | None = None
+    ) -> str:
+        if args[0] == "fetch":
+            fetches.append(timeout)
+            if len(fetches) == 1:
+                raise SourceTimeoutError("git fetch did not finish within 45 seconds")
+        return real_run(self, args, cwd, timeout)
+
+    monkeypatch.setattr(GitRunner, "run", slow_once)
+    text = LocalGitSource(lambda _n: str(repo)).read_file(
+        CheckoutRequest("o/r", sha), "Jenkinsfile"
+    )
+    assert text == "pipeline {}\n"
+    assert len(fetches) == 2
+
+
+def test_a_read_that_keeps_timing_out_fails_with_the_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    sha = commit(repo, {"Jenkinsfile": "x"})
+    real_run = GitRunner.run
+    fetches = 0
+
+    def always_slow(
+        self: GitRunner, args: list[str], cwd: Path | None = None, timeout: float | None = None
+    ) -> str:
+        nonlocal fetches
+        if args[0] == "fetch":
+            fetches += 1
+            raise SourceTimeoutError("git fetch did not finish within 45 seconds")
+        return real_run(self, args, cwd, timeout)
+
+    monkeypatch.setattr(GitRunner, "run", always_slow)
+    with pytest.raises(SourceTimeoutError, match="did not finish"):
+        LocalGitSource(lambda _n: str(repo)).read_file(CheckoutRequest("o/r", sha), "Jenkinsfile")
+    assert fetches == 2
+
+
+def test_a_git_timeout_is_reported_as_a_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def hang(*_args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd="git", timeout=float(kwargs["timeout"]))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(SourceTimeoutError, match="within 5 seconds"):
+        GitRunner().run(["fetch"], timeout=5.0)
 
 
 def test_the_unavailable_source_cannot_read_either() -> None:

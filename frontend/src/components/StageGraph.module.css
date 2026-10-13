@@ -73,3 +73,7 @@
   font-size: var(--text-body-size-small);
   white-space: nowrap;
 }
+.empty {
+  margin: 0;
+  padding: var(--base-size-16);
+}
