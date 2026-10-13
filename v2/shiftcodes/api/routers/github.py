@@ -51,23 +51,21 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
-def _verify(container: AppContainer, signature: str | None, body: bytes) -> None:
+def _verify(container: AppContainer, signature: str, body: bytes) -> None:
     """Constant-time check done by the worker, which alone holds the webhook secret."""
-    if not is_signature_format(signature) or signature is None:
-        raise AuthenticationError("missing or malformed X-Hub-Signature-256 header")
     if not container.github.verify_webhook(signature, body):
         logger.warning("webhook signature mismatch")
         raise AuthenticationError("invalid webhook signature")
 
 
 def _process(
-    container: AppContainer, body: bytes, signature: str | None, delivery: str | None, event: str
+    container: AppContainer, body: bytes, signature: str, delivery: str | None, event: str
 ) -> WebhookResult:
     _verify(container, signature, body)
     delivery_id = validate_delivery_id(delivery)
     try:
         payload = json.loads(body)
-    except ValueError as error:
+    except (ValueError, RecursionError) as error:
         raise ValidationError("the payload is not valid JSON") from error
     if not isinstance(payload, dict):
         raise ValidationError("the payload must be a JSON object")
@@ -78,7 +76,7 @@ def _process(
 async def webhook(request: Request, container: Container) -> JSONResponse:
     """Handle a delivery: ``ping`` answers 200, ``push`` queues runs (202) per auto-deploy."""
     signature = request.headers.get("x-hub-signature-256")
-    if not is_signature_format(signature):
+    if signature is None or not is_signature_format(signature):
         raise AuthenticationError("missing or malformed X-Hub-Signature-256 header")
     if request.headers.get("content-type", "").split(";")[0].strip().lower() != JSON_TYPE:
         raise HTTPException(status_code=415, detail="the webhook content type must be JSON")

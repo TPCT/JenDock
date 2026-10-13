@@ -1,10 +1,8 @@
 """RPC methods for GitHub: webhook signature verification and branch head lookup.
 
-The webhook secret lives in a file of the worker-only keys volume. The API forwards the
-raw body and the signature header, so even a compromised API process cannot read the secret
-(it could only ask whether a signature is valid, which it could always forge by writing
-the database directly; the point is that the secret is not exposed to anything that parses
-internet input).
+The webhook secret lives in a file of the worker-only keys volume. The API forwards the raw
+body and the signature header and only learns whether the signature is valid, so the process
+that parses internet input never holds the secret (see README, "GitHub integration").
 """
 
 from __future__ import annotations

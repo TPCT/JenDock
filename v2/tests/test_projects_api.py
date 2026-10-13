@@ -643,12 +643,12 @@ def test_retry_unknown_run_and_permissions(
     assert bare.post(url, headers=_bearer(client, csrf, "run")).status_code == 201
 
 
-def test_runs_created_far_apart_are_listed_newest_first(
+def test_runs_created_queued_at_different_times_are_listed_newest_first(
     wired: AppContainer, clock: FakeClock, api: tuple[TestClient, str]
 ) -> None:
     client, _ = api
     first = _queue(wired)
-    clock.advance(days=1)
+    clock.advance(minutes=30)
     second = _queue(wired)
     page = client.get("/api/runs").json()
     assert [r["id"] for r in page["items"]] == [second.id, first.id]

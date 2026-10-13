@@ -176,6 +176,11 @@ def test_an_unparseable_payload_is_422_and_not_remembered(
     assert _deliveries(hook_container) == 0
 
 
+def test_a_deeply_nested_payload_is_422_not_a_crash(hook: TestClient) -> None:
+    status, _ = _post(hook, b"[" * 100_000 + b"]" * 100_000)
+    assert status == 422
+
+
 @pytest.mark.parametrize(
     "body",
     [

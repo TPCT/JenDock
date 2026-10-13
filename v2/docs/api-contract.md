@@ -16,7 +16,9 @@ The frontend types live in `frontend/src/api/types.ts`; the MSW mock in
   - `fields`: `[{loc: string[], msg: string}]` on request-validation 422 (`loc` is e.g. `["body", "username"]`).
   - Codes: `not_found` 404, `conflict` 409, `validation_error` 422, `unauthenticated` 401,
     `forbidden` 403, `rate_limited` 429 (+ `Retry-After` seconds), `worker_unavailable` 503,
-    `worker_error` 502, `configuration_error` 500, `internal_error` 500.
+    `worker_error` 502, `source_error` 502 (git or GitHub could not be reached; the message says
+    why, for example "SSH access is not configured"), `configuration_error` 500,
+    `internal_error` 500.
 - Any 401 (other than the login attempt itself) makes the UI go to `/login?next=<path>`.
 - Statuses of runs, stages and steps: `queued | running | succeeded | failed | cancelled |
 interrupted | skipped`. Finished = not queued and not running.
@@ -39,9 +41,11 @@ The UI calls it at start and keeps `csrf_token` in memory.
 
 204, clears the cookie.
 
-## Projects (proposed)
+## Projects (implemented, Task 6)
 
-All need scope `read` (sessions always have it). Archived projects are omitted.
+Reads need scope `read` (sessions always have it). Archived projects are omitted. Everything in
+this and the Runs section below is implemented; where the implementation differs from the original
+proposal the entry says so ("Deviation").
 
 ### `GET /api/projects`
 
@@ -54,16 +58,40 @@ All need scope `read` (sessions always have it). Archived projects are omitted.
   "environments": [
     {"name": "development", "branch": "develop", "auto_deploy": true,  "last_run": RunSummary | null},
     {"name": "production",  "branch": "main",    "auto_deploy": false, "last_run": RunSummary | null}
-  ]
+  ],
+  "git_transport": "ssh" | "https"
 }
 ```
+
+`git_transport` is an addition (not in the original proposal): how the worker clones the
+repository, `ssh` = deploy key over ssh.github.com:443, `https` = public repositories.
 
 `environments` always has exactly two entries, development first. `last_run` is the newest run
 (by `created_at`) of that environment, any status.
 
+### `POST /api/projects`
+
+Scope `admin`, CSRF. Body `{slug, name, repository: "owner/name", development_branch?,
+production_branch?, git_transport?}` (extra keys rejected; branches default to `development` and
+`production`, must differ; `git_transport` defaults to `ssh`). 201 `Project`. 409 `conflict` for
+an existing slug, 422 for invalid values. Audited as `project.create`.
+
 ### `GET /api/projects/{slug}`
 
-200 `Project` (same shape). 404 `not_found`.
+200 `Project` (same shape). 404 `not_found` (also for an archived project).
+
+### `PATCH /api/projects/{slug}`
+
+Scope `admin`, CSRF. Body with at least one of `name`, `repository`, `git_transport`. 200 `Project`.
+Audited as `project.update`. Lets a project switch between the deploy key and public https.
+
+### `PATCH /api/projects/{slug}/environments/{env}`
+
+Branch mapping and auto-deploy toggle. Scope `admin`, CSRF. Body with at least one of
+`branch` (a push to this branch triggers the environment) and `auto_deploy` (when false a push is
+recorded but queues no run). The two environments of a project must track different branches
+(422). 200 `{name, branch, auto_deploy, last_run}` (the `Project.environments[]` entry). Audited
+as `environment.update` (before and after values).
 
 ### `GET /api/projects/{slug}/environments/{env}/runs?limit=20&offset=0`
 
@@ -79,13 +107,21 @@ Same page shape across all projects and environments, newest first (the "Runs" s
 Resolves the current head of a branch so the user sees what a manual run will build.
 Query parameter instead of a path segment because branch names contain `/`.
 200 `{branch, commit_sha (40 hex), message (first line), author, committed_at}`;
-404 `not_found` when the branch does not exist. Scope `read`.
+404 `not_found` when the branch does not exist. Scope `read`. The worker resolves it
+(`git ls-remote`, then a depth-1 fetch of that commit for message, author and date); the API
+never runs git. 502 `source_error` when GitHub cannot be reached or the deploy key is missing.
 
 ### `POST /api/projects/{slug}/environments/{env}/runs`
 
 Manual run. Scope `run`, CSRF. Body `{branch: string, commit_sha: string}`: the sha the user
-previewed; the server must build exactly that commit (reject with 409 `conflict` if the sha is
-not on that branch). Trigger is `manual`. 201 `RunSummary` (status `queued`).
+previewed; the server must build exactly that commit (extra keys rejected). The worker looks up
+the branch head again and the request is rejected with 409 `conflict` when it is not that sha
+any more (the branch moved after the preview, so the user should look at the new head first);
+404 when the branch does not exist. Any branch may be built, not only the environment's tracked
+one. Trigger is `manual`; `triggered_by` or `triggered_by_token_id` is recorded. 201 `RunSummary`
+(status `queued`). Audited as `run.create`.
+Deviation: the proposal said "not on that branch"; the implemented rule is "not the head of
+that branch", which is what makes the previewed commit the confirmed one.
 
 ### `RunSummary`
 
@@ -93,10 +129,25 @@ Identical to the existing `RunResponse` without `stages`:
 `id, number, project (slug), environment, trigger (push|manual|redeploy), branch, commit_sha,
 pipeline_source (repository|platform), status, message|null, cancel_requested_at|null,
 created_at, started_at|null, finished_at|null`.
+`pipeline_source` of a queued run is provisional (`platform`): the worker decides at start
+whether the repository's `Jenkinsfile` at the commit is used (then `repository`) and writes the
+exact text it ran onto the run.
 The UI shows the project slug in cross-project lists; it loads the project name from
 `GET /api/projects/{slug}` for headings and breadcrumbs.
 
 ## Runs
+
+### `POST /api/runs/{run_id}/retry`
+
+Scope `run`, CSRF. Queues a new run of the same environment, branch and commit with trigger
+`manual` (the pipeline is chosen again when it starts). The original must be finished: 409
+`conflict` while it is `queued` or `running`, 404 for an unknown run. 201 `RunSummary`. Audited
+as `run.create` with `retry_of`.
+
+### `POST /api/github/webhook`
+
+Not for the UI: GitHub calls it, authenticated by `X-Hub-Signature-256` only (no session, no
+CSRF). See the README, "GitHub integration", for the full behaviour.
 
 ### `GET /api/runs/{run_id}` (exists)
 
