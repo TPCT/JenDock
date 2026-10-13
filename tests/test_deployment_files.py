@@ -39,7 +39,7 @@ def test_every_variable_of_the_overlay_is_documented_in_the_env_example() -> Non
     assert used <= documented, used - documented
 
 
-def test_env_example_satisfies_the_preflight_and_names_a_v2_host(tmp_path: Path) -> None:
+def test_env_example_satisfies_the_preflight_and_names_the_public_host(tmp_path: Path) -> None:
     results = pf.check_env_file(EXAMPLE)
     assert [r for r in results if r.status is pf.Status.FAIL] == []
     text = EXAMPLE.read_text()

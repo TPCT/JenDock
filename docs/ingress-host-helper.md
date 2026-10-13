@@ -3,9 +3,8 @@
 The host helper is the one small privileged process of the ingress feature (design and
 protocol: `ingress.md`). Nothing in this repository installs, starts or reconfigures it; the
 steps below are for the administrator, who must verify every path against the actual host
-(Apache binary, how it is started, include layout) first. v1's helper design
-(`docs/operations/ingress-host-helper-setup.md` in the repository root) is the model: a Unix
-socket, a root-owned configuration file, an allowlist and nothing free-form.
+(Apache binary, how it is started, include layout) first. The helper's design: a Unix socket, a root-owned configuration file, an allowlist and nothing
+free-form.
 
 ## What it may touch (and nothing else)
 

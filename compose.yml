@@ -50,13 +50,13 @@ services:
       # bind mount paths on the host: that host directory is mounted below and named here.
       JENDOCK_WORKSPACE_HOST_DIR: "${WORKSPACES_HOST_DIR:-/var/lib/jendock-workspaces}"
       # Resource ceilings for step containers and builds (a pipeline may only lower them),
-      # concurrent runs and the per-step log bound. See README "Execution".
+      # concurrent runs and the per-step log bound. See docs/execution.md.
       JENDOCK_CONTAINER_MEMORY: "${CONTAINER_MEMORY:-2g}"
       JENDOCK_CONTAINER_CPUS: "${CONTAINER_CPUS:-2}"
       JENDOCK_MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-1}"
       # The key lives in the worker-only `keys` volume; the API never sees it.
       JENDOCK_SECRET_KEY_FILE: /run/jendock-keys/secret.key
-      # GitHub (README "GitHub integration"): deploy keys for the ssh transport (one per repository in
+      # GitHub (docs/github.md): deploy keys for the ssh transport (one per repository in
       # /run/jendock-keys/deploy_keys, the default JENDOCK_GIT_SSH_KEY_DIR) and the webhook
       # secret, both files in the worker-only keys volume. Unset until you create them.
       JENDOCK_GITHUB_WEBHOOK_SECRET_FILE: /run/jendock-keys/github_webhook_secret

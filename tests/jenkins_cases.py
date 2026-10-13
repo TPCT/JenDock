@@ -94,9 +94,9 @@ POLICY: dict[str, str] = {
 }
 
 
-def readme_example() -> str:
-    """The first groovy block of the README pipelines section."""
-    section = (ROOT / "README.md").read_text().split("## Pipelines (Jenkinsfile)", 1)[1]
+def docs_example() -> str:
+    """The first groovy block of docs/pipelines.md."""
+    section = (ROOT / "docs" / "pipelines.md").read_text()
     return section.split("```groovy\n", 1)[1].split("```", 1)[0]
 
 
@@ -106,11 +106,11 @@ def all_cases() -> dict[str, str]:
     for kind in ("valid", "invalid"):
         for path in sorted((FIXTURES / kind).glob("*.groovy")):
             cases[f"{kind}/{path.stem}"] = path.read_text()
-    cases["readme/example"] = readme_example()
+    cases["docs/example"] = docs_example()
     for template in load_templates():
         cases[f"template/{template.name}"] = template.jenkinsfile
     for name, text in list(cases.items()):
-        if name.startswith(("valid/", "readme/", "template/")):
+        if name.startswith(("valid/", "docs/", "template/")):
             cases[f"serialized/{name}"] = serialize(parse(text))
     cases.update({f"probe/{name}": text for name, text in PROBES.items()})
     return cases

@@ -61,7 +61,7 @@ Recorded runs are only as good as the probes: the table lists every pipeline tha
 | v1_captcha | accepted | accepted |  |
 | v1_etsawaa | accepted | accepted |  |
 
-## README example and serializer output
+## Documentation example and serializer output
 
 | Case | Ours | Jenkins | Difference |
 |---|---|---|---|
@@ -96,7 +96,7 @@ Recorded runs are only as good as the probes: the table lists every pipeline tha
 | valid/v1_aic_website | accepted | accepted |  |
 | valid/v1_captcha | accepted | accepted |  |
 | valid/v1_etsawaa | accepted | accepted |  |
-| readme/example | accepted | accepted |  |
+| docs/example | accepted | accepted |  |
 | template/laravel | accepted | accepted |  |
 | template/nextjs | accepted | accepted |  |
 | template/node-api | accepted | accepted |  |

@@ -4,7 +4,7 @@ React 19 + Vite + TypeScript (strict, `noUncheckedIndexedAccess`), React Router,
 GitHub's design system (`@primer/react` 38.40.1, `@primer/primitives` CSS variables for light, dark and dark dimmed, `@primer/octicons-react`). Tests: Vitest + Testing Library + MSW.
 Dependencies are pinned to exact versions; use `npm ci`.
 
-The API contract (what exists, what is proposed) is in `../docs/api-contract.md`.
+The API contract is in `../docs/api-contract.md`.
 
 ## Scripts
 

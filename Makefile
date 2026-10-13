@@ -44,7 +44,7 @@ check: lint typecheck test
 lint-jenkins:
 	scripts/jenkins_lint.sh
 
-# Read-only host check before starting v2 (docs/deployment.md); extra flags via PREFLIGHT_ARGS.
+# Read-only host check before the production installation (docs/deployment.md); extra flags via PREFLIGHT_ARGS.
 preflight:
 	python3 scripts/preflight.py $(PREFLIGHT_ARGS)
 

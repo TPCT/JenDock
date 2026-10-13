@@ -14,7 +14,7 @@ from backend.adapters.errors import SourceError
 from backend.adapters.git_runner import GitRunner
 from backend.domain.enums import GitTransport
 
-# Files whose presence in a repository means a secret was committed; v1 refused them too.
+# Files whose presence in a repository means a secret was committed.
 FORBIDDEN_NAMES = frozenset({".env", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"})
 # Same bound as the Jenkinsfile parser (256 KiB), so a bigger file fails early and clearly.
 MAX_REPOSITORY_FILE_BYTES = 256 * 1024

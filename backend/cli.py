@@ -1,7 +1,7 @@
 """Admin command line: ``python -m backend.cli users create|reset-password <username>``,
-``users disable-two-factor <username>``, ``import-v1`` (see ``backend.importer``),
-``deploy-key create|show|list <owner/name>`` (see README "GitHub integration") and
-``backup create|restore|prune`` (see README "Backup and restore").
+``users disable-two-factor <username>``,
+``deploy-key create|show|list <owner/name>`` (see docs/github.md) and
+``backup create|restore|prune`` (see docs/operations.md).
 
 Passwords are read from a hidden prompt, or from stdin with ``--password-stdin``. They are
 never accepted as arguments or environment variables, so they stay out of shell history
@@ -23,16 +23,10 @@ from backend.deploy_keys_cli import add_deploy_key_parser, audit_recorder, run_d
 from backend.domain.access import GlobalRole
 from backend.domain.actor import Actor
 from backend.domain.errors import DomainError, ValidationError
-from backend.importer.apply import ImportServices
-from backend.importer.cli import add_arguments as add_import_arguments
-from backend.importer.cli import run_import
 from backend.process import apply_shared_umask
 from backend.repositories.database import UnitOfWork, create_db_engine, create_session_factory
 from backend.services.audit import AuditService
-from backend.services.environments import EnvironmentService
 from backend.services.passwords import PasswordHasher
-from backend.services.pipelines import PipelineService
-from backend.services.projects import ProjectService
 from backend.services.users import UserService
 
 CLI_ACTOR = Actor.system("cli")
@@ -65,11 +59,6 @@ def build_parser() -> argparse.ArgumentParser:
         "disable-two-factor", help="turn two-factor authentication off (lost device and codes)"
     )
     recovery.add_argument("username")
-    add_import_arguments(
-        groups.add_parser(
-            "import-v1", help="import v1 projects and convert recipes to Jenkinsfiles"
-        )
-    )
     add_backup_parser(groups)
     add_deploy_key_parser(groups)
     return parser
@@ -111,26 +100,6 @@ def run(
     return 0
 
 
-def _import_v1(args: argparse.Namespace) -> int:
-    """Run the importer; a dry run never opens the database."""
-    if args.dry_run:
-        return run_import(args, _no_database)
-    engine = create_db_engine(get_settings().database_url)
-    try:
-        factory = create_session_factory(engine)
-
-        def services() -> ImportServices:
-            return ImportServices(
-                ProjectService(UnitOfWork(factory)),
-                EnvironmentService(UnitOfWork(factory)),
-                PipelineService(UnitOfWork(factory)),
-            )
-
-        return run_import(args, services)
-    finally:
-        engine.dispose()
-
-
 def _deploy_key(args: argparse.Namespace) -> int:
     """Run a deploy-key command; only create/rotate open the database (for the audit event)."""
     settings = get_settings()
@@ -145,10 +114,6 @@ def _deploy_key(args: argparse.Namespace) -> int:
         engine.dispose()
 
 
-def _no_database() -> ImportServices:
-    raise RuntimeError("a dry run must not use the database")
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point wiring the real database."""
     apply_shared_umask()
@@ -158,8 +123,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(parsed)
     if args.group == "deploy-key":
         return _deploy_key(args)
-    if args.group == "import-v1":
-        return _import_v1(args)
     engine = create_db_engine(get_settings().database_url)
     try:
         service = UserService(UnitOfWork(create_session_factory(engine)), PasswordHasher())

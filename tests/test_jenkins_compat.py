@@ -22,7 +22,7 @@ def test_we_never_accept_what_jenkins_rejects(name: str) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    sorted(n for n in CASES if n.startswith(("valid/", "readme/", "template/", "serialized/"))),
+    sorted(n for n in CASES if n.startswith(("valid/", "docs/", "template/", "serialized/"))),
 )
 def test_valid_pipelines_and_serializer_output_pass_jenkins(name: str) -> None:
     assert RECORDED[name]

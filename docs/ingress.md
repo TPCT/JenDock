@@ -1,4 +1,4 @@
-# Ingress: Apache, Cloudflare, TLS (Task 11)
+# Ingress: Apache, Cloudflare, TLS
 
 How a hostname reaches a container: **Cloudflare DNS** -> **Apache on the host** (reverse proxy,
 TLS) -> `127.0.0.1:<published port>` of the container. The HTTP API is in
@@ -165,8 +165,7 @@ host's). Wildcard domains are probed through `ingress-check.<zone>`.
 
 ## Not done / known limits
 
-- `published_port` is entered by the user; it is not read from Docker (deployment, Task 7,
-  does not exist yet) and nothing verifies that the container actually publishes it.
+- `published_port` is entered by the user; it is not read from Docker and nothing verifies that the container actually publishes it.
 - No path-prefix routing, no per-domain custom headers, no HTTP-01 for wildcards.
 - Cloudflare calls have no retry/backoff on 429 or 5xx (an apply simply fails and can be repeated).
 - The renewal pass is sequential and holds the ingress lock while it runs.

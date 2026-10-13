@@ -115,7 +115,7 @@ class UpdateEnvironmentRequest(BaseModel):
     branch: str | None = Field(default=None, min_length=1, max_length=200)
     auto_deploy: bool | None = None
     # The Docker Compose project the platform deploys to and manages. ``null`` clears the name;
-    # the file lists replace the stored ones; every path is absolute (README "Deployment").
+    # the file lists replace the stored ones; every path is absolute (docs/execution.md).
     compose_project: str | None = Field(default=None, max_length=63)
     compose_files: list[str] | None = Field(default=None, max_length=16)
     compose_env_files: list[str] | None = Field(default=None, max_length=16)
