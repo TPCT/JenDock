@@ -16,6 +16,11 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from shiftcodes.repositories.audit import AuditRepository
 from shiftcodes.repositories.deliveries import WebhookDeliveryRepository
+from shiftcodes.repositories.domains import (
+    CertificateRepository,
+    DomainCheckRepository,
+    DomainRepository,
+)
 from shiftcodes.repositories.environments import EnvironmentRepository
 from shiftcodes.repositories.pipelines import PipelineRepository
 from shiftcodes.repositories.projects import ProjectRepository
@@ -153,6 +158,21 @@ class UnitOfWork:
     def audit(self) -> AuditRepository:
         """Audit repository bound to the active session."""
         return AuditRepository(self.session)
+
+    @property
+    def domains(self) -> DomainRepository:
+        """Domain repository bound to the active session."""
+        return DomainRepository(self.session)
+
+    @property
+    def certificates(self) -> CertificateRepository:
+        """Domain certificate repository bound to the active session."""
+        return CertificateRepository(self.session)
+
+    @property
+    def domain_checks(self) -> DomainCheckRepository:
+        """Domain status check repository bound to the active session."""
+        return DomainCheckRepository(self.session)
 
     @property
     def deliveries(self) -> WebhookDeliveryRepository:

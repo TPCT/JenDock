@@ -23,6 +23,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `shiftcodes/cli.py` - admin CLI (`python -m shiftcodes.cli users ...`)
 - `shiftcodes/mcp` - MCP server for AI agents
 - `shiftcodes/config.py`, `shiftcodes/logging.py` - settings (`SHIFTCODES_*`) and JSON logging
+- `shiftcodes/hosthelper` - the host helper (stdlib + cryptography): Apache vhosts, certificates;
+  ingress design in `docs/ingress.md`, install in `docs/ingress-host-helper.md`
 - `docker/` - `api.Dockerfile`, `worker.Dockerfile`; `compose.yml` wires them together
 
 ## Make targets
