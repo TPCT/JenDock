@@ -112,3 +112,14 @@ The log viewer shows timestamps on demand when lines start with an RFC 3339 time
 
 "Re-run" starts a new manual run of the same branch and commit (`POST .../runs`); the server may refuse
 with 409 if the commit left the branch.
+
+## Setup and administration pages
+
+`/projects/new` is a five-step wizard (repository, GitHub access with deploy-key and webhook
+instructions, branches, starter pipeline from `GET /api/pipelines/templates`, review). The deploy key
+and the webhook secret live only in the worker, so the UI cannot show them; it shows the payload URL
+(`<origin>/api/github/webhook`), the content type and the command that prints the secret.
+Per project: Settings (general, environments, GitHub connection, secrets) and Domains
+(`environments/:env/domains`: preview with plan hash, apply, remove, checks, certificates).
+Global: Settings > API tokens (shown once) and the MCP placeholder. All of it is mocked in
+`src/mocks/admin.ts` with the same rules as the routers.

@@ -1,6 +1,7 @@
 import { http, HttpResponse, sse, type HttpHandler } from "msw";
 import type { EnvironmentName, Page, RunSummary, Session } from "../api/types";
 import type { Model } from "../api/pipelineTypes";
+import { adminHandlers } from "./admin";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
   MOCK_CSRF,
@@ -72,6 +73,8 @@ function isEnvironment(value: unknown): value is EnvironmentName {
 const SIMULATED_LINES = 10;
 
 export const handlers: HttpHandler[] = [
+  ...adminHandlers({ authenticated: () => authenticated, error, unauthenticated }),
+
   http.get("/api/auth/session", () =>
     authenticated ? HttpResponse.json(session()) : unauthenticated(),
   ),
@@ -173,20 +176,6 @@ export const handlers: HttpHandler[] = [
     if (!authenticated) return unauthenticated();
     const body = (await request.json()) as { jenkinsfile: string };
     return HttpResponse.json({ diagnostics: validateText(body.jenkinsfile) });
-  }),
-
-  http.get("/api/projects/:slug/environments/:env/secrets", ({ params }) => {
-    if (!authenticated) return unauthenticated();
-    if (!projects().some((item) => item.slug === params.slug))
-      return error(404, "not_found", "project not found");
-    const stamp = new Date().toISOString();
-    return HttpResponse.json(
-      ["DB_PASSWORD", "REGISTRY_TOKEN"].map((name) => ({
-        name,
-        created_at: stamp,
-        updated_at: stamp,
-      })),
-    );
   }),
 
   http.get("/api/projects/:slug/environments/:env/pipeline", ({ params }) => {

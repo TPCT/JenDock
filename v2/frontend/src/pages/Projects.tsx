@@ -1,5 +1,5 @@
-import { RepoIcon } from "@primer/octicons-react";
-import { Heading } from "@primer/react";
+import { PlusIcon, RepoIcon } from "@primer/octicons-react";
+import { Button, Heading } from "@primer/react";
 import { Link } from "react-router-dom";
 import { useProjects } from "../api/hooks";
 import { ENVIRONMENTS, type Project } from "../api/types";
@@ -38,6 +38,11 @@ export function ProjectsPage() {
     <>
       <PageHead
         title="Projects"
+        actions={
+          <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
+            New project
+          </Button>
+        }
         description="Each project has a Development and a Production environment, each with its own branch."
       />
       <div className={box.section}>

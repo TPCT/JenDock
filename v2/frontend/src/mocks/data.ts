@@ -25,9 +25,10 @@ interface ProjectSeed {
   repository: string;
   development: { branch: string; autoDeploy: boolean };
   production: { branch: string; autoDeploy: boolean };
+  gitTransport?: "ssh" | "https";
 }
 
-const SEEDS: ProjectSeed[] = [
+const INITIAL_SEEDS: ProjectSeed[] = [
   {
     slug: "shop-api",
     name: "Shop API",
@@ -57,6 +58,8 @@ const SEEDS: ProjectSeed[] = [
     production: { branch: "main", autoDeploy: false },
   },
 ];
+
+let SEEDS: ProjectSeed[] = structuredClone(INITIAL_SEEDS);
 
 const sha = (n: number): string =>
   (n.toString(16).padStart(8, "0") + "a1b2c3d4e5f60718293a4b5c6d7e8f90").slice(0, 40);
@@ -183,6 +186,7 @@ function seedRuns(): RunSeed[] {
 let runSeeds = seedRuns();
 
 export function resetMockData(): void {
+  SEEDS = structuredClone(INITIAL_SEEDS);
   resetPipelines();
   runSeeds = seedRuns();
   cancelled.clear();
@@ -247,6 +251,7 @@ export function projects(): Project[] {
     name: seed.name,
     repository: seed.repository,
     created_at: ago(40 * 24 * 60 * MINUTE),
+    git_transport: seed.gitTransport ?? "ssh",
     environments: (["development", "production"] as const).map((name) => ({
       name,
       branch: seed[name].branch,
@@ -438,4 +443,74 @@ export function logChunk(
     text: data,
     complete: terminal && end >= bytes.length,
   };
+}
+
+// ---- project administration ---------------------------------------------------------------
+
+export function projectExists(slug: string): boolean {
+  return SEEDS.some((item) => item.slug === slug);
+}
+
+export function createProject(body: {
+  slug: string;
+  name: string;
+  repository: string;
+  development_branch: string;
+  production_branch: string;
+  git_transport: "ssh" | "https";
+}): Project {
+  SEEDS = [
+    ...SEEDS,
+    {
+      slug: body.slug,
+      name: body.name,
+      repository: body.repository,
+      development: { branch: body.development_branch, autoDeploy: true },
+      production: { branch: body.production_branch, autoDeploy: false },
+      gitTransport: body.git_transport,
+    },
+  ];
+  const created = projects().find((item) => item.slug === body.slug);
+  if (!created) throw new Error("project not created");
+  return created;
+}
+
+export function patchProject(
+  slug: string,
+  body: { name?: string; repository?: string; git_transport?: "ssh" | "https" },
+): Project | null {
+  const seed = SEEDS.find((item) => item.slug === slug);
+  if (!seed) return null;
+  if (body.name !== undefined) seed.name = body.name;
+  if (body.repository !== undefined) seed.repository = body.repository;
+  if (body.git_transport !== undefined) seed.gitTransport = body.git_transport;
+  return projects().find((item) => item.slug === slug) ?? null;
+}
+
+/** Returns an error message when the two environments would track the same branch. */
+export function patchEnvironment(
+  slug: string,
+  env: EnvironmentName,
+  body: { branch?: string; auto_deploy?: boolean },
+): { error: string } | { value: Project["environments"][number] } | null {
+  const seed = SEEDS.find((item) => item.slug === slug);
+  if (!seed) return null;
+  const other: EnvironmentName = env === "development" ? "production" : "development";
+  if (body.branch !== undefined && body.branch === seed[other].branch) {
+    return { error: "the two environments must track different branches" };
+  }
+  if (body.branch !== undefined) seed[env].branch = body.branch;
+  if (body.auto_deploy !== undefined) seed[env].autoDeploy = body.auto_deploy;
+  const value = projects()
+    .find((item) => item.slug === slug)
+    ?.environments.find((item) => item.name === env);
+  return value ? { value } : null;
+}
+
+/** Retry: only finished runs; same environment, branch and commit, trigger manual. */
+export function retryRun(id: number): RunSummary | "missing" | "active" {
+  const run = allRuns().find((item) => item.id === id);
+  if (!run) return "missing";
+  if (run.status === "queued" || run.status === "running") return "active";
+  return startRun(run.project, run.environment, run.branch, run.commit_sha);
 }
