@@ -1,0 +1,25 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.search {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+/* The clear button is our own TextInput action; hide the browser's built-in one. */
+.search input[type="search"]::-webkit-search-cancel-button {
+  appearance: none;
+}
+.menus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+@media (max-width: 543px) {
+  .menus {
+    width: 100%;
+  }
+}

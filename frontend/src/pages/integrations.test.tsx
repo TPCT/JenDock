@@ -409,8 +409,8 @@ describe("automatic deploy visibility", () => {
     // Manual and configured: Shop API and Billing worker production. Internal tools has no
     // compose settings or pipeline, so it is not offered.
     expect(items.map((item) => item.textContent)).toEqual([
-      "Shop API · Production · main",
       "Billing worker · Production · main",
+      "Shop API · Production · main",
     ]);
     await user.click(within(dialog).getByRole("button", { name: "Turn on for 2" }));
     expect(

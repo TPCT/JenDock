@@ -43,8 +43,8 @@ export function PageHead({
   return (
     <PageHeader hasBorder={navigation === undefined}>
       {crumbs.length > 0 ? (
-        <PageHeader.ContextArea>
-          <PageHeader.ContextBar>
+        <PageHeader.ContextArea hidden={false}>
+          <PageHeader.ContextBar hidden={false}>
             <Breadcrumbs>
               {crumbs.map((crumb, index) =>
                 crumb.to !== undefined && index < crumbs.length - 1 ? (

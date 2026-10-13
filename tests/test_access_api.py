@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi.testclient import TestClient
 from httpx2 import Response
@@ -40,7 +41,14 @@ LOGS, TERMINAL, ACTIONS = (
 
 
 def _ids(response: Response, key: str = "slug") -> list[str]:
-    return [item[key] for item in response.json()]
+    body = response.json()
+    return [item[key] for item in (body["items"] if isinstance(body, dict) else body)]
+
+
+def _list(who: Session, path: str, params: dict[str, Any]) -> dict[str, Any]:
+    """A list endpoint with query parameters, as JSON."""
+    body: dict[str, Any] = who.get(f"{path}?{urlencode(params)}").json()
+    return body
 
 
 def _passes(response: Response) -> bool:
@@ -55,16 +63,37 @@ def test_project_list_shows_only_granted_projects_and_environments(world: World)
     assert _ids(world.owner.get("/api/projects")) == ["demo", "other"]
     assert _ids(world["nobody"].get("/api/projects")) == []
     assert _ids(world["viewer"].get("/api/projects")) == ["demo"]
-    viewer = world["viewer"].get("/api/projects").json()[0]
+    viewer = world["viewer"].get("/api/projects").json()["items"][0]
     assert [e["name"] for e in viewer["environments"]] == ["development", "production"]
-    devonly = world["devonly"].get("/api/projects").json()[0]
+    devonly = world["devonly"].get("/api/projects").json()["items"][0]
     assert [e["name"] for e in devonly["environments"]] == ["development"]
 
 
 def test_a_container_grant_shows_the_project_without_runs(world: World) -> None:
-    project = world["logs"].get("/api/projects").json()[0]
+    project = world["logs"].get("/api/projects").json()["items"][0]
     assert [e["name"] for e in project["environments"]] == ["development"]
     assert project["environments"][0]["last_run"] is None
+
+
+def test_search_and_paging_apply_the_access_filter_before_counting(world: World) -> None:
+    # The viewer is granted "demo" only; "other" must not be found, counted or paged.
+    viewer, owner = world["viewer"], world.owner
+    assert _list(owner, "/api/projects", {"q": "other"})["total"] == 1
+    hidden = _list(viewer, "/api/projects", {"q": "other"})
+    assert (hidden["items"], hidden["total"]) == ([], 0)
+    assert _list(viewer, "/api/projects", {"q": "octo/other"})["total"] == 0
+    paged = _list(viewer, "/api/projects", {"per_page": 1})
+    assert (paged["total"], paged["pages"], _ids(viewer.get("/api/projects"))) == (1, 1, ["demo"])
+    assert _list(owner, "/api/projects", {"per_page": 1})["pages"] == 2
+    beyond = _list(viewer, "/api/projects", {"per_page": 1, "page": 2})
+    assert (beyond["items"], beyond["total"]) == ([], 1)
+    # runs: the same for the global list, with filters and the number search
+    assert _list(owner, "/api/runs", {"q": "other"})["total"] == 1
+    assert _list(viewer, "/api/runs", {"q": "other"})["total"] == 0
+    assert _list(viewer, "/api/runs", {"project": "other"})["total"] == 0
+    runs = _list(viewer, "/api/runs", {"per_page": 1})
+    assert (runs["total"], runs["pages"], len(runs["items"])) == (2, 2, 1)
+    assert _list(viewer, "/api/runs", {"q": "#1", "environment": "production"})["total"] == 1
 
 
 def test_project_detail_is_hidden_without_access(world: World) -> None:
@@ -87,12 +116,8 @@ def test_run_list_is_filtered_and_counts_only_visible_runs(world: World) -> None
     assert viewer["total"] == 2
     devonly = world["devonly"].get("/api/runs").json()
     assert [(r["project"], r["environment"]) for r in devonly["items"]] == [("demo", "development")]
-    assert world["nobody"].get("/api/runs").json() == {
-        "items": [],
-        "total": 0,
-        "limit": 20,
-        "offset": 0,
-    }
+    nobody = world["nobody"].get("/api/runs").json()
+    assert (nobody["items"], nobody["total"], nobody["pages"]) == ([], 0, 1)
     assert world["logs"].get("/api/runs").json()["total"] == 0  # no run permission
 
 
@@ -335,9 +360,9 @@ def test_token_is_the_intersection_of_scopes_and_owner_permissions(world: World)
 def test_a_member_sees_only_their_own_tokens(world: World) -> None:
     _token(world, "viewer", ["read"])
     _token(world, "developer", ["read"])
-    assert len(world["viewer"].get("/api/tokens").json()) == 1
-    assert len(world["developer"].get("/api/tokens").json()) == 1
-    other = world["developer"].get("/api/tokens").json()[0]["id"]
+    assert world["viewer"].get("/api/tokens").json()["total"] == 1
+    assert world["developer"].get("/api/tokens").json()["total"] == 1
+    other = world["developer"].get("/api/tokens").json()["items"][0]["id"]
     assert world["viewer"].delete(f"/api/tokens/{other}").status_code == 404
 
 
@@ -345,7 +370,7 @@ def test_token_listing_is_filtered_like_the_session(world: World) -> None:
     bare = _bare(world)
     headers = _token(world, "nobody", ["read"])
     assert bare.get("/api/runs", headers=headers).json()["total"] == 0
-    assert bare.get("/api/projects", headers=headers).json() == []
+    assert bare.get("/api/projects", headers=headers).json()["items"] == []
 
 
 # --- grant management -------------------------------------------------------------------------

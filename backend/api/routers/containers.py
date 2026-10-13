@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -11,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from backend.api import authz
 from backend.api.container_logs import ContainerLogStream
 from backend.api.deps import Container, Target, require
+from backend.api.paging import PageResponse, Paging
 from backend.api.principal import Principal
 from backend.api.schemas.containers import (
     ActionRequest,
@@ -35,6 +38,7 @@ from backend.containers.wire import (
 from backend.domain.access import Action
 from backend.domain.containers import validate_container_id, validate_container_path
 from backend.domain.enums import EnvironmentName
+from backend.domain.paging import paginate
 
 router = APIRouter(prefix="/api/projects/{slug}/environments/{env}/containers", tags=["containers"])
 Lister = Annotated[Principal, Depends(require(Action.CONTAINER_READ))]
@@ -83,6 +87,11 @@ class EnvVarPath:
         validate_container_id(self.container_id)
 
 
+CONTAINER_SORTS: dict[str, Callable[[ContainerView], Any]] = {
+    "name": lambda view: view.name.lower(),
+    "service": lambda view: ((view.service or "").lower(), view.name.lower()),
+    "started": lambda view: view.started_at or datetime.min.replace(tzinfo=UTC),
+}
 EnvironmentPath = Annotated[EnvPath, Depends()]
 ContainerTarget = Annotated[ContainerPath, Depends()]
 VarTarget = Annotated[EnvVarPath, Depends()]
@@ -90,15 +99,34 @@ VarTarget = Annotated[EnvVarPath, Depends()]
 
 @router.get("")
 def list_containers(
-    path: EnvironmentPath, principal: Lister, container: Container
-) -> list[ContainerView]:
-    """The containers of the environment's compose project (no other container is visible).
-
-    A member with only container grants sees just the granted services.
-    """
+    path: EnvironmentPath,
+    principal: Lister,
+    container: Container,
+    paging: Paging,
+    state: Annotated[str | None, Query(max_length=32)] = None,
+) -> PageResponse[ContainerView]:
+    """A page of the containers of the environment's compose project (no other container is
+    visible). A member with only container grants sees just the granted services; that filter
+    applies before searching, paging and counting. ``q`` matches name, service, image and
+    commit; ``state`` is the Docker state (``running``, ``exited``...); ``sort`` is ``service``
+    (default, then name), ``name`` or ``started``."""
     gateway = container.container_gateway()
-    found = gateway.list_containers(path.slug, path.env, principal.actor)
-    return authz.visible_containers(principal, path.slug, path.env, found)
+    allowed = authz.visible_containers(
+        principal,
+        path.slug,
+        path.env,
+        gateway.list_containers(path.slug, path.env, principal.actor),
+    )
+    found = [view for view in allowed if state is None or view.state == state]
+    page = paginate(
+        found,
+        paging.query,
+        text=lambda view: (view.name, view.service, view.image, view.commit, view.revision),
+        sorts=CONTAINER_SORTS,
+        default_sort="service",
+        descending=frozenset({"started"}),
+    )
+    return PageResponse.of(page, list(page.items))
 
 
 @router.get("/{container_id}")

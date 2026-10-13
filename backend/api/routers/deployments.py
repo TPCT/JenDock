@@ -7,11 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from backend.api.deps import Container, require
+from backend.api.paging import Paging
 from backend.api.principal import Principal
 from backend.api.schemas.deployments import DeploymentPageResponse, RedeployResponse
 from backend.domain.access import Action
-from backend.domain.enums import EnvironmentName
-from backend.services.deployments import MAX_PAGE_SIZE
+from backend.domain.enums import DeploymentStatus, EnvironmentName
 
 router = APIRouter(
     prefix="/api/projects/{slug}/environments/{env}/deployments", tags=["deployments"]
@@ -26,12 +26,15 @@ def list_deployments(
     env: EnvironmentName,
     _principal: Reader,
     container: Container,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    paging: Paging,
+    deployment_status: Annotated[DeploymentStatus | None, Query(alias="status")] = None,
 ) -> DeploymentPageResponse:
-    """Deployments of the environment, newest first."""
-    page = container.deployment_service().history(slug, env, limit=limit, offset=offset)
-    return DeploymentPageResponse.from_page(page, limit, offset)
+    """Deployments of the environment (newest first), searchable by commit, message or run.
+
+    ``sort`` is ``created`` or ``finished``.
+    """
+    page = container.deployment_service().history(slug, env, paging.query, deployment_status)
+    return DeploymentPageResponse.from_page(page)
 
 
 @router.post("/{deployment_id}/redeploy", status_code=status.HTTP_201_CREATED)

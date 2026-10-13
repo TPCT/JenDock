@@ -6,20 +6,32 @@ import {
   HomeIcon,
   PackageIcon,
   PlayIcon,
+  RocketIcon,
   RepoIcon,
   WorkflowIcon,
 } from "@primer/octicons-react";
 import { Button, UnderlineNav } from "@primer/react";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { isApiError } from "../api/client";
-import { useProject } from "../api/hooks";
+import { useDomains } from "../api/adminHooks";
+import { useContainers } from "../api/containerHooks";
+import { useDeployments } from "../api/deploymentHooks";
+import { useEnvironmentRuns, useProject } from "../api/hooks";
 import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import { EmptyState, ErrorCallout, Loading } from "../components/Feedback";
 import { PageHead } from "../components/PageHead";
 import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 
-type TabId = "overview" | "runs" | "pipeline" | "containers" | "database" | "domains" | "settings";
+type TabId =
+  | "overview"
+  | "runs"
+  | "pipeline"
+  | "deployments"
+  | "containers"
+  | "database"
+  | "domains"
+  | "settings";
 
 interface Tab {
   id: TabId;
@@ -31,6 +43,7 @@ export const PROJECT_TABS: readonly Tab[] = [
   { id: "overview", label: "Overview", icon: HomeIcon },
   { id: "runs", label: "Runs", icon: PlayIcon },
   { id: "pipeline", label: "Pipeline", icon: WorkflowIcon },
+  { id: "deployments", label: "Deployments", icon: RocketIcon },
   { id: "containers", label: "Containers", icon: PackageIcon },
   { id: "database", label: "Database", icon: DatabaseIcon },
   { id: "domains", label: "Domains", icon: GlobeIcon },
@@ -40,6 +53,7 @@ export const PROJECT_TABS: readonly Tab[] = [
 function activeTab(pathname: string): TabId {
   if (pathname.includes("/runs")) return "runs";
   if (pathname.includes("/pipeline")) return "pipeline";
+  if (pathname.includes("/deployments")) return "deployments";
   if (pathname.includes("/domains")) return "domains";
   if (pathname.includes("/containers")) return "containers";
   if (pathname.includes("/databases")) return "database";
@@ -51,12 +65,61 @@ function currentEnv(pathname: string): EnvironmentName {
   return ENVIRONMENTS.find((name) => pathname.includes(`/environments/${name}/`)) ?? "development";
 }
 
+/** Counters of the tabs of the environment being viewed; a failed request just hides one. */
+function useTabCounts(slug: string, env: EnvironmentName): Partial<Record<TabId, number>> {
+  const runs = useEnvironmentRuns(slug, env, "per_page=1");
+  const deployments = useDeployments(slug, env, "per_page=1");
+  const containers = useContainers(slug, env, "per_page=1");
+  const domains = useDomains(slug, env);
+  return {
+    ...(runs.data ? { runs: runs.data.total } : {}),
+    ...(deployments.data ? { deployments: deployments.data.total } : {}),
+    ...(containers.data ? { containers: containers.data.total } : {}),
+    ...(domains.data ? { domains: domains.data.length } : {}),
+  };
+}
+
+function ProjectTabs({
+  slug,
+  env,
+  current,
+  hrefFor,
+}: {
+  slug: string;
+  env: EnvironmentName;
+  current: TabId;
+  hrefFor: (id: TabId) => string;
+}) {
+  const can = useCan();
+  const counts = useTabCounts(slug, env);
+  return (
+    <UnderlineNav aria-label="Project">
+      {PROJECT_TABS.filter(
+        (item) => item.id !== "settings" || can("project.update", { project: slug }),
+      ).map((item) => {
+        const count = counts[item.id];
+        return (
+          <UnderlineNav.Item
+            key={item.id}
+            as={Link}
+            to={hrefFor(item.id)}
+            leadingVisual={<item.icon />}
+            aria-current={item.id === current ? "page" : undefined}
+            {...(count === undefined ? {} : { counter: count })}
+          >
+            {item.label}
+          </UnderlineNav.Item>
+        );
+      })}
+    </UnderlineNav>
+  );
+}
+
 /** GitHub's repository frame: header with the project name and a tab strip, page below. */
 export function ProjectLayout() {
   const { slug = "" } = useParams();
   const { pathname } = useLocation();
   const project = useProject(slug);
-  const can = useCan();
 
   if (project.isPending) return <Loading label="Loading project" />;
   if (project.isError) {
@@ -95,6 +158,8 @@ export function ProjectLayout() {
         return `${base}/environments/${env}/runs`;
       case "pipeline":
         return `${base}/environments/${env}/pipeline`;
+      case "deployments":
+        return `${base}/environments/${env}/deployments`;
       case "domains":
         return `${base}/environments/${env}/domains`;
       case "containers":
@@ -117,23 +182,7 @@ export function ProjectLayout() {
         }
         leading={<RepoIcon size={24} />}
         description={<span className="ltr">{project.data.repository}</span>}
-        navigation={
-          <UnderlineNav aria-label="Project">
-            {PROJECT_TABS.filter(
-              (item) => item.id !== "settings" || can("project.update", { project: slug }),
-            ).map((item) => (
-              <UnderlineNav.Item
-                key={item.id}
-                as={Link}
-                to={hrefFor(item.id)}
-                leadingVisual={<item.icon />}
-                aria-current={item.id === current ? "page" : undefined}
-              >
-                {item.label}
-              </UnderlineNav.Item>
-            ))}
-          </UnderlineNav>
-        }
+        navigation={<ProjectTabs slug={slug} env={env} current={current} hrefFor={hrefFor} />}
       />
       <div className={box.section}>
         <Outlet />

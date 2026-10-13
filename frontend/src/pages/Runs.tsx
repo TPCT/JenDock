@@ -1,50 +1,53 @@
 import { HistoryIcon, PlayIcon } from "@primer/octicons-react";
-import { Button, ButtonGroup } from "@primer/react";
-import { useCallback, useState } from "react";
+import { Button } from "@primer/react";
+import { useCallback } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { RUNS_PAGE_SIZE, useAllRuns, useEnvironmentRuns, useProject } from "../api/hooks";
-import { ENVIRONMENTS, type EnvironmentName, type Page, type RunSummary } from "../api/types";
+import { useAllRuns, useEnvironmentRuns, useProject } from "../api/hooks";
+import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import { EnvToolbar } from "../components/EnvSwitch";
 import { runsPath } from "../components/EnvironmentCard";
-import { EmptyState, ErrorCallout, Loading } from "../components/Feedback";
+import { EmptyState } from "../components/Feedback";
 import { PageHead } from "../components/PageHead";
+import { PagedList } from "../components/PagedList";
 import { RunList } from "../components/RunList";
 import { StartRunDialog } from "../components/StartRunDialog";
-import { capitalize } from "../lib/format";
+import { STATUS_LABEL, capitalize } from "../lib/format";
+import { useListParams, type FilterDef, type ListSpec, type SortOption } from "../lib/listParams";
 import { useCan } from "../lib/permissions";
 import box from "../styles/box.module.css";
 
-function Pager({ page, onChange }: { page: Page<RunSummary>; onChange: (offset: number) => void }) {
-  const from = page.total === 0 ? 0 : page.offset + 1;
-  const to = Math.min(page.offset + page.limit, page.total);
-  return (
-    <div className={box.footer}>
-      <span className="muted">
-        {from}-{to} of {page.total}
-      </span>
-      <ButtonGroup>
-        <Button
-          size="small"
-          disabled={page.offset === 0}
-          onClick={() => {
-            onChange(Math.max(0, page.offset - RUNS_PAGE_SIZE));
-          }}
-        >
-          Newer
-        </Button>
-        <Button
-          size="small"
-          disabled={page.offset + page.limit >= page.total}
-          onClick={() => {
-            onChange(page.offset + RUNS_PAGE_SIZE);
-          }}
-        >
-          Older
-        </Button>
-      </ButtonGroup>
-    </div>
-  );
-}
+const STATUS_FILTER: FilterDef = {
+  param: "status",
+  label: "Status",
+  allLabel: "All statuses",
+  options: Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label })),
+};
+const TRIGGER_FILTER: FilterDef = {
+  param: "trigger",
+  label: "Started by",
+  allLabel: "Anything",
+  options: [
+    { value: "push", label: "A push" },
+    { value: "manual", label: "A manual run" },
+    { value: "redeploy", label: "A redeploy" },
+  ],
+};
+const ENVIRONMENT_FILTER: FilterDef = {
+  param: "environment",
+  label: "Environment",
+  allLabel: "Both environments",
+  options: ENVIRONMENTS.map((value) => ({ value, label: capitalize(value) })),
+};
+const RUN_SORTS: readonly SortOption[] = [
+  { value: "newest", label: "Newest", sort: "created", order: "desc" },
+  { value: "oldest", label: "Oldest", sort: "created", order: "asc" },
+  { value: "finished", label: "Recently finished", sort: "finished", order: "desc" },
+];
+const ENVIRONMENT_RUNS: ListSpec = { filters: [STATUS_FILTER, TRIGGER_FILTER], sorts: RUN_SORTS };
+const ALL_RUNS: ListSpec = {
+  filters: [STATUS_FILTER, TRIGGER_FILTER, ENVIRONMENT_FILTER],
+  sorts: RUN_SORTS,
+};
 
 function isEnvironment(value: string | undefined): value is EnvironmentName {
   return ENVIRONMENTS.some((name) => name === value);
@@ -54,15 +57,22 @@ export function EnvironmentRunsPage() {
   const { slug = "", env: rawEnv } = useParams();
   const env: EnvironmentName = isEnvironment(rawEnv) ? rawEnv : "development";
   const [params, setParams] = useSearchParams();
-  const [offset, setOffset] = useState(0);
+  const list = useListParams(ENVIRONMENT_RUNS);
   const project = useProject(slug);
   const can = useCan();
-  const runs = useEnvironmentRuns(slug, env, offset);
+  const runs = useEnvironmentRuns(slug, env, list.apiQuery);
   const environment = project.data?.environments.find((item) => item.name === env);
   const dialogOpen = params.get("run") === "new" && environment !== undefined;
 
   const closeDialog = useCallback(() => {
-    setParams({}, { replace: true });
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete("run");
+        return next;
+      },
+      { replace: true },
+    );
   }, [setParams]);
 
   if (!isEnvironment(rawEnv)) {
@@ -81,6 +91,27 @@ export function EnvironmentRunsPage() {
     );
   }
 
+  const mayRun = can("run.create", { project: slug, env });
+  const startRun = (
+    <Button
+      variant="primary"
+      leadingVisual={PlayIcon}
+      disabled={!environment}
+      onClick={() => {
+        setParams(
+          (previous) => {
+            const next = new URLSearchParams(previous);
+            next.set("run", "new");
+            return next;
+          },
+          { replace: false },
+        );
+      }}
+    >
+      Run pipeline
+    </Button>
+  );
+
   return (
     <div className={box.stack}>
       <EnvToolbar
@@ -97,48 +128,32 @@ export function EnvironmentRunsPage() {
             "Runs of this environment"
           )
         }
-        actions={
-          can("run.create", { project: slug, env }) ? (
-            <Button
-              variant="primary"
-              leadingVisual={PlayIcon}
-              disabled={!environment}
-              onClick={() => {
-                setParams({ run: "new" });
-              }}
-            >
-              Run pipeline
-            </Button>
-          ) : null
-        }
+        actions={mayRun ? startRun : null}
       />
-      {runs.isPending ? <Loading label="Loading runs" /> : null}
-      {runs.isError ? (
-        <ErrorCallout
-          title="Could not load runs"
-          error={runs.error}
-          onRetry={() => void runs.refetch()}
-        />
-      ) : null}
-      {runs.data?.total === 0 ? (
-        <EmptyState icon={<HistoryIcon size={32} aria-hidden="true" />} title="No runs yet">
-          A run builds and deploys one commit.{" "}
-          {environment?.auto_deploy
-            ? `Push to ${environment.branch} on GitHub to start the first one${can("run.create", { project: slug, env }) ? ", or press Run pipeline" : ""}.`
-            : can("run.create", { project: slug, env })
-              ? "Press Run pipeline to start the first one."
-              : "Nothing has run here yet."}
-        </EmptyState>
-      ) : null}
-      {runs.data && runs.data.total > 0 ? (
-        <div className={box.box}>
-          <div className={box.header}>
-            <span>{runs.data.total} runs</span>
-          </div>
-          <RunList runs={runs.data.items} />
-          <Pager page={runs.data} onChange={setOffset} />
-        </div>
-      ) : null}
+      <PagedList
+        noun="runs"
+        query={runs}
+        list={list}
+        filters={ENVIRONMENT_RUNS.filters ?? []}
+        sorts={RUN_SORTS}
+        placeholder="Search by branch, commit, message or run number…"
+        empty={
+          <EmptyState
+            icon={<HistoryIcon size={32} aria-hidden="true" />}
+            title="No runs yet"
+            action={mayRun ? startRun : undefined}
+          >
+            A run builds and deploys one commit.{" "}
+            {environment?.auto_deploy
+              ? `Push to ${environment.branch} on GitHub to start the first one${mayRun ? ", or press Run pipeline" : ""}.`
+              : mayRun
+                ? "Press Run pipeline to start the first one."
+                : "Nothing has run here yet."}
+          </EmptyState>
+        }
+      >
+        {(items) => <RunList runs={items} />}
+      </PagedList>
       {dialogOpen ? (
         <StartRunDialog
           slug={slug}
@@ -152,43 +167,39 @@ export function EnvironmentRunsPage() {
 }
 
 export function AllRunsPage() {
-  const [offset, setOffset] = useState(0);
-  const runs = useAllRuns(offset);
+  const list = useListParams(ALL_RUNS);
+  const runs = useAllRuns(list.apiQuery);
   return (
     <>
-      <PageHead title="Runs" description="The latest runs across all projects and environments." />
+      <PageHead
+        title="Runs"
+        description="Every build and deploy across all projects and environments, newest first. Search by project, branch, commit or run number."
+      />
       <div className={box.section}>
-        {runs.isPending ? <Loading label="Loading runs" /> : null}
-        {runs.isError ? (
-          <ErrorCallout
-            title="Could not load runs"
-            error={runs.error}
-            onRetry={() => void runs.refetch()}
-          />
-        ) : null}
-        {runs.data?.total === 0 ? (
-          <EmptyState
-            icon={<HistoryIcon size={32} aria-hidden="true" />}
-            title="No runs yet"
-            action={
-              <Button as={Link} to="/projects">
-                Go to projects
-              </Button>
-            }
-          >
-            Runs appear here after a push to a project branch or a manual run. Open a project to
-            start one.
-          </EmptyState>
-        ) : null}
-        {runs.data && runs.data.total > 0 ? (
-          <div className={box.box}>
-            <div className={box.header}>
-              <span>{runs.data.total} runs</span>
-            </div>
-            <RunList runs={runs.data.items} showProject />
-            <Pager page={runs.data} onChange={setOffset} />
-          </div>
-        ) : null}
+        <PagedList
+          noun="runs"
+          query={runs}
+          list={list}
+          filters={ALL_RUNS.filters ?? []}
+          sorts={RUN_SORTS}
+          placeholder="Search by project, branch, commit, message or run number…"
+          empty={
+            <EmptyState
+              icon={<HistoryIcon size={32} aria-hidden="true" />}
+              title="No runs yet"
+              action={
+                <Button as={Link} to="/projects" variant="primary">
+                  Go to projects
+                </Button>
+              }
+            >
+              Runs appear here after a push to a project branch or a manual run. Open a project to
+              start one.
+            </EmptyState>
+          }
+        >
+          {(items) => <RunList runs={items} showProject />}
+        </PagedList>
       </div>
     </>
   );

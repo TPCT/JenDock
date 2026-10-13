@@ -322,6 +322,11 @@ def test_delivery_history_filters_and_paging(
     assert client.get("/api/notifications/deliveries?project=demo").json()["total"] == 3
     page = client.get("/api/notifications/deliveries?limit=2&offset=3").json()
     assert page["total"] == 4 and len(page["items"]) == 1
+    paged = client.get("/api/notifications/deliveries?per_page=3&page=2").json()
+    assert (paged["total"], paged["pages"], len(paged["items"])) == (4, 2, 1)
+    found = client.get("/api/notifications/deliveries", params={"q": "disk"}).json()
+    assert found["total"] == 1 and found["items"][0]["event"] == "disk.usage_high"
+    assert client.get("/api/notifications/deliveries?sort=bogus").status_code == 422
     assert (
         client.get(f"/api/notifications/deliveries?channel_id={channel}&status=sent").json()[
             "total"

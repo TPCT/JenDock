@@ -6,8 +6,10 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from backend.api.paging import LegacyPageResponse
 from backend.domain.enums import DeploymentStatus, PipelineSource, RunStatus, RunTrigger
-from backend.services.deployments import DeploymentPage, DeploymentView, RedeployResult
+from backend.domain.paging import Page
+from backend.services.deployments import DeploymentView, RedeployResult
 
 
 class ServiceImageResponse(BaseModel):
@@ -62,23 +64,13 @@ class DeploymentResponse(BaseModel):
         )
 
 
-class DeploymentPageResponse(BaseModel):
+class DeploymentPageResponse(LegacyPageResponse[DeploymentResponse]):
     """A page of the deployment history."""
 
-    items: list[DeploymentResponse]
-    total: int
-    limit: int
-    offset: int
-
     @classmethod
-    def from_page(cls, page: DeploymentPage, limit: int, offset: int) -> DeploymentPageResponse:
+    def from_page(cls, page: Page[DeploymentView]) -> DeploymentPageResponse:
         """Build from a page of the read model."""
-        return cls(
-            items=[DeploymentResponse.from_view(item) for item in page.items],
-            total=page.total,
-            limit=limit,
-            offset=offset,
-        )
+        return cls.of(page, [DeploymentResponse.from_view(item) for item in page.items])
 
 
 class RedeployRunResponse(BaseModel):

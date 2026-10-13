@@ -35,10 +35,13 @@ export function EnvironmentCard({
   project,
   environment,
   detailed = false,
+  compact = false,
 }: {
   project: Project;
   environment: EnvironmentSummary;
   detailed?: boolean;
+  /** List rows: status only, without the shortcut buttons (the project page has them). */
+  compact?: boolean;
 }) {
   const { last_run: run } = environment;
   const can = useCan();
@@ -91,53 +94,55 @@ export function EnvironmentCard({
             : "Open runs to start one manually."}
         </p>
       )}
-      <div className={box.cluster}>
-        {can("run.read", scope) ? (
-          <LinkButton
-            as={Link}
-            to={runsPath(project.slug, environment.name)}
-            size="small"
-            leadingVisual={HistoryIcon}
-            aria-label={`View ${environment.name} runs of ${project.name}`}
-          >
-            View runs
-          </LinkButton>
-        ) : null}
-        {can("pipeline.read", scope) ? (
-          <LinkButton
-            as={Link}
-            to={pipelinePath(project.slug, environment.name)}
-            size="small"
-            leadingVisual={WorkflowIcon}
-            aria-label={`Edit the ${environment.name} pipeline of ${project.name}`}
-          >
-            Pipeline
-          </LinkButton>
-        ) : null}
-        {detailed && can("run.create", scope) ? (
-          <LinkButton
-            as={Link}
-            to={`${domainsPath(project.slug, environment.name)}?add=1`}
-            size="small"
-            leadingVisual={GlobeIcon}
-            aria-label={`Add a domain to ${environment.name} of ${project.name}`}
-          >
-            Add domain
-          </LinkButton>
-        ) : null}
-        {detailed ? (
-          <LinkButton
-            as={Link}
-            to={`${runsPath(project.slug, environment.name)}?run=new`}
-            size="small"
-            variant="primary"
-            leadingVisual={PlayIcon}
-            aria-label={`Run pipeline for ${environment.name} of ${project.name}`}
-          >
-            Run pipeline
-          </LinkButton>
-        ) : null}
-      </div>
+      {compact ? null : (
+        <div className={box.cluster}>
+          {can("run.read", scope) ? (
+            <LinkButton
+              as={Link}
+              to={runsPath(project.slug, environment.name)}
+              size="small"
+              leadingVisual={HistoryIcon}
+              aria-label={`View ${environment.name} runs of ${project.name}`}
+            >
+              View runs
+            </LinkButton>
+          ) : null}
+          {can("pipeline.read", scope) ? (
+            <LinkButton
+              as={Link}
+              to={pipelinePath(project.slug, environment.name)}
+              size="small"
+              leadingVisual={WorkflowIcon}
+              aria-label={`Edit the ${environment.name} pipeline of ${project.name}`}
+            >
+              Pipeline
+            </LinkButton>
+          ) : null}
+          {detailed && can("run.create", scope) ? (
+            <LinkButton
+              as={Link}
+              to={`${domainsPath(project.slug, environment.name)}?add=1`}
+              size="small"
+              leadingVisual={GlobeIcon}
+              aria-label={`Add a domain to ${environment.name} of ${project.name}`}
+            >
+              Add domain
+            </LinkButton>
+          ) : null}
+          {detailed ? (
+            <LinkButton
+              as={Link}
+              to={`${runsPath(project.slug, environment.name)}?run=new`}
+              size="small"
+              variant="primary"
+              leadingVisual={PlayIcon}
+              aria-label={`Run pipeline for ${environment.name} of ${project.name}`}
+            >
+              Run pipeline
+            </LinkButton>
+          ) : null}
+        </div>
+      )}
     </section>
   );
 }

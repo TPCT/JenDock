@@ -1,0 +1,41 @@
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--base-size-16);
+  align-items: start;
+}
+.main {
+  min-width: 0;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+.services {
+  margin: var(--base-size-8) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-body-size-small);
+}
+.message {
+  margin: var(--base-size-4) 0 0;
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--base-size-4);
+  white-space: nowrap;
+  font-size: var(--text-body-size-small);
+}
+@media (max-width: 543px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+  .side {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}

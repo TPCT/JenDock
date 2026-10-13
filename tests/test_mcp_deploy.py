@@ -293,3 +293,18 @@ def test_a_client_session_lists_and_redeploys_with_the_right_scopes(wired: AppCo
 
     _run(as_reader())
     _run(as_deployer())
+
+
+def test_list_deployments_pages_filters_and_searches(wired: AppContainer) -> None:
+    ids = [_deployment(wired) for _ in range(3)]
+    failed = _deployment(wired, DeploymentStatus.FAILED)
+    reader = _real_principal(wired, TokenScope.READ)
+    page = _call(wired, reader, "list_deployments", {**TARGET, "per_page": 2, "page": 2})
+    assert (page["total"], page["pages"], page["page"]) == (4, 2, 2)
+    assert [d["id"] for d in page["items"]] == [ids[1], ids[0]]
+    only = _call(wired, reader, "list_deployments", {**TARGET, "status": "failed"})
+    assert [d["id"] for d in only["items"]] == [failed]
+    by_run = _call(wired, reader, "list_deployments", {**TARGET, "q": "#2"})
+    assert [d["id"] for d in by_run["items"]] == [ids[1]]
+    by_commit = _call(wired, reader, "list_deployments", {**TARGET, "q": SHA_A[:7]})
+    assert by_commit["total"] == 4

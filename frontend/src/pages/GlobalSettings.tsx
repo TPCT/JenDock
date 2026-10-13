@@ -30,13 +30,15 @@ import {
   type TokenScope,
 } from "../api/adminTypes";
 import { CopyField } from "../components/CopyField";
-import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
+import { Callout, EmptyState, errorMessage } from "../components/Feedback";
 import { PageHead } from "../components/PageHead";
+import { PagedList } from "../components/PagedList";
 import { SettingsLayout, type SettingsItem } from "../components/SettingsLayout";
 import { SettingsRow, SettingsSection } from "../components/SettingsSection";
 import { RelativeTime } from "../components/Time";
 import { formatDateTime } from "../lib/format";
 import { useCan } from "../lib/permissions";
+import { useListParams, type FilterDef, type ListSpec, type SortOption } from "../lib/listParams";
 import box from "../styles/box.module.css";
 
 export const SCOPE_HELP: Record<TokenScope, string> = {
@@ -212,8 +214,26 @@ function CreateTokenDialog({
   );
 }
 
+const TOKEN_STATE_FILTER: FilterDef = {
+  param: "state",
+  label: "State",
+  allLabel: "All tokens",
+  options: [
+    { value: "active", label: "Active" },
+    { value: "expired", label: "Expired" },
+    { value: "revoked", label: "Revoked" },
+  ],
+};
+const TOKEN_SORTS: readonly SortOption[] = [
+  { value: "newest", label: "Newest", sort: "created", order: "desc" },
+  { value: "name", label: "Name", sort: "name" },
+  { value: "used", label: "Recently used", sort: "last_used", order: "desc" },
+];
+const TOKEN_LIST: ListSpec = { filters: [TOKEN_STATE_FILTER], sorts: TOKEN_SORTS };
+
 export function TokensPage() {
-  const tokens = useTokens();
+  const list = useListParams(TOKEN_LIST);
+  const tokens = useTokens(list.apiQuery);
   const revoke = useRevokeToken();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedToken | null>(null);
@@ -236,23 +256,37 @@ export function TokensPage() {
         </Button>
       }
     >
-      {tokens.isPending ? <Loading label="Loading tokens" /> : null}
-      {tokens.isError ? (
-        <ErrorCallout
-          title="Could not load the tokens"
-          error={tokens.error}
-          onRetry={() => void tokens.refetch()}
-        />
-      ) : null}
-      {tokens.data?.length === 0 ? (
-        <EmptyState icon={<KeyIcon size={32} aria-hidden="true" />} title="No tokens yet">
-          Create a token when a script or an AI agent needs to call Jendock.
-        </EmptyState>
-      ) : null}
-      {tokens.data && tokens.data.length > 0 ? (
-        <div className={box.box}>
+      <PagedList
+        noun="API tokens"
+        singular="API token"
+        query={tokens}
+        list={list}
+        filters={[TOKEN_STATE_FILTER]}
+        sorts={TOKEN_SORTS}
+        placeholder="Search tokens by name…"
+        empty={
+          <EmptyState
+            icon={<KeyIcon size={32} aria-hidden="true" />}
+            title="No tokens yet"
+            action={
+              <Button
+                variant="primary"
+                leadingVisual={PlusIcon}
+                onClick={() => {
+                  setCreating(true);
+                }}
+              >
+                Create your first token
+              </Button>
+            }
+          >
+            Create a token when a script or an AI agent needs to call Jendock.
+          </EmptyState>
+        }
+      >
+        {(items) => (
           <ul className={box.list} aria-label="API tokens">
-            {tokens.data.map((token) => {
+            {items.map((token) => {
               const state = tokenState(token);
               return (
                 <li key={token.id}>
@@ -304,8 +338,8 @@ export function TokensPage() {
               );
             })}
           </ul>
-        </div>
-      ) : null}
+        )}
+      </PagedList>
 
       {creating ? (
         <CreateTokenDialog

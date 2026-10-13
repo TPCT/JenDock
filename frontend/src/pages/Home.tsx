@@ -1,6 +1,9 @@
 import {
   CloudIcon,
+  GearIcon,
   GitCommitIcon,
+  HistoryIcon,
+  RepoIcon,
   PlusIcon,
   RepoPushIcon,
   ShieldLockIcon,
@@ -9,6 +12,7 @@ import { Button, Heading, Label, LinkButton, ProgressBar } from "@primer/react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard } from "../api/accountHooks";
+import { useAllRuns } from "../api/hooks";
 import type {
   Dashboard,
   DashboardCertificate,
@@ -20,6 +24,7 @@ import type {
 } from "../api/accountTypes";
 import { EmptyState, ErrorCallout, Loading } from "../components/Feedback";
 import { PageHead } from "../components/PageHead";
+import { RunList } from "../components/RunList";
 import { StatusBadge } from "../components/Status";
 import { Duration, RelativeTime } from "../components/Time";
 import { TRIGGER_TEXT, runsPath } from "../components/EnvironmentCard";
@@ -321,6 +326,60 @@ function HostCard({ host, error }: { host: DashboardHost | null; error: string |
   );
 }
 
+/** The newest runs of everything the user may read (the same list as the Runs page). */
+function RecentRunsCard() {
+  const runs = useAllRuns("per_page=8");
+  return (
+    <Card
+      title="Recent runs"
+      headingId="home-runs"
+      actions={
+        <LinkButton as={Link} to="/runs" size="small">
+          View all runs
+        </LinkButton>
+      }
+    >
+      {runs.isPending ? <Loading label="Loading runs" /> : null}
+      {runs.isError ? (
+        <ErrorCallout
+          title="Could not load runs"
+          error={runs.error}
+          onRetry={() => void runs.refetch()}
+        />
+      ) : null}
+      {runs.data && runs.data.items.length === 0 ? (
+        <Hint>
+          No runs yet. Push to a tracked branch, or open a project and press Run pipeline.
+        </Hint>
+      ) : null}
+      {runs.data && runs.data.items.length > 0 ? (
+        <RunList runs={runs.data.items} showProject />
+      ) : null}
+    </Card>
+  );
+}
+
+function QuickLinksCard() {
+  return (
+    <Card title="Quick links" headingId="home-links">
+      <ul className={box.list} aria-label="Quick links">
+        <li className={box.row}>
+          <RepoIcon size={16} className="muted" aria-hidden="true" />{" "}
+          <Link to="/projects">All projects</Link>
+        </li>
+        <li className={box.row}>
+          <HistoryIcon size={16} className="muted" aria-hidden="true" />{" "}
+          <Link to="/runs">All runs</Link>
+        </li>
+        <li className={box.row}>
+          <GearIcon size={16} className="muted" aria-hidden="true" />{" "}
+          <Link to="/settings">Settings and API tokens</Link>
+        </li>
+      </ul>
+    </Card>
+  );
+}
+
 function Welcome() {
   return (
     <EmptyState
@@ -346,10 +405,12 @@ function Content({ data }: { data: Dashboard }) {
       {hasProjects ? (
         <div className={styles.grid}>
           <AttentionCard runs={data.attention} hasProjects={hasProjects} />
+          <RecentRunsCard />
           <DeploymentsCard items={data.deployments} hasProjects={hasProjects} />
           <ManualDeploysCard items={data.manual_deploys} />
           <CertificatesCard items={data.certificates} domainCount={data.domain_count} />
           <HostCard host={data.host} error={data.host_error} />
+          <QuickLinksCard />
         </div>
       ) : (
         <div className={styles.grid}>

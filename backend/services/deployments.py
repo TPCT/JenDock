@@ -20,7 +20,8 @@ from backend.domain.enums import (
     RunStatus,
     RunTrigger,
 )
-from backend.domain.errors import ConflictError, NotFoundError, ValidationError
+from backend.domain.errors import ConflictError, NotFoundError
+from backend.domain.paging import Page, PageQuery
 from backend.repositories.database import UnitOfWork
 from backend.repositories.models import Deployment, Run
 from backend.services.audit import add_audit_event
@@ -157,14 +158,6 @@ class DeploymentView:
 
 
 @dataclass(frozen=True, slots=True)
-class DeploymentPage:
-    """One page of an environment's deployment history."""
-
-    items: tuple[DeploymentView, ...]
-    total: int
-
-
-@dataclass(frozen=True, slots=True)
 class RedeployResult:
     """The queued run of a redeploy."""
 
@@ -201,16 +194,17 @@ class DeploymentService:
         self._clock = clock
 
     def history(
-        self, slug: str, name: EnvironmentName, *, limit: int, offset: int
-    ) -> DeploymentPage:
-        """Deployments of an environment, newest first."""
-        if not 1 <= limit <= MAX_PAGE_SIZE or offset < 0:
-            raise ValidationError(f"limit must be 1-{MAX_PAGE_SIZE} and offset >= 0")
+        self,
+        slug: str,
+        name: EnvironmentName,
+        query: PageQuery,
+        status: DeploymentStatus | None = None,
+    ) -> Page[DeploymentView]:
+        """A page of an environment's deployments (default order: newest first)."""
         with self._uow:
             env = require_environment(self._uow, slug, name)
-            rows = self._uow.deployments.list_for_environment(env.id, limit=limit, offset=offset)
-            items = tuple(self._view(row) for row in rows)
-            return DeploymentPage(items, self._uow.deployments.count_for_environment(env.id))
+            rows, total = self._uow.deployments.search_for_environment(env.id, query, status)
+            return Page.of((self._view(row) for row in rows), total, query)
 
     def _view(self, row: Deployment) -> DeploymentView:
         run = self._uow.runs.get(row.run_id)

@@ -10,7 +10,9 @@ from fastapi.responses import StreamingResponse
 from backend.api import authz
 from backend.api.deps import Container, Target, require
 from backend.api.events import RunEventStream
+from backend.api.paging import Paging
 from backend.api.principal import Principal
+from backend.api.run_filters import GlobalRunFilters
 from backend.api.schemas.runs import (
     CancelResponse,
     LogChunkResponse,
@@ -28,19 +30,20 @@ BackgroundReader = Annotated[
 ]
 Canceller = Annotated[Principal, Depends(require(Action.RUN_CANCEL, Target.RUN))]
 Retrier = Annotated[Principal, Depends(require(Action.RUN_RETRY, Target.RUN))]
-MAX_PAGE = 100
 
 
 @router.get("")
 def list_runs(
-    principal: Lister,
-    container: Container,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    principal: Lister, container: Container, paging: Paging, filters: GlobalRunFilters
 ) -> RunPage:
-    """Runs of every project and environment the caller may read, newest first."""
+    """Runs of every project and environment the caller may read (newest first), searchable
+    and filterable.
+
+    ``q`` matches project, branch, commit, message and run number; ``sort`` is ``created``,
+    ``finished`` or ``number``. Access is applied before searching, paging and counting.
+    """
     only = authz.run_predicate(principal)
-    page = container.project_queries().all_runs(limit=limit, offset=offset, only=only)
+    page = container.project_queries().all_runs(paging.query, filters.filter(), only)
     return RunPage.from_page(page)
 
 

@@ -5,24 +5,30 @@ from __future__ import annotations
 from backend.api import authz
 from backend.api.schemas.projects import BranchHeadResponse
 from backend.api.schemas.runs import CancelResponse, RunPage, RunResponse, RunSummary
-from backend.domain.enums import TokenScope
+from backend.domain.enums import RunStatus, RunTrigger, TokenScope
 from backend.domain.errors import ValidationError
 from backend.domain.values import BranchName
 from backend.mcp import schema
 from backend.mcp.registry import Args, Tool, ToolContext
+from backend.repositories.runs import RunFilter
 
 
 def list_runs(ctx: ToolContext, args: Args) -> object:
     """A page of runs, newest first: all runs, or those of one environment."""
     queries = ctx.container.project_queries()
-    limit, offset = args.integer("limit", 20), args.integer("offset", 0)
+    query = args.page_query()
+    status, trigger = args.optional_text("status"), args.optional_text("trigger")
+    where = RunFilter(
+        status=RunStatus(status) if status else None,
+        trigger=RunTrigger(trigger) if trigger else None,
+    )
     slug, env = args.optional_text("slug"), args.optional_environment()
     if (slug is None) != (env is None):
         raise ValidationError("give both slug and environment, or neither")
     if slug is not None and env is not None:
-        page = queries.environment_runs(slug, env, limit=limit, offset=offset)
+        page = queries.environment_runs(slug, env, query, where)
     else:
-        page = queries.all_runs(limit=limit, offset=offset, only=authz.run_predicate(ctx.principal))
+        page = queries.all_runs(query, where, authz.run_predicate(ctx.principal))
     return RunPage.from_page(page).model_dump(mode="json")
 
 
@@ -80,14 +86,16 @@ TOOLS = (
     Tool(
         "list_runs",
         "List runs, newest first. Without slug/environment: every project; with both: one "
-        "environment.",
+        "environment. Paged: page, per_page, q (project, branch, commit, message or run number), "
+        "status, trigger, sort (created, finished, number).",
         TokenScope.READ,
         schema.obj(
             {
                 "slug": schema.SLUG,
                 "environment": schema.ENVIRONMENT,
-                "limit": schema.LIMIT,
-                "offset": schema.OFFSET,
+                **schema.paging(("created", "finished", "number")),
+                "status": {"type": "string", "enum": [s.value for s in RunStatus]},
+                "trigger": {"type": "string", "enum": [t.value for t in RunTrigger]},
             }
         ),
         list_runs,

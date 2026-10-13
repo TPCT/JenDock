@@ -9,12 +9,15 @@ from fastapi import APIRouter, Depends, Query
 
 from backend.api import authz
 from backend.api.deps import Container, Target, require
+from backend.api.paging import Paging
 from backend.api.principal import Principal
+from backend.api.run_filters import RunFilters
 from backend.api.schemas.projects import (
     BranchHeadResponse,
     CreateProjectRequest,
     EnvironmentResponse,
     ManualRunRequest,
+    ProjectPage,
     ProjectResponse,
     UpdateEnvironmentRequest,
     UpdateProjectRequest,
@@ -33,7 +36,6 @@ Editor = Annotated[Principal, Depends(require(Action.PROJECT_UPDATE, Target.PROJ
 EnvEditor = Annotated[Principal, Depends(require(Action.ENVIRONMENT_UPDATE))]
 RunReader = Annotated[Principal, Depends(require(Action.RUN_READ))]
 Runner = Annotated[Principal, Depends(require(Action.RUN_CREATE))]
-MAX_PAGE = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,10 +47,14 @@ class EnvPath:
 
 
 @router.get("")
-def list_projects(principal: Lister, container: Container) -> list[ProjectResponse]:
-    """Projects the caller can see, ordered by name, each with its environments and newest runs."""
-    views = container.project_queries().list_projects(authz.project_filter(principal))
-    return [ProjectResponse.from_view(view) for view in views]
+def list_projects(principal: Lister, container: Container, paging: Paging) -> ProjectPage:
+    """A page of the projects the caller can see, each with its environments and newest runs.
+
+    ``q`` matches name, slug and repository; ``sort`` is ``name`` (default), ``slug`` or
+    ``created``. Access is applied before searching, paging and counting.
+    """
+    only = authz.project_filter(principal)
+    return ProjectPage.from_page(container.project_queries().search_projects(paging.query, only))
 
 
 @router.post("", status_code=201)
@@ -118,12 +124,12 @@ def list_environment_runs(
     path: Annotated[EnvPath, Depends()],
     _principal: RunReader,
     container: Container,
-    limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    paging: Paging,
+    filters: RunFilters,
 ) -> RunPage:
-    """Runs of one environment, newest first."""
+    """Runs of one environment (newest first), searchable by branch, commit, message or number."""
     page = container.project_queries().environment_runs(
-        path.slug, path.env, limit=limit, offset=offset
+        path.slug, path.env, paging.query, filters.filter()
     )
     return RunPage.from_page(page)
 

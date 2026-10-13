@@ -6,9 +6,11 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.api.paging import PageResponse
 from backend.api.schemas.runs import RunSummary
 from backend.domain.enums import GitTransport
 from backend.domain.git import BranchHead
+from backend.domain.paging import Page
 from backend.services.project_queries import EnvironmentView, ProjectView
 
 
@@ -65,6 +67,15 @@ class ProjectResponse(BaseModel):
             created_at=project.created_at,
             environments=[EnvironmentResponse.from_view(e) for e in view.environments],
         )
+
+
+class ProjectPage(PageResponse[ProjectResponse]):
+    """One page of projects."""
+
+    @classmethod
+    def from_page(cls, page: Page[ProjectView]) -> ProjectPage:
+        """Build from the page read model."""
+        return cls.of(page, [ProjectResponse.from_view(view) for view in page.items])
 
 
 class CreateProjectRequest(BaseModel):

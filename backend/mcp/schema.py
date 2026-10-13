@@ -16,6 +16,24 @@ LIMIT: JsonSchema = {"type": "integer", "minimum": 1, "maximum": 100, "default":
 OFFSET: JsonSchema = {"type": "integer", "minimum": 0, "default": 0}
 
 
+def paging(sorts: Sequence[str] = (), default_per_page: int = 20) -> dict[str, JsonSchema]:
+    """The list parameters every paged tool takes (``Args.page_query`` reads them).
+
+    ``limit`` and ``offset`` stay accepted for older agents but are marked deprecated.
+    """
+    properties: dict[str, JsonSchema] = {
+        "page": {"type": "integer", "minimum": 1, "default": 1},
+        "per_page": {"type": "integer", "minimum": 1, "maximum": 100, "default": default_per_page},
+        "q": {"type": "string", "maxLength": 100, "description": "search text"},
+        "limit": {**LIMIT, "deprecated": True, "description": "use per_page"},
+        "offset": {**OFFSET, "deprecated": True, "description": "use page"},
+    }
+    if sorts:
+        properties["sort"] = {"type": "string", "enum": list(sorts)}
+        properties["order"] = {"type": "string", "enum": ["asc", "desc"]}
+    return properties
+
+
 def obj(
     properties: Mapping[str, JsonSchema] | None = None, required: Sequence[str] = ()
 ) -> JsonSchema:

@@ -3,10 +3,12 @@ import { Button, ConfirmationDialog, Heading } from "@primer/react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useEnableAutoDeploy, type AutoDeployTarget } from "../api/adminHooks";
-import { useProjects } from "../api/hooks";
+import { useAllProjects, useProjects } from "../api/hooks";
 import { ENVIRONMENTS, type Project } from "../api/types";
 import { EnvironmentCard } from "../components/EnvironmentCard";
-import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
+import { Callout, EmptyState, errorMessage } from "../components/Feedback";
+import { PagedList } from "../components/PagedList";
+import { useListParams, type ListSpec, type SortOption } from "../lib/listParams";
 import { capitalize } from "../lib/format";
 import { PageHead } from "../components/PageHead";
 import { useCan } from "../lib/permissions";
@@ -27,7 +29,7 @@ export function ProjectBox({ project }: { project: Project }) {
         {ENVIRONMENTS.map((name) => {
           const environment = project.environments.find((item) => item.name === name);
           return environment ? (
-            <EnvironmentCard key={name} project={project} environment={environment} />
+            <EnvironmentCard key={name} project={project} environment={environment} compact />
           ) : null;
         })}
       </div>
@@ -68,6 +70,7 @@ function BulkAutoDeploy({ projects }: { projects: Project[] }) {
     <div className={box.stack}>
       <div className={box.cluster}>
         <Button
+          className={styles.bulk}
           leadingVisual={ZapIcon}
           disabled={candidates.length === 0 || enable.isPending}
           onClick={() => {
@@ -147,8 +150,17 @@ function BulkAutoDeploy({ projects }: { projects: Project[] }) {
   );
 }
 
+const PROJECT_SORTS: readonly SortOption[] = [
+  { value: "name", label: "Name", sort: "name" },
+  { value: "newest", label: "Newest", sort: "created", order: "desc" },
+  { value: "oldest", label: "Oldest", sort: "created", order: "asc" },
+];
+const PROJECT_LIST: ListSpec = { sorts: PROJECT_SORTS };
+
 export function ProjectsPage() {
-  const projects = useProjects();
+  const list = useListParams(PROJECT_LIST);
+  const projects = useProjects(list.apiQuery);
+  const everything = useAllProjects();
   const can = useCan();
 
   return (
@@ -165,43 +177,43 @@ export function ProjectsPage() {
         description="Each project has a Development and a Production environment, each with its own branch."
       />
       <div className={`${box.section} ${box.stack}`}>
-        {projects.isPending ? <Loading label="Loading projects" /> : null}
-        {projects.isError ? (
-          <ErrorCallout
-            title="Could not load projects"
-            error={projects.error}
-            onRetry={() => void projects.refetch()}
-          />
+        {everything.data && everything.data.length > 0 ? (
+          <BulkAutoDeploy projects={everything.data} />
         ) : null}
-        {projects.data?.length === 0 ? (
-          <EmptyState
-            icon={<RepoIcon size={32} aria-hidden="true" />}
-            title="No projects yet"
-            action={
-              can("project.create") ? (
-                <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
-                  Create your first project
-                </Button>
-              ) : undefined
-            }
-          >
-            {can("project.create")
-              ? "A project connects one GitHub repository to a Development and a Production environment. It appears here with both environments as soon as it exists."
-              : "Nothing has been shared with you yet. Ask an owner or admin to give you access to a project."}
-          </EmptyState>
-        ) : null}
-        {projects.data && projects.data.length > 0 ? (
-          <BulkAutoDeploy projects={projects.data} />
-        ) : null}
-        {projects.data && projects.data.length > 0 ? (
-          <ul className={`${box.box} ${box.list}`} aria-label="Projects">
-            {projects.data.map((project) => (
-              <li key={project.slug} className={box.row}>
-                <ProjectBox project={project} />
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        <PagedList
+          noun="projects"
+          query={projects}
+          list={list}
+          sorts={PROJECT_SORTS}
+          placeholder="Find a project by name, slug or repository…"
+          empty={
+            <EmptyState
+              icon={<RepoIcon size={32} aria-hidden="true" />}
+              title="No projects yet"
+              action={
+                can("project.create") ? (
+                  <Button as={Link} to="/projects/new" variant="primary" leadingVisual={PlusIcon}>
+                    Create your first project
+                  </Button>
+                ) : undefined
+              }
+            >
+              {can("project.create")
+                ? "A project connects one GitHub repository to a Development and a Production environment. It appears here with both environments as soon as it exists."
+                : "Nothing has been shared with you yet. Ask an owner or admin to give you access to a project."}
+            </EmptyState>
+          }
+        >
+          {(items) => (
+            <ul className={box.list} aria-label="Projects">
+              {items.map((project) => (
+                <li key={project.slug} className={box.row}>
+                  <ProjectBox project={project} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </PagedList>
       </div>
     </>
   );

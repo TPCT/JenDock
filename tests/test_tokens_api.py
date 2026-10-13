@@ -45,7 +45,7 @@ def test_create_shows_secret_once_and_stores_only_hash(
     assert len(value) >= len(TOKEN_PREFIX) + 43
     listing = client.get("/api/tokens")
     assert value not in listing.text
-    assert listing.json()[0]["prefix"] == value[:8]
+    assert listing.json()["items"][0]["prefix"] == value[:8]
     uow = container.uow()
     with uow:
         row = uow.session.scalars(select(ApiToken)).one()
@@ -204,3 +204,25 @@ def test_token_actions_audited_with_user_actor_and_token_actor(
 
 def test_make_client_helper_isolated(container: AppContainer) -> None:
     assert make_client(container).get("/healthz").status_code == 200
+
+
+def test_token_list_is_paged_searchable_and_filterable_by_state(
+    client: TestClient, csrf: str
+) -> None:
+    ids = []
+    for name in ("deploy bot", "ci runner", "audit reader"):
+        body = {"name": name, "scopes": ["read"]}
+        response = client.post("/api/tokens", json=body, headers=mutation_headers(client, csrf))
+        ids.append(response.json()["info"]["id"])
+    client.delete(f"/api/tokens/{ids[0]}", headers=mutation_headers(client, csrf))
+    page = client.get("/api/tokens", params={"per_page": 2}).json()
+    assert (page["total"], page["pages"]) == (3, 2)
+    assert [t["id"] for t in page["items"]] == [ids[2], ids[1]]
+    runner = client.get("/api/tokens", params={"q": "RUNNER"}).json()
+    assert [t["name"] for t in runner["items"]] == ["ci runner"]
+    revoked = client.get("/api/tokens", params={"state": "revoked"}).json()
+    assert [t["id"] for t in revoked["items"]] == [ids[0]]
+    assert client.get("/api/tokens", params={"state": "active"}).json()["total"] == 2
+    by_name = client.get("/api/tokens", params={"sort": "name", "per_page": 1}).json()
+    assert by_name["items"][0]["name"] == "audit reader"
+    assert client.get("/api/tokens", params={"state": "bogus"}).status_code == 422

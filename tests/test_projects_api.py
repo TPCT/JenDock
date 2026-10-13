@@ -92,7 +92,9 @@ def test_list_projects_shape_and_order(wired: AppContainer, api: tuple[TestClien
     client, _ = api
     ProjectService(wired.uow()).create("aaa", "Zed Project", "octo/zed")
     ProjectService(wired.uow()).create("zzz", "Alpha Project", "octo/alpha")
-    body = client.get("/api/projects").json()
+    page = client.get("/api/projects").json()
+    assert (page["total"], page["page"], page["per_page"], page["pages"]) == (3, 1, 25, 1)
+    body = page["items"]
     assert [p["name"] for p in body] == ["Alpha Project", "Demo", "Zed Project"]
     demo = body[1]
     assert demo["slug"] == "demo"
@@ -129,7 +131,7 @@ def test_archived_projects_are_omitted_and_not_found(
 ) -> None:
     client, _ = api
     ProjectService(wired.uow()).archive("demo")
-    assert client.get("/api/projects").json() == []
+    assert client.get("/api/projects").json()["items"] == []
     assert client.get("/api/projects/demo").status_code == 404
 
 
@@ -178,7 +180,7 @@ def test_environment_runs_are_paged_newest_first(
     ).json()
     assert [r["id"] for r in second["items"]] == [ids[0]]
     defaults = client.get("/api/projects/demo/environments/development/runs").json()
-    assert (defaults["limit"], len(defaults["items"])) == (20, 5)
+    assert (defaults["per_page"], len(defaults["items"])) == (25, 5)
     prod = client.get("/api/projects/demo/environments/production/runs").json()
     assert prod["total"] == 1
 

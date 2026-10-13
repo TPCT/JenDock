@@ -98,10 +98,3 @@ export interface Delivery {
   next_attempt_at: string | null;
   delivered_at: string | null;
 }
-
-export interface DeliveryPage {
-  items: Delivery[];
-  total: number;
-  limit: number;
-  offset: number;
-}

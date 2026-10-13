@@ -24,3 +24,19 @@
   gap: var(--base-size-16);
   margin-top: var(--base-size-8);
 }
+/* The long bulk-action label wraps on a phone instead of widening the page. */
+@media (max-width: 543px) {
+  .bulk {
+    width: 100%;
+    height: auto !important;
+    min-width: 0 !important;
+    min-height: var(--control-medium-size);
+    padding-block: var(--base-size-6);
+  }
+  .bulk span {
+    white-space: normal !important;
+    min-width: 0;
+    max-width: 100%;
+    text-align: start;
+  }
+}

@@ -20,6 +20,7 @@ import { ContainerDetailPage } from "./pages/ContainerDetail";
 import { ContainersPage } from "./pages/Containers";
 import { DatabaseBrowserPage } from "./pages/DatabaseBrowser";
 import { DatabasesPage } from "./pages/Databases";
+import { DeploymentsPage } from "./pages/Deployments";
 import { DomainsPage } from "./pages/Domains";
 import { ChangePasswordPage } from "./pages/ChangePassword";
 import { MembersPage } from "./pages/Members";
@@ -174,6 +175,7 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ProjectOverviewPage /> },
               { path: "environments/:env/runs", element: <EnvironmentRunsPage /> },
               { path: "environments/:env/pipeline", element: <PipelineRoute /> },
+              { path: "environments/:env/deployments", element: <DeploymentsPage /> },
               { path: "environments/:env/containers", element: <ContainersPage /> },
               { path: "environments/:env/containers/:id", element: <ContainerDetailPage /> },
               { path: "environments/:env/containers/:id/terminal", element: <TerminalRoute /> },
@@ -203,8 +205,10 @@ export const appRoutes: RouteObject[] = [
                   { path: "secrets", element: <SecretsSettingsPage /> },
                   { path: "access", element: <AccessSettingsPage /> },
                   { path: "notifications", element: <ProjectNotificationsPage /> },
+                  { path: "*", element: <NotFoundPage /> },
                 ],
               },
+              { path: "*", element: <NotFoundPage /> },
             ],
           },
           { path: "/runs", element: <AllRunsPage /> },
@@ -223,6 +227,7 @@ export const appRoutes: RouteObject[] = [
               { path: "account", element: <SecurityPage /> },
               { path: "members", element: <MembersPage /> },
               { path: "integrations", element: <IntegrationsPage /> },
+              { path: "*", element: <NotFoundPage /> },
             ],
           },
           { path: "*", element: <NotFoundPage /> },

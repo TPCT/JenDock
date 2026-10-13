@@ -65,6 +65,55 @@ const INITIAL_SEEDS: ProjectSeed[] = [
   },
 ];
 
+const BULK_WORDS = [
+  "Atlas",
+  "Beacon",
+  "Cedar",
+  "Delta",
+  "Ember",
+  "Falcon",
+  "Granite",
+  "Harbor",
+  "Indigo",
+  "Juniper",
+  "Kestrel",
+  "Lumen",
+  "Meridian",
+  "Nimbus",
+  "Orchid",
+  "Pioneer",
+  "Quartz",
+  "Raven",
+  "Summit",
+  "Tidal",
+  "Umbra",
+  "Vertex",
+  "Willow",
+  "Xenon",
+  "Yarrow",
+  "Zephyr",
+];
+const BULK_KINDS = ["API", "Web", "Worker", "Dashboard"];
+const BULK_PROJECTS = 64;
+
+/** Sixty-odd extra projects so pagination, search and sorting have something to work on. */
+function bulkSeeds(): ProjectSeed[] {
+  return Array.from({ length: BULK_PROJECTS }, (_, index): ProjectSeed => {
+    const word = BULK_WORDS[index % BULK_WORDS.length] ?? "Project";
+    const kind = BULK_KINDS[Math.floor(index / BULK_WORDS.length) % BULK_KINDS.length] ?? "API";
+    const slug = `${word}-${kind}`.toLowerCase();
+    return {
+      slug,
+      name: `${word} ${kind}`,
+      repository: `acme/${slug}`,
+      development: { branch: "develop", autoDeploy: index % 3 !== 0 },
+      production: { branch: "main", autoDeploy: index % 4 === 0 },
+      ...(index % 7 === 0 ? { configured: { development: false, production: false } } : {}),
+    };
+  });
+}
+
+let bulk = false;
 let SEEDS: ProjectSeed[] = structuredClone(INITIAL_SEEDS);
 
 const sha = (n: number): string =>
@@ -186,12 +235,39 @@ function seedRuns(): RunSeed[] {
     createdAgo: (index + 1) * 90 * MINUTE,
     durationMs: 120_000 + index * 3000,
   })).filter((run) => run.number > 0);
-  return [...featured, ...history];
+  const generated: RunSeed[] = bulk
+    ? bulkSeeds().flatMap((seed, index) =>
+        (["development", "production"] as const).flatMap((env, envIndex) =>
+          Array.from({ length: 1 + ((index + envIndex) % 3) }, (_, n): RunSeed => ({
+            id: 1000 + index * 10 + envIndex * 5 + n,
+            slug: seed.slug,
+            env,
+            number: 3 - n,
+            status:
+              (["succeeded", "failed", "succeeded", "cancelled"] as const)[
+                (index + envIndex + n) % 4
+              ] ?? "succeeded",
+            trigger: (["push", "manual", "push", "redeploy"] as const)[(index + n) % 4] ?? "push",
+            createdAgo: (index * 37 + envIndex * 11 + n * 450 + 20) * MINUTE,
+            durationMs: 60_000 + ((index * 13 + n * 7) % 20) * 15_000,
+          })),
+        ),
+      )
+    : [];
+  return [...featured, ...history, ...generated];
 }
 
 let runSeeds = seedRuns();
 
+/** Adds the generated projects and runs; the dev mock mode calls it, tests do not. */
+export function enableBulkMockData(): void {
+  bulk = true;
+  SEEDS = [...structuredClone(INITIAL_SEEDS), ...bulkSeeds()];
+  runSeeds = seedRuns();
+}
+
 export function resetMockData(): void {
+  bulk = false;
   SEEDS = structuredClone(INITIAL_SEEDS);
   resetPipelines();
   runSeeds = seedRuns();
@@ -252,11 +328,11 @@ export function runsFor(slug: string, env: EnvironmentName): RunSummary[] {
 }
 
 export function projects(): Project[] {
-  return SEEDS.map((seed) => ({
+  return SEEDS.map((seed, index) => ({
     slug: seed.slug,
     name: seed.name,
     repository: seed.repository,
-    created_at: ago(40 * 24 * 60 * MINUTE),
+    created_at: ago((40 + SEEDS.length - index) * 24 * 60 * MINUTE),
     git_transport: seed.gitTransport ?? "ssh",
     environments: (["development", "production"] as const).map((name) => ({
       name,

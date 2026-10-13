@@ -9,11 +9,18 @@ from sqlalchemy import ColumnElement, delete, func, select
 from sqlalchemy.orm import Session, undefer
 
 from backend.domain.notifications import DeliveryStatus
+from backend.domain.paging import PageQuery
 from backend.repositories.notification_models import (
     NotificationChannel,
     NotificationDelivery,
     NotificationRule,
 )
+from backend.repositories.paging import contains, ordered
+
+DELIVERY_SORTS = {
+    "created": NotificationDelivery.id,
+    "status": NotificationDelivery.status,
+}
 
 
 class NotificationRepository:
@@ -160,14 +167,17 @@ class NotificationRepository:
 
     def page(
         self,
+        query: PageQuery,
         *,
         project_id: int | None,
         channel_id: int | None,
         status: str | None,
-        limit: int,
-        offset: int,
     ) -> tuple[Sequence[NotificationDelivery], int]:
-        """A page of the delivery history, newest first, with the total count."""
+        """A page of the delivery history with the total count.
+
+        The search text matches the title, event and last error. Sort keys: ``created``
+        (default, newest first) and ``status``.
+        """
         filters: list[ColumnElement[bool]] = []
         if project_id is not None:
             filters.append(NotificationDelivery.project_id == project_id)
@@ -175,16 +185,25 @@ class NotificationRepository:
             filters.append(NotificationDelivery.channel_id == channel_id)
         if status is not None:
             filters.append(NotificationDelivery.status == status)
+        if query.term is not None:
+            columns = [
+                NotificationDelivery.title,
+                NotificationDelivery.event,
+                NotificationDelivery.last_error,
+            ]
+            filters.append(contains(columns, query.term))
         total = self._session.scalar(
             select(func.count()).select_from(NotificationDelivery).where(*filters)
         )
-        rows = self._session.scalars(
-            select(NotificationDelivery)
-            .where(*filters)
-            .order_by(NotificationDelivery.id.desc())
-            .limit(limit)
-            .offset(offset)
-        ).all()
+        statement = ordered(
+            select(NotificationDelivery).where(*filters),
+            query,
+            DELIVERY_SORTS,
+            "created",
+            descending=frozenset({"created"}),
+            tiebreak=NotificationDelivery.id,
+        )
+        rows = self._session.scalars(statement.limit(query.limit).offset(query.offset)).all()
         return rows, int(total or 0)
 
     def prune_before(self, cutoff: datetime) -> int:

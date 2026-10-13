@@ -241,7 +241,11 @@ describe("projects", () => {
   });
 
   it("explains what to do when there are no projects", async () => {
-    server.use(http.get("/api/projects", () => HttpResponse.json([])));
+    server.use(
+      http.get("/api/projects", () =>
+        HttpResponse.json({ items: [], total: 0, page: 1, per_page: 25, pages: 1 }),
+      ),
+    );
     renderApp("/projects");
     expect(await screen.findByRole("heading", { name: "No projects yet" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create your first project" })).toBeInTheDocument();
@@ -268,10 +272,10 @@ describe("runs list", () => {
   it("pages through runs", async () => {
     const user = userEvent.setup();
     renderApp("/projects/shop-api/environments/development/runs");
-    expect(await screen.findByText("1-20 of 42")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Older" }));
-    expect(await screen.findByText("21-40 of 42")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Newer" })).toBeEnabled();
+    expect(await screen.findByText("Showing 1-25 of 42")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Next Page" }));
+    expect(await screen.findByText("Showing 26-42 of 42")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Previous Page" })).toBeInTheDocument();
   });
 
   it("starts a manual run only after previewing the commit", async () => {
