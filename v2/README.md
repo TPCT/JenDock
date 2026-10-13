@@ -45,6 +45,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make lock` - regenerate `requirements.lock` (needs Docker)
 - `make test-py313` - run tests on Python 3.13 in Docker (installs git in the throwaway container)
 - `make check` - lint, typecheck, test
+- `make test-e2e` - the whole platform with real containers, driven only through its public
+  interfaces (builds the images from the tree; see `docs/e2e.md`)
 - `make preflight` - read-only host check before the production installation (`PREFLIGHT_ARGS`
   passes flags, e.g. `--env-file .env`); see `docs/deployment.md`
 - `make lint-jenkins` - compare the Jenkinsfile engine with a real Jenkins linter in a throwaway
