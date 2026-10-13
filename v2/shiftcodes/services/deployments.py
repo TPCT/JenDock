@@ -174,6 +174,25 @@ class RedeployResult:
     deployment_id: int
 
 
+@dataclass(frozen=True, slots=True)
+class RunningImage:
+    """The image a service is believed to run now, and the deployment that decided it."""
+
+    service: str
+    image: str
+    deployment_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class RedeployPreview:
+    """What a redeploy would do: the images it deploys, what runs now, and whether another
+    deployment of the environment is still in progress (which refuses the redeploy)."""
+
+    target: DeploymentView
+    running: tuple[RunningImage, ...]
+    in_progress: bool
+
+
 class DeploymentService:
     """Deployment history and redeploy of earlier versions."""
 
@@ -213,8 +232,32 @@ class DeploymentService:
             finished_at=row.finished_at,
         )
 
+    def preview_redeploy(
+        self, slug: str, name: EnvironmentName, deployment_id: int
+    ) -> RedeployPreview:
+        """What redeploying ``deployment_id`` would deploy and replace; changes nothing.
+
+        Refused like the redeploy itself when the deployment is unknown or did not succeed.
+        """
+        with self._uow:
+            env = require_environment(self._uow, slug, name)
+            source = self._source(env.id, deployment_id)
+            recent = [
+                self._view(row)
+                for row in self._uow.deployments.list_for_environment(
+                    env.id, limit=MAX_PAGE_SIZE, offset=0
+                )
+            ]
+            return RedeployPreview(self._view(source), _running_images(recent), _busy(recent))
+
     def redeploy(
-        self, slug: str, name: EnvironmentName, deployment_id: int, actor: Actor
+        self,
+        slug: str,
+        name: EnvironmentName,
+        deployment_id: int,
+        actor: Actor,
+        *,
+        refuse_in_progress: bool = False,
     ) -> RedeployResult:
         """Queue a run that deploys the images of an earlier successful deployment again,
         without rebuilding; audited. Concurrent creators racing for a run number get
@@ -223,6 +266,8 @@ class DeploymentService:
             with self._uow:
                 env = require_environment(self._uow, slug, name)
                 source = self._source(env.id, deployment_id)
+                if refuse_in_progress and self._in_progress(env.id):
+                    raise ConflictError("a deployment of this environment is still in progress")
                 run = self._queue_run(env.id, source, actor)
                 pending = self._pending(env.id, run, source)
                 details: dict[str, object] = {
@@ -237,6 +282,12 @@ class DeploymentService:
                 return RedeployResult(run, slug, name.value, pending.id)
         except IntegrityError as error:
             raise ConflictError("run number was taken concurrently") from error
+
+    def _in_progress(self, environment_id: int) -> bool:
+        rows = self._uow.deployments.list_for_environment(
+            environment_id, limit=MAX_PAGE_SIZE, offset=0
+        )
+        return _busy([self._view(row) for row in rows])
 
     def _source(self, environment_id: int, deployment_id: int) -> Deployment:
         source = self._uow.deployments.get(deployment_id)
@@ -285,3 +336,26 @@ class DeploymentService:
             created_at=self._clock(),
         )
         return self._uow.deployments.add(pending)
+
+
+def _busy(views: Sequence[DeploymentView]) -> bool:
+    """Whether a deployment is running or a redeploy is queued and has not ended."""
+    return any(v.status in (DeploymentStatus.DEPLOYING, DeploymentStatus.PENDING) for v in views)
+
+
+def _running_images(views: Sequence[DeploymentView]) -> tuple[RunningImage, ...]:
+    """Per service, the image of the newest deployment that settled it: a succeeded one runs its
+    new image, a failed or rolled-back one left the previous image running."""
+    found: dict[str, RunningImage] = {}
+    for view in views:  # newest first
+        for change in view.services:
+            if change.service in found:
+                continue
+            if view.status is DeploymentStatus.SUCCEEDED:
+                found[change.service] = RunningImage(change.service, change.new_image, view.id)
+            elif (
+                view.status in (DeploymentStatus.ROLLED_BACK, DeploymentStatus.FAILED)
+                and change.previous_image
+            ):
+                found[change.service] = RunningImage(change.service, change.previous_image, view.id)
+    return tuple(sorted(found.values(), key=lambda item: item.service))
