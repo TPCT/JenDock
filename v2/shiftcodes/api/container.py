@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 
 from shiftcodes.adapters.container_client import ContainerClient, ContainersGateway
 from shiftcodes.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
+from shiftcodes.adapters.inspector_client import InspectorGateway, WorkerInspectorClient
 from shiftcodes.adapters.worker_client import (
     GithubGateway,
     RepositoryGateway,
@@ -31,6 +32,7 @@ from shiftcodes.repositories.database import (
 )
 from shiftcodes.services.auth import AuthService
 from shiftcodes.services.certificates import RenewalPolicy
+from shiftcodes.services.database_connections import DatabaseConnectionService
 from shiftcodes.services.deployments import DeploymentService
 from shiftcodes.services.domain_status import DomainStatusService
 from shiftcodes.services.domains import DomainService
@@ -72,6 +74,8 @@ class AppContainer:
     repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
     # Failed webhook signatures per client IP (separate from the login limiter).
     webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
+    # Database inspector calls to the worker; ``None`` means the default socket client.
+    inspector: InspectorGateway | None = None
     # Container management through the worker; ``None`` means "the default client" (see
     # ``container_gateway``). Tickets of the terminal WebSocket live here, in process memory.
     containers: ContainersGateway | None = None
@@ -83,6 +87,7 @@ class AppContainer:
         settings: Settings,
         *,
         secrets: SecretsGateway | None = None,
+        inspector: InspectorGateway | None = None,
         github: GithubGateway | None = None,
         clock: Clock = utcnow,
         hasher: PasswordHasher | None = None,
@@ -101,6 +106,7 @@ class AppContainer:
             limiter=limiter or LoginRateLimiter(clock),
             secrets=secrets or worker,
             cookies=CookiePolicy.for_settings(settings),
+            inspector=inspector,
             containers=containers or ContainerClient(worker),
             terminal_tickets=TicketStore(clock),
             ingress=IngressClient(settings.worker_socket_path),
@@ -141,6 +147,16 @@ class AppContainer:
     def run_lifecycle(self) -> RunLifecycleService:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
+
+    def database_connections(self) -> DatabaseConnectionService:
+        """Return the connection configuration service (passwords go through the worker)."""
+        return DatabaseConnectionService(self.uow(), self.secrets, self.clock)
+
+    def inspector_gateway(self) -> InspectorGateway:
+        """Return the worker gateway for database inspection."""
+        if self.inspector is not None:
+            return self.inspector
+        return WorkerInspectorClient(WorkerClient(self.settings.worker_socket_path))
 
     def deployment_service(self) -> DeploymentService:
         """Return a deployment history service with its own unit of work."""

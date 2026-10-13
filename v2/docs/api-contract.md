@@ -491,6 +491,102 @@ ${BRANCH_NAME}` to `failure` / `success`, and `cleanup`. A condition tree that m
   Text -> Visual: text -> `parse` on entering the Visual tab. Text tab: `validate` 400 ms after
   typing stops.
 
+## Database (exists)
+
+The database inspector. Base path `/api/projects/{slug}/environments/{env}/databases`. The API holds no
+database password and never connects: the worker runs a short-lived, hardened helper container
+(`docker/inspector.Dockerfile`: read-only root, no capabilities, non-root user, memory/CPU/pid limits,
+30 s wall clock) attached **only** to the environment's compose network `<compose_project>_default`.
+The helper refuses any host that resolves outside that network's subnets or to its gateway (the host).
+The password is stored as environment secret `DBCONN_<NAME>_PASSWORD` (encrypted, worker-only key) and
+is never returned. Every session is read-only (`default_transaction_read_only` + `READ ONLY`
+transaction on PostgreSQL; `SET SESSION TRANSACTION READ ONLY` + `START TRANSACTION READ ONLY` on
+MySQL/MariaDB) and rolled back. UI copy for production: *use a dedicated database user that only has
+SELECT privileges; read-only sessions are defence in depth, the user is the strongest guarantee.*
+
+Scopes: configuration (create/patch/delete/test) `admin`; list/get connection and metadata (schemas,
+tables, table detail) `read` on both environments; **rows and console: `read` on development, `admin`
+on production** (sessions hold every scope). Errors use the common envelope; specifics: 409
+`conflict` = database unreachable or environment network missing, 422 `validation_error` = statement
+rejected / failed / timed out or bad paging input, 404 = unknown connection/schema/table.
+
+### Connection
+
+```json
+{"name": "main", "engine": "postgresql|mysql|mariadb", "host": "db", "port": 5432, "database": "app",
+ "username": "reader", "tls_mode": "disable|require", "password_secret": "DBCONN_MAIN_PASSWORD",
+ "read_only": true, "environment": "development", "notice": null,
+ "created_at": "...", "updated_at": "...", "last_tested_at": null, "last_test_ok": null}
+```
+
+`host` is a compose service name (or other name/IP on the environment network; loopback, unspecified
+and link-local are refused). `tls_mode=require` encrypts without verifying the certificate (no CA store
+yet). `notice` is set on production (the read-only-user recommendation). Max 10 connections per
+environment; `name` is `[a-z0-9][a-z0-9-]{0,47}`.
+
+- `GET .../databases` (read) -> `Connection[]`; `GET .../databases/{name}` (read) -> `Connection`
+- `POST .../databases` (admin) body `{name, engine, host, port?, database, username, password, tls_mode?}`
+  -> 201 `Connection`; 409 on duplicate name/limit
+- `PATCH .../databases/{name}` (admin) any of `engine, host, port, database, username, password, tls_mode`
+  (a `password` rotates the secret) -> `Connection`
+- `DELETE .../databases/{name}` (admin) -> 204 (also deletes the password secret)
+- `POST .../databases/{name}/test` (admin) -> always 200:
+  `{"ok": true, "server": {version, read_only, current_user, database, tls}, "error": null, "network": "proj_default"}`
+  or `{"ok": false, "error": {"code": "connect_failed|network_denied|network_unavailable|secret_missing|helper_unavailable|timeout|...", "message"}, "server": null, "network"}`;
+  updates `last_tested_at` / `last_test_ok`
+
+### Metadata (read)
+
+- `GET .../{name}/schemas?include_system=false` -> `{"schemas": [{"name", "system"}]}`
+- `GET .../{name}/schemas/{schema}/tables` -> `{"tables": [{"schema", "name", "kind": "table|view|materialized_view|partitioned_table|foreign_table|sequence", "approx_rows": int|null}]}`
+  (`approx_rows` is the planner/engine estimate)
+- `GET .../{name}/schemas/{schema}/tables/{table}` -> `{"table", "columns": [{name, position, data_type, nullable, default, primary_key_position, extra}], "indexes": [{name, columns, unique, primary, method}], "foreign_keys": [{name, columns, ref_schema, ref_table, ref_columns, on_update, on_delete}]}`
+
+Table names containing `/` cannot be addressed (path segment); all other names, including hostile ones,
+are quoted by the driver / catalog-verified and never spliced from the URL.
+
+### Rows (`read` dev, `admin` production)
+
+`GET .../{name}/schemas/{schema}/tables/{table}/rows?limit=100&offset=0&cursor=`
+
+`limit` 1-500 (default 100). Ordered by primary key (keyset paging); tables without a primary key are
+ordered by their sortable columns (`ordering: "columns"`) or unordered (`"none"`) and only page by
+`offset`. `cursor` (opaque, from a previous `next_cursor`) wins over `offset`.
+
+```json
+{"columns": [{"name": "id", "type": "integer"}], "rows": [[1, "x"]], "limit": 100, "offset": 0,
+ "ordering": "primary_key|columns|none", "order_by": ["id"],
+ "next_cursor": "WzJd" | null, "next_offset": 100 | null, "size_limited": false}
+```
+
+Cells are JSON scalars (integers beyond 2^53 and all decimals/dates/uuids/json/arrays are strings), or:
+`{"truncated": true, "text": "<first 4096 bytes>", "limit": 4096}` for long text and
+`{"binary": true, "hex": "<first 64 bytes as hex>", "bytes": <total length>}` for binary.
+A page is cut (and `size_limited` is true) if it would exceed ~640 KiB; continue with the next cursor.
+Reads of production rows are audited (`database.rows.read`: table and page, never data).
+
+### Console (`read` dev, `admin` production)
+
+`POST .../{name}/query` body `{"statement": "SELECT ..."}` (max 20,000 chars) ->
+
+```json
+{"columns": [{"name", "type"}], "rows": [[...]], "row_count": 1, "truncated": false, "size_limited": false,
+ "limit": 500, "elapsed_ms": 3, "statement_kind": "SELECT|WITH|SHOW|EXPLAIN"}
+```
+
+One statement only (an optional final `;`), starting with SELECT, WITH, SHOW or EXPLAIN. Rejected (422):
+chained statements, INSERT/UPDATE/DELETE/MERGE/DDL keywords anywhere (except SHOW), `INTO`
+(OUTFILE/DUMPFILE/variables), locking reads, `EXPLAIN ANALYZE`, executable comments, and a function
+deny-list (`pg_sleep*`/`sleep`/`benchmark`, locks, server file access, `dblink`, `set_config`,
+`nextval`, ...). 5 s server-side statement timeout, 500 rows (`truncated: true` beyond), cells as above,
+always rolled back. Audited as `database.query` with the statement text and outcome
+(`ok|rejected|timeout|...`) and row count, **never the results**.
+
+### MCP-friendly notes
+
+All shapes are flat JSON with stable keys; there is no HTML or driver-specific type. A read-only agent
+token (`read`) can enumerate schemas/tables/columns and read/query development data; production data
+needs an `admin` token.
 ## Containers (exists, Task 8)
 
 Base: `/api/projects/{slug}/environments/{env}/containers`. Only containers of the environment's

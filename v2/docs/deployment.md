@@ -135,6 +135,7 @@ export DC='env DOCKER_HOST=unix:///run/docker-isolation.sock /opt/docker-engine/
 cd /opt/docker-engine/projects/shiftcodes-v2
 $DC config > /dev/null                      # validates compose.yml + overlay + .env
 $DC up -d --build                           # builds both images on the isolated daemon
+$DC --profile tools build inspector         # the database inspector helper image (not started by up)
 $DC run --rm api python -m shiftcodes.repositories.migrate
 $DC run --rm -T api python -m shiftcodes.cli users create admin --password-stdin   # first admin
 ```
@@ -177,7 +178,9 @@ Each step has a check. Stop at the first one that does not give the expected res
 4. **Apache.** Install the vhost file, `a2ensite deploy.shiftcodes.net`, then
    `apachectl configtest` (expect `Syntax OK`) and a graceful reload. v1 check:
    `curl -sI https://monitoring.shiftcodes.net/ | head -1` is unchanged.
-5. **Stack.** `$DC config > /dev/null`, `$DC up -d --build`, `$DC ps` shows `api` and `worker`
+5. **Stack.** `$DC config > /dev/null`, `$DC up -d --build`, `$DC --profile tools build inspector`
+   (database inspector helper image `shiftcodes-v2-inspector:latest`; override the name with
+   `INSPECTOR_IMAGE` in `.env`; rebuild it after upgrades), `$DC ps` shows `api` and `worker`
    healthy/running. `curl -s http://127.0.0.1:8000/healthz` gives `{"status":"ok"}`.
 6. **Proxy trust.** Set `TRUSTED_PROXIES` as in section 4 and `$DC up -d`. From a workstation:
    `curl -s https://deploy.shiftcodes.net/healthz` works through Apache.
