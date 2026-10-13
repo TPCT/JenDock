@@ -224,6 +224,9 @@
  "serialized/valid/post_conditions": true,
  "serialized/valid/sequential_stages": true,
  "serialized/valid/strings_and_comments": true,
+ "serialized/valid/v1_aic_website": true,
+ "serialized/valid/v1_captcha": true,
+ "serialized/valid/v1_etsawaa": true,
  "template/dockerfile": true,
  "template/laravel": true,
  "template/nextjs": true,
@@ -240,5 +243,8 @@
  "valid/parameters": true,
  "valid/post_conditions": true,
  "valid/sequential_stages": true,
- "valid/strings_and_comments": true
+ "valid/strings_and_comments": true,
+ "valid/v1_aic_website": true,
+ "valid/v1_captcha": true,
+ "valid/v1_etsawaa": true
 }

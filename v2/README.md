@@ -54,6 +54,26 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
   see `stat -c %g <socket>`). Added to the worker via `group_add`.
 
+## Importing v1 projects (Task 15.1)
+
+```
+python -m shiftcodes.cli import-v1 --projects-json <v1>/projects.json [--v1-db <v1 sqlite>] \
+    [--compose-root <copy of /opt/docker-engine/projects>] [--dry-run]
+```
+
+Reads v1 read-only and creates v2 projects, environments (branch, auto deploy, compose project,
+compose files, services) and one canonical Jenkinsfile per recipe (`dockerBuild` per image, a
+`Test` stage per v1 test with its environment as stage `environment`, `deploy services: [...]`,
+`healthCheck`), each validated by the Jenkinsfile engine. `--dry-run` prints the whole plan and
+never opens the database. Re-running is safe: missing things are created, blank compose settings
+are filled, anything that exists and differs is only reported. Secrets are never imported; the
+report lists what the operator must provide (the compose `env_file` stays where it is).
+v1 has one branch per project: it is assigned to development or production (from the v1
+registry binding when `--v1-db` is given, else from the branch name) and every guess is a warning.
+The service -> image mapping is exact when `--compose-root` makes the compose files readable and
+a flagged name-based guess otherwise. The field mapping is the table `ENVIRONMENT_FIELDS` in
+`shiftcodes/importer/plan.py` (`env_file` is report-only until Task 7 adds the field).
+
 ## Reproducible builds
 
 `requirements.lock` pins runtime dependencies and is used as pip constraints in both
