@@ -43,7 +43,7 @@ worker writes must therefore belong to uid 10001.
 | `/var/lib/jendock-workspaces` (`WORKSPACES_HOST_DIR`) | `10001:10001` | 0750 | run workspaces; the host daemon bind-mounts subdirectories into step containers, so it is mounted at a host path the daemon can resolve |
 | `/var/backups/jendock` (`BACKUP_HOST_DIR`) | `10001:10001` | 0750 | scheduled backups and the target of manual ones |
 | `/opt/docker-engine/projects` (`COMPOSE_PROJECTS_DIR`) | unchanged | unchanged | the compose files and `--env-file` files of **deployed projects**; mounted read-only into the worker at the **identical absolute path** |
-| Docker volume `jendock-v2_keys` | `10001:10001` | 0700 (the image sets it) | `secret.key`, `deploy_key`, `github_webhook_secret`; mounted in the worker only |
+| Docker volume `jendock-v2_keys` | `10001:10001` | 0700 (the image sets it) | `secret.key`, `deploy_keys/`, `github_webhook_secret`; mounted in the worker only |
 | Docker volume `jendock-v2_data` | `10001:10001` | 2770 (setgid) | SQLite database, run logs, managed compose overrides (`deployments/`) |
 
 ```
@@ -102,15 +102,25 @@ Nothing secret goes into `.env`, the repository or `docker compose` arguments.
 - **`secret.key`** (encrypts all stored secrets): created automatically, 0600, in the `keys`
   volume on the first worker start. **Back it up separately** (section 8): without it every
   stored secret is lost.
-- **Deploy key** (read-only access for the ssh transport) as `/run/jendock-keys/deploy_key`,
-  and the **webhook secret** as `/run/jendock-keys/github_webhook_secret`. Generate a new
-  ed25519 key for v2 (do not reuse v1's), add its public half as a read-only deploy key to each
-  repository, and create the files from stdin so nothing touches a shell history or `ps`:
+- **Deploy keys** (read-only access for the ssh transport): one per repository, because GitHub
+  accepts a deploy key on a single repository only. They live in
+  `/run/jendock-keys/deploy_keys/<owner>__<name>`. The **webhook secret** is
+  `/run/jendock-keys/github_webhook_secret`. For each repository the worker generates the key
+  itself, so the private key never leaves the keys volume and nothing touches a shell history or
+  `ps`; the command prints only the public key:
 
   ```
-  ssh-keygen -t ed25519 -N '' -f /tmp/v2_deploy_key -C jendock-v2   # then add /tmp/v2_deploy_key.pub on GitHub
-  $DC run --rm -T --no-deps --entrypoint sh worker -c 'umask 077; cat > /run/jendock-keys/deploy_key' < /tmp/v2_deploy_key
-  shred -u /tmp/v2_deploy_key /tmp/v2_deploy_key.pub
+  $DC exec worker python -m backend.cli deploy-key create owner/name
+  ```
+
+  Add the printed line as a **read-only** deploy key of that repository (*Settings -> Deploy
+  keys*, "Allow write access" off). `deploy-key show owner/name` prints it again,
+  `deploy-key list` lists the repositories with a key, and `deploy-key create --rotate
+  owner/name` replaces a key (replace it on GitHub as well; creating and rotating are audited
+  without key material). Do not reuse v1's key. A repository without its own key falls back to
+  the optional shared `JENDOCK_GIT_SSH_KEY_FILE`. Create the webhook secret from stdin:
+
+  ```
   openssl rand -hex 32 | tee /dev/stderr | \
     $DC run --rm -T --no-deps --entrypoint sh worker -c 'umask 077; cat > /run/jendock-keys/github_webhook_secret'
   ```
@@ -186,7 +196,7 @@ Each step has a check. Stop at the first one that does not give the expected res
    `curl -s https://deploy.example.com/healthz` works through Apache.
 7. **Migrations and admin.** Section 7. Log in at `https://deploy.example.com`.
 8. **Secrets files.** Section 6; `$DC exec worker ls -l /run/jendock-keys` shows `secret.key`,
-   `deploy_key`, `github_webhook_secret`, all `-rw-------` owned by `jendock`.
+   `github_webhook_secret` (and `deploy_keys/` once keys exist), files `-rw-------` owned by `jendock`.
 9. **Worker can reach Docker.** `$DC exec worker docker version --format '{{.Server.Version}}'`
    prints the isolated daemon's version; `$DC exec worker docker compose version` works.
 10. **Projects directory visible.** `$DC exec worker ls /opt/docker-engine/projects` lists the

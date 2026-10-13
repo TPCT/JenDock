@@ -38,8 +38,11 @@ class Settings(BaseSettings):
     # Where a project repository ("owner/name") is cloned from with the https transport
     # (public repositories only; the ssh transport uses the deploy key below).
     git_url_template: str = "https://github.com/{repository}.git"
-    # Deploy key (private key file, mode 0600) in the worker-only keys volume. Unset means
-    # the ssh transport is unavailable. The pinned host keys ship with the image.
+    # Per-repository deploy keys: ``<dir>/<owner>__<name>`` (GitHub allows a deploy key on one
+    # repository only); create them with ``python -m backend.cli deploy-key create``.
+    git_ssh_key_dir: Path = Path("/run/jendock-keys/deploy_keys")
+    # Optional single deploy key shared by every repository without its own key (private key
+    # file, mode 0600, worker-only keys volume). The pinned host keys ship with the image.
     git_ssh_key_file: Path | None = None
     git_ssh_known_hosts_file: Path = Path("/etc/jendock/github_known_hosts")
     # Webhook secret shared with GitHub (file in the keys volume, read by the worker only).

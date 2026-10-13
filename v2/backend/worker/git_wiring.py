@@ -7,7 +7,6 @@ from backend.adapters.git_access import (
     SshSettings,
     https_access,
     ssh_access,
-    unavailable_ssh_access,
 )
 from backend.adapters.git_remote import GitBranchHeads, HeadFileReader
 from backend.adapters.git_sources import GitAccessSource, TransportRoutingSource
@@ -16,11 +15,14 @@ from backend.domain.enums import GitTransport
 
 
 def git_accesses(settings: Settings) -> dict[GitTransport, GitAccess]:
-    """The access of each transport; ssh explains itself when no deploy key is configured."""
-    if settings.git_ssh_key_file is None:
-        ssh = unavailable_ssh_access()
-    else:
-        ssh = ssh_access(SshSettings(settings.git_ssh_key_file, settings.git_ssh_known_hosts_file))
+    """The access of each transport; ssh explains itself when a repository has no deploy key."""
+    ssh = ssh_access(
+        SshSettings(
+            settings.git_ssh_key_file,
+            settings.git_ssh_known_hosts_file,
+            key_dir=settings.git_ssh_key_dir,
+        )
+    )
     return {GitTransport.SSH: ssh, GitTransport.HTTPS: https_access(settings.git_url_template)}
 
 

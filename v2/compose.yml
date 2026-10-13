@@ -56,9 +56,9 @@ services:
       JENDOCK_MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-1}"
       # The key lives in the worker-only `keys` volume; the API never sees it.
       JENDOCK_SECRET_KEY_FILE: /run/jendock-keys/secret.key
-      # GitHub (README "GitHub integration"): deploy key for the ssh transport and the webhook
+      # GitHub (README "GitHub integration"): deploy keys for the ssh transport (one per repository in
+      # /run/jendock-keys/deploy_keys, the default JENDOCK_GIT_SSH_KEY_DIR) and the webhook
       # secret, both files in the worker-only keys volume. Unset until you create them.
-      JENDOCK_GIT_SSH_KEY_FILE: /run/jendock-keys/deploy_key
       JENDOCK_GITHUB_WEBHOOK_SECRET_FILE: /run/jendock-keys/github_webhook_secret
       JENDOCK_GITHUB_STATUS_ENABLED: "${GITHUB_STATUS_ENABLED:-false}"
     # Set DOCKER_GID to the host's docker group id (getent group docker).

@@ -68,31 +68,37 @@ class LocalGitSource:
     """Clones with git (a URL or a local path) and checks out the exact commit.
 
     ``resolve`` maps the repository name of a project to what ``git clone`` should read;
-    ``extra_env`` adds variables to the git process (for example ``GIT_SSH_COMMAND``).
+    ``env_for`` gives the variables added to the git process for a repository (for example
+    ``GIT_SSH_COMMAND``).
     """
 
     def __init__(
         self,
         resolve: Callable[[str], str],
         git: str = "git",
-        extra_env: Mapping[str, str] | None = None,
+        env_for: Callable[[str], Mapping[str, str]] | None = None,
     ) -> None:
         self._resolve = resolve
-        self._git = GitRunner(git, extra_env)
+        self._git_binary = git
+        self._env_for = env_for or (lambda _repository: {})
+
+    def _runner(self, repository: str) -> GitRunner:
+        return GitRunner(self._git_binary, self._env_for(repository))
 
     def checkout(self, request: CheckoutRequest, destination: Path) -> None:
         """Clone without checkout, vet the tree, check out the commit and verify ``HEAD``."""
         url = self._resolve(request.repository)
         sha = request.commit_sha
-        self._git.run(["clone", "--no-checkout", "--quiet", "--", url, str(destination)])
-        listing = self._git.run(["ls-tree", "-r", "--name-only", "-z", sha], destination)
+        git = self._runner(request.repository)
+        git.run(["clone", "--no-checkout", "--quiet", "--", url, str(destination)])
+        listing = git.run(["ls-tree", "-r", "--name-only", "-z", sha], destination)
         bad = forbidden_tracked([p for p in listing.split("\0") if p])
         if bad:
             raise SourceError(
                 f"refusing to build: the commit tracks secret-looking files: {', '.join(bad[:5])}"
             )
-        self._git.run(["checkout", "--quiet", "--detach", sha], destination)
-        head = self._git.run(["rev-parse", "HEAD"], destination).strip()
+        git.run(["checkout", "--quiet", "--detach", sha], destination)
+        head = git.run(["rev-parse", "HEAD"], destination).strip()
         if head != sha:
             raise SourceError(f"checked out {head[:12]} instead of the pinned {sha[:12]}")
 
@@ -100,25 +106,27 @@ class LocalGitSource:
         """Fetch only the pinned commit (depth 1, no checkout) and read one file from it."""
         url = self._resolve(request.repository)
         sha = request.commit_sha
+        git = self._runner(request.repository)
         with tempfile.TemporaryDirectory(prefix="jd-read-") as scratch:
             repo = Path(scratch)
-            self._git.run(["init", "--bare", "--quiet", str(repo)])
-            self._git.run(
+            git.run(["init", "--bare", "--quiet", str(repo)])
+            git.run(
                 ["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha],
                 repo,
                 timeout=READ_FETCH_TIMEOUT,
             )
-            return self._read_blob(repo, sha, path)
+            return self._read_blob(git, repo, sha, path)
 
-    def _read_blob(self, repo: Path, sha: str, path: str) -> str | None:
-        entry = self._git.run(["ls-tree", "-z", sha, "--", path], repo).rstrip("\0")
+    @staticmethod
+    def _read_blob(git: GitRunner, repo: Path, sha: str, path: str) -> str | None:
+        entry = git.run(["ls-tree", "-z", sha, "--", path], repo).rstrip("\0")
         if not entry:
             return None
         mode, _kind, rest = entry.split(" ", 2)
         if mode not in _REGULAR_FILE_MODES:
             raise SourceError(f"{path} is not a regular file in the repository")
         object_id = rest.split("\t", 1)[0]
-        size = int(self._git.run(["cat-file", "-s", object_id], repo).strip())
+        size = int(git.run(["cat-file", "-s", object_id], repo).strip())
         if size > MAX_REPOSITORY_FILE_BYTES:
             raise SourceError(f"{path} is larger than {MAX_REPOSITORY_FILE_BYTES // 1024} KiB")
-        return self._git.run(["cat-file", "blob", object_id], repo)
+        return git.run(["cat-file", "blob", object_id], repo)

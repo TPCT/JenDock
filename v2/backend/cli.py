@@ -1,5 +1,6 @@
 """Admin command line: ``python -m backend.cli users create|reset-password <username>``,
-``import-v1`` (see ``backend.importer``) and ``backup create|restore|prune``
+``import-v1`` (see ``backend.importer``), ``deploy-key create|show|list <owner/name>``
+(see README "GitHub integration") and ``backup create|restore|prune``
 (see README "Backup and restore").
 
 Passwords are read from a hidden prompt, or from stdin with ``--password-stdin``. They are
@@ -15,8 +16,10 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TextIO
 
+from backend.adapters.deploy_keys import DeployKeyStore
 from backend.backup.cli import add_backup_parser, run_backup
 from backend.config import get_settings
+from backend.deploy_keys_cli import add_deploy_key_parser, audit_recorder, run_deploy_key
 from backend.domain.actor import Actor
 from backend.domain.errors import DomainError, ValidationError
 from backend.importer.apply import ImportServices
@@ -24,6 +27,7 @@ from backend.importer.cli import add_arguments as add_import_arguments
 from backend.importer.cli import run_import
 from backend.process import apply_shared_umask
 from backend.repositories.database import UnitOfWork, create_db_engine, create_session_factory
+from backend.services.audit import AuditService
 from backend.services.environments import EnvironmentService
 from backend.services.passwords import PasswordHasher
 from backend.services.pipelines import PipelineService
@@ -55,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
     add_backup_parser(groups)
+    add_deploy_key_parser(groups)
     return parser
 
 
@@ -110,6 +115,20 @@ def _import_v1(args: argparse.Namespace) -> int:
         engine.dispose()
 
 
+def _deploy_key(args: argparse.Namespace) -> int:
+    """Run a deploy-key command; only create/rotate open the database (for the audit event)."""
+    settings = get_settings()
+    store = DeployKeyStore(settings.git_ssh_key_dir)
+    if args.deploy_key_command != "create":
+        return run_deploy_key(args, store)
+    engine = create_db_engine(settings.database_url)
+    try:
+        audit = AuditService(UnitOfWork(create_session_factory(engine)))
+        return run_deploy_key(args, store, audit_recorder(audit))
+    finally:
+        engine.dispose()
+
+
 def _no_database() -> ImportServices:
     raise RuntimeError("a dry run must not use the database")
 
@@ -121,6 +140,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if parsed[:1] == ["backup"]:
         return run_backup(build_parser().parse_args(parsed), get_settings())
     args = build_parser().parse_args(parsed)
+    if args.group == "deploy-key":
+        return _deploy_key(args)
     if args.group == "import-v1":
         return _import_v1(args)
     engine = create_db_engine(get_settings().database_url)

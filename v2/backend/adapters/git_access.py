@@ -23,28 +23,61 @@ SSH_NULL_FILE = "/dev/null"
 class GitAccess:
     """Everything git needs to reach the repositories of one transport.
 
-    ``resolve`` maps ``owner/name`` to a clone URL, ``env`` is added to the git process
-    environment and ``check`` raises ``SourceError`` when the transport is not usable.
+    ``resolve`` maps ``owner/name`` to a clone URL, ``env_for`` gives the variables added to
+    the git process for that repository (a deploy key is per repository) and ``check`` raises
+    ``SourceError`` when the transport is not usable for it.
     """
 
     resolve: Callable[[str], str]
-    env: Mapping[str, str]
-    check: Callable[[], None]
+    env_for: Callable[[str], Mapping[str, str]]
+    check: Callable[[str], None]
 
 
 @dataclass(frozen=True, slots=True)
 class SshSettings:
-    """Deploy key and pinned host keys for GitHub over ssh.github.com:443."""
+    """Deploy keys and pinned host keys for GitHub over ssh.github.com:443.
 
-    key_file: Path
+    A repository uses ``<key_dir>/<owner>__<name>`` when that file exists, else ``key_file``.
+    """
+
+    key_file: Path | None
     known_hosts_file: Path
+    key_dir: Path | None = None
     host: str = SSH_HOST
     port: int = SSH_PORT
     host_key_alias: str = SSH_HOST_KEY_ALIAS
     connect_timeout: int = SSH_CONNECT_TIMEOUT
 
 
-def ssh_argv(settings: SshSettings) -> list[str]:
+def repository_key_name(repository: str) -> str:
+    """File name of a repository's deploy key: ``owner__name``; validated, never a path."""
+    owner, _, name = str(GitHubRepository(repository)).partition("/")
+    return f"{owner}__{name}"
+
+
+def deploy_key_path(key_dir: Path, repository: str) -> Path:
+    """Where the deploy key of ``owner/name`` lives inside ``key_dir``."""
+    return key_dir / repository_key_name(repository)
+
+
+def resolve_key_file(settings: SshSettings, repository: str) -> Path:
+    """The key for one repository: its own file, else the shared one, else a clear error."""
+    if settings.key_dir is not None:
+        own = deploy_key_path(settings.key_dir, repository)
+        if own.is_file():
+            return own
+    else:
+        repository_key_name(repository)  # validate even without a directory
+    if settings.key_file is not None:
+        return settings.key_file
+    raise SourceError(
+        "SSH access is not configured: create a deploy key for the repository "
+        f"(python -m backend.cli deploy-key create {repository}), or set "
+        "JENDOCK_GIT_SSH_KEY_FILE to a shared deploy key, or switch the project to https"
+    )
+
+
+def ssh_argv(settings: SshSettings, key_file: Path) -> list[str]:
     """The ssh client invocation as an argv list (git appends the host and the command).
 
     Only the deploy key is offered (``IdentitiesOnly``, no agent), the host key must match the
@@ -67,15 +100,15 @@ def ssh_argv(settings: SshSettings) -> list[str]:
         "ForwardAgent": "no",
         "ClearAllForwardings": "yes",
     }
-    argv = ["ssh", "-F", SSH_NULL_FILE, "-i", str(settings.key_file), "-p", str(settings.port)]
+    argv = ["ssh", "-F", SSH_NULL_FILE, "-i", str(key_file), "-p", str(settings.port)]
     for name, value in options.items():
         argv.extend(["-o", f"{name}={value}"])
     return argv
 
 
-def ssh_command(settings: SshSettings) -> str:
+def ssh_command(settings: SshSettings, key_file: Path) -> str:
     """``GIT_SSH_COMMAND`` value: git runs it through ``sh -c``, so every token is quoted."""
-    return shlex.join(ssh_argv(settings))
+    return shlex.join(ssh_argv(settings, key_file))
 
 
 def ssh_url(repository: str) -> str:
@@ -84,29 +117,22 @@ def ssh_url(repository: str) -> str:
 
 
 def ssh_access(settings: SshSettings) -> GitAccess:
-    """Deploy-key access to GitHub; ``check`` verifies that the key and host keys exist."""
+    """Deploy-key access to GitHub; the key is chosen per repository (see ``SshSettings``)."""
 
-    def check() -> None:
-        if not settings.key_file.is_file():
-            raise SourceError(f"the deploy key file does not exist: {settings.key_file}")
+    def check(repository: str) -> None:
+        key = resolve_key_file(settings, repository)
+        if not key.is_file():
+            raise SourceError(f"the deploy key file does not exist: {key}")
         if not settings.known_hosts_file.is_file():
             raise SourceError(
                 f"the pinned known_hosts file does not exist: {settings.known_hosts_file}"
             )
 
-    return GitAccess(ssh_url, {"GIT_SSH_COMMAND": ssh_command(settings)}, check)
+    def env_for(repository: str) -> Mapping[str, str]:
+        key = resolve_key_file(settings, repository)
+        return {"GIT_SSH_COMMAND": ssh_command(settings, key)}
 
-
-def unavailable_ssh_access() -> GitAccess:
-    """Access for a deployment without a deploy key: every use explains what is missing."""
-
-    def check() -> None:
-        raise SourceError(
-            "SSH access is not configured: set JENDOCK_GIT_SSH_KEY_FILE to a deploy key "
-            "or switch the project to https"
-        )
-
-    return GitAccess(ssh_url, {}, check)
+    return GitAccess(ssh_url, env_for, check)
 
 
 def https_access(template: str) -> GitAccess:
@@ -115,4 +141,4 @@ def https_access(template: str) -> GitAccess:
     def resolve(repository: str) -> str:
         return template.format(repository=repository)
 
-    return GitAccess(resolve, {}, lambda: None)
+    return GitAccess(resolve, lambda _repository: {}, lambda _repository: None)
