@@ -26,6 +26,7 @@ from backend.domain.ingress import (
     DnsPlanView,
     DnsRecordType,
     DnsRecordView,
+    DomainOrigin,
     DomainStatus,
     IngressPlanView,
     PlanAction,
@@ -84,13 +85,13 @@ class IngressService:
 
     def preview(self, domain_id: int, operation: str = "apply") -> IngressPlanView:
         """Show what ``apply`` (or ``remove``) would change; contacts providers read-only."""
-        domain = self._domains.get_by_id(domain_id)
+        domain = _require_managed(self._domains.get_by_id(domain_id))
         return self._prepare(domain, operation).view
 
     def apply(self, domain_id: int, plan_hash: str, actor: Actor) -> IngressPlanView:
         """Roll out DNS, vhost and certificate for a previously previewed plan."""
         with INGRESS_LOCK:
-            domain = self._domains.get_by_id(domain_id)
+            domain = _require_managed(self._domains.get_by_id(domain_id))
             prepared = self._prepare(domain, "apply")
             self._require_reviewed(prepared, plan_hash)
             try:
@@ -103,7 +104,7 @@ class IngressService:
     def remove(self, domain_id: int, plan_hash: str, actor: Actor) -> IngressPlanView:
         """Take the domain out of Apache and DNS (own records only) and back to draft."""
         with INGRESS_LOCK:
-            domain = self._domains.get_by_id(domain_id)
+            domain = _require_managed(self._domains.get_by_id(domain_id))
             prepared = self._prepare(domain, "remove")
             self._require_reviewed(prepared, plan_hash)
             try:
@@ -116,7 +117,7 @@ class IngressService:
     def issue_certificate(self, domain_id: int, actor: Actor) -> CertificateStatus:
         """Obtain (or renew) the certificate of an applied domain right now."""
         with INGRESS_LOCK:
-            domain = self._domains.get_by_id(domain_id)
+            domain = _require_managed(self._domains.get_by_id(domain_id))
             if not domain.tls_enabled:
                 raise ConflictError("TLS is disabled for this domain")
             if domain.status is not DomainStatus.ACTIVE:
@@ -227,6 +228,16 @@ class IngressService:
         if isinstance(error, DomainError):
             raise error
         raise UpstreamError(message) from error
+
+
+def _require_managed(domain: Domain) -> Domain:
+    """Adopted domains exist outside Jendock: it never plans, applies or removes them."""
+    if domain.origin is DomainOrigin.ADOPTED:
+        raise ConflictError(
+            f"{domain.hostname} was adopted: its DNS record and Apache site are managed outside "
+            "Jendock, so Jendock does not change them"
+        )
+    return domain
 
 
 def _message(error: Exception) -> str:

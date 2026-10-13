@@ -127,16 +127,23 @@ class DomainCheckService:
         return _part(reachable, detail, now, port=domain.published_port)
 
     def _store(self, domain_id: int, now: datetime, ok: bool, parts: dict[str, CheckPart]) -> None:
-        with self._uow:
-            row = self._uow.domain_checks.get_for_domain(domain_id)
-            if row is None:
-                row = self._uow.domain_checks.add(
-                    DomainCheck(domain_id=domain_id, checked_at=now, ok=ok, results={})
-                )
-            row.checked_at, row.ok, row.results = now, ok, dict(parts)
-            domain = self._uow.domains.get(domain_id)
-            if domain is not None:
-                domain.last_verified_at, domain.last_verified_ok = now, ok
+        store_check(self._uow, domain_id, now, ok, parts)
+
+
+def store_check(
+    uow: UnitOfWork, domain_id: int, now: datetime, ok: bool, parts: Mapping[str, CheckPart]
+) -> None:
+    """Save the latest check of a domain (one row per domain) and mirror it on the domain."""
+    with uow:
+        row = uow.domain_checks.get_for_domain(domain_id)
+        if row is None:
+            row = uow.domain_checks.add(
+                DomainCheck(domain_id=domain_id, checked_at=now, ok=ok, results={})
+            )
+        row.checked_at, row.ok, row.results = now, ok, dict(parts)
+        domain = uow.domains.get(domain_id)
+        if domain is not None:
+            domain.last_verified_at, domain.last_verified_ok = now, ok
 
 
 def _probe_name(hostname: str) -> str:
@@ -147,3 +154,8 @@ def _probe_name(hostname: str) -> str:
 
 def _part(ok: bool, detail: str, now: datetime, **extra: object) -> CheckPart:
     return {"ok": ok, "detail": detail[:MAX_DETAIL], "checked_at": now.isoformat(), **extra}
+
+
+def check_part(ok: bool, detail: str, now: datetime, **extra: object) -> CheckPart:
+    """One part of a check result (shared with the check of adopted domains)."""
+    return _part(ok, detail, now, **extra)

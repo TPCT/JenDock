@@ -1032,6 +1032,28 @@ Scope `admin`. Issue or renew the certificate now (domain must be `active` with
 `tls_enabled`; otherwise 409). 200 `Certificate` (`last_*` fields are null). Renewal otherwise
 happens automatically 30 days before expiry.
 
+### Existing domains: discovery and adoption (status: exists)
+
+`Domain` has `origin` (`managed` | `adopted`), `adopted_at` and `vhost_file`. Adopted domains are
+`active`; preview, apply, remove, certificate return 409; `PATCH` of `dns_*`/`tls_enabled` returns
+409; `DELETE` unlinks. `POST .../check` of an adopted domain returns `results.dns`, `vhost`, `https`
+and `backend` parts; a part with `skipped: true` could not be checked (no token or helper) and does
+not fail the check.
+
+| Endpoint | Action (policy) | Notes |
+| --- | --- | --- |
+| `GET /api/domains/discovery` | `domain.discover` (owner/admin, scope `read`) | `{refreshed_at, cloudflare:{state,message}, helper:{state,message}, server_ip, ip_source, zones[], hosts, linked, suggested, adoptable}`; states `ok`, `no_token`, `error`, `missing`, `outdated`, `unknown` |
+| `POST /api/domains/discovery/refresh` | `domain.discover_refresh` (owner/admin, scope `admin`) | reads Cloudflare and Apache (never writes); returns the state |
+| `GET /api/domains/discovered?q=&link=linked\|suggested\|unlinked&zone=&sort=hostname\|zone&page=` | `domain.discover` | list envelope; item: `{hostname, zone, status, dns:{record_type,content,proxied,zone}\|null, points_to_server, vhost:{file,upstream_host,upstream_port,ssl,managed}\|null, suggestion:{project,environment,service,container_port,published_port,confidence,reason}\|null, link:{domain_id,project,environment,origin}\|null, seen_at}` |
+| `POST /api/projects/{slug}/environments/{env}/domains/adopt` | `domain.adopt` (maintainer of the environment, scope `admin`) | `{hostname, service, container_port, published_port}`; 201 `Domain`; 404 when the name was not discovered, 409 when already linked |
+| `POST /api/domains/adopt-suggested` | `domain.adopt_all` (owner/admin, scope `admin`) | `{hostnames?: []}`; adopts the unlinked names with a `high`, complete suggestion; `{adopted: Domain[], skipped: [{hostname, reason}]}` |
+| `GET /api/domains/zones`, `GET /api/projects/{slug}/environments/{env}/domains/zones` | `domain.discover` / `domain.lookup` | `{configured, zones[], message}` |
+| `GET /api/domains/lookup?hostname=`, `GET .../domains/lookup?hostname=` | `domain.discover` / `domain.lookup` | `{hostname, configured, zone, records:[{record_type,content,proxied,managed_by_jendock}], in_use_by, message}` |
+
+MCP tools: `list_domains` (without `slug`/`environment`: the discovered domains, owners/admins),
+`discover_domains` (scope `admin`), `adopt_domain` (scope `admin`), `adopt_suggested_domains`
+(scope `admin`).
+
 ### `GET /api/ingress/certificates`
 
 Scope `read`. Expiry monitoring: 200 `[{domain_id, hostname} + Certificate]`, soonest expiry first.

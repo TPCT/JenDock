@@ -258,11 +258,57 @@ function checkOf(hostname: string, tls: boolean, port: number): Check {
   };
 }
 
+const ADOPTED_MESSAGE =
+  "this domain was adopted: its DNS record and Apache site are managed outside Jendock, so Jendock does not change them";
+
+/** The check of an adopted domain: DNS record, Apache site (only with the helper), HTTPS. */
+function adoptedCheckOf(domain: DomainDetail): Check {
+  const stamp = new Date().toISOString();
+  const broken = domain.hostname.includes("broken");
+  const mode = domain.dns_proxied ? "proxied by Cloudflare" : "DNS only (not proxied)";
+  return {
+    checked_at: stamp,
+    ok: !broken,
+    results: {
+      dns: {
+        ok: true,
+        detail: `${domain.dns_record_type} record found: ${domain.dns_target ?? "203.0.113.7"}, ${mode}`,
+        checked_at: stamp,
+        proxied: domain.dns_proxied,
+        record_type: domain.dns_record_type,
+      },
+      vhost: {
+        ok: true,
+        detail: `Apache site ${domain.vhost_file ?? "site.conf"} found, proxies to 127.0.0.1:${String(domain.published_port)}, HTTPS`,
+        checked_at: stamp,
+        ...(domain.vhost_file ? { file: domain.vhost_file } : {}),
+        upstream_port: domain.published_port,
+        ssl: true,
+      },
+      https: {
+        ok: !broken,
+        detail: broken ? "The connection failed." : "HTTPS answered with 200",
+        checked_at: stamp,
+        status_code: 200,
+      },
+      backend: {
+        ok: true,
+        detail: "accepts connections",
+        checked_at: stamp,
+        port: domain.published_port,
+      },
+    },
+  };
+}
+
 function seedDomains(): Map<string, DomainDetail[]> {
   const base = {
     dns_target: null,
     dns_proxied: false,
     tls_enabled: true,
+    origin: "managed" as const,
+    adopted_at: null,
+    vhost_file: null,
     updated_at: ago(DAY),
   };
   const map = new Map<string, DomainDetail[]>();
@@ -333,6 +379,37 @@ function domainsOf(slug: unknown, env: unknown): DomainDetail[] {
     domains.set(key, list);
   }
   return list;
+}
+
+/** Where the discovery mock records an adopted domain: the project's own domain list. */
+export function addAdoptedDomain(
+  slug: string,
+  env: string,
+  domain: Omit<DomainDetail, "id">,
+): DomainDetail {
+  const created: DomainDetail = { ...domain, id: nextDomainId++ };
+  domainsOf(slug, env).push(created);
+  return created;
+}
+
+/** The host names that already belong to a project (for the discovery mock's link state). */
+export function linkedDomains(): {
+  hostname: string;
+  slug: string;
+  env: string;
+  id: number;
+  origin: string;
+}[] {
+  return [...domains.entries()].flatMap(([key, list]) => {
+    const [slug = "", env = ""] = key.split("/");
+    return list.map((item) => ({
+      hostname: item.hostname,
+      slug,
+      env,
+      id: item.id,
+      origin: item.origin,
+    }));
+  });
 }
 
 function findDomain(slug: unknown, env: unknown, id: unknown): DomainDetail | undefined {
@@ -657,6 +734,9 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         last_verified_ok: null,
         created_at: now,
         updated_at: now,
+        origin: "managed",
+        adopted_at: null,
+        vhost_file: null,
         certificate: null,
         check: null,
       };
@@ -672,7 +752,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
       const list = domainsOf(params.slug, params.env);
       const domain = list.find((item) => item.id === Number(params.id));
       if (!domain) return error(404, "not_found", "domain not found");
-      if (domain.status !== "draft")
+      if (domain.status !== "draft" && domain.origin !== "adopted")
         return error(409, "conflict", "remove the domain from the server first");
       list.splice(list.indexOf(domain), 1);
       return new HttpResponse(null, { status: 204 });
@@ -684,6 +764,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         if (denied) return denied;
         const domain = findDomain(params.slug, params.env, params.id);
         if (!domain) return error(404, "not_found", "domain not found");
+        if (domain.origin === "adopted") return error(409, "conflict", ADOPTED_MESSAGE);
         const body = (await request.json()) as { operation?: PlanOperation };
         return HttpResponse.json(planFor(domain, body.operation ?? "apply"));
       },
@@ -695,6 +776,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         if (denied) return denied;
         const domain = findDomain(params.slug, params.env, params.id);
         if (!domain) return error(404, "not_found", "domain not found");
+        if (domain.origin === "adopted") return error(409, "conflict", ADOPTED_MESSAGE);
         const body = (await request.json()) as { plan_hash: string };
         const plan = planFor(domain, "apply");
         if (plan.blocked)
@@ -720,6 +802,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         if (denied) return denied;
         const domain = findDomain(params.slug, params.env, params.id);
         if (!domain) return error(404, "not_found", "domain not found");
+        if (domain.origin === "adopted") return error(409, "conflict", ADOPTED_MESSAGE);
         const body = (await request.json()) as { plan_hash: string };
         const plan = planFor(domain, "remove");
         if (plan.plan_hash !== body.plan_hash)
@@ -736,7 +819,10 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
       if (denied) return denied;
       const domain = findDomain(params.slug, params.env, params.id);
       if (!domain) return error(404, "not_found", "domain not found");
-      const check = checkOf(domain.hostname, domain.tls_enabled, domain.published_port);
+      const check =
+        domain.origin === "adopted"
+          ? adoptedCheckOf(domain)
+          : checkOf(domain.hostname, domain.tls_enabled, domain.published_port);
       domain.check = check;
       domain.last_verified_at = check.checked_at;
       domain.last_verified_ok = check.ok;
@@ -749,6 +835,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         if (denied) return denied;
         const domain = findDomain(params.slug, params.env, params.id);
         if (!domain) return error(404, "not_found", "domain not found");
+        if (domain.origin === "adopted") return error(409, "conflict", ADOPTED_MESSAGE);
         if (domain.status !== "active" || !domain.tls_enabled) {
           return error(409, "conflict", "the domain must be active with HTTPS enabled");
         }

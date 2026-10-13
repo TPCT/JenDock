@@ -18,6 +18,7 @@ from backend.repositories.audit import AuditRepository
 from backend.repositories.database_connections import DatabaseConnectionRepository
 from backend.repositories.deliveries import WebhookDeliveryRepository
 from backend.repositories.deployments import DeploymentRepository
+from backend.repositories.discovery import DiscoveryRepository
 from backend.repositories.domains import (
     CertificateRepository,
     DomainCheckRepository,
@@ -208,3 +209,8 @@ class UnitOfWork:
     def resource_limits(self) -> ResourceLimitRepository:
         """Resource limit repository bound to the active session."""
         return ResourceLimitRepository(self.session)
+
+    @property
+    def discovery(self) -> DiscoveryRepository:
+        """Discovery snapshot repository bound to the active session."""
+        return DiscoveryRepository(self.session)

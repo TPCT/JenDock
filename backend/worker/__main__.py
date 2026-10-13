@@ -28,6 +28,7 @@ from backend.services.totp import TotpVault
 from backend.worker.container_handlers import build_container_handlers
 from backend.worker.container_wiring import build_container_parts
 from backend.worker.database_wiring import build_inspection_handlers
+from backend.worker.discovery_wiring import build_discovery
 from backend.worker.git_wiring import build_branch_files, build_heads
 from backend.worker.github_handlers import github_handlers, project_source
 from backend.worker.handlers import build_handlers
@@ -181,8 +182,17 @@ def main() -> None:
         settings, session_factory, SecretCipher(settings.secret_key_file), redactor
     )
     ingress = build_ingress(settings, session_factory, redactor, notifications)
+    discovery = build_discovery(
+        settings,
+        get_ingress_settings(),
+        session_factory,
+        SecretCipher(settings.secret_key_file),
+        redactor,
+        containers.services.inventory,
+    )
     extra = {
         **build_container_handlers(containers.services),
+        **discovery,
         **(
             build_ingress_handlers(ingress.ingress_service, ingress.check_service)
             if ingress

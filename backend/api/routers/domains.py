@@ -28,6 +28,9 @@ from backend.api.schemas.domains import (
 )
 from backend.domain.access import Action
 from backend.domain.enums import EnvironmentName
+from backend.domain.errors import ConflictError
+from backend.domain.ingress import DomainOrigin
+from backend.repositories.models import Domain
 
 router = APIRouter(tags=["domains"])
 Reader = Annotated[Principal, Depends(require(Action.DOMAIN_READ))]
@@ -51,6 +54,16 @@ class DomainPath:
     slug: str
     env: EnvironmentName
     domain_id: int
+
+
+def _managed(domain: Domain) -> Domain:
+    """Adopted domains are managed outside Jendock: it never applies or removes them."""
+    if domain.origin is DomainOrigin.ADOPTED:
+        raise ConflictError(
+            f"{domain.hostname} was adopted: its DNS record and Apache site are managed "
+            "outside Jendock, so Jendock does not change them"
+        )
+    return domain
 
 
 @router.get(BASE)
@@ -116,7 +129,7 @@ def preview_domain(
     container: Container,
 ) -> PlanResponse:
     """Show the DNS, Apache vhost and TLS changes an apply (or remove) would make."""
-    container.domain_service().get(path.slug, path.env, path.domain_id)
+    _managed(container.domain_service().get(path.slug, path.env, path.domain_id))
     plan = container.ingress.preview(path.domain_id, body.operation, principal.actor)
     return PlanResponse.from_view(plan)
 
@@ -129,7 +142,7 @@ def apply_domain(
     container: Container,
 ) -> PlanResponse:
     """Apply the previewed plan; 409 when the plan changed since the preview."""
-    container.domain_service().get(path.slug, path.env, path.domain_id)
+    _managed(container.domain_service().get(path.slug, path.env, path.domain_id))
     plan = container.ingress.apply(path.domain_id, body.plan_hash, principal.actor)
     return PlanResponse.from_view(plan)
 
@@ -142,7 +155,7 @@ def remove_domain(
     container: Container,
 ) -> PlanResponse:
     """Remove the previewed domain from Apache, TLS and DNS (own records only)."""
-    container.domain_service().get(path.slug, path.env, path.domain_id)
+    _managed(container.domain_service().get(path.slug, path.env, path.domain_id))
     plan = container.ingress.remove(path.domain_id, body.plan_hash, principal.actor)
     return PlanResponse.from_view(plan)
 
@@ -152,7 +165,10 @@ def check_domain(
     path: Annotated[DomainPath, Depends()], principal: Admin, container: Container
 ) -> CheckResponse:
     """Run DNS, HTTPS and backend checks now and store the result with its timestamp."""
-    container.domain_service().get(path.slug, path.env, path.domain_id)
+    domain = container.domain_service().get(path.slug, path.env, path.domain_id)
+    if domain.origin is DomainOrigin.ADOPTED:  # read-only checks, no DNS/Apache plan behind them
+        result = container.discovery.verify(path.domain_id, principal.actor)
+        return CheckResponse.from_result(result)
     return CheckResponse.from_result(container.ingress.check(path.domain_id, principal.actor))
 
 
@@ -161,7 +177,7 @@ def issue_certificate(
     path: Annotated[DomainPath, Depends()], principal: Admin, container: Container
 ) -> CertificateResponse:
     """Issue or renew the certificate now (renewal otherwise happens 30 days before expiry)."""
-    container.domain_service().get(path.slug, path.env, path.domain_id)
+    _managed(container.domain_service().get(path.slug, path.env, path.domain_id))
     issued = container.ingress.issue_certificate(path.domain_id, principal.actor)
     return CertificateResponse(
         not_after=issued.not_after,

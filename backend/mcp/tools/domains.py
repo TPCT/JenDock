@@ -8,16 +8,26 @@ TLS work happens in the worker; no certificate key or API token ever passes thro
 
 from __future__ import annotations
 
+from backend.api.schemas.discovery import (
+    AdoptSuggestedResponse,
+    DiscoveredPage,
+    DiscoveryStateResponse,
+)
 from backend.api.schemas.domains import (
     CertificateOverviewResponse,
     CertificateResponse,
     CheckResponse,
     DomainDetailResponse,
+    DomainResponse,
     PlanResponse,
 )
+from backend.domain.discovery import LinkFilter
 from backend.domain.enums import TokenScope
+from backend.domain.errors import ValidationError
+from backend.domain.ingress import DomainOrigin
 from backend.mcp import schema
 from backend.mcp.registry import Args, Tool, ToolContext
+from backend.services.domain_adoption import AdoptRequest
 
 _TARGET = {
     "slug": schema.SLUG,
@@ -36,9 +46,47 @@ def _known(ctx: ToolContext, args: Args) -> int:
 
 
 def list_domains(ctx: ToolContext, args: Args) -> object:
-    """The domains of an environment with certificate health and the latest check."""
-    views = ctx.container.domain_status_service().list(args.text("slug"), args.environment())
+    """The domains of an environment, or (without slug and environment) every discovered domain."""
+    slug, env = args.optional_text("slug"), args.optional_environment()
+    if (slug is None) != (env is None):
+        raise ValidationError("give both slug and environment, or neither")
+    if slug is None or env is None:
+        link = args.optional_text("link")
+        page = ctx.container.discovery_queries().page(
+            args.page_query(), LinkFilter(link) if link else None, args.optional_text("zone")
+        )
+        return DiscoveredPage.from_page(page).model_dump(mode="json")
+    views = ctx.container.domain_status_service().list(slug, env)
     return [DomainDetailResponse.from_status(view).model_dump(mode="json") for view in views]
+
+
+def discover_domains(ctx: ToolContext, _args: Args) -> object:
+    """Read Cloudflare (zones and DNS records) and Apache again; returns what could be read."""
+    ctx.container.discovery.refresh(ctx.actor)
+    state = ctx.container.discovery_queries().state()
+    return DiscoveryStateResponse.from_view(state).model_dump(mode="json")
+
+
+def adopt_domain(ctx: ToolContext, args: Args) -> object:
+    """Record a discovered domain as linked to a project environment (no DNS/Apache change)."""
+    request = AdoptRequest(
+        args.text("hostname"),
+        args.text("service"),
+        args.integer("container_port"),
+        args.integer("published_port"),
+    )
+    domain = ctx.container.adoption_service().adopt(
+        args.text("slug"), args.environment(), request, ctx.actor
+    )
+    return DomainResponse.from_domain(domain).model_dump(mode="json")
+
+
+def adopt_suggested_domains(ctx: ToolContext, args: Args) -> object:
+    """Adopt every discovered domain whose project is certain (all, or only ``hostnames``)."""
+    names = args.values.get("hostnames")
+    wanted = [str(n) for n in names] if isinstance(names, list) else None
+    result = ctx.container.adoption_service().adopt_suggested(wanted, ctx.actor)
+    return AdoptSuggestedResponse.from_result(result).model_dump(mode="json")
 
 
 def get_domain(ctx: ToolContext, args: Args) -> object:
@@ -57,8 +105,13 @@ def list_certificates(ctx: ToolContext, _args: Args) -> object:
 
 def check_domain(ctx: ToolContext, args: Args) -> object:
     """Run the DNS, HTTPS and backend checks now."""
-    domain_id = _known(ctx, args)
-    result = ctx.container.ingress.check(domain_id, ctx.actor)
+    domain = ctx.container.domain_service().get(
+        args.text("slug"), args.environment(), args.integer("domain_id")
+    )
+    if domain.origin is DomainOrigin.ADOPTED:  # read-only checks: DNS record, Apache, HTTPS
+        result = ctx.container.discovery.verify(domain.id, ctx.actor)
+    else:
+        result = ctx.container.ingress.check(domain.id, ctx.actor)
     return CheckResponse.from_result(result).model_dump(mode="json")
 
 
@@ -101,10 +154,60 @@ TOOLS = (
     Tool(
         "list_domains",
         "List the domains of an environment with their status: hostname, service, certificate "
-        "state and expiry, and the latest DNS/HTTPS/backend check.",
+        "state and expiry, and the latest DNS/HTTPS/backend check. Without slug and environment "
+        "(owners and admins) it pages through every domain discovered on Cloudflare and Apache "
+        "(filter link=linked|unlinked|suggested, zone, q), each with its suggested project.",
         TokenScope.READ,
-        schema.obj({"slug": schema.SLUG, "environment": schema.ENVIRONMENT}, _REQUIRED[:2]),
+        schema.obj(
+            {
+                "slug": schema.SLUG,
+                "environment": schema.ENVIRONMENT,
+                "link": {"type": "string", "enum": [item.value for item in LinkFilter]},
+                "zone": {"type": "string", "maxLength": 253},
+                **schema.paging(("hostname", "zone")),
+            }
+        ),
         list_domains,
+    ),
+    Tool(
+        "discover_domains",
+        "Read Cloudflare (zones and A/AAAA/CNAME records) and, when the host helper is "
+        "installed, the Apache sites again, and match them to projects. Read-only toward "
+        "Cloudflare and Apache: it only refreshes Jendock's list of discovered domains.",
+        TokenScope.ADMIN,
+        schema.obj(),
+        discover_domains,
+        read_only=False,
+    ),
+    Tool(
+        "adopt_domain",
+        "Record a discovered domain as linked to a project environment, WITHOUT changing DNS "
+        "or Apache (it was set up outside Jendock and stays that way). Needs the service and "
+        "the container and published ports; list_domains (no slug) shows suggestions.",
+        TokenScope.ADMIN,
+        schema.obj(
+            {
+                "slug": schema.SLUG,
+                "environment": schema.ENVIRONMENT,
+                "hostname": {"type": "string", "minLength": 1, "maxLength": 253},
+                "service": {"type": "string", "minLength": 1, "maxLength": 63},
+                "container_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                "published_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            },
+            ["slug", "environment", "hostname", "service", "container_port", "published_port"],
+        ),
+        adopt_domain,
+        read_only=False,
+    ),
+    Tool(
+        "adopt_suggested_domains",
+        "Adopt every unlinked discovered domain whose project is certain (Apache proxies to "
+        "the published port of exactly one project container), or only the given hostnames. "
+        "Owners and admins only.",
+        TokenScope.ADMIN,
+        schema.obj({"hostnames": {"type": "array", "items": {"type": "string"}, "maxItems": 500}}),
+        adopt_suggested_domains,
+        read_only=False,
     ),
     Tool(
         "get_domain",

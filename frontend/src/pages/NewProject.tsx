@@ -22,6 +22,7 @@ import {
   validateDomainDraft,
   type DomainDraft,
 } from "../components/DomainFields";
+import { NameCheck } from "../components/NameCheck";
 import { Callout, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { GithubSetup } from "../components/GithubSetup";
 import { PageHead } from "../components/PageHead";
@@ -503,6 +504,7 @@ export function NewProjectPage() {
                               }));
                             }}
                           />
+                          <NameCheck scope={{}} hostname={hostnameOf(domains[env].fields)} />
                           {domainErrors[env] ? (
                             <Callout variant="danger" role="alert">
                               {domainErrors[env]}

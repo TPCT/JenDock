@@ -122,6 +122,13 @@ _DESCRIBERS: dict[str, Callable[[Details], str]] = {
     "secret.resolve": lambda d: f"A run read {_count(len(_list(d, 'names')), 'secret')}",
     "domain.create": lambda d: f"Added the domain {_text(d, 'hostname')}",
     "domain.delete": lambda d: f"Deleted the domain {_text(d, 'hostname')}",
+    "domain.adopt": lambda d: (
+        f"Adopted the existing domain {_text(d, 'hostname')} into "
+        f"{_text(d, 'project')}/{_text(d, 'environment')}"
+    ),
+    "domain.discovery_refresh": lambda d: (
+        f"Looked for existing domains on Cloudflare and Apache ({d.get('hosts', 0)} found)"
+    ),
     "domain.apply": lambda d: f"Applied the ingress of {_text(d, 'hostname')}",
     "domain.remove": lambda d: f"Removed the ingress of {_text(d, 'hostname')}",
     "certificate.issue": lambda d: f"Issued a certificate for {_text(d, 'hostname')}",

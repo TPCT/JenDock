@@ -1,5 +1,6 @@
 import {
   GearIcon,
+  GlobeIcon,
   HistoryIcon,
   HomeIcon,
   KeyIcon,
@@ -58,6 +59,7 @@ function NavItem({
 
 /** Memoised for the reason given at RunSidebar: Primer re-creates link anchors on every render. */
 const MainNav = memo(function MainNav({ onNavigate }: { onNavigate?: () => void }) {
+  const showDomains = useCan()("domain.discover");
   return (
     <NavList aria-label="Main" onClick={onNavigate}>
       <NavItem to="/" icon={HomeIcon} match={(path) => path === "/"}>
@@ -77,6 +79,11 @@ const MainNav = memo(function MainNav({ onNavigate }: { onNavigate?: () => void 
       >
         Runs
       </NavItem>
+      {showDomains ? (
+        <NavItem to="/domains" icon={GlobeIcon} match={(path) => path === "/domains"}>
+          Domains
+        </NavItem>
+      ) : null}
       <NavItem to="/audit" icon={HistoryIcon} match={(path) => path === "/audit"}>
         Audit log
       </NavItem>

@@ -52,8 +52,10 @@ class SocketDnsResolver:
 class StdlibHttpProber:
     """``HttpProber`` over ``http.client`` with the default (verifying) TLS context."""
 
+    method = "GET"
+
     def probe(self, hostname: str, *, tls: bool, timeout: float) -> HttpResult:
-        """GET ``/`` once; certificate and hostname are verified for HTTPS."""
+        """Request ``/`` once; certificate and hostname are verified for HTTPS."""
         try:
             return self._request(hostname, tls=tls, timeout=timeout)
         except ssl.SSLCertVerificationError as error:
@@ -63,8 +65,7 @@ class StdlibHttpProber:
         except (OSError, http.client.HTTPException) as error:
             return HttpResult(False, detail=f"no response: {error.__class__.__name__}")
 
-    @staticmethod
-    def _request(hostname: str, *, tls: bool, timeout: float) -> HttpResult:
+    def _request(self, hostname: str, *, tls: bool, timeout: float) -> HttpResult:
         connection: http.client.HTTPConnection
         if tls:
             connection = http.client.HTTPSConnection(
@@ -73,7 +74,7 @@ class StdlibHttpProber:
         else:
             connection = http.client.HTTPConnection(hostname, timeout=timeout)
         try:
-            connection.request("GET", "/", headers={"User-Agent": "jendock-domain-check"})
+            connection.request(self.method, "/", headers={"User-Agent": "jendock-domain-check"})
             response = connection.getresponse()
             response.read(MAX_BODY)
             return HttpResult(
@@ -84,6 +85,12 @@ class StdlibHttpProber:
             )
         finally:
             connection.close()
+
+
+class StdlibHeadProber(StdlibHttpProber):
+    """The same probe with ``HEAD``: no body is transferred, which is all a liveness check needs."""
+
+    method = "HEAD"
 
 
 def _not_after(connection: http.client.HTTPConnection) -> datetime | None:

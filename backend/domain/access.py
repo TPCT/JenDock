@@ -90,6 +90,11 @@ class Action(StrEnum):
     DATABASE_CONFIGURE = "database.configure"
     DOMAIN_READ = "domain.read"
     DOMAIN_MANAGE = "domain.manage"
+    DOMAIN_DISCOVER = "domain.discover"
+    DOMAIN_DISCOVER_REFRESH = "domain.discover_refresh"
+    DOMAIN_LOOKUP = "domain.lookup"
+    DOMAIN_ADOPT = "domain.adopt"
+    DOMAIN_ADOPT_ALL = "domain.adopt_all"
     CERTIFICATE_LIST = "certificate.list"
     SECRET_LIST = "secret.list"  # noqa: S105 - action name, not a credential
     SECRET_WRITE = "secret.write"  # noqa: S105 - action name, not a credential
@@ -199,6 +204,15 @@ RULES: dict[Action, Rule] = {
     Action.DATABASE_CONFIGURE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
     Action.DOMAIN_READ: _role(_S.READ, _V),
     Action.DOMAIN_MANAGE: _role(_S.ADMIN, _M),
+    # Everything Cloudflare and Apache already serve, across all projects: owners and admins.
+    Action.DOMAIN_DISCOVER: Rule(RuleKind.GLOBAL_ADMIN, _S.READ),
+    Action.DOMAIN_DISCOVER_REFRESH: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
+    # Zone list and "does this name exist" for the form of one environment's domains.
+    Action.DOMAIN_LOOKUP: _role(_S.ADMIN, _M),
+    # Recording an existing domain: a maintainer may do it for their own project; adopting every
+    # suggestion at once spans projects, so it is for owners and admins.
+    Action.DOMAIN_ADOPT: _role(_S.ADMIN, _M),
+    Action.DOMAIN_ADOPT_ALL: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
     Action.CERTIFICATE_LIST: Rule(RuleKind.GLOBAL_ADMIN, _S.READ),
     Action.SECRET_LIST: _role(_S.READ, _V),
     Action.SECRET_WRITE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),

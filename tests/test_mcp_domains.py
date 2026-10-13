@@ -32,6 +32,9 @@ DOMAIN_TOOLS = {
     "apply_domain",
     "remove_domain",
     "issue_certificate",
+    "discover_domains",
+    "adopt_domain",
+    "adopt_suggested_domains",
 }
 READ_TOOLS = {"list_domains", "get_domain", "list_certificates"}
 TARGET = {"slug": "demo", "environment": "development"}

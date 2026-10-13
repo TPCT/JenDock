@@ -36,6 +36,7 @@ from sqlalchemy.types import TypeDecorator
 from backend.domain.access import AccessRole, GlobalRole
 from backend.domain.clock import utcnow
 from backend.domain.database import DatabaseEngine, TlsMode
+from backend.domain.discovery import Confidence
 from backend.domain.enums import (
     ActorType,
     DeploymentStatus,
@@ -45,7 +46,7 @@ from backend.domain.enums import (
     RunStatus,
     RunTrigger,
 )
-from backend.domain.ingress import DnsRecordType, DomainStatus
+from backend.domain.ingress import DnsRecordType, DomainOrigin, DomainStatus
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -441,8 +442,70 @@ class Domain(Base):
     applied_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     last_verified_ok: Mapped[bool | None] = mapped_column(default=None)
+    # ``adopted`` domains existed before Jendock: only recorded here, DNS and Apache stay as
+    # they are. ``vhost_file`` is the Apache file the adoption saw (information only).
+    origin: Mapped[DomainOrigin] = mapped_column(
+        _enum(DomainOrigin), default=DomainOrigin.MANAGED, server_default=DomainOrigin.MANAGED.value
+    )
+    adopted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    vhost_file: Mapped[str | None] = mapped_column(String(255), default=None)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class DiscoveredDomain(Base):
+    """A host name found on Cloudflare and/or in Apache by the last discovery (read-only data).
+
+    The worker replaces all rows on every refresh. Whether a row is linked to a project is not
+    stored: it is read from ``domains`` by host name, so adopting never has to edit this table.
+    """
+
+    __tablename__ = "discovered_domains"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(253), unique=True)
+    zone_name: Mapped[str | None] = mapped_column(String(253), default=None)
+    zone_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    record_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    record_type: Mapped[str | None] = mapped_column(String(8), default=None)
+    record_content: Mapped[str | None] = mapped_column(String(255), default=None)
+    proxied: Mapped[bool] = mapped_column(default=False)
+    # ``None``: the server's address is not known, so nothing can be said.
+    points_to_server: Mapped[bool | None] = mapped_column(default=None)
+    vhost_file: Mapped[str | None] = mapped_column(String(255), default=None)
+    vhost_managed: Mapped[bool] = mapped_column(default=False)
+    upstream_host: Mapped[str | None] = mapped_column(String(255), default=None)
+    upstream_port: Mapped[int | None] = mapped_column(default=None)
+    vhost_ssl: Mapped[bool | None] = mapped_column(default=None)
+    suggested_project: Mapped[str | None] = mapped_column(String(64), default=None)
+    suggested_environment: Mapped[EnvironmentName | None] = mapped_column(
+        _enum(EnvironmentName), default=None
+    )
+    suggested_service: Mapped[str | None] = mapped_column(String(63), default=None)
+    suggested_container_port: Mapped[int | None] = mapped_column(default=None)
+    suggested_published_port: Mapped[int | None] = mapped_column(default=None)
+    suggestion_confidence: Mapped[Confidence | None] = mapped_column(
+        _enum(Confidence), default=None
+    )
+    suggestion_reason: Mapped[str | None] = mapped_column(String(300), default=None)
+    seen_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class DiscoveryState(Base):
+    """What the last discovery could and could not read (one row, id 1)."""
+
+    __tablename__ = "discovery_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    refreshed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    cloudflare: Mapped[str] = mapped_column(String(16), default="unknown")
+    cloudflare_message: Mapped[str | None] = mapped_column(String(300), default=None)
+    helper: Mapped[str] = mapped_column(String(16), default="unknown")
+    helper_message: Mapped[str | None] = mapped_column(String(300), default=None)
+    server_ip: Mapped[str | None] = mapped_column(String(64), default=None)
+    ip_source: Mapped[str] = mapped_column(String(16), default="unknown")
+    zones: Mapped[list[str]] = mapped_column(JSON, default=list)
+    record_count: Mapped[int] = mapped_column(default=0)
 
 
 class ResourceLimit(Base):

@@ -84,6 +84,8 @@ ROLE_ACTIONS: dict[Action, tuple[AccessRole, AccessRole]] = {
     Action.CONTAINER_LIMITS: (M, M),
     Action.CONTAINER_FILES: (M, M),
     Action.DOMAIN_MANAGE: (M, M),
+    Action.DOMAIN_LOOKUP: (M, M),
+    Action.DOMAIN_ADOPT: (M, M),
 }
 GLOBAL_ADMIN_ACTIONS = {
     Action.PROJECT_CREATE,
@@ -92,6 +94,9 @@ GLOBAL_ADMIN_ACTIONS = {
     Action.CONTAINER_ENV_REVEAL,
     Action.DATABASE_CONFIGURE,
     Action.CERTIFICATE_LIST,
+    Action.DOMAIN_DISCOVER,
+    Action.DOMAIN_DISCOVER_REFRESH,
+    Action.DOMAIN_ADOPT_ALL,
     Action.SECRET_WRITE,
     Action.SECRET_REVEAL,
     Action.USER_MANAGE,
