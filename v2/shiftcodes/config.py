@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     build_memory: str = "2g"
     # Default wall-clock limit of one container step when no ``timeout`` applies.
     step_timeout_seconds: int = Field(default=3600, gt=0)
+    # Container management (Tasks 8 and 9): the maxima a per-container CPU/RAM limit may reach,
+    # how long a recreated service gets to become healthy, how long a container operation waits
+    # for a running deployment of the same environment, and the terminal bounds.
+    managed_max_cpus: str = "8"
+    managed_max_memory: str = "16g"
+    container_verify_timeout: float = Field(default=60.0, gt=0)
+    container_lock_timeout: float = Field(default=30.0, gt=0)
+    terminal_idle_seconds: float = Field(default=120.0, gt=0)
+    terminal_max_seconds: float = Field(default=1800.0, gt=0)
+    terminal_max_sessions: int = Field(default=5, ge=1, le=50)
+    telemetry_interval: float = Field(default=15.0, gt=0)
+    telemetry_history: int = Field(default=240, ge=1, le=10000)
     queue_poll_interval: float = Field(default=1.0, gt=0)
     cancel_poll_interval: float = Field(default=1.0, gt=0)
     sse_poll_interval: float = Field(default=0.5, gt=0)
@@ -72,7 +84,13 @@ class Settings(BaseSettings):
             raise ValueError(str(error)) from error
         return value
 
-    @field_validator("container_cpus")
+    @field_validator("managed_max_memory")
+    @classmethod
+    def _check_managed_memory(cls, value: str) -> str:
+        """The container memory maximum uses Docker syntax."""
+        return cls._check_memory(value)
+
+    @field_validator("container_cpus", "managed_max_cpus")
     @classmethod
     def _check_cpus(cls, value: str) -> str:
         """CPU limits are positive decimal numbers."""
@@ -98,6 +116,11 @@ class Settings(BaseSettings):
                     f"trusted_proxies entry is not an IP or CIDR: {entry!r}"
                 ) from error
         return cleaned
+
+    @property
+    def worker_terminal_socket_path(self) -> Path:
+        """The terminal bridge socket: next to the RPC socket, same directory and permissions."""
+        return self.worker_socket_path.with_name(f"{self.worker_socket_path.stem}.terminal.sock")
 
     @model_validator(mode="before")
     @classmethod

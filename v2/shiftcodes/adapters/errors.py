@@ -11,6 +11,10 @@ class ContainerRuntimeError(AdapterError):
     """The container runtime could not do what was asked (not: a container exited non-zero)."""
 
 
+class ContainerNotFoundError(ContainerRuntimeError):
+    """The container (or a path inside it) does not exist."""
+
+
 class SourceError(AdapterError):
     """The source code could not be fetched or is not acceptable."""
 

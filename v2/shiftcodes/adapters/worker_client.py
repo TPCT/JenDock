@@ -92,7 +92,25 @@ class WorkerClient:
             raise WorkerError("worker returned an unexpected response")
         return value
 
-    def _call(self, method: str, actor: Actor | None, params: Mapping[str, object]) -> object:
+    def call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
+        """Call any worker method; ``timeout`` overrides the default for slow operations."""
+        return self._call(method, actor, params, timeout=timeout)
+
+    def _call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
         request = RpcRequest(
             id=secrets.token_hex(8),
             method=method,
@@ -102,7 +120,7 @@ class WorkerClient:
         payload = request.model_dump_json().encode() + b"\n"
         if len(payload) > MAX_MESSAGE_BYTES:
             raise ValidationError("request too large")
-        response = self._decode(self._exchange(payload))
+        response = self._decode(self._exchange(payload, timeout or self._timeout))
         if response.id != request.id:
             raise WorkerError("worker answered a different request")
         if not response.ok or response.error is not None:
@@ -111,11 +129,11 @@ class WorkerClient:
             raise domain_error_for(response.error)
         return response.result
 
-    def _exchange(self, payload: bytes) -> bytes:
-        deadline = time.monotonic() + self._timeout
+    def _exchange(self, payload: bytes, timeout: float) -> bytes:
+        deadline = time.monotonic() + timeout
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-                connection.settimeout(self._timeout)
+                connection.settimeout(timeout)
                 connection.connect(str(self._path))
                 connection.sendall(payload)
                 return _read_line(connection, deadline)

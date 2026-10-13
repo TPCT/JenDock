@@ -8,6 +8,7 @@ from shiftcodes.adapters.http_probe import UrllibProbe
 from shiftcodes.adapters.sources import LocalGitSource
 from shiftcodes.adapters.workspace import WorkspaceManager
 from shiftcodes.config import Settings
+from shiftcodes.containers.locks import EnvironmentLocks, LockedDeployer
 from shiftcodes.execution.config import ExecutionConfig
 from shiftcodes.execution.environment import ExecutionEnv
 from shiftcodes.execution.logs import LogStore
@@ -26,11 +27,13 @@ def build_execution_env(
     session_factory: SessionFactory,
     cipher: SecretCipher,
     redactor: SecretRedactor,
+    locks: EnvironmentLocks | None = None,
 ) -> ExecutionEnv:
     """Wire the docker CLI runtime, git source, workspaces, logs and secret access.
 
     Deployment is a placeholder until Task 7; the git source clones from
-    ``settings.git_url_template`` until Task 6 adds deploy keys.
+    ``settings.git_url_template`` until Task 6 adds deploy keys. With ``locks`` every deployment
+    holds its environment's lock, shared with container operations.
     """
     data_dir = settings.data_dir
     template = settings.git_url_template
@@ -46,7 +49,7 @@ def build_execution_env(
             private_dir=data_dir / PRIVATE_DIR_NAME,
         ),
         source=LocalGitSource(lambda repo: template.format(repository=repo), settings.git_binary),
-        deployer=UnavailableDeployer(),
+        deployer=LockedDeployer(UnavailableDeployer(), locks or EnvironmentLocks()),
         probe=UrllibProbe(),
         workspaces=WorkspaceManager(
             data_dir / WORKSPACES_DIR_NAME,

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import Engine
 
+from shiftcodes.adapters.container_client import ContainerClient, ContainersGateway
 from shiftcodes.adapters.worker_client import SecretsGateway, WorkerClient
 from shiftcodes.api.cookies import CookiePolicy
+from shiftcodes.api.terminal_tickets import TicketStore
 from shiftcodes.config import Settings
 from shiftcodes.domain.clock import Clock, utcnow
 from shiftcodes.execution.logs import LogStore
@@ -42,9 +44,13 @@ class AppContainer:
     limiter: LoginRateLimiter
     secrets: SecretsGateway
     cookies: CookiePolicy
+    # Container management through the worker; ``None`` means "the default client" (see
+    # ``container_gateway``). Tickets of the terminal WebSocket live here, in process memory.
+    containers: ContainersGateway | None = None
+    terminal_tickets: TicketStore = field(default_factory=TicketStore)
 
     @classmethod
-    def build(
+    def build(  # noqa: PLR0913 - one keyword per collaborator tests may replace
         cls,
         settings: Settings,
         *,
@@ -52,9 +58,11 @@ class AppContainer:
         clock: Clock = utcnow,
         hasher: PasswordHasher | None = None,
         limiter: LoginRateLimiter | None = None,
+        containers: ContainersGateway | None = None,
     ) -> AppContainer:
         """Create the default wiring; tests override individual collaborators."""
         engine = create_db_engine(settings.database_url)
+        worker = WorkerClient(settings.worker_socket_path)
         return cls(
             settings=settings,
             engine=engine,
@@ -62,9 +70,17 @@ class AppContainer:
             clock=clock,
             hasher=hasher or PasswordHasher(),
             limiter=limiter or LoginRateLimiter(clock),
-            secrets=secrets or WorkerClient(settings.worker_socket_path),
+            secrets=secrets or worker,
             cookies=CookiePolicy.for_settings(settings),
+            containers=containers or ContainerClient(worker),
+            terminal_tickets=TicketStore(clock),
         )
+
+    def container_gateway(self) -> ContainersGateway:
+        """Container management (always through the worker; the API has no Docker access)."""
+        if self.containers is not None:
+            return self.containers
+        return ContainerClient(WorkerClient(self.settings.worker_socket_path))
 
     def uow(self) -> UnitOfWork:
         """Return a fresh unit of work."""

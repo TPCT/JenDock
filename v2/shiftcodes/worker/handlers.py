@@ -80,10 +80,13 @@ class SecretHandlers:
         return {"value": value}
 
 
-def build_handlers(factory: SecretServiceFactory) -> Mapping[str, Handler]:
-    """Return the allowlist of RPC methods."""
+def build_handlers(
+    factory: SecretServiceFactory, extra: Mapping[str, Handler] | None = None
+) -> Mapping[str, Handler]:
+    """Return the allowlist of RPC methods; ``extra`` adds more (container management)."""
     secrets = SecretHandlers(factory)
     return {
+        **(extra or {}),
         "ping": lambda _call: {"status": "ok"},
         "secrets.set": secrets.set,
         "secrets.list": secrets.list,
