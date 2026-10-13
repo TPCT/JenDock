@@ -6,6 +6,7 @@ from pathlib import Path
 
 from shiftcodes.domain.diagnostics import Severity
 from shiftcodes.pipeline import PipelineSyntaxError, ValidationContext, parse, serialize, validate
+from shiftcodes.pipeline.templates import load_templates
 from tests.jenkins_probes import PROBES
 from tests.pipeline_support import FIXTURES
 
@@ -106,8 +107,10 @@ def all_cases() -> dict[str, str]:
         for path in sorted((FIXTURES / kind).glob("*.groovy")):
             cases[f"{kind}/{path.stem}"] = path.read_text()
     cases["readme/example"] = readme_example()
+    for template in load_templates():
+        cases[f"template/{template.name}"] = template.jenkinsfile
     for name, text in list(cases.items()):
-        if name.startswith("valid/") or name.startswith("readme/"):
+        if name.startswith(("valid/", "readme/", "template/")):
             cases[f"serialized/{name}"] = serialize(parse(text))
     cases.update({f"probe/{name}": text for name, text in PROBES.items()})
     return cases

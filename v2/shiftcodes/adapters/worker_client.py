@@ -11,6 +11,7 @@ import secrets
 import socket
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -30,6 +31,8 @@ from shiftcodes.domain.errors import ValidationError, WorkerError, WorkerUnavail
 from shiftcodes.services.secrets import SecretInfo
 
 DEFAULT_TIMEOUT = 5.0
+# Reading a file from a remote repository can take a while (network, large trees).
+REPOSITORY_TIMEOUT = 40.0
 _CHUNK = 65536
 
 
@@ -52,6 +55,40 @@ class SecretsGateway(Protocol):
 
     def reveal_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> str:
         """Return the plaintext of a secret (audited by the worker)."""
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryFile:
+    """The ``Jenkinsfile`` of a repository branch as the worker saw it.
+
+    ``reachable`` is false when the repository could not be read at all; ``text`` is ``None``
+    when the branch or the file does not exist.
+    """
+
+    reachable: bool
+    text: str | None
+
+
+class RepositoryGateway(Protocol):
+    """Repository questions the API asks the worker; implemented by ``WorkerClient``."""
+
+    def repository_jenkinsfile(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> RepositoryFile:
+        """The ``Jenkinsfile`` at the head of the environment's branch."""
+
+
+class UnavailableRepositoryGateway:
+    """Default when no worker is wired (tests that do not read repositories)."""
+
+    def repository_jenkinsfile(
+        self,
+        slug: str,  # noqa: ARG002
+        env: EnvironmentName,  # noqa: ARG002
+        actor: Actor,  # noqa: ARG002
+    ) -> RepositoryFile:
+        """Always fails: nobody can read the repository."""
+        raise WorkerUnavailableError("worker is not reachable")
 
 
 class WorkerClient:
@@ -92,7 +129,27 @@ class WorkerClient:
             raise WorkerError("worker returned an unexpected response")
         return value
 
-    def _call(self, method: str, actor: Actor | None, params: Mapping[str, object]) -> object:
+    def repository_jenkinsfile(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> RepositoryFile:
+        """Ask the worker for the ``Jenkinsfile`` at the head of the environment's branch."""
+        params = {"slug": slug, "env": env.value}
+        result = self._call("pipeline.repository_file", actor, params, REPOSITORY_TIMEOUT)
+        if not isinstance(result, dict):
+            raise WorkerError("worker returned an unexpected response")
+        text = result.get("text")
+        reachable = result.get("reachable")
+        if not isinstance(reachable, bool) or not (text is None or isinstance(text, str)):
+            raise WorkerError("worker returned an unexpected response")
+        return RepositoryFile(reachable, text)
+
+    def _call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        timeout: float | None = None,
+    ) -> object:
         request = RpcRequest(
             id=secrets.token_hex(8),
             method=method,
@@ -102,7 +159,7 @@ class WorkerClient:
         payload = request.model_dump_json().encode() + b"\n"
         if len(payload) > MAX_MESSAGE_BYTES:
             raise ValidationError("request too large")
-        response = self._decode(self._exchange(payload))
+        response = self._decode(self._exchange(payload, timeout or self._timeout))
         if response.id != request.id:
             raise WorkerError("worker answered a different request")
         if not response.ok or response.error is not None:
@@ -111,11 +168,11 @@ class WorkerClient:
             raise domain_error_for(response.error)
         return response.result
 
-    def _exchange(self, payload: bytes) -> bytes:
-        deadline = time.monotonic() + self._timeout
+    def _exchange(self, payload: bytes, timeout: float) -> bytes:
+        deadline = time.monotonic() + timeout
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-                connection.settimeout(self._timeout)
+                connection.settimeout(timeout)
                 connection.connect(str(self._path))
                 connection.sendall(payload)
                 return _read_line(connection, deadline)
