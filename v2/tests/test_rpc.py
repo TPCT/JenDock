@@ -8,19 +8,19 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.rpc_protocol import MAX_MESSAGE_BYTES
-from shiftcodes.adapters.worker_client import WorkerClient
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType
-from shiftcodes.domain.errors import (
+from backend.adapters.rpc_protocol import MAX_MESSAGE_BYTES
+from backend.adapters.worker_client import WorkerClient
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType
+from backend.domain.errors import (
     NotFoundError,
     ValidationError,
     WorkerError,
     WorkerUnavailableError,
 )
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.services.audit import AuditService
-from shiftcodes.worker.rpc import RpcCall, RpcServer
+from backend.repositories.database import UnitOfWork
+from backend.services.audit import AuditService
+from backend.worker.rpc import RpcCall, RpcServer
 from tests.api_support import running_worker
 from tests.conftest import DEV
 

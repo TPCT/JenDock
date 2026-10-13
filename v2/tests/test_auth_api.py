@@ -9,17 +9,17 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlalchemy import Engine, select
 
-from shiftcodes.api.app import create_app
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.deps import require_scope
-from shiftcodes.api.principal import Principal
-from shiftcodes.config import SESSION_ABSOLUTE_TIMEOUT, SESSION_IDLE_TIMEOUT
-from shiftcodes.domain.enums import TokenScope
-from shiftcodes.domain.errors import RateLimitedError
-from shiftcodes.repositories.models import Session, User
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.passwords import PasswordHasher
-from shiftcodes.services.rate_limit import LoginRateLimiter
+from backend.api.app import create_app
+from backend.api.container import AppContainer
+from backend.api.deps import require_scope
+from backend.api.principal import Principal
+from backend.config import SESSION_ABSOLUTE_TIMEOUT, SESSION_IDLE_TIMEOUT
+from backend.domain.enums import TokenScope
+from backend.domain.errors import RateLimitedError
+from backend.repositories.models import Session, User
+from backend.services.audit import AuditService
+from backend.services.passwords import PasswordHasher
+from backend.services.rate_limit import LoginRateLimiter
 from tests.api_support import (
     DEV_ORIGIN,
     ORIGIN,
@@ -281,7 +281,7 @@ def test_development_http_cookie_attributes(
     )
     assert response.status_code == 200
     cookie = response.headers["set-cookie"]
-    assert cookie.startswith("shiftcodes_session=")
+    assert cookie.startswith("jendock_session=")
     lowered = cookie.lower()
     assert "secure" not in lowered
     assert "httponly" in lowered

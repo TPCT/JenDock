@@ -15,15 +15,15 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from shiftcodes.adapters.acme.issuer import IssuedCertificate
-from shiftcodes.adapters.cloudflare import CloudflareClient, CloudflareDns
-from shiftcodes.adapters.host_helper_client import (
+from backend.adapters.acme.issuer import IssuedCertificate
+from backend.adapters.cloudflare import CloudflareClient, CloudflareDns
+from backend.adapters.host_helper_client import (
     HostHelperError,
     InstalledCertificate,
     VhostProposal,
 )
-from shiftcodes.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
-from shiftcodes.repositories.models import Domain
+from backend.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
+from backend.repositories.models import Domain
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ZONE = "example.com"

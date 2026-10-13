@@ -2,7 +2,7 @@
 
 import random
 
-from shiftcodes.pipeline import PipelineSyntaxError, parse, serialize, validate
+from backend.pipeline import PipelineSyntaxError, parse, serialize, validate
 from tests.pipeline_support import CONTEXT, FIXTURES
 
 SOURCES = [path.read_text() for path in sorted((FIXTURES / "valid").glob("*.groovy"))]

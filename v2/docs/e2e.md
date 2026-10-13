@@ -17,16 +17,16 @@ Not part of `make check`, `make test` or `make test-docker` (marker `e2e`).
 
 ## What it creates, and how it cleans up
 
-- A compose project `sctest-e2e-<id>` of the platform (api, worker, the inspector image), a second
-  compose project `sctest-e2e-<id>-app` for the sample application (two app services and a seeded
+- A compose project `jdtest-e2e-<id>` of the platform (api, worker, the inspector image), a second
+  compose project `jdtest-e2e-<id>-app` for the sample application (two app services and a seeded
   postgres:16) and temporary host directories for the workspaces, the sample projects (mounted
   read-only into the worker at the identical path), the git repositories and the backups.
 - Every container, image, volume and network carries the session labels of
-  `tests/docker_support.py` (`shiftcodes.test=1`, `shiftcodes.test.session=<uuid>`). Teardown
+  `tests/docker_support.py` (`jendock.test=1`, `jendock.test.session=<uuid>`). Teardown
   removes exactly those (the platform stack, the sample project, the restored-data volume) and
   `assert_nothing_left()` fails the run when anything survived. Nothing else on the daemon is
   touched, and no real GitHub, Cloudflare or certificate authority is ever contacted: the
-  worker clones `file:///repos/acme/app.git` through `SHIFTCODES_GIT_URL_TEMPLATE`, and the
+  worker clones `file:///repos/acme/app.git` through `JENDOCK_GIT_URL_TEMPLATE`, and the
   webhook is signed with a secret the test writes into the worker's keys volume.
 - The stack runs in production mode (https origin, `__Host-` cookie); the test reaches it over
   loopback http and carries the cookie and `Origin` by hand, like a browser would.
@@ -57,5 +57,5 @@ Not part of `make check`, `make test` or `make test-docker` (marker `e2e`).
    configured through any public interface. `PATCH .../environments/{env}` accepts and returns
    them now.
 3. After every successful run the worker killed the service it had just deployed: `dockerBuild`
-   labelled images `shiftcodes.run_id`, containers inherit image labels, and the end-of-run
-   cleanup kills containers by that label. Images now carry `shiftcodes.build_run`.
+   labelled images `jendock.run_id`, containers inherit image labels, and the end-of-run
+   cleanup kills containers by that label. Images now carry `jendock.build_run`.

@@ -6,16 +6,16 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import inspect
 
-import shiftcodes.repositories
-from shiftcodes.repositories.database import create_db_engine
-from shiftcodes.repositories.migrate import MIGRATIONS_DIR, build_config, upgrade_to_head
-from shiftcodes.repositories.models import Base
+import backend.repositories
+from backend.repositories.database import create_db_engine
+from backend.repositories.migrate import MIGRATIONS_DIR, build_config, upgrade_to_head
+from backend.repositories.models import Base
 
 
 @pytest.fixture
 def migrated_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     url = f"sqlite:///{tmp_path / 'fresh' / 'migrated.db'}"
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", url)
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", url)
     upgrade_to_head()
     return url
 
@@ -43,7 +43,7 @@ def test_downgrade_to_base_removes_tables(migrated_url: str) -> None:
 
 
 def test_migrations_ship_inside_the_package() -> None:
-    assert MIGRATIONS_DIR.parent == Path(shiftcodes.repositories.__file__).parent
+    assert MIGRATIONS_DIR.parent == Path(backend.repositories.__file__).parent
     assert (MIGRATIONS_DIR / "script.py.mako").is_file()
     assert list((MIGRATIONS_DIR / "versions").glob("*_initial_schema.py"))
 

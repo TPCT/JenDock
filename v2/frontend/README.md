@@ -1,4 +1,4 @@
-# Shiftcodes frontend
+# Jendock frontend
 
 React 19 + Vite + TypeScript (strict, `noUncheckedIndexedAccess`), React Router, TanStack Query,
 GitHub's design system (`@primer/react` 38.40.1, `@primer/primitives` CSS variables for light, dark and dark dimmed, `@primer/octicons-react`). Tests: Vitest + Testing Library + MSW.
@@ -18,7 +18,7 @@ The API contract (what exists, what is proposed) is in `../docs/api-contract.md`
 
 ### Real backend in development
 
-Set `SHIFTCODES_PUBLIC_ORIGIN=http://localhost:5173` for the API: it requires `Origin` to equal
+Set `JENDOCK_PUBLIC_ORIGIN=http://localhost:5173` for the API: it requires `Origin` to equal
 that value exactly on login and every mutation (the Vite proxy forwards the browser's Origin).
 Use an `http://` origin so the plain (non-`__Host-`) cookie name is used.
 
@@ -123,3 +123,43 @@ Per project: Settings (general, environments, GitHub connection, secrets) and Do
 (`environments/:env/domains`: preview with plan hash, apply, remove, checks, certificates).
 Global: Settings > API tokens (shown once) and the MCP placeholder. All of it is mocked in
 `src/mocks/admin.ts` with the same rules as the routers.
+
+## Security notes
+
+### The terminal page and inline styles (`src/lib/styleBridge.ts`)
+
+xterm.js cannot run under `default-src 'self'` as shipped: it creates `<style>` elements at run time
+(scrollbar, cell size, theme) and its DOM renderer paints true-colour cells with
+`setAttribute("style", ...)`. Both are blocked by the policy (verified in a browser with the
+production header). While the terminal page is open:
+
+- `document.createElement("style")` returns an inert placeholder and a `MutationObserver` mirrors
+  its text into a constructed stylesheet (`adoptedStyleSheets`, allowed by the policy);
+- a second observer copies `style` attributes inside the terminal into `element.style.cssText`
+  (CSSOM, allowed).
+
+**Trade-off:** no script is involved and nothing outside the terminal subtree is touched, but while
+a terminal is open the page behaves as if inline styles were allowed for the CSS xterm itself
+emits (CSS cannot execute code; it could at most restyle the page). The bridge is installed on
+mount and removed on unmount, so every other page keeps the strict policy. The WebGL addon is
+loaded first on purpose: it draws to a canvas and needs neither `<style>` elements nor style
+attributes for cells, so the bridge only serves xterm's scrollbar and layout CSS there; the DOM
+renderer is the fallback (no WebGL) and is the only case that writes style attributes, each of
+which logs a CSP violation in the console while still rendering. `src/test/csp.test.ts` lists
+every known `<style>`/`style=` site in the bundles and fails on a new one.
+
+### Test stability and a Primer defect
+
+Primer React 38.40.1 builds the anchor wrapper of `ActionList`/`NavList` link items (and
+`Breadcrumbs.Item`) inline in render (`ActionList/LinkItem.js`, `_PrivateItemWrapper`), so the
+`<a>` is destroyed and re-created on every re-render of the item. A re-render between mouse-down
+and mouse-up (a status event, a query result arriving) therefore swallows the click: users on a
+live run, and `userEvent.click` in tests, lost clicks intermittently. This was the root cause of the
+flaky suite. Fix: lists of link items that sit next to changing data are memoised
+(`RunSidebar` in `pages/RunDetail.tsx`, `TableNav` in `pages/DatabaseBrowser.tsx`, the main nav in
+`components/Shell.tsx`) so they re-render only when what they show changes. Re-check this when
+upgrading Primer; keep new link lists next to live data memoised.
+
+Tests must also never assert on an element that the code under test is about to replace (a
+heading shared by the old and the new page, a notice that moves with a navigation): wait for the
+navigation or for the final state first (re-run and environment-apply tests had that race).

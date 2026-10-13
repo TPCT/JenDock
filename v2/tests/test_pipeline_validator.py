@@ -1,8 +1,8 @@
 import pytest
 
-from shiftcodes.domain.diagnostics import Severity
-from shiftcodes.pipeline import ValidationContext, parse, validate
-from shiftcodes.pipeline.docker import check_docker_args, is_external_reference
+from backend.domain.diagnostics import Severity
+from backend.pipeline import ValidationContext, parse, validate
+from backend.pipeline.docker import check_docker_args, is_external_reference
 from tests.pipeline_support import CONTEXT, DOCKER_AGENT, check, errors, wrap
 
 

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.hosthelper.errors import HelperError, InvalidRequestError
-from shiftcodes.hosthelper.service import HelperService
-from shiftcodes.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
+from backend.hosthelper.errors import HelperError, InvalidRequestError
+from backend.hosthelper.service import HelperService
+from backend.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
 from tests.host_helper_support import ScriptedApache, make_service, vhost_params
 from tests.ingress_support import make_certificate
 

@@ -64,18 +64,18 @@ export function dnsSentence(plan: Plan): string {
   switch (dns.action) {
     case "create":
       return dns.desired
-        ? `Shiftcodes will create this DNS record in ${dns.zone}: ${describeRecord(dns.desired)}.`
-        : "Shiftcodes will create the DNS record.";
+        ? `Jendock will create this DNS record in ${dns.zone}: ${describeRecord(dns.desired)}.`
+        : "Jendock will create the DNS record.";
     case "update":
-      return `Shiftcodes will change the DNS record it created earlier${dns.current ? ` (now ${describeRecord(dns.current)})` : ""} to ${dns.desired ? describeRecord(dns.desired) : "the new value"}.`;
+      return `Jendock will change the DNS record it created earlier${dns.current ? ` (now ${describeRecord(dns.current)})` : ""} to ${dns.desired ? describeRecord(dns.desired) : "the new value"}.`;
     case "delete":
       return dns.current
-        ? `Shiftcodes will delete the DNS record it created: ${describeRecord(dns.current)}. Records made by anyone else stay.`
-        : "Shiftcodes will delete the DNS record it created.";
+        ? `Jendock will delete the DNS record it created: ${describeRecord(dns.current)}. Records made by anyone else stay.`
+        : "Jendock will delete the DNS record it created.";
     case "noop":
       return "DNS is already correct. Nothing changes there.";
     case "conflict":
-      return `${dns.message || "A DNS record for this name already exists and Shiftcodes did not create it."}${dns.current ? ` It is ${describeRecord(dns.current)}.` : ""} Shiftcodes never overwrites a record it does not own. Delete or rename that record in Cloudflare (or pick another host name), then preview again.`;
+      return `${dns.message || "A DNS record for this name already exists and Jendock did not create it."}${dns.current ? ` It is ${describeRecord(dns.current)}.` : ""} Jendock never overwrites a record it does not own. Delete or rename that record in Cloudflare (or pick another host name), then preview again.`;
   }
 }
 

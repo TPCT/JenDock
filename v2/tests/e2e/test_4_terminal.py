@@ -14,7 +14,7 @@ from tests.e2e.stack import Stack
 
 pytestmark = pytest.mark.e2e
 QUERY = (
-    "import json, sqlite3; c = sqlite3.connect('file:/var/lib/shiftcodes/shiftcodes.db?mode=ro', "
+    "import json, sqlite3; c = sqlite3.connect('file:/var/lib/jendock/jendock.db?mode=ro', "
     'uri=True); print(json.dumps(c.execute("SELECT action, target_type, details FROM audit_events '
     "WHERE action LIKE 'terminal.%' ORDER BY id\").fetchall()))"
 )

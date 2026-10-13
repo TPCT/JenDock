@@ -8,13 +8,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.host_helper_client import HostHelperError
-from shiftcodes.adapters.ingress_client import IngressClient
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.domain_checks import CheckProbes, DomainCheckService
-from shiftcodes.worker.ingress_handlers import build_ingress_handlers
-from shiftcodes.worker.rpc import RpcServer
+from backend.adapters.host_helper_client import HostHelperError
+from backend.adapters.ingress_client import IngressClient
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.domain_checks import CheckProbes, DomainCheckService
+from backend.worker.ingress_handlers import build_ingress_handlers
+from backend.worker.rpc import RpcServer
 from tests.api_support import (
     FakeClock,
     create_user,
@@ -181,7 +181,7 @@ def test_a_foreign_dns_record_blocks_apply_with_a_clear_conflict(api: Api) -> No
         f"{BASE}/{domain_id}/apply", json={"plan_hash": plan["plan_hash"]}, headers=api.headers()
     )
     assert response.status_code == 409
-    assert "not managed by Shiftcodes" in response.json()["error"]["message"]
+    assert "not managed by Jendock" in response.json()["error"]["message"]
     assert api.world.cloudflare.mutations() == []
 
 

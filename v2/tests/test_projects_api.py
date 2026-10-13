@@ -8,17 +8,17 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.enums import (
+from backend.api.container import AppContainer
+from backend.domain.enums import (
     EnvironmentName,
     PipelineSource,
     RunStatus,
     RunTrigger,
 )
-from shiftcodes.repositories.models import Run
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.projects import ProjectService
-from shiftcodes.services.runs import RunService
+from backend.repositories.models import Run
+from backend.services.audit import AuditService
+from backend.services.projects import ProjectService
+from backend.services.runs import RunService
 from tests.api_support import (
     FakeClock,
     create_user,

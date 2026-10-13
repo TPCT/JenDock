@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shiftcodes.domain.diagnostics import Diagnostic, Severity
-from shiftcodes.pipeline import Pipeline, ValidationContext, parse, validate
+from backend.domain.diagnostics import Diagnostic, Severity
+from backend.pipeline import Pipeline, ValidationContext, parse, validate
 
 FIXTURES = Path(__file__).parent / "fixtures" / "jenkinsfiles"
 SECRETS = frozenset({"APP_KEY", "NPM_TOKEN", "DB_PASSWORD"})

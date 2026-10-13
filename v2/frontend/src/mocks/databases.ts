@@ -1,6 +1,6 @@
 /**
  * Mock of the database inspector endpoints (docs/api-contract.md "Database",
- * shiftcodes/api/routers/databases.py): connections, metadata, keyset-paged rows and the
+ * jendock/api/routers/databases.py): connections, metadata, keyset-paged rows and the
  * read-only console, with the same 409/422/403 rules.
  */
 import { http, HttpResponse, type HttpHandler } from "msw";

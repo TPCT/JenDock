@@ -1,13 +1,13 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from shiftcodes.domain.enums import EnvironmentName
-from shiftcodes.domain.errors import ConflictError, NotFoundError, ValidationError
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.repositories.environments import EnvironmentRepository
-from shiftcodes.repositories.models import Environment
-from shiftcodes.repositories.projects import ProjectRepository
-from shiftcodes.services.projects import ProjectService
+from backend.domain.enums import EnvironmentName
+from backend.domain.errors import ConflictError, NotFoundError, ValidationError
+from backend.repositories.database import UnitOfWork
+from backend.repositories.environments import EnvironmentRepository
+from backend.repositories.models import Environment
+from backend.repositories.projects import ProjectRepository
+from backend.services.projects import ProjectService
 
 
 def test_create_makes_exactly_two_environments(uow: UnitOfWork) -> None:

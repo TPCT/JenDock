@@ -218,7 +218,7 @@ export function NewProjectPage() {
           {step === 1 ? (
             <>
               <Heading as="h2" variant="medium">
-                How should Shiftcodes reach {draft.repository.trim() || "the repository"}?
+                How should Jendock reach {draft.repository.trim() || "the repository"}?
               </Heading>
               <RadioGroup
                 name="transport"

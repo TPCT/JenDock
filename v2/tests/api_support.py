@@ -11,19 +11,19 @@ from argon2 import PasswordHasher as Argon2Hasher
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.worker_client import GithubGateway, SecretsGateway, WorkerClient
-from shiftcodes.api.app import create_asgi_app
-from shiftcodes.api.container import AppContainer
-from shiftcodes.config import Settings
-from shiftcodes.domain.actor import Actor
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.passwords import PasswordHasher
-from shiftcodes.services.rate_limit import webhook_failure_limiter
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
-from shiftcodes.services.users import UserService
-from shiftcodes.worker.handlers import build_handlers
-from shiftcodes.worker.rpc import RpcServer
+from backend.adapters.worker_client import GithubGateway, SecretsGateway, WorkerClient
+from backend.api.app import create_asgi_app
+from backend.api.container import AppContainer
+from backend.config import Settings
+from backend.domain.actor import Actor
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.passwords import PasswordHasher
+from backend.services.rate_limit import webhook_failure_limiter
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
+from backend.services.users import UserService
+from backend.worker.handlers import build_handlers
+from backend.worker.rpc import RpcServer
 
 ORIGIN = "https://app.example.test"
 DEV_ORIGIN = "http://localhost:8000"

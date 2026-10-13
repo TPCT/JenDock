@@ -1,6 +1,6 @@
 """The inspector adapters against real PostgreSQL 16, MySQL 8.4 and MariaDB 11.4 servers.
 
-Run with ``make test-docker``. Servers are throwaway containers labelled ``shiftcodes.test=1``
+Run with ``make test-docker``. Servers are throwaway containers labelled ``jendock.test=1``
 that publish on 127.0.0.1 only; they are removed when the module ends.
 """
 
@@ -12,14 +12,14 @@ from typing import Any, cast
 
 import pytest
 
-from shiftcodes.inspector.model import (
+from backend.inspector.model import (
     Engine,
     ErrorCode,
     InspectorError,
     Limits,
     RowRequest,
 )
-from shiftcodes.inspector.operations import InspectorAdapter, open_adapter
+from backend.inspector.operations import InspectorAdapter, open_adapter
 from tests.docker_support import (
     assert_nothing_left,
     docker_available,

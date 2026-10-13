@@ -1,7 +1,7 @@
 """The Compose deployer against a real Docker daemon (``make test-docker``).
 
 Each test starts a throwaway Compose project ``sctest-<random>`` with two services (``web`` has
-a healthcheck, ``worker`` does not). Every container and image carries ``shiftcodes.test=1``
+a healthcheck, ``worker`` does not). Every container and image carries ``jendock.test=1``
 and a label with the stack's own name; teardown removes exactly those and the project's
 network, and the fixture verifies that nothing is left.
 """
@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.compose_deployer import ComposeDeployer, DeployConfig
-from shiftcodes.adapters.container_runtime import CancelSignal, ExecResult, LineSink
-from shiftcodes.adapters.deploy_health import HealthPolicy
-from shiftcodes.adapters.deploy_journal import DeployJournal
-from shiftcodes.adapters.deployer import DeployRequest, ServiceImage
-from shiftcodes.adapters.docker_commands import CommandRunner, DockerCommands
-from shiftcodes.adapters.errors import DeployError
-from shiftcodes.adapters.override_store import OverrideStore
-from shiftcodes.domain.enums import DeploymentStatus
+from backend.adapters.compose_deployer import ComposeDeployer, DeployConfig
+from backend.adapters.container_runtime import CancelSignal, ExecResult, LineSink
+from backend.adapters.deploy_health import HealthPolicy
+from backend.adapters.deploy_journal import DeployJournal
+from backend.adapters.deployer import DeployRequest, ServiceImage
+from backend.adapters.docker_commands import CommandRunner, DockerCommands
+from backend.adapters.errors import DeployError
+from backend.adapters.override_store import OverrideStore
+from backend.domain.enums import DeploymentStatus
 from tests.deploy_support import MemoryLedger, NotCancelled
 from tests.docker_support import docker_available, pick_base_image, remove_image
 from tests.execution_support import FakeProbe
@@ -38,7 +38,7 @@ PROJECT = "demo"
 ENVIRONMENT = "development"
 REPOSITORY = f"sc/{PROJECT}-{ENVIRONMENT}"
 POLICY = HealthPolicy(timeout=60.0, settle=2.0, interval=0.5)
-PLATFORM_LABELS = (f"shiftcodes.project={PROJECT}", f"shiftcodes.environment={ENVIRONMENT}")
+PLATFORM_LABELS = (f"jendock.project={PROJECT}", f"jendock.environment={ENVIRONMENT}")
 
 
 class Crash(BaseException):
@@ -88,7 +88,7 @@ class Stack:
     @property
     def own_labels(self) -> tuple[str, ...]:
         """Labels of everything this stack creates: the test label and its own name."""
-        return ("shiftcodes.test=1", f"shiftcodes.stack={self.name}")
+        return ("jendock.test=1", f"jendock.stack={self.name}")
 
     @property
     def compose_file(self) -> Path:
@@ -152,7 +152,7 @@ class Stack:
     # --- containers ---------------------------------------------------------------
 
     def write_compose(self, web: str, worker: str) -> None:
-        labels = f'{{"shiftcodes.test": "1", "shiftcodes.stack": "{self.name}"}}'
+        labels = f'{{"jendock.test": "1", "jendock.stack": "{self.name}"}}'
         # Interpolation without the env file fails: the deployer must pass --env-file.
         self.env_file.write_text("WEB_PORT=8080\n")
         self.compose_file.write_text(
@@ -218,7 +218,7 @@ class Stack:
     def owned(self, kind: str) -> list[str]:
         """Ids of this stack's containers (``container``) or images (``image``)."""
         listing = ["ps", "--all"] if kind == "container" else ["image", "ls", "--all"]
-        args = [*listing, "--quiet", "--filter", f"label=shiftcodes.stack={self.name}"]
+        args = [*listing, "--quiet", "--filter", f"label=jendock.stack={self.name}"]
         return sorted(set(self.run(*args).stdout.split()))
 
     def teardown(self) -> None:
@@ -315,7 +315,7 @@ def test_retention_removes_only_old_labelled_images(running: Stack) -> None:
     foreign = f"sctest-foreign-{uuid.uuid4().hex[:6]}:1"
     other_env = f"sc/{PROJECT}-production-web:v1"
     stack.build_image(foreign, (), "RUN touch /other")
-    other_labels = (f"shiftcodes.project={PROJECT}", "shiftcodes.environment=production")
+    other_labels = (f"jendock.project={PROJECT}", "jendock.environment=production")
     stack.build_image(other_env, other_labels, "RUN touch /other")
 
     stack.deploy("web", tags[4], stack.deployer(keep=2))

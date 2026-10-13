@@ -1,13 +1,13 @@
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.acme.client import AcmeError
-from shiftcodes.adapters.host_helper_client import HostHelperError
-from shiftcodes.domain.errors import ConfigurationError, ConflictError, UpstreamError
-from shiftcodes.domain.ingress import MANAGED_TAG, DnsRecordType, DomainStatus, PlanAction
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.domains import DomainPatch
+from backend.adapters.acme.client import AcmeError
+from backend.adapters.host_helper_client import HostHelperError
+from backend.domain.errors import ConfigurationError, ConflictError, UpstreamError
+from backend.domain.ingress import MANAGED_TAG, DnsRecordType, DomainStatus, PlanAction
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.domains import DomainPatch
 from tests.api_support import FakeClock
 from tests.conftest import DEV
 from tests.ingress_support import HOST
@@ -113,7 +113,7 @@ def test_a_foreign_dns_record_blocks_the_plan_and_nothing_is_changed(world: Ingr
     )
     plan = world.ingress().preview(domain.id)
     assert plan.blocked and plan.dns.action is PlanAction.CONFLICT
-    with pytest.raises(ConflictError, match="not managed by Shiftcodes"):
+    with pytest.raises(ConflictError, match="not managed by Jendock"):
         world.ingress().apply(domain.id, plan.plan_hash, ACTOR)
     assert world.cloudflare.records == [foreign]
     assert world.cloudflare.mutations() == []

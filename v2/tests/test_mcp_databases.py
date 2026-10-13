@@ -8,16 +8,16 @@ from typing import Any
 
 import pytest
 
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.principal import Principal
-from shiftcodes.api.schemas.databases import decode_cursor
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.database import DatabaseEngine
-from shiftcodes.domain.enums import EnvironmentName, TokenScope
-from shiftcodes.mcp.dispatcher import ToolDispatcher
-from shiftcodes.mcp.tools import default_registry
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.database_connections import NewConnection
+from backend.api.container import AppContainer
+from backend.api.principal import Principal
+from backend.api.schemas.databases import decode_cursor
+from backend.domain.actor import Actor
+from backend.domain.database import DatabaseEngine
+from backend.domain.enums import EnvironmentName, TokenScope
+from backend.mcp.dispatcher import ToolDispatcher
+from backend.mcp.tools import default_registry
+from backend.services.audit import AuditService
+from backend.services.database_connections import NewConnection
 from tests import test_databases_api
 from tests.conftest import DEV, PROD
 from tests.inspector_support import PAGE, FakeHelper

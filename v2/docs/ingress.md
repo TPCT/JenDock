@@ -19,12 +19,12 @@ browser --> API (no secrets, no root) --RPC--> worker (secret key, Cloudflare to
 - The **API** only stores domain definitions and reads status. Every operation that touches
   DNS, Apache or TLS is an RPC to the **worker** (`ingress.preview|apply|remove|check|certificate`),
   because only the worker holds the secret key (the Cloudflare token) and can reach the helper.
-- The **host helper** is a separate, minimal process (`python -m shiftcodes.hosthelper`) that is
+- The **host helper** is a separate, minimal process (`python -m backend.hosthelper`) that is
   the only thing with host privileges. Neither container gets root or write access to
   Apache's configuration. Its protocol is a closed list of operations; it never accepts
   configuration text (see "Host helper protocol").
-- Settings are `SHIFTCODES_INGRESS_*` (`shiftcodes/config_ingress.py`); ingress is off unless
-  `SHIFTCODES_INGRESS_ENABLED=true` in the worker.
+- Settings are `JENDOCK_INGRESS_*` (`backend/config_ingress.py`); ingress is off unless
+  `JENDOCK_INGRESS_ENABLED=true` in the worker.
 
 ## Domain model
 
@@ -35,9 +35,9 @@ port Apache proxies to), DNS record type/target/proxied flag, `tls_enabled`, `st
 `DomainCertificate` holds the current certificate's expiry/serial/fingerprint (never key
 material); `DomainCheck` the latest status check. A path prefix is intentionally not modelled yet.
 
-Hostnames (`shiftcodes/domain/hostnames.py`): trimmed, lowercased, IDNA 2008 (UTS #46) to `xn--`
+Hostnames (`backend/domain/hostnames.py`): trimmed, lowercased, IDNA 2008 (UTS #46) to `xn--`
 A-labels, at least two labels, LDH only, no IP literals, no reserved zones (`.local`,
-`.internal`, ...), wildcards (`*.zone`) only when `SHIFTCODES_INGRESS_ALLOW_WILDCARDS=true`
+`.internal`, ...), wildcards (`*.zone`) only when `JENDOCK_INGRESS_ALLOW_WILDCARDS=true`
 **and** the helper's `allow_wildcards` is true. The host helper re-validates everything
 independently.
 
@@ -60,13 +60,13 @@ differs, so what the user reviewed is what runs. Apply order:
 
 ## Cloudflare DNS
 
-`shiftcodes/adapters/cloudflare.py`. Token: the environment secret `CLOUDFLARE_API_TOKEN`
+`backend/adapters/cloudflare.py`. Token: the environment secret `CLOUDFLARE_API_TOKEN`
 (set it through the secrets endpoints; the worker reads it per call, audited as
 `secret.resolve`). Use a token scoped to **Zone:DNS:Edit** for the single zone (plus
 **Zone:Zone:Read**, needed to look the zone up by name); nothing else.
 
 - Zone lookup by walking up the hostname (`a.b.example.com` -> `b.example.com` -> `example.com`).
-- Records carry the comment `managed-by=shiftcodes domain=<id>`. **Only records with that tag
+- Records carry the comment `managed-by=jendock domain=<id>`. **Only records with that tag
   are ever updated or deleted.** A record with the same name and a clashing type (same type,
   or CNAME versus anything) that does not carry the tag is reported as `conflict`; apply is
   refused and nothing is changed. A foreign `AAAA` next to our `A` is not a clash.
@@ -77,7 +77,7 @@ differs, so what the user reviewed is what runs. Apply order:
 
 ## Apache vhost and the host helper
 
-Fixed template: `shiftcodes/hosthelper/vhost.py` (golden files in `tests/fixtures/vhost/`).
+Fixed template: `backend/hosthelper/vhost.py` (golden files in `tests/fixtures/vhost/`).
 Per domain: a port-80 vhost (ACME alias; proxy when no certificate yet, else 301 to https)
 and a port-443 vhost (TLS, `setifempty` security headers: HSTS, nosniff, X-Frame-Options,
 Referrer-Policy; websocket upgrade via `RewriteRule ... ws://127.0.0.1:<port>` `[P]`;
@@ -86,7 +86,7 @@ Required modules: `proxy proxy_http proxy_wstunnel rewrite headers alias ssl`.
 
 ### Host helper protocol
 
-JSON lines on a Unix socket (`shiftcodes/hosthelper/server.py`), one request per connection,
+JSON lines on a Unix socket (`backend/hosthelper/server.py`), one request per connection,
 served **serially**. The kernel-reported peer uid must be in `allowed_uids`. Request
 `{"id", "op", "params"}`; response `{"id", "ok", "result"|"error": {"code","message"}}`.
 
@@ -108,7 +108,7 @@ canonical lowercase ASCII, match the administrator's zone allowlist on a label b
 cannot contain `/`, `..`, whitespace, quotes, newlines or `;`; ports must be integers inside the
 allowlisted ranges (>= 1024); unknown parameters are rejected (no free-form configuration);
 file names are derived from validated hostnames (`sc-<host>.conf`) inside one fixed directory;
-an existing file without the `# shiftcodes-managed:` marker is never overwritten or deleted;
+an existing file without the `# jendock-managed:` marker is never overwritten or deleted;
 the `apachectl` argv comes from the root-owned config, never from a request; certificate
 material is parsed (key must match the leaf, SAN must cover the hostname, must be valid now,
 no encrypted keys). Writes are atomic (temp file in the same directory, fsync, rename), and a
@@ -116,12 +116,12 @@ failing `configtest` or reload restores every touched file (a created file is re
 
 ## TLS: ACME
 
-`shiftcodes/adapters/acme/` is a small RFC 8555 client (ES256 account key in
+`backend/adapters/acme/` is a small RFC 8555 client (ES256 account key in
 `<data_dir>/worker-private/acme-account.key`, mode 0600; a fresh P-256 certificate key per
 issuance, so renewals rotate the key; the key is handed to the helper and never stored by the
 platform). Challenge solvers are pluggable:
 
-- **DNS-01 via Cloudflare (primary, `SHIFTCODES_INGRESS_ACME_CHALLENGE=dns-01`).** Reasons:
+- **DNS-01 via Cloudflare (primary, `JENDOCK_INGRESS_ACME_CHALLENGE=dns-01`).** Reasons:
   the platform already holds a zone-scoped Cloudflare token and needs no new privileged
   capability; the challenge needs no host access (so the helper has less to do); it works while
   the hostname is Cloudflare-proxied or the `http -> https` redirect is in place; it is the only
@@ -133,11 +133,11 @@ platform). Challenge solvers are pluggable:
   that path (also excluded from the https redirect). No wildcards.
 
 Both were run against Pebble (`tests/test_acme_pebble_docker.py`). Configure
-`SHIFTCODES_INGRESS_ACME_EMAIL` and `SHIFTCODES_INGRESS_ACME_DIRECTORY_URL` (default Let's
+`JENDOCK_INGRESS_ACME_EMAIL` and `JENDOCK_INGRESS_ACME_DIRECTORY_URL` (default Let's
 Encrypt production; use the staging directory while testing).
 
 **Renewal:** `RenewalScheduler` runs in the worker (hourly by default,
-`SHIFTCODES_INGRESS_RENEWAL_INTERVAL_SECONDS`) and renews every certificate whose expiry is
+`JENDOCK_INGRESS_RENEWAL_INTERVAL_SECONDS`) and renews every certificate whose expiry is
 within 30 days (`..._RENEW_BEFORE_DAYS`); a failed renewal is retried after 6 hours
 (`..._RENEW_RETRY_HOURS`) and keeps `last_error`/`last_attempt_at` on the certificate. Renewals
 are audited as `system` / `ingress-renewal`. **Expiry monitoring:** `GET /api/ingress/certificates`
@@ -152,7 +152,7 @@ store, hostname verified) and status < 500, and the backend accepts TCP connecti
 published loopback port (probed by the helper, because the worker's `127.0.0.1` is not the
 host's). Wildcard domains are probed through `ingress-check.<zone>`.
 
-## Settings reference (`SHIFTCODES_INGRESS_*`)
+## Settings reference (`JENDOCK_INGRESS_*`)
 
 `ENABLED` (worker; default false), `HELPER_SOCKET_PATH`, `PUBLIC_IPV4`, `PUBLIC_IPV6`,
 `ALLOW_WILDCARDS` (API and worker), `CLOUDFLARE_API_BASE`, `ACME_DIRECTORY_URL`, `ACME_EMAIL`,

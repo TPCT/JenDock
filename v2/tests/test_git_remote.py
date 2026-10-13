@@ -7,17 +7,17 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.errors import SourceError
-from shiftcodes.adapters.git_access import GitAccess, unavailable_ssh_access
-from shiftcodes.adapters.git_remote import GitBranchHeads
-from shiftcodes.adapters.sources import (
+from backend.adapters.errors import SourceError
+from backend.adapters.git_access import GitAccess, unavailable_ssh_access
+from backend.adapters.git_remote import GitBranchHeads
+from backend.adapters.sources import (
     MAX_REPOSITORY_FILE_BYTES,
     CheckoutRequest,
     LocalGitSource,
     UnavailableSource,
 )
-from shiftcodes.domain.enums import GitTransport
-from shiftcodes.domain.errors import ValidationError
+from backend.domain.enums import GitTransport
+from backend.domain.errors import ValidationError
 from tests.git_support import commit, git, requires_git
 
 pytestmark = requires_git

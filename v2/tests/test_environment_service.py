@@ -1,9 +1,9 @@
 import pytest
 
-from shiftcodes.domain.errors import NotFoundError, ValidationError
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
-from shiftcodes.services.pipelines import PipelineService
+from backend.domain.errors import NotFoundError, ValidationError
+from backend.repositories.database import UnitOfWork
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.pipelines import PipelineService
 from tests.conftest import DEV, PROD
 
 

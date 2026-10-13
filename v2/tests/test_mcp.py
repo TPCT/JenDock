@@ -16,19 +16,19 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.worker_client import RepositoryFile
-from shiftcodes.api.app import create_app
-from shiftcodes.api.container import AppContainer
-from shiftcodes.api.principal import Principal
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import EnvironmentName, PipelineSource, RunTrigger, TokenScope
-from shiftcodes.mcp.dispatcher import ToolDispatcher, audit_arguments
-from shiftcodes.mcp.registry import Tool, ToolRegistry
-from shiftcodes.mcp.tools import default_registry, deploy
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.runs import RunService
-from shiftcodes.services.secrets import SecretInfo
-from shiftcodes.services.tokens import AuthenticatedToken
+from backend.adapters.worker_client import RepositoryFile
+from backend.api.app import create_app
+from backend.api.container import AppContainer
+from backend.api.principal import Principal
+from backend.domain.actor import Actor
+from backend.domain.enums import EnvironmentName, PipelineSource, RunTrigger, TokenScope
+from backend.mcp.dispatcher import ToolDispatcher, audit_arguments
+from backend.mcp.registry import Tool, ToolRegistry
+from backend.mcp.tools import default_registry, deploy
+from backend.services.audit import AuditService
+from backend.services.runs import RunService
+from backend.services.secrets import SecretInfo
+from backend.services.tokens import AuthenticatedToken
 from tests.api_support import FakeClock, create_user, make_container, make_settings
 from tests.conftest import DEV
 from tests.github_support import SHA_A, SHA_B, FakeGithub
@@ -496,7 +496,7 @@ def test_the_endpoint_needs_a_valid_bearer_token(wired: AppContainer) -> None:
 
     for headers in (
         {},
-        {"Authorization": "Bearer sct_nope"},
+        {"Authorization": "Bearer jdt_nope"},
         {"Authorization": "Basic abc"},
         {"Authorization": "Bearer "},
     ):

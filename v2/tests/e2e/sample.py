@@ -242,7 +242,7 @@ def build_seed_image(stack: Stack) -> str:
     (context / "www" / "index.html").write_text("version seed\n")
     (context / "Dockerfile").write_text(dockerfile("seed"))
     (context / "run.sh").write_text(run_script("seed"))
-    tag = f"sctest-e2e-{stack.id}-seed:v0"
+    tag = f"jdtest-e2e-{stack.id}-seed:v0"
     run(["docker", "build", "--quiet", "--tag", tag, str(context)], timeout=300)
     return tag
 

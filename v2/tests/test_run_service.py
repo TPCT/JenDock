@@ -1,12 +1,12 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from shiftcodes.domain.enums import EnvironmentName, PipelineSource, RunStatus, RunTrigger
-from shiftcodes.domain.errors import NotFoundError, ValidationError
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.repositories.models import Run, StageRun, StepRun
-from shiftcodes.services.environments import EnvironmentService
-from shiftcodes.services.runs import RunService
+from backend.domain.enums import EnvironmentName, PipelineSource, RunStatus, RunTrigger
+from backend.domain.errors import NotFoundError, ValidationError
+from backend.repositories.database import UnitOfWork
+from backend.repositories.models import Run, StageRun, StepRun
+from backend.services.environments import EnvironmentService
+from backend.services.runs import RunService
 from tests.conftest import DEV, PROD
 
 SHA = "a" * 40

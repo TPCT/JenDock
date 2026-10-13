@@ -22,7 +22,7 @@ let scripts: Record<string, string> = {};
 let styles: Record<string, string> = {};
 
 beforeAll(async () => {
-  out = mkdtempSync(join(tmpdir(), "shiftcodes-csp-"));
+  out = mkdtempSync(join(tmpdir(), "jendock-csp-"));
   await build({
     configFile: join(import.meta.dirname, "../../vite.config.ts"),
     logLevel: "silent",

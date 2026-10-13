@@ -1,0 +1,276 @@
+"""Typed client for the worker RPC socket, used by the API.
+
+Opens one short-lived connection per call. All transport failures become
+``WorkerUnavailableError``; worker-reported errors map back to domain errors.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import secrets
+import socket
+import time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Protocol
+
+from pydantic import ValidationError as PydanticValidationError
+
+from backend.adapters.rpc_protocol import (
+    MAX_MESSAGE_BYTES,
+    RpcActor,
+    RpcRequest,
+    RpcResponse,
+    domain_error_for,
+)
+from backend.domain.actor import Actor
+from backend.domain.enums import EnvironmentName
+from backend.domain.errors import ValidationError, WorkerError, WorkerUnavailableError
+from backend.domain.git import BranchHead
+from backend.services.secrets import SecretInfo
+
+DEFAULT_TIMEOUT = 5.0
+# A branch lookup runs git against GitHub in the worker (ssh connect timeout 15 s).
+GIT_TIMEOUT = 45.0
+# Reading a file from a remote repository can take a while (network, large trees).
+REPOSITORY_TIMEOUT = 70.0  # branch lookup (25 s) plus the fetch of the file (30 s)
+_CHUNK = 65536
+
+
+class SecretsGateway(Protocol):
+    """Secret operations the API needs; implemented by ``WorkerClient`` and test fakes."""
+
+    def ping(self) -> None:
+        """Raise if the worker is unreachable."""
+
+    def set_secret(
+        self, slug: str, env: EnvironmentName, name: str, value: str, actor: Actor
+    ) -> SecretInfo:
+        """Create or rotate a secret."""
+
+    def list_secrets(self, slug: str, env: EnvironmentName, actor: Actor) -> Sequence[SecretInfo]:
+        """Return secret metadata."""
+
+    def delete_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> None:
+        """Delete a secret."""
+
+    def reveal_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> str:
+        """Return the plaintext of a secret (audited by the worker)."""
+
+
+class GithubGateway(Protocol):
+    """GitHub operations that only the worker may perform (it holds the keys and runs git)."""
+
+    def verify_webhook(self, signature: str, body: bytes) -> bool:
+        """Whether ``signature`` (``sha256=<hex>``) is the HMAC of ``body`` under the secret."""
+
+    def branch_head(
+        self, slug: str, branch: str, actor: Actor, *, details: bool = False
+    ) -> BranchHead:
+        """The head of ``branch`` of the project's repository (``NotFoundError`` if missing)."""
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryFile:
+    """The ``Jenkinsfile`` of a repository branch as the worker saw it.
+
+    ``reachable`` is false when the repository could not be read at all; ``text`` is ``None``
+    when the branch or the file does not exist.
+    """
+
+    reachable: bool
+    text: str | None
+
+
+class RepositoryGateway(Protocol):
+    """Repository questions the API asks the worker; implemented by ``WorkerClient``."""
+
+    def repository_jenkinsfile(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> RepositoryFile:
+        """The ``Jenkinsfile`` at the head of the environment's branch."""
+
+
+class UnavailableRepositoryGateway:
+    """Default when no worker is wired (tests that do not read repositories)."""
+
+    def repository_jenkinsfile(
+        self,
+        slug: str,  # noqa: ARG002
+        env: EnvironmentName,  # noqa: ARG002
+        actor: Actor,  # noqa: ARG002
+    ) -> RepositoryFile:
+        """Always fails: nobody can read the repository."""
+        raise WorkerUnavailableError("worker is not reachable")
+
+
+class WorkerClient:
+    """Calls the worker over its Unix socket."""
+
+    def __init__(self, socket_path: Path, timeout: float = DEFAULT_TIMEOUT) -> None:
+        self._path = socket_path
+        self._timeout = timeout
+
+    def ping(self) -> None:
+        """Raise ``WorkerUnavailableError`` if the worker does not answer."""
+        self._call("ping", None, {})
+
+    def set_secret(
+        self, slug: str, env: EnvironmentName, name: str, value: str, actor: Actor
+    ) -> SecretInfo:
+        """Create or rotate a secret in the worker."""
+        params = {"slug": slug, "env": env.value, "name": name, "value": value}
+        return _secret_info(self._call("secrets.set", actor, params))
+
+    def list_secrets(self, slug: str, env: EnvironmentName, actor: Actor) -> Sequence[SecretInfo]:
+        """Return secret metadata from the worker."""
+        result = self._call("secrets.list", actor, {"slug": slug, "env": env.value})
+        if not isinstance(result, list):
+            raise WorkerError("worker returned an unexpected response")
+        return [_secret_info(item) for item in result]
+
+    def delete_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> None:
+        """Delete a secret in the worker."""
+        self._call("secrets.delete", actor, {"slug": slug, "env": env.value, "name": name})
+
+    def reveal_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> str:
+        """Return the plaintext of a secret; the worker audits the reveal."""
+        params = {"slug": slug, "env": env.value, "name": name}
+        result = self._call("secrets.reveal", actor, params)
+        value = result.get("value") if isinstance(result, dict) else None
+        if not isinstance(value, str):
+            raise WorkerError("worker returned an unexpected response")
+        return value
+
+    def call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
+        """Call any worker method; ``timeout`` overrides the default for slow operations."""
+        return self._call(method, actor, params, timeout=timeout)
+
+    def verify_webhook(self, signature: str, body: bytes) -> bool:
+        """Ask the worker to check a webhook signature; the secret never leaves the worker."""
+        params = {"signature": signature, "body_b64": base64.b64encode(body).decode("ascii")}
+        result = self._call("github.verify_webhook", None, params)
+        valid = result.get("valid") if isinstance(result, dict) else None
+        if not isinstance(valid, bool):
+            raise WorkerError("worker returned an unexpected response")
+        return valid
+
+    def branch_head(
+        self, slug: str, branch: str, actor: Actor, *, details: bool = False
+    ) -> BranchHead:
+        """Resolve a branch head with ``git ls-remote`` in the worker."""
+        params = {"slug": slug, "branch": branch, "details": details}
+        result = self._call("github.branch_head", actor, params, timeout=GIT_TIMEOUT)
+        return _branch_head(result)
+
+    def repository_jenkinsfile(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> RepositoryFile:
+        """Ask the worker for the ``Jenkinsfile`` at the head of the environment's branch."""
+        params = {"slug": slug, "env": env.value}
+        result = self._call("pipeline.repository_file", actor, params, REPOSITORY_TIMEOUT)
+        if not isinstance(result, dict):
+            raise WorkerError("worker returned an unexpected response")
+        text = result.get("text")
+        reachable = result.get("reachable")
+        if not isinstance(reachable, bool) or not (text is None or isinstance(text, str)):
+            raise WorkerError("worker returned an unexpected response")
+        return RepositoryFile(reachable, text)
+
+    def _call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        timeout: float | None = None,
+    ) -> object:
+        request = RpcRequest(
+            id=secrets.token_hex(8),
+            method=method,
+            actor=RpcActor.from_actor(actor) if actor else None,
+            params=dict(params),
+        )
+        payload = request.model_dump_json().encode() + b"\n"
+        if len(payload) > MAX_MESSAGE_BYTES:
+            raise ValidationError("request too large")
+        response = self._decode(self._exchange(payload, timeout or self._timeout))
+        if response.id != request.id:
+            raise WorkerError("worker answered a different request")
+        if not response.ok or response.error is not None:
+            if response.error is None:
+                raise WorkerError("worker reported a failure")
+            raise domain_error_for(response.error)
+        return response.result
+
+    def _exchange(self, payload: bytes, timeout: float) -> bytes:
+        deadline = time.monotonic() + timeout
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(timeout)
+                connection.connect(str(self._path))
+                connection.sendall(payload)
+                return _read_line(connection, deadline)
+        except (OSError, TimeoutError) as error:
+            raise WorkerUnavailableError("worker is not reachable") from error
+
+    @staticmethod
+    def _decode(line: bytes) -> RpcResponse:
+        try:
+            return RpcResponse.model_validate(json.loads(line))
+        except (ValueError, PydanticValidationError) as error:
+            raise WorkerError("worker returned a malformed response") from error
+
+
+def _read_line(connection: socket.socket, deadline: float) -> bytes:
+    buffer = b""
+    while b"\n" not in buffer:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("worker response timed out")
+        connection.settimeout(remaining)
+        chunk = connection.recv(_CHUNK)
+        if not chunk:
+            raise ConnectionError("worker closed the connection")
+        buffer += chunk
+        if len(buffer) > MAX_MESSAGE_BYTES + 1:
+            raise ConnectionError("worker response too large")
+    return buffer.split(b"\n", 1)[0]
+
+
+def _secret_info(item: object) -> SecretInfo:
+    if not isinstance(item, dict):
+        raise WorkerError("worker returned an unexpected response")
+    try:
+        return SecretInfo(
+            name=str(item["name"]),
+            created_at=datetime.fromisoformat(str(item["created_at"])),
+            updated_at=datetime.fromisoformat(str(item["updated_at"])),
+        )
+    except (KeyError, ValueError) as error:
+        raise WorkerError("worker returned an unexpected response") from error
+
+
+def _branch_head(item: object) -> BranchHead:
+    if not isinstance(item, dict):
+        raise WorkerError("worker returned an unexpected response")
+    try:
+        committed = item.get("committed_at")
+        return BranchHead(
+            branch=str(item["branch"]),
+            commit_sha=str(item["commit_sha"]),
+            message=str(item.get("message", "")),
+            author=str(item.get("author", "")),
+            committed_at=datetime.fromisoformat(committed) if isinstance(committed, str) else None,
+        )
+    except (KeyError, ValueError) as error:
+        raise WorkerError("worker returned an unexpected response") from error

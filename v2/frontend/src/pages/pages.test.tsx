@@ -110,9 +110,7 @@ describe("login", () => {
 
   it("redirects unauthenticated visitors to the login page", async () => {
     renderApp("/runs/101");
-    expect(
-      await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to Jendock" })).toBeInTheDocument();
   });
 });
 
@@ -122,9 +120,7 @@ describe("session expiry", () => {
     await screen.findByRole("heading", { name: "Projects" });
     server.use(http.get("/api/runs", () => apiError(401, "unauthenticated", "expired")));
     await userEvent.setup().click(screen.getByRole("link", { name: "Runs" }));
-    expect(
-      await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to Jendock" })).toBeInTheDocument();
   });
 });
 
@@ -154,9 +150,7 @@ describe("shell", () => {
     await screen.findByRole("heading", { name: "Projects" });
     await user.click(screen.getByRole("button", { name: "User menu" }));
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
-    expect(
-      await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to Jendock" })).toBeInTheDocument();
   });
 
   it("marks the current section in the sidebar", async () => {
@@ -450,13 +444,16 @@ describe("run detail", () => {
 
   it("re-runs the same commit and opens the new run", async () => {
     const user = userEvent.setup();
-    renderApp("/runs/102");
+    const { router } = renderApp("/runs/102");
     await screen.findByRole("heading", { name: /Run #17/ });
     await user.click(screen.getByRole("button", { name: "Re-run" }));
-    expect(await screen.findByRole("heading", { name: /Run #\d+/ })).toBeInTheDocument();
+    // Wait for the navigation itself: the old page's heading also matches /Run #\d+/ and is
+    // removed while the new page loads.
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+      expect(router.state.location.pathname).not.toBe("/runs/102");
     });
+    expect(await screen.findByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Run #18/ })).toBeInTheDocument();
   });
 
   it("reports a re-run the server refuses", async () => {

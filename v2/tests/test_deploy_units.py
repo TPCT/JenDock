@@ -9,31 +9,31 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.compose_deployer import ComposeDeployer, DeployConfig
-from shiftcodes.adapters.compose_project import ComposeProject
-from shiftcodes.adapters.container_state import ContainerInspector
-from shiftcodes.adapters.deploy_health import (
+from backend.adapters.compose_deployer import ComposeDeployer, DeployConfig
+from backend.adapters.compose_project import ComposeProject
+from backend.adapters.container_state import ContainerInspector
+from backend.adapters.deploy_health import (
     HealthPolicy,
     HealthVerifier,
     UnhealthyError,
     wait_for_status,
 )
-from shiftcodes.adapters.deploy_journal import DeployJournal, JournalEntry
-from shiftcodes.adapters.deploy_ledger import ServiceChange
-from shiftcodes.adapters.deployer import DeployRequest, HttpCheck, ServiceImage
-from shiftcodes.adapters.errors import DeployError
-from shiftcodes.adapters.image_retention import (
+from backend.adapters.deploy_journal import DeployJournal, JournalEntry
+from backend.adapters.deploy_ledger import ServiceChange
+from backend.adapters.deployer import DeployRequest, HttpCheck, ServiceImage
+from backend.adapters.errors import DeployError
+from backend.adapters.image_retention import (
     ImageInfo,
     parse_created,
     plan_removals,
     repository_of,
 )
-from shiftcodes.adapters.override_store import OverrideStore
-from shiftcodes.domain.enums import DeploymentStatus
+from backend.adapters.override_store import OverrideStore
+from backend.domain.enums import DeploymentStatus
 from tests.deploy_support import ManualClock, MemoryLedger, NotCancelled, ScriptedDocker
 from tests.execution_support import FakeProbe
 
-LABELS = {"shiftcodes.project": "demo", "shiftcodes.environment": "development"}
+LABELS = {"jendock.project": "demo", "jendock.environment": "development"}
 FILES = ("/srv/demo/compose.yml",)
 POLICY = HealthPolicy(timeout=6.0, settle=1.0, interval=0.5)
 
@@ -344,7 +344,7 @@ def test_retention_keeps_newest_protected_running_and_foreign_images(tmp_path: P
     foreign = docker.add_image("nginx:latest")
     other_env = docker.add_image(
         "sc/demo-production-web:old-r1",
-        {"shiftcodes.project": "demo", "shiftcodes.environment": "production"},
+        {"jendock.project": "demo", "jendock.environment": "production"},
         created="2026-10-01T00:00:00Z",
     )
     sim.deploy(sim.request(("web", f"{repo}:s5-r5")))

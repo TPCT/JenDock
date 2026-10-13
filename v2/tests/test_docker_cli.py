@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.container_runtime import BuildSpec, Mount, RunSpec
-from shiftcodes.adapters.docker_cli import DockerCliRuntime
-from shiftcodes.adapters.errors import ContainerRuntimeError
+from backend.adapters.container_runtime import BuildSpec, Mount, RunSpec
+from backend.adapters.docker_cli import DockerCliRuntime
+from backend.adapters.errors import ContainerRuntimeError
 from tests.docker_support import session_labels
 
 FAKE = Path(__file__).parent / "fake_docker.py"
@@ -75,7 +75,7 @@ def test_run_builds_the_expected_argv_and_streams_lines(fake: Fixture, tmp_path:
         workdir="/workspace/app",
         mounts=(Mount(tmp_path / "ws", "/workspace"),),
         network="proj_default",
-        labels={"shiftcodes.run_id": "7", "shiftcodes.step_id": "9"},
+        labels={"jendock.run_id": "7", "jendock.step_id": "9"},
         cpus=1.5,
         memory="512m",
         user="1000:1000",
@@ -92,8 +92,8 @@ def test_run_builds_the_expected_argv_and_streams_lines(fake: Fixture, tmp_path:
         "echo hi",
     ]
     pairs = list(itertools.pairwise(args))
-    assert ("--label", "shiftcodes.run_id=7") in pairs
-    assert ("--label", "shiftcodes.test=1") in pairs  # extra labels on every container
+    assert ("--label", "jendock.run_id=7") in pairs
+    assert ("--label", "jendock.test=1") in pairs  # extra labels on every container
     assert ("--workdir", "/workspace/app") in pairs
     assert ("--volume", f"{tmp_path / 'ws'}:/workspace") in pairs
     assert ("--network", "proj_default") in pairs
@@ -163,14 +163,14 @@ def test_cancel_signal_kills_the_container(fake: Fixture) -> None:
 
 def test_kill_by_label_lists_then_kills(fake: Fixture) -> None:
     fake.behave(ps=["aaa", "bbb"])
-    assert fake.runtime.kill_by_label("shiftcodes.run_id=5") == 2
+    assert fake.runtime.kill_by_label("jendock.run_id=5") == 2
     ps_args = fake.calls("ps")[0]["args"]
-    assert "label=shiftcodes.run_id=5" in ps_args  # type: ignore[operator]
+    assert "label=jendock.run_id=5" in ps_args  # type: ignore[operator]
     assert (fake.state / "killed").read_text() == "aaa bbb"
 
 
 def test_kill_by_label_without_matches_does_not_call_kill(fake: Fixture) -> None:
-    assert fake.runtime.kill_by_label("shiftcodes.run_id=5") == 0
+    assert fake.runtime.kill_by_label("jendock.run_id=5") == 0
     assert fake.calls("kill") == []
 
 
@@ -181,7 +181,7 @@ def test_build_passes_argument_values_by_environment_only(fake: Fixture, tmp_pat
         tag="sc/x:1",
         target="prod",
         build_args={"MODE": "fast", "SECRET_ARG": SECRET},
-        labels={"shiftcodes.run_id": "1"},
+        labels={"jendock.run_id": "1"},
         memory="1g",
     )
     lines: list[str] = []
@@ -195,7 +195,7 @@ def test_build_passes_argument_values_by_environment_only(fake: Fixture, tmp_pat
     assert ("--build-arg", "SECRET_ARG") in pairs
     assert ("--target", "prod") in pairs
     assert ("--memory", "1g") in pairs
-    assert ("--label", "shiftcodes.test=1") in pairs
+    assert ("--label", "jendock.test=1") in pairs
     assert args[-2:] == ["--", str(tmp_path)]
     assert record["env"]["SECRET_ARG"] == SECRET  # type: ignore[index]
     assert lines == ["Step 1/1 : FROM scratch"]

@@ -10,7 +10,7 @@ from tests.e2e.stack import Stack
 
 pytestmark = pytest.mark.e2e
 DUMP_AUDIT = (
-    "import sqlite3; c = sqlite3.connect('file:/var/lib/shiftcodes/shiftcodes.db?mode=ro', "
+    "import sqlite3; c = sqlite3.connect('file:/var/lib/jendock/jendock.db?mode=ro', "
     "uri=True); print(chr(10).join(str(r) for r in c.execute("
     "'SELECT action, actor_type, target_type, target_id, details FROM audit_events')))"
 )

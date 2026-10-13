@@ -7,14 +7,14 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.worker_client import WorkerClient
-from shiftcodes.api.container import AppContainer
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretInfo
+from backend.adapters.worker_client import WorkerClient
+from backend.api.container import AppContainer
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.repositories.database import UnitOfWork
+from backend.services.audit import AuditService
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretInfo
 from tests.api_support import (
     FakeClock,
     create_user,

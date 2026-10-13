@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.errors import SourceError
-from shiftcodes.adapters.git_access import (
+from backend.adapters.errors import SourceError
+from backend.adapters.git_access import (
     SshSettings,
     https_access,
     ssh_access,
@@ -23,10 +23,10 @@ from shiftcodes.adapters.git_access import (
     ssh_url,
     unavailable_ssh_access,
 )
-from shiftcodes.adapters.git_sources import GitSshSource, TransportRoutingSource
-from shiftcodes.adapters.sources import CheckoutRequest, SourceProvider
-from shiftcodes.domain.enums import GitTransport
-from shiftcodes.domain.errors import ValidationError
+from backend.adapters.git_sources import GitSshSource, TransportRoutingSource
+from backend.adapters.sources import CheckoutRequest, SourceProvider
+from backend.domain.enums import GitTransport
+from backend.domain.errors import ValidationError
 
 KNOWN_HOSTS = Path(__file__).resolve().parent.parent / "docker" / "github_known_hosts"
 # GitHub's published fingerprint of its ed25519 host key.
@@ -155,7 +155,7 @@ def test_the_access_environment_carries_the_command(tmp_path: Path) -> None:
 
 
 def test_without_a_deploy_key_ssh_explains_itself() -> None:
-    with pytest.raises(SourceError, match="SHIFTCODES_GIT_SSH_KEY_FILE"):
+    with pytest.raises(SourceError, match="JENDOCK_GIT_SSH_KEY_FILE"):
         unavailable_ssh_access().check()
 
 

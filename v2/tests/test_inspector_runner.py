@@ -9,21 +9,21 @@ from collections.abc import Callable
 
 import pytest
 
-from shiftcodes.adapters.container_runtime import ExecResult, LineSink, RunSpec
-from shiftcodes.adapters.docker_args import run_argv
-from shiftcodes.adapters.errors import ContainerRuntimeError
-from shiftcodes.adapters.inspector_runner import HelperRequest, InspectorRunner
-from shiftcodes.domain.errors import ConfigurationError, ConflictError
-from shiftcodes.inspector import wire
-from shiftcodes.inspector.helper import REQUEST_ENV, handle, parse_request
-from shiftcodes.inspector.model import (
+from backend.adapters.container_runtime import ExecResult, LineSink, RunSpec
+from backend.adapters.docker_args import run_argv
+from backend.adapters.errors import ContainerRuntimeError
+from backend.adapters.inspector_runner import HelperRequest, InspectorRunner
+from backend.domain.errors import ConfigurationError, ConflictError
+from backend.inspector import wire
+from backend.inspector.helper import REQUEST_ENV, handle, parse_request
+from backend.inspector.model import (
     ConnectionSpec,
     Engine,
     ErrorCode,
     InspectorError,
     TlsMode,
 )
-from shiftcodes.inspector.netguard import NetworkPolicy, resolve_address
+from backend.inspector.netguard import NetworkPolicy, resolve_address
 
 PASSWORD = "p@ss'w\"ord;$(x)\n-end"
 SPEC = ConnectionSpec(Engine.POSTGRESQL, "db", 5432, "app", "reader", PASSWORD, TlsMode.REQUIRE)
@@ -84,8 +84,8 @@ def test_helper_container_is_hardened_and_attached_to_the_environment_network_on
     assert spec.hardened is True
     assert spec.user == "65534:65534"
     assert spec.memory and spec.cpus
-    assert spec.labels == {"shiftcodes.inspector": "1"}
-    assert spec.command == ("python", "-m", "shiftcodes.inspector.helper")
+    assert spec.labels == {"backend.inspector": "1"}
+    assert spec.command == ("python", "-m", "backend.inspector.helper")
     assert runtime.timeouts == [30.0]
     assert runtime.queries == [
         ["network", "inspect", "--format", "{{json .IPAM.Config}}", "demo-dev_default"]
@@ -115,7 +115,7 @@ def test_each_run_gets_a_fresh_container_name() -> None:
     runner.run("net", _request())
     runner.run("net", _request())
     assert runtime.specs[0].name != runtime.specs[1].name
-    assert runtime.specs[0].name.startswith("shiftcodes-inspect-")
+    assert runtime.specs[0].name.startswith("jendock-inspect-")
 
 
 def test_missing_image_is_a_configuration_error_with_the_build_hint() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from shiftcodes.execution.logs import TRUNCATION_MARKER, LogStore, RunRedactor
+from backend.execution.logs import TRUNCATION_MARKER, LogStore, RunRedactor
 
 
 def _store(tmp_path: Path) -> LogStore:

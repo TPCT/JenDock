@@ -15,9 +15,9 @@ RUN python -m venv /opt/venv \
 FROM python:3.13.9-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app PATH=/opt/venv/bin:$PATH
 COPY --from=builder /opt/venv /opt/venv
-COPY shiftcodes/__init__.py /app/shiftcodes/__init__.py
-COPY shiftcodes/inspector /app/shiftcodes/inspector
+COPY backend/__init__.py /app/backend/__init__.py
+COPY backend/inspector /app/backend/inspector
 # The worker also passes --user 65534 --read-only --cap-drop ALL; the user is set here as well.
 USER 65534:65534
 WORKDIR /app
-CMD ["python", "-m", "shiftcodes.inspector.helper"]
+CMD ["python", "-m", "backend.inspector.helper"]

@@ -1,6 +1,6 @@
 /**
  * Mock of the containers, telemetry and terminal-ticket endpoints. Shapes and rules follow the
- * "Containers" and "Terminal" sections of docs/api-contract.md and shiftcodes/api/routers.
+ * "Containers" and "Terminal" sections of docs/api-contract.md and jendock/api/routers.
  */
 import { http, HttpResponse, type HttpHandler } from "msw";
 import type {

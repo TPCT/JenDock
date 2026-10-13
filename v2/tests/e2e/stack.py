@@ -1,6 +1,6 @@
 """The real stack of ``compose.yml`` for the end-to-end test.
 
-Everything is created for one test session: a unique compose project (``sctest-e2e-<id>``),
+Everything is created for one test session: a unique compose project (``jdtest-e2e-<id>``),
 temporary host directories for the workspaces, the sample projects, the git repositories and
 the backups, and a docker network the sample project shares with the worker. Every container,
 image, volume and network carries the session labels of ``tests.docker_support`` so teardown
@@ -91,12 +91,12 @@ class Stack:
 
     @property
     def project(self) -> str:
-        return f"sctest-e2e-{self.id}"
+        return f"jdtest-e2e-{self.id}"
 
     @property
     def app_project(self) -> str:
         """The compose project of the deployed sample application."""
-        return f"sctest-e2e-{self.id}-app"
+        return f"jdtest-e2e-{self.id}-app"
 
     @property
     def apps_dir(self) -> Path:
@@ -142,8 +142,8 @@ class Stack:
     ports: !override
       - "127.0.0.1:{self.api_port}:8000"
     environment:
-      SHIFTCODES_PUBLIC_ORIGIN: "{PUBLIC_ORIGIN}"
-      SHIFTCODES_MCP_ALLOWED_HOSTS: "127.0.0.1:{self.api_port}"
+      JENDOCK_PUBLIC_ORIGIN: "{PUBLIC_ORIGIN}"
+      JENDOCK_MCP_ALLOWED_HOSTS: "127.0.0.1:{self.api_port}"
     labels:
 {env_labels}
     build:
@@ -151,12 +151,12 @@ class Stack:
 {labels}
   worker:
     environment:
-      SHIFTCODES_PUBLIC_ORIGIN: "{PUBLIC_ORIGIN}"
-      SHIFTCODES_GIT_URL_TEMPLATE: "file:///repos/{{repository}}.git"
-      SHIFTCODES_DEPLOY_SETTLE_SECONDS: "1"
-      SHIFTCODES_DEPLOY_HEALTH_TIMEOUT: "90"
-      SHIFTCODES_INSPECTOR_IMAGE: "{self.project}-inspector:latest"
-      SHIFTCODES_STEP_TIMEOUT_SECONDS: "300"
+      JENDOCK_PUBLIC_ORIGIN: "{PUBLIC_ORIGIN}"
+      JENDOCK_GIT_URL_TEMPLATE: "file:///repos/{{repository}}.git"
+      JENDOCK_DEPLOY_SETTLE_SECONDS: "1"
+      JENDOCK_DEPLOY_HEALTH_TIMEOUT: "90"
+      JENDOCK_INSPECTOR_IMAGE: "{self.project}-inspector:latest"
+      JENDOCK_STEP_TIMEOUT_SECONDS: "300"
     volumes:
       - "{self.repos}:/repos:ro"
       - "{self.backups}:/backups"
@@ -289,7 +289,7 @@ networks:
         self.timed(
             "migrate",
             lambda: self.compose(
-                "run", "--rm", "api", "python", "-m", "shiftcodes.repositories.migrate"
+                "run", "--rm", "api", "python", "-m", "backend.repositories.migrate"
             ),
         )
         self.timed("up", lambda: self.compose("up", "-d"))
@@ -300,7 +300,7 @@ networks:
             "api",
             "python",
             "-m",
-            "shiftcodes.cli",
+            "backend.cli",
             "users",
             "create",
             ADMIN_USER,
@@ -310,7 +310,7 @@ networks:
         self.exec_worker(
             "sh",
             "-c",
-            "umask 077; cat > /run/shiftcodes-keys/github_webhook_secret",
+            "umask 077; cat > /run/jendock-keys/github_webhook_secret",
             input_text=self.webhook_secret,
         )
 

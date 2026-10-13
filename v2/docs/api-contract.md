@@ -1,6 +1,6 @@
 # API contract used by the web UI
 
-Status per endpoint: **exists** (shape copied from the code under `shiftcodes/api`) or
+Status per endpoint: **exists** (shape copied from the code under `backend/api`) or
 **proposed** (the frontend is built and mocked against this shape; the backend should match it).
 The frontend types live in `frontend/src/api/types.ts`; the MSW mock in
 `frontend/src/mocks/` implements everything below and is the executable form of this document.
@@ -8,9 +8,9 @@ The frontend types live in `frontend/src/api/types.ts`; the MSW mock in
 ## Conventions (exists)
 
 - JSON everywhere, UTC ISO-8601 timestamps, same-origin (`/api/...`), session cookie
-  (`__Host-session` over https, `shiftcodes_session` over http), sent with `credentials: include`.
+  (`__Host-session` over https, `jendock_session` over http), sent with `credentials: include`.
 - Unsafe methods (POST/PUT/PATCH/DELETE) need `X-CSRF-Token: <session.csrf_token>` and an
-  `Origin` exactly equal to `SHIFTCODES_PUBLIC_ORIGIN`. The browser sets `Origin` itself.
+  `Origin` exactly equal to `JENDOCK_PUBLIC_ORIGIN`. The browser sets `Origin` itself.
 - Errors: `{"error": {"code", "message", "diagnostics"?, "fields"?}}`.
   - `diagnostics`: `[{severity: "error"|"warning", message, line, column}]` (pipeline validation, 422).
   - `fields`: `[{loc: string[], msg: string}]` on request-validation 422 (`loc` is e.g. `["body", "username"]`).
@@ -388,7 +388,7 @@ ArgDef {
 
 ### The model (JSON form of the AST)
 
-Names mirror `shiftcodes/pipeline/ast.py`; spans are dropped. Optional things are `null`,
+Names mirror `backend/pipeline/ast.py`; spans are dropped. Optional things are `null`,
 lists are never omitted.
 
 ```
@@ -606,7 +606,7 @@ Operations on one environment are serialized with deployments; if the environmen
 for more than 30 s the call answers 409 `conflict`.
 
 `ContainerView`: `{id, name, service, image (tag), image_id (sha256:...), revision (OCI revision
-label | null), commit (shiftcodes.commit label | null), state (created|running|paused|restarting|
+label | null), commit (jendock.commit label | null), state (created|running|paused|restarting|
 exited|removing|dead), health (starting|healthy|unhealthy | null), restart_count, started_at |
 null, exit_code | null, cpus | null, memory_bytes | null, ports: [{container_port, host_ip,
 host_port}], mounts: [{type, source, destination, read_only}]}`. No env values.
@@ -638,7 +638,7 @@ host_port}], mounts: [{type, source, destination, read_only}]}`. No env values.
   The override file is also applied by every later deployment; the deployer's image override
   stays the last compose file, so env edits never revert a deployed image.
 - `PUT "/{id}/limits"` body `{cpus?, memory?}` (`1.5`, `"512m"`; at least one; capped by
-  `SHIFTCODES_MANAGED_MAX_CPUS` / `SHIFTCODES_MANAGED_MAX_MEMORY`, 422 above) -> `ContainerView`.
+  `JENDOCK_MANAGED_MAX_CPUS` / `JENDOCK_MANAGED_MAX_MEMORY`, 422 above) -> `ContainerView`.
   Applied live with `docker update` and persisted in the override file so recreates keep them.
 - `GET "/{id}/files?path=/app"` -> `{path, entries: [{name, kind: directory|file}], truncated}`
   (running container with `ls`; max 500 entries; credential-like names hidden).
@@ -696,7 +696,7 @@ mutation needs scope `admin` (plus CSRF for sessions) and is audited. Design and
 New error code: `upstream_error` 502 (Cloudflare, the Apache host helper or the ACME CA refused
 or failed; unlike `worker_error` the `message` is meant to be shown, e.g. `Cloudflare rejected
 the API token (check its scope)` or `configtest failed, change reverted: <apache output>`).
-`conflict` 409 is also returned when a DNS record that Shiftcodes did not create is in the way,
+`conflict` 409 is also returned when a DNS record that Jendock did not create is in the way,
 and when an apply/remove `plan_hash` is stale.
 
 ```json
@@ -776,7 +776,7 @@ Plan {
 Record { "record_type", "name", "content", "proxied" }
 ```
 
-`blocked: true` (`dns.action: "conflict"`) means a record not created by Shiftcodes exists at
+`blocked: true` (`dns.action: "conflict"`) means a record not created by Jendock exists at
 that name; apply is refused and nothing is touched. Cloudflare errors (no token secret, token
 rejected, no zone) come back as 404 (missing `CLOUDFLARE_API_TOKEN` secret of the environment),
 500 `configuration_error` (no server address configured) or 502 `upstream_error`.
@@ -795,7 +795,7 @@ about 5 minutes.
 ### `POST .../domains/{id}/remove`
 
 Scope `admin`. Body `{plan_hash}` from a `preview` with `operation: "remove"`. Removes the
-vhost, certificate files/row and only the DNS records Shiftcodes created; the domain returns
+vhost, certificate files/row and only the DNS records Jendock created; the domain returns
 to `draft`. 200 the applied `Plan`.
 
 ### `POST .../domains/{id}/check`
@@ -818,7 +818,7 @@ Scope `read`. Expiry monitoring: 200 `[{domain_id, hostname} + Certificate]`, so
 
 ## Serving the UI (status: exists)
 
-When `SHIFTCODES_FRONTEND_DIST` points to a Vite `dist` directory (the API image sets it) the API
+When `JENDOCK_FRONTEND_DIST` points to a Vite `dist` directory (the API image sets it) the API
 serves it: static files at `/`, any other `GET` that is not below `/api` or `/healthz` and does not
 look like a missing file (`.js`, `.css`, `.png`...) answers `index.html` (client-side routes).
 Unknown `/api/*` paths, missing `/assets/*` files and missing files with a file suffix keep the JSON

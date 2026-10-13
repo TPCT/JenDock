@@ -14,16 +14,16 @@ from tests.e2e.scenario import ENV, SLUG, Scenario
 from tests.e2e.stack import ADMIN_USER, PUBLIC_ORIGIN, UID, Stack, free_port, run
 
 pytestmark = pytest.mark.e2e
-DATA = "/var/lib/shiftcodes"
+DATA = "/var/lib/jendock"
 
 
 def _env(stack: Stack) -> list[str]:
     values = {
-        "SHIFTCODES_ENVIRONMENT": "production",
-        "SHIFTCODES_DATA_DIR": DATA,
-        "SHIFTCODES_PUBLIC_ORIGIN": PUBLIC_ORIGIN,
-        "SHIFTCODES_SECRET_KEY_FILE": f"{DATA}/secret.key",
-        "SHIFTCODES_WORKER_SOCKET_PATH": "/run/shiftcodes/worker.sock",
+        "JENDOCK_ENVIRONMENT": "production",
+        "JENDOCK_DATA_DIR": DATA,
+        "JENDOCK_PUBLIC_ORIGIN": PUBLIC_ORIGIN,
+        "JENDOCK_SECRET_KEY_FILE": f"{DATA}/secret.key",
+        "JENDOCK_WORKER_SOCKET_PATH": "/run/jendock/worker.sock",
     }
     return [a for key, value in values.items() for a in ("-e", f"{key}={value}")]
 
@@ -32,9 +32,9 @@ def test_17_backup_restore_and_an_api_on_the_restored_data(
     stack: Stack, api: Api, scenario: Scenario
 ) -> None:
     created = stack.exec_worker(
-        "python", "-m", "shiftcodes.cli", "backup", "create", "--to", "/backups", "--include-logs"
+        "python", "-m", "backend.cli", "backup", "create", "--to", "/backups", "--include-logs"
     )
-    assert "backup written: /backups/shiftcodes-backup-" in created.stdout
+    assert "backup written: /backups/jendock-backup-" in created.stdout
     archives = sorted(p.name for p in stack.backups.iterdir())
     assert len(archives) == 1
     assert archives[0].endswith(".tar.gz")
@@ -60,7 +60,7 @@ def test_17_backup_restore_and_an_api_on_the_restored_data(
         stack.worker_image,
         "python",
         "-m",
-        "shiftcodes.cli",
+        "backend.cli",
         "backup",
         "restore",
         "--from",
@@ -75,7 +75,7 @@ def test_17_backup_restore_and_an_api_on_the_restored_data(
             stack.worker_image,
             "python",
             "-m",
-            "shiftcodes.repositories.migrate",
+            "backend.repositories.migrate",
         ]
     )
     # a restore into a data directory that now has content is refused
@@ -97,7 +97,7 @@ def test_17_backup_restore_and_an_api_on_the_restored_data(
             f"127.0.0.1:{port}:8000",
             *_env(stack),
             "-e",
-            f"SHIFTCODES_MCP_ALLOWED_HOSTS=127.0.0.1:{port}",
+            f"JENDOCK_MCP_ALLOWED_HOSTS=127.0.0.1:{port}",
             stack.api_image,
         ]
     )

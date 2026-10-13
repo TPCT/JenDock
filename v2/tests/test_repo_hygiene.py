@@ -41,3 +41,24 @@ def test_no_conflict_markers_in_the_tree() -> None:
             if line.startswith(MARKERS)
         ]
     assert offenders == []
+
+
+# The product is called Jendock; its former working name must not reappear anywhere (built from
+# parts so that this file does not contain it either).
+FORMER_NAME = "shift" + "codes"
+
+
+def test_the_former_product_name_appears_nowhere() -> None:
+    offenders = []
+    for path in _text_files():
+        relative = path.relative_to(ROOT)
+        if FORMER_NAME in str(relative).lower():
+            offenders.append(f"{relative} (path)")
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if FORMER_NAME in text.lower():
+            offenders.append(str(relative))
+    assert offenders == []

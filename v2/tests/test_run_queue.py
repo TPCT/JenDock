@@ -10,15 +10,15 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import RunStatus
-from shiftcodes.domain.errors import ConflictError, NotFoundError
-from shiftcodes.execution.config import ExecutionConfig
-from shiftcodes.execution.recovery import recover_interrupted_runs
-from shiftcodes.execution.scheduler import RunScheduler
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.run_lifecycle import CancelOutcome
-from shiftcodes.services.secret_cipher import SecretCipher
+from backend.domain.actor import Actor
+from backend.domain.enums import RunStatus
+from backend.domain.errors import ConflictError, NotFoundError
+from backend.execution.config import ExecutionConfig
+from backend.execution.recovery import recover_interrupted_runs
+from backend.execution.scheduler import RunScheduler
+from backend.services.audit import AuditService
+from backend.services.run_lifecycle import CancelOutcome
+from backend.services.secret_cipher import SecretCipher
 from tests.execution_support import Harness, make_harness
 from tests.test_pipeline_runner import pipeline, stage
 
@@ -187,7 +187,7 @@ def test_recovery_interrupts_running_runs_kills_containers_and_removes_workspace
         assert restored.status is RunStatus.INTERRUPTED
         assert restored.finished_at is not None
     assert _status(harness, queued.id) is RunStatus.QUEUED
-    assert f"shiftcodes.run_id={crashed.id}" in harness.runtime.kills
+    assert f"jendock.run_id={crashed.id}" in harness.runtime.kills
     assert not leftover.exists()
     assert not orphan.exists()
 

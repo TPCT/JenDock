@@ -11,31 +11,31 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.compose_overrides import (
+from backend.adapters.compose_overrides import (
     FILE_NAME,
     ComposeOverrideStore,
     OverrideFileError,
     OverrideSet,
     ServiceOverride,
 )
-from shiftcodes.adapters.container_admin import parse_tar_member
-from shiftcodes.adapters.docker_inspect import parse_container, parse_docker_time, parse_env
-from shiftcodes.adapters.docker_stats import parse_percent, parse_size, parse_stats
-from shiftcodes.adapters.errors import ContainerRuntimeError
-from shiftcodes.api.terminal_tickets import PrincipalKind, TicketGrant, TicketStore
-from shiftcodes.containers.confirmations import ConfirmationStore
-from shiftcodes.containers.masking import LogMasker
-from shiftcodes.containers.telemetry import (
+from backend.adapters.container_admin import parse_tar_member
+from backend.adapters.docker_inspect import parse_container, parse_docker_time, parse_env
+from backend.adapters.docker_stats import parse_percent, parse_size, parse_stats
+from backend.adapters.errors import ContainerRuntimeError
+from backend.api.terminal_tickets import PrincipalKind, TicketGrant, TicketStore
+from backend.containers.confirmations import ConfirmationStore
+from backend.containers.masking import LogMasker
+from backend.containers.telemetry import (
     HostSampler,
     RingBuffer,
     parse_cpu_times,
     parse_meminfo,
 )
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.containers import EnvironmentKey, validate_container_path
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.domain.errors import RateLimitedError, ValidationError
-from shiftcodes.terminal.protocol import (
+from backend.domain.actor import Actor
+from backend.domain.containers import EnvironmentKey, validate_container_path
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.domain.errors import RateLimitedError, ValidationError
+from backend.terminal.protocol import (
     MAX_DATA_BYTES,
     Frame,
     FrameDecoder,
@@ -61,7 +61,7 @@ def test_parse_container_reads_labels_and_state() -> None:
     record = make_record(
         labels={
             "org.opencontainers.image.revision": "abc123",
-            "shiftcodes.commit": "def456",
+            "jendock.commit": "def456",
         },
         health="healthy",
         restart_count=3,

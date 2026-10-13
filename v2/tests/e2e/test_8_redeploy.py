@@ -35,7 +35,7 @@ def test_18_redeploy_the_first_version_without_rebuilding(
 def test_19_the_worker_leaves_no_workspaces_behind(
     stack: Stack, api: Api, scenario: Scenario
 ) -> None:
-    listing = stack.exec_worker("ls", "-A", "/var/lib/shiftcodes/workspaces").stdout
+    listing = stack.exec_worker("ls", "-A", "/var/lib/jendock/workspaces").stdout
     assert listing.strip() == ""
     runs = api.get(f"{ENV}/runs?limit=50")
     assert runs["total"] == 4

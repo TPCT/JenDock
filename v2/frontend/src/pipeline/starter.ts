@@ -16,7 +16,7 @@ export const STARTER_MODEL: Model = {
       post: null,
       body: {
         type: "steps",
-        steps: [{ name: "echo", args: { message: "Hello from Shiftcodes" } }],
+        steps: [{ name: "echo", args: { message: "Hello from Jendock" } }],
       },
     },
   ],

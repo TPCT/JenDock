@@ -2,7 +2,7 @@
 
 Run with ``make test-docker``. Needs the images ``ghcr.io/letsencrypt/pebble`` and
 ``pebble-challtestsrv`` locally (pinned by digest below; nothing is pulled). A throw-away
-Docker network and two containers are created, all labelled ``shiftcodes.test=1`` plus a label
+Docker network and two containers are created, all labelled ``jendock.test=1`` plus a label
 unique to this module, and removed afterwards. Pebble validates DNS-01 against the challenge
 test server's DNS and HTTP-01 against its HTTP server, so both solver *protocols* are
 exercised for real; the Cloudflare and helper side of the solvers is covered by unit tests.
@@ -26,11 +26,11 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from shiftcodes.adapters.acme.client import AcmeClient, AcmeConfig, AcmeError
-from shiftcodes.adapters.acme.issuer import AcmeIssuer
-from shiftcodes.adapters.acme.jws import AccountKey
-from shiftcodes.adapters.acme.solvers import dns01_value
-from shiftcodes.hosthelper.certs import validate_material
+from backend.adapters.acme.client import AcmeClient, AcmeConfig, AcmeError
+from backend.adapters.acme.issuer import AcmeIssuer
+from backend.adapters.acme.jws import AccountKey
+from backend.adapters.acme.solvers import dns01_value
+from backend.hosthelper.certs import validate_material
 from tests.docker_support import TEST_LABEL, docker_available
 
 PEBBLE = (
@@ -41,7 +41,7 @@ CHALLTESTSRV = (
     "ghcr.io/letsencrypt/pebble-challtestsrv"
     "@sha256:1994a326ec60e0de5e8051aa192269c1aaeff0969a4b703d11fa51370f3dc1a8"
 )
-OWN = f"shiftcodes.test.owner=pebble-{uuid.uuid4().hex[:12]}"
+OWN = f"jendock.test.owner=pebble-{uuid.uuid4().hex[:12]}"
 DOCKER = shutil.which("docker") or "docker"
 
 
@@ -111,7 +111,7 @@ def _wait_until(check, what: str, timeout: float = 60) -> None:  # type: ignore[
 
 
 # Function scope on purpose: other docker tests remove every container labelled
-# shiftcodes.test=1 in their teardown, which would kill a module-wide Pebble.
+# jendock.test=1 in their teardown, which would kill a module-wide Pebble.
 @pytest.fixture
 def pebble(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PebbleEnv]:
     suffix = uuid.uuid4().hex[:8]

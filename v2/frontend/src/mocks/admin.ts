@@ -1,7 +1,7 @@
 /**
  * Mock of the project-administration endpoints: templates, project create/update, secrets,
  * API tokens and domains. Shapes follow docs/api-contract.md and the routers in
- * shiftcodes/api/routers exactly; the rules (409/422 cases) are the ones the server enforces.
+ * jendock/api/routers exactly; the rules (409/422 cases) are the ones the server enforces.
  */
 import { http, HttpResponse, type HttpHandler } from "msw";
 import type {
@@ -363,7 +363,7 @@ function planFor(domain: DomainDetail, operation: PlanOperation): Plan {
       desired: applying ? desired : null,
       removes: [],
       message: conflict
-        ? "A DNS record for this name already exists and was not created by Shiftcodes."
+        ? "A DNS record for this name already exists and was not created by Jendock."
         : "",
     },
     vhost: {
@@ -386,7 +386,7 @@ function planFor(domain: DomainDetail, operation: PlanOperation): Plan {
       : [
           "Apache: remove vhost, then reload",
           "TLS: remove certificate",
-          "DNS: delete the record Shiftcodes created",
+          "DNS: delete the record Jendock created",
         ],
     plan_hash: hashOf(domain, operation),
   };
@@ -654,11 +654,7 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
         const body = (await request.json()) as { plan_hash: string };
         const plan = planFor(domain, "apply");
         if (plan.blocked)
-          return error(
-            409,
-            "conflict",
-            "a DNS record that Shiftcodes did not create is in the way",
-          );
+          return error(409, "conflict", "a DNS record that Jendock did not create is in the way");
         if (plan.plan_hash !== body.plan_hash)
           return error(409, "conflict", "the plan changed since the preview");
         if (domain.hostname.startsWith("fail")) {

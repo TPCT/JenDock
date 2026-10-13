@@ -16,24 +16,24 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes import cli
-from shiftcodes.config import get_settings
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import EnvironmentName, GitTransport
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.importer.apply import ImportServices, apply_plan
-from shiftcodes.importer.cli import add_arguments, run_import
-from shiftcodes.importer.compose_images import resolve_service_images
-from shiftcodes.importer.plan import ENVIRONMENT_FIELDS, ImportPlan, build_plan
-from shiftcodes.importer.recipe_pipeline import build_pipeline
-from shiftcodes.importer.v1_model import V1Check, load_projects, load_registry
-from shiftcodes.pipeline import parse, serialize
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.environments import EnvironmentService
-from shiftcodes.services.jenkinsfile_validator import JenkinsfileValidator
-from shiftcodes.services.pipelines import PipelineService
-from shiftcodes.services.projects import ProjectService
+from backend import cli
+from backend.config import get_settings
+from backend.domain.actor import Actor
+from backend.domain.enums import EnvironmentName, GitTransport
+from backend.domain.errors import ValidationError
+from backend.importer.apply import ImportServices, apply_plan
+from backend.importer.cli import add_arguments, run_import
+from backend.importer.compose_images import resolve_service_images
+from backend.importer.plan import ENVIRONMENT_FIELDS, ImportPlan, build_plan
+from backend.importer.recipe_pipeline import build_pipeline
+from backend.importer.v1_model import V1Check, load_projects, load_registry
+from backend.pipeline import parse, serialize
+from backend.repositories.database import UnitOfWork
+from backend.services.audit import AuditService
+from backend.services.environments import EnvironmentService
+from backend.services.jenkinsfile_validator import JenkinsfileValidator
+from backend.services.pipelines import PipelineService
+from backend.services.projects import ProjectService
 from tests.conftest import DEV, PROD
 from tests.ingress_support import FIXTURES
 
@@ -438,7 +438,7 @@ def test_a_second_run_changes_nothing_and_a_third_with_edits_only_reports(
         "etsawaa",
         PROD,
         __import__(
-            "shiftcodes.services.environments", fromlist=["EnvironmentUpdate"]
+            "backend.services.environments", fromlist=["EnvironmentUpdate"]
         ).EnvironmentUpdate(branch="release"),
     )
     [third] = apply_plan(plan, services, ACTOR)
@@ -454,7 +454,7 @@ def test_blank_compose_settings_of_an_existing_environment_are_filled(
     services: ImportServices, uow: UnitOfWork
 ) -> None:
     ProjectService(uow).create(
-        "captcha", "Captcha", "TPCT/captcha.shiftcodes.net", "development", "main"
+        "captcha", "Captcha", "TPCT/captcha.example.com", "development", "main"
     )
     [outcome] = apply_plan(small_plan({"captcha"}), services, ACTOR)
     assert not outcome.created
@@ -520,9 +520,9 @@ def test_bad_input_fails_with_exit_code_1(
 def test_main_dry_run_does_not_create_a_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    db = tmp_path / "data" / "shiftcodes.db"
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", f"sqlite:///{db}")
-    monkeypatch.setenv("SHIFTCODES_SECRET_KEY_FILE", str(tmp_path / "k"))
+    db = tmp_path / "data" / "jendock.db"
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", f"sqlite:///{db}")
+    monkeypatch.setenv("JENDOCK_SECRET_KEY_FILE", str(tmp_path / "k"))
     get_settings.cache_clear()
     try:
         code = cli.main(["import-v1", "--projects-json", str(PROJECTS), "--dry-run"])
@@ -569,8 +569,8 @@ def test_imported_projects_default_to_ssh_with_a_deploy_key_note(
     plan = small_plan({"captcha"})
     assert plan.projects[0].git_transport is GitTransport.SSH
     note = plan.projects[0].deploy_key_note
-    assert "SHIFTCODES_GIT_SSH_KEY_FILE" in note and "ssh.github.com:443" in note
-    assert "github.com/TPCT/captcha.shiftcodes.net" in note
+    assert "JENDOCK_GIT_SSH_KEY_FILE" in note and "ssh.github.com:443" in note
+    assert "github.com/TPCT/captcha.example.com" in note
     apply_plan(plan, services, ACTOR)
     assert ProjectService(uow).get("captcha").project.git_transport is GitTransport.SSH
 
@@ -589,7 +589,7 @@ def test_an_existing_project_with_another_transport_is_reported_not_changed(
     services: ImportServices, uow: UnitOfWork
 ) -> None:
     ProjectService(uow).create(
-        "captcha", "captcha.shiftcodes.net", "TPCT/captcha.shiftcodes.net", "development", "main"
+        "captcha", "captcha.example.com", "TPCT/captcha.example.com", "development", "main"
     )
     [outcome] = apply_plan(small_plan({"captcha"}), services, ACTOR)
     assert any("git transport" in d for d in outcome.differences)

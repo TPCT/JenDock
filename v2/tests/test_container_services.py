@@ -11,21 +11,21 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.compose_cli import ComposeTarget, DockerComposeEngine
-from shiftcodes.adapters.container_admin import FileRead
-from shiftcodes.adapters.container_runtime import CancelSignal, LineSink
-from shiftcodes.adapters.deployer import DeployRequest, Recoverable, UnavailableDeployer
-from shiftcodes.containers.locks import EnvironmentBusyError, EnvironmentLocks, LockedDeployer
-from shiftcodes.containers.logs import LogCursor
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.containers import EnvChange, EnvironmentKey, LifecycleAction, LimitChange
-from shiftcodes.domain.enums import ActorType, EnvironmentName
-from shiftcodes.domain.errors import ConflictError, NotFoundError, ValidationError
-from shiftcodes.logging import SecretRedactor
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.worker.wiring import build_execution_env
+from backend.adapters.compose_cli import ComposeTarget, DockerComposeEngine
+from backend.adapters.container_admin import FileRead
+from backend.adapters.container_runtime import CancelSignal, LineSink
+from backend.adapters.deployer import DeployRequest, Recoverable, UnavailableDeployer
+from backend.containers.locks import EnvironmentBusyError, EnvironmentLocks, LockedDeployer
+from backend.containers.logs import LogCursor
+from backend.domain.actor import Actor
+from backend.domain.containers import EnvChange, EnvironmentKey, LifecycleAction, LimitChange
+from backend.domain.enums import ActorType, EnvironmentName
+from backend.domain.errors import ConflictError, NotFoundError, ValidationError
+from backend.logging import SecretRedactor
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.secret_cipher import SecretCipher
+from backend.worker.wiring import build_execution_env
 from tests.api_support import make_settings
 from tests.container_harness import DEV, Stack, build_stack
 from tests.container_support import make_record, new_id

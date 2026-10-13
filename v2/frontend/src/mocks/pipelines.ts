@@ -11,7 +11,7 @@ import type {
   Value,
 } from "../api/pipelineTypes";
 
-// ---- catalogue (mirrors shiftcodes/pipeline/steps.py; the real one comes from the server) ----
+// ---- catalogue (mirrors jendock/pipeline/steps.py; the real one comes from the server) ----
 
 function arg(name: string, type: ArgDef["type"], extra: Partial<ArgDef> = {}): ArgDef {
   return {

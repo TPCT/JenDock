@@ -3,12 +3,12 @@ import json
 import httpx
 import pytest
 
-from shiftcodes.adapters.cloudflare import (
+from backend.adapters.cloudflare import (
     CloudflareClient,
     CloudflareError,
     DnsDesired,
 )
-from shiftcodes.domain.ingress import MANAGED_TAG, DnsRecordType, PlanAction
+from backend.domain.ingress import MANAGED_TAG, DnsRecordType, PlanAction
 from tests.ingress_support import HOST, ZONE, FakeCloudflare, fixture
 
 TAG = f"{MANAGED_TAG} domain=1"
@@ -79,7 +79,7 @@ def test_a_foreign_record_is_a_conflict_and_is_never_touched() -> None:
     dns = fake.dns()
     plan = dns.plan_upsert(desired())
     assert plan.action is PlanAction.CONFLICT
-    assert "not managed by Shiftcodes" in plan.message
+    assert "not managed by Jendock" in plan.message
     assert plan.foreign == (dns.client.list_records(plan.zone.id, HOST)[0],)
     with pytest.raises(CloudflareError, match="not managed"):
         dns.apply_upsert(plan)

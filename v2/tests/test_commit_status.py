@@ -9,19 +9,19 @@ from dataclasses import replace
 
 import pytest
 
-from shiftcodes.adapters.commit_status import (
+from backend.adapters.commit_status import (
     CommitState,
     CommitStatus,
     GithubStatusPublisher,
     UrllibPoster,
 )
-from shiftcodes.adapters.errors import AdapterError
-from shiftcodes.domain.enums import RunStatus
-from shiftcodes.domain.errors import NotFoundError, ValidationError
-from shiftcodes.execution.context import RunJob
-from shiftcodes.execution.status_reporter import CommitStatusReporter, NoStatusReporter
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.secrets import SecretService
+from backend.adapters.errors import AdapterError
+from backend.domain.enums import RunStatus
+from backend.domain.errors import NotFoundError, ValidationError
+from backend.execution.context import RunJob
+from backend.execution.status_reporter import CommitStatusReporter, NoStatusReporter
+from backend.services.audit import AuditService
+from backend.services.secrets import SecretService
 from tests.execution_support import SHA, Harness
 from tests.test_pipeline_runner import pipeline, stage
 
@@ -45,7 +45,7 @@ class FakePoster:
 
 
 def _status(**changes: object) -> CommitStatus:
-    base = CommitStatus("octo/demo", SHA, CommitState.SUCCESS, "Run #1 succeeded", "shiftcodes/dev")
+    base = CommitStatus("octo/demo", SHA, CommitState.SUCCESS, "Run #1 succeeded", "jendock/dev")
     return replace(base, **changes)  # type: ignore[arg-type]
 
 
@@ -81,7 +81,7 @@ def test_publisher_posts_to_the_statuses_endpoint() -> None:
     assert body == {
         "state": "success",
         "description": "Run #1 succeeded",
-        "context": "shiftcodes/dev",
+        "context": "jendock/dev",
         "target_url": "https://ci.example/runs/9",
     }
     assert TOKEN not in url
@@ -152,7 +152,7 @@ def test_started_publishes_pending_with_a_link_to_the_run() -> None:
     assert url.endswith(f"/statuses/{SHA}")
     assert headers["Authorization"] == f"Bearer {TOKEN}"
     assert body["state"] == "pending"
-    assert body["context"] == "shiftcodes/development"
+    assert body["context"] == "jendock/development"
     assert body["target_url"] == "https://ci.example.test/runs/42"
     assert body["description"] == "Run #3 is running"
 

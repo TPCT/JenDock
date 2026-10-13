@@ -1,1 +1,0 @@
-"""Shiftcodes platform v2."""

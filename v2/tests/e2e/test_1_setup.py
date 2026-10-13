@@ -18,7 +18,7 @@ def test_01_admin_login_and_token(stack: Stack, api: Api, scenario: Scenario) ->
     created = api.post(
         "/api/tokens", {"name": "e2e-agent", "scopes": ["read", "run", "admin"]}, expect=201
     )
-    assert created["token"].startswith("sct_")
+    assert created["token"].startswith("jdt_")
     scenario.token = created["token"]
     listed = api.get("/api/tokens")
     assert [t["name"] for t in listed] == ["e2e-agent"]

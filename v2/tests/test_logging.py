@@ -5,8 +5,8 @@ from collections.abc import Iterator
 
 import pytest
 
-from shiftcodes.config import Settings
-from shiftcodes.logging import REDACTED, SecretRedactor, configure_logging
+from backend.config import Settings
+from backend.logging import REDACTED, SecretRedactor, configure_logging
 
 
 @pytest.fixture

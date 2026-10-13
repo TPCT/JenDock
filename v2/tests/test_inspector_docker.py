@@ -3,7 +3,7 @@
 Builds the inspector image from ``docker/inspector.Dockerfile`` (needs network access to PyPI),
 creates a throwaway compose-style network ``<project>_default``, attaches a throwaway database
 server to it under the alias ``db`` and drives everything through ``InspectorRunner`` exactly as
-the worker does. All containers, the network and the image carry ``shiftcodes.test=1`` and are
+the worker does. All containers, the network and the image carry ``jendock.test=1`` and are
 removed afterwards.
 """
 
@@ -21,12 +21,12 @@ import pytest
 from psycopg import sql
 from sqlalchemy import Engine as SqlEngine
 
-from shiftcodes.adapters.docker_cli import DockerCliRuntime
-from shiftcodes.adapters.inspector_runner import HelperRequest, InspectorRunner
-from shiftcodes.domain.enums import EnvironmentName
-from shiftcodes.domain.errors import ConflictError
-from shiftcodes.inspector.model import ConnectionSpec, Engine, ErrorCode, InspectorError, TlsMode
-from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.adapters.docker_cli import DockerCliRuntime
+from backend.adapters.inspector_runner import HelperRequest, InspectorRunner
+from backend.domain.enums import EnvironmentName
+from backend.domain.errors import ConflictError
+from backend.inspector.model import ConnectionSpec, Engine, ErrorCode, InspectorError, TlsMode
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
 from tests.api_support import (
     FakeClock,
     create_user,
@@ -78,7 +78,7 @@ def _clean_module() -> Iterator[None]:
 
 @pytest.fixture(scope="module")
 def image() -> Iterator[str]:
-    tag = f"shiftcodes-test-inspector:{secrets.token_hex(4)}"
+    tag = f"jendock-test-inspector:{secrets.token_hex(4)}"
     labels = label_args()
     built = docker_cli(
         "build", "--quiet", *labels, "-f", "docker/inspector.Dockerfile", "-t", tag, str(V2_DIR),
@@ -354,7 +354,7 @@ def assert_no_helper_containers() -> None:
         "--all",
         "--quiet",
         "--filter",
-        "label=shiftcodes.inspector=1",
+        "label=backend.inspector=1",
         "--filter",
         f"label={SESSION_LABEL}",
     )

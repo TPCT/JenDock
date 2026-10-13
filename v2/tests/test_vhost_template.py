@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
+from backend.hosthelper.vhost import VhostPaths, VhostSpec, render_vhost
 from tests.ingress_support import FIXTURES
 
-PATHS = VhostPaths(Path("/etc/shiftcodes/certs"), Path("/var/lib/shiftcodes/acme-webroot"))
+PATHS = VhostPaths(Path("/etc/jendock/certs"), Path("/var/lib/jendock/acme-webroot"))
 GOLDEN = FIXTURES / "vhost"
 
 CASES = {

@@ -10,7 +10,7 @@ export interface Crumb {
 
 export function useDocumentTitle(name: string): void {
   useEffect(() => {
-    document.title = `${name} · Shiftcodes`;
+    document.title = `${name} · Jendock`;
   }, [name]);
 }
 

@@ -1,29 +1,29 @@
-# Shiftcodes v2
+# Jendock v2
 
 Clean rewrite of the self-hosted, Jenkins-like CI/CD platform. See `PLAN.md` for decisions
 and the task list. v1 (the parent directory) keeps running until v2 reaches parity.
 
 ## Layout
 
-- `shiftcodes/domain` - pure enums, validated value objects, errors, audit rules; no I/O
-- `shiftcodes/services` - use cases (project, environment, pipeline, run, secret, audit);
+- `backend/domain` - pure enums, validated value objects, errors, audit rules; no I/O
+- `backend/services` - use cases (project, environment, pipeline, run, secret, audit);
   each receives a `UnitOfWork`, no globals
-- `shiftcodes/repositories` - SQLAlchemy models, `database.py` (engine, `UnitOfWork`), one
+- `backend/repositories` - SQLAlchemy models, `database.py` (engine, `UnitOfWork`), one
   query-only repository per aggregate, Alembic migrations in `migrations/`
-- `shiftcodes/adapters` - external systems: `ContainerRuntime` port with the docker CLI
+- `backend/adapters` - external systems: `ContainerRuntime` port with the docker CLI
   implementation, git source, workspaces, deployer port, HTTP probe (GitHub, Cloudflare later)
-- `shiftcodes/execution` - worker-side pipeline execution (runner, steps, docker agent rules,
+- `backend/execution` - worker-side pipeline execution (runner, steps, docker agent rules,
   logs, run queue, crash recovery)
-- `shiftcodes/api` - FastAPI HTTP layer (`create_app`, `AppContainer`, routers, schemas, error
+- `backend/api` - FastAPI HTTP layer (`create_app`, `AppContainer`, routers, schemas, error
   mapping, security headers)
-- `shiftcodes/worker` - worker process (`python -m shiftcodes.worker`): RPC server, the run
+- `backend/worker` - worker process (`python -m backend.worker`): RPC server, the run
   queue and the only holder of the secret key
-- `shiftcodes/pipeline` - Jenkinsfile engine (lexer, parser, typed AST, step catalogue, validator,
+- `backend/pipeline` - Jenkinsfile engine (lexer, parser, typed AST, step catalogue, validator,
   serializer); pure code, never executes anything
-- `shiftcodes/cli.py` - admin CLI (`python -m shiftcodes.cli users ...`)
-- `shiftcodes/mcp` - MCP server for AI agents
-- `shiftcodes/config.py`, `shiftcodes/logging.py` - settings (`SHIFTCODES_*`) and JSON logging
-- `shiftcodes/hosthelper` - the host helper (stdlib + cryptography): Apache vhosts, certificates;
+- `backend/cli.py` - admin CLI (`python -m backend.cli users ...`)
+- `backend/mcp` - MCP server for AI agents
+- `backend/config.py`, `backend/logging.py` - settings (`JENDOCK_*`) and JSON logging
+- `backend/hosthelper` - the host helper (stdlib + cryptography): Apache vhosts, certificates;
   ingress design in `docs/ingress.md`, install in `docs/ingress-host-helper.md`
 - `docker/` - `api.Dockerfile`, `worker.Dockerfile`; `compose.yml` wires them together
 
@@ -32,16 +32,16 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make install` - editable install with dev extras into `.venv`
 - `make lint` - ruff check and ruff format --check
 - `make format` - apply ruff fixes and formatting
-- `make typecheck` - mypy (strict) on `shiftcodes` and `tests`
+- `make typecheck` - mypy (strict) on `jendock` and `tests`
 - `make test` - pytest (tests marked `docker` are deselected)
 - `make test-docker` - the real-Docker integration tests (`pytest -m docker`); they are skipped
   when no Docker daemon or git is available. They build and run containers in the local daemon,
-  label everything `shiftcodes.test=1` plus a per-session `shiftcodes.test.session=<uuid>`
+  label everything `jendock.test=1` plus a per-session `jendock.test.session=<uuid>`
   (`tests/docker_support.py`: `session_labels()`), and the teardown removes and checks only that
   session's containers, images, networks and volumes, so parallel suites on one daemon do not
   interfere
-- `make migrate` - `python -m shiftcodes.repositories.migrate` (upgrade head on
-  `SHIFTCODES_DATABASE_URL`); the same command works inside the api/worker images
+- `make migrate` - `python -m backend.repositories.migrate` (upgrade head on
+  `JENDOCK_DATABASE_URL`); the same command works inside the api/worker images
 - `make lock` - regenerate `requirements.lock` (needs Docker)
 - `make test-py313` - run tests on Python 3.13 in Docker (installs git in the throwaway container)
 - `make check` - lint, typecheck, test
@@ -57,7 +57,7 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `DOCKER_SOCKET_PATH` - host path of the Docker socket mounted into the worker
   (default `/var/run/docker.sock`; e.g. `/run/docker-isolation.sock` on the production VPS).
   It is always mounted at `/var/run/docker.sock` inside the container, which is what
-  `SHIFTCODES_DOCKER_HOST` points to.
+  `JENDOCK_DOCKER_HOST` points to.
 - `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
   see `stat -c %g <socket>`). Added to the worker via `group_add`.
 - `COMPOSE_PROJECTS_DIR` - host directory with the compose files and `--env-file` files of the
@@ -70,7 +70,7 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 ## Importing v1 projects (Task 15.1)
 
 ```
-python -m shiftcodes.cli import-v1 --projects-json <v1>/projects.json [--v1-db <v1 sqlite>] \
+python -m backend.cli import-v1 --projects-json <v1>/projects.json [--v1-db <v1 sqlite>] \
     [--compose-root <copy of /opt/docker-engine/projects>] [--dry-run]
 ```
 
@@ -85,8 +85,8 @@ v1 has one branch per project: it is assigned to development or production (from
 registry binding when `--v1-db` is given, else from the branch name) and every guess is a warning.
 The service -> image mapping is exact when `--compose-root` makes the compose files readable and
 a flagged name-based guess otherwise. The field mapping is the table `ENVIRONMENT_FIELDS` in
-`shiftcodes/importer/plan.py` (v1 `env_file` -> `compose_env_files`). Projects default to
-`git_transport = ssh` like v1 (deploy key `SHIFTCODES_GIT_SSH_KEY_FILE` must exist and be a
+`backend/importer/plan.py` (v1 `env_file` -> `compose_env_files`). Projects default to
+`git_transport = ssh` like v1 (deploy key `JENDOCK_GIT_SSH_KEY_FILE` must exist and be a
 deploy key of each repository); `--https` overrides. The dry run starts with a "needs operator
 decision" summary (ambiguous guesses, misspelled-looking branches, missing environment data,
 dropped tmpfs).
@@ -95,19 +95,19 @@ dropped tmpfs).
 
 `docs/deployment.md` is the step-by-step plan (users, directories, Docker socket, Apache vhost,
 secrets, first admin, per-project cutover, rollback); `deployment/compose.production.yml`,
-`deployment/env.production.example` and `deployment/apache-deploy.shiftcodes.net.conf` are its
+`deployment/env.production.example` and `deployment/apache-deploy.example.com.conf` are its
 files, and `make preflight` (`scripts/preflight.py`, read-only, flags via `PREFLIGHT_ARGS`)
 checks a host against every prerequisite and prints a report.
 
 ## Backup and restore
 
 ```
-python -m shiftcodes.cli backup create --to /backups [--include-logs] [--keep 7]
-python -m shiftcodes.cli backup restore --from /backups/shiftcodes-backup-<UTC>.tar.gz
-python -m shiftcodes.cli backup prune --dir /backups --keep 7
+python -m backend.cli backup create --to /backups [--include-logs] [--keep 7]
+python -m backend.cli backup restore --from /backups/jendock-backup-<UTC>.tar.gz
+python -m backend.cli backup prune --dir /backups --keep 7
 ```
 
-- `create` writes `shiftcodes-backup-<UTC timestamp>.tar.gz` (0600, built under a temporary name
+- `create` writes `jendock-backup-<UTC timestamp>.tar.gz` (0600, built under a temporary name
   and renamed when complete). It holds a snapshot of the SQLite database taken with SQLite's
   **online backup API** (consistent while the API and worker keep writing), the managed compose
   overrides (`<data_dir>/deployments/*/override.yml[.prev]`; journals are transient and
@@ -122,11 +122,11 @@ python -m shiftcodes.cli backup prune --dir /backups --keep 7
   from a newer version is refused). It writes only into an **empty** data directory and refuses
   when the data directory or the database file already has content; on any failure it removes
   what it wrote. `--key-file` puts a saved key in place (never overwriting one). Afterwards run
-  `make migrate` (`python -m shiftcodes.repositories.migrate`) to bring an older backup to head.
+  `make migrate` (`python -m backend.repositories.migrate`) to bring an older backup to head.
 - Scheduled backups run in the worker and are **off by default**:
-  `SHIFTCODES_BACKUP_ENABLED=true`, `SHIFTCODES_BACKUP_DIR` (a mounted directory the worker
-  can write), `SHIFTCODES_BACKUP_KEEP` (default 7, newest kept), `SHIFTCODES_BACKUP_HOUR_UTC`
-  (default 3), `SHIFTCODES_BACKUP_INCLUDE_LOGS`. They never include the key. Only files named
+  `JENDOCK_BACKUP_ENABLED=true`, `JENDOCK_BACKUP_DIR` (a mounted directory the worker
+  can write), `JENDOCK_BACKUP_KEEP` (default 7, newest kept), `JENDOCK_BACKUP_HOUR_UTC`
+  (default 3), `JENDOCK_BACKUP_INCLUDE_LOGS`. They never include the key. Only files named
   like our archives are pruned. Only SQLite databases are supported.
 
 ## Reproducible builds
@@ -141,12 +141,12 @@ Dockerfiles. `make lock` regenerates it inside `python:3.13.9-slim`.
 
 - The **API** is internet-facing. It has no Docker socket and **no secret encryption key**
   (building the app never reads a key file). All secret encryption/decryption happens in the
-  **worker**, reached over a Unix socket (`SHIFTCODES_WORKER_SOCKET_PATH`).
-- The worker owns `SecretCipher`. The key file (`SHIFTCODES_SECRET_KEY_FILE`, mode 0600) lives in
-  the `keys` volume, mounted **only** in the worker (`/run/shiftcodes-keys/secret.key`). The API
+  **worker**, reached over a Unix socket (`JENDOCK_WORKER_SOCKET_PATH`).
+- The worker owns `SecretCipher`. The key file (`JENDOCK_SECRET_KEY_FILE`, mode 0600) lives in
+  the `keys` volume, mounted **only** in the worker (`/run/jendock-keys/secret.key`). The API
   container mounts only `data` and `worker-socket`. Upgrading from Task 2: copy `secret.key`
   from the data volume into the `keys` volume, then delete it from the data volume.
-- Worker RPC (`shiftcodes/worker/rpc.py`, client `shiftcodes/adapters/worker_client.py`):
+- Worker RPC (`backend/worker/rpc.py`, client `backend/adapters/worker_client.py`):
   JSON lines, method allowlist (`ping`, `secrets.set|list|delete|reveal`, `github.verify_webhook`,
   `github.branch_head`), 2 MiB request limit (a 1 MiB webhook body travels base64-encoded),
   per-request id, 5 s client timeout, structured errors mapped back to domain errors. Each secret
@@ -176,18 +176,18 @@ Dockerfiles. `make lock` regenerates it inside `python:3.13.9-slim`.
   Background endpoints (the run event stream) use `require_scope(..., background=True)` /
   `get_background_principal`, which authenticate without extending the idle timer.
 - Cookie: `__Host-session`, Secure, HttpOnly, SameSite=Strict, Path=/, no Domain. Only a
-  development setup with an `http://` `SHIFTCODES_PUBLIC_ORIGIN` uses the plain name
-  `shiftcodes_session` without Secure.
+  development setup with an `http://` `JENDOCK_PUBLIC_ORIGIN` uses the plain name
+  `jendock_session` without Secure.
 - CSRF: every POST/PUT/PATCH/DELETE authenticated by cookie (and the login request) needs
-  `Origin` exactly equal to `SHIFTCODES_PUBLIC_ORIGIN` and header `X-CSRF-Token` equal to the
+  `Origin` exactly equal to `JENDOCK_PUBLIC_ORIGIN` and header `X-CSRF-Token` equal to the
   session's CSRF token (`GET /api/auth/session` or the login response returns it). The token is
   an HMAC of the cookie value, so nothing CSRF-related is stored; it is compared with
   `hmac.compare_digest`.
 - Login rate limit: 5 failed attempts per username and 20 per client IP per 15 minutes, then
   HTTP 429 with `Retry-After`. State is in process memory (single API process); a restart
   resets it and multiple replicas would not share it. The client IP is the peer address; behind
-  Apache/Cloudflare set `SHIFTCODES_TRUSTED_PROXIES` (IPs/CIDRs, default empty = trust nobody;
-  compose var `TRUSTED_PROXIES`, e.g. the docker bridge gateway). `python -m shiftcodes.api`
+  Apache/Cloudflare set `JENDOCK_TRUSTED_PROXIES` (IPs/CIDRs, default empty = trust nobody;
+  compose var `TRUSTED_PROXIES`, e.g. the docker bridge gateway). `python -m backend.api`
   (the image CMD) then starts uvicorn with proxy headers trusted only from those addresses.
   Without it every client appears as the proxy and the per-IP limit becomes a global lockout.
   Unknown users and wrong passwords return the same 401 and both run one argon2 verification.
@@ -203,10 +203,10 @@ deliberately no argv or environment option.
 
 ```
 make migrate
-.venv/bin/python -m shiftcodes.cli users create admin            # prompts twice
-printf '%s\n' "$PW" | python -m shiftcodes.cli users reset-password admin --password-stdin
+.venv/bin/python -m backend.cli users create admin            # prompts twice
+printf '%s\n' "$PW" | python -m backend.cli users reset-password admin --password-stdin
 # inside the deployment:
-docker compose run --rm -T api python -m shiftcodes.cli users create admin --password-stdin
+docker compose run --rm -T api python -m backend.cli users create admin --password-stdin
 ```
 
 `reset-password` also ends all sessions of that user. Both commands are audited
@@ -214,7 +214,7 @@ docker compose run --rm -T api python -m shiftcodes.cli users create admin --pas
 
 ### API tokens (agents / MCP)
 
-- `Authorization: Bearer sct_...`; no cookie, no CSRF. A request with an `Authorization` header
+- `Authorization: Bearer jdt_...`; no cookie, no CSRF. A request with an `Authorization` header
   never falls back to a session cookie.
 - Created only by a logged-in browser session (`POST /api/tokens`, also `GET /api/tokens`,
   `DELETE /api/tokens/{id}`); a token can never manage tokens. The value is returned exactly
@@ -236,9 +236,9 @@ which is audited (name only, never the value).
 ### Model
 
 A run is created `queued` by a webhook push, a manual run or a retry (see "GitHub integration").
-The worker polls the queue (`SHIFTCODES_QUEUE_POLL_INTERVAL`), claims the **oldest** queued run
+The worker polls the queue (`JENDOCK_QUEUE_POLL_INTERVAL`), claims the **oldest** queued run
 with an atomic conditional update (`queued -> running`) while fewer than
-`SHIFTCODES_MAX_CONCURRENT_RUNS` (default 1, a global limit of this worker) are executing, and
+`JENDOCK_MAX_CONCURRENT_RUNS` (default 1, a global limit of this worker) are executing, and
 runs it on its own thread. `RunExecutor` loads the run, parses and validates its pipeline
 snapshot again (a secret may have been deleted since), creates the workspace, executes, then
 always cleans up (kills leftover containers by label, deletes the workspace) and only then
@@ -254,7 +254,7 @@ the exit code.
 
 - Stages run in order; a failing step fails its stage and the run; later stages are `skipped`;
   `post` still runs. `parallel` branches run concurrently on a pool of
-  `SHIFTCODES_PARALLEL_WORKERS` threads (default 2); a failing branch does not stop its siblings
+  `JENDOCK_PARALLEL_WORKERS` threads (default 2); a failing branch does not stop its siblings
   but the following stages are skipped. Nested sequential `stages` skip the rest of their
   group after a failure.
 - `when` is evaluated against the run context: `branch` uses Ant-style globs (`*` stays inside
@@ -270,10 +270,10 @@ the exit code.
 - `options`: `timeout` bounds the pipeline or stage (it fails; Jenkins would call it aborted),
   `retry(n)` re-runs the stage (or the whole pipeline, whose stage rows are reset). The
   `retry`/`timeout` steps do the same for a block; a cancel is never retried. A container step
-  without an enclosing timeout is still bounded by `SHIFTCODES_STEP_TIMEOUT_SECONDS` (3600).
+  without an enclosing timeout is still bounded by `JENDOCK_STEP_TIMEOUT_SECONDS` (3600).
   `skipDefaultCheckout` and `disableConcurrentBuilds` are accepted and have no effect (the workspace
   always holds the commit; only the global concurrency limit applies).
-- Steps are classes registered by name (`shiftcodes/execution/step_registry.py`, one per catalogue
+- Steps are classes registered by name (`backend/execution/step_registry.py`, one per catalogue
   step). Strings are rendered from the AST parts and the resolved environment, never evaluated.
   `credentials('X')` is resolved by the worker through `SecretService.resolve_for_run` (audited as
   `secret.resolve`) and registered with the run's redactor.
@@ -284,7 +284,7 @@ the exit code.
 
 ### Deployment (Task 7)
 
-`ComposeDeployer` (`shiftcodes/adapters/compose_deployer.py`) deploys the requested services of
+`ComposeDeployer` (`backend/adapters/compose_deployer.py`) deploys the requested services of
 an environment and nothing else:
 
 0. Every compose invocation (config, ps, up, rm; deploy, rollback and recovery) starts with
@@ -303,17 +303,17 @@ an environment and nothing else:
    --no-deps --no-build --pull never <services>`. The override is always the last compose file, so
    later restarts or recreations of the service keep the deployed image (Task 8 must append
    `OverrideStore.path()` too).
-4. It waits (`SHIFTCODES_DEPLOY_HEALTH_TIMEOUT`, default 120 s) until every container is
+4. It waits (`JENDOCK_DEPLOY_HEALTH_TIMEOUT`, default 120 s) until every container is
    `running` and, when it has a healthcheck, `healthy`, and stays so for
-   `SHIFTCODES_DEPLOY_SETTLE_SECONDS` (default 3) without its restart count increasing; then the
+   `JENDOCK_DEPLOY_SETTLE_SECONDS` (default 3) without its restart count increasing; then the
    optional HTTP check runs.
 5. On any failure it restores the previous override, recreates the services from their previous
    image (pinned by id when the tag moved; a service that did not exist before is removed) and
    verifies them again: the deployment becomes `rolled_back`, or `rollback_failed` (the run fails
    with a message starting `ROLLBACK FAILED`). Either way the step fails.
-6. After success it removes old images (`SHIFTCODES_IMAGE_RETENTION`, default 5): per logical
-   image (repository) of this project and environment (labels `shiftcodes.project` and
-   `shiftcodes.environment` are required, so foreign images are never touched) only the newest N
+6. After success it removes old images (`JENDOCK_IMAGE_RETENTION`, default 5): per logical
+   image (repository) of this project and environment (labels `jendock.project` and
+   `jendock.environment` are required, so foreign images are never touched) only the newest N
    remain, plus any image used by a container and the images of the latest deployment
    (previous and new).
 
@@ -328,12 +328,12 @@ or build; see `docs/api-contract.md`.
 
 ### Docker agents
 
-Every `sh` runs in a container started with `--rm`, labels `shiftcodes.run_id` and
-`shiftcodes.step_id`, `--security-opt no-new-privileges`, `--cpu-shares 512` (so production services
+Every `sh` runs in a container started with `--rm`, labels `jendock.run_id` and
+`jendock.step_id`, `--security-opt no-new-privileges`, `--cpu-shares 512` (so production services
 win under contention) and `--entrypoint sh -c <script>`.
 
 - **Logical image** (built by `dockerBuild`, tagged `sc/<project>-<env>-<image>:<sha12>-r<run
-  number>` with labels `shiftcodes.project|environment|build_run|commit`): runs with the image's own
+  number>` with labels `jendock.project|environment|build_run|commit`): runs with the image's own
   `WORKDIR`, user and no workspace mount. `dir()` becomes a `cd` at the start of the script.
 - **External image** (`node:22`): pulled when not present locally (once per run), the workspace is
   mounted at `/workspace`, which is the working directory (`dir()` is relative to it), and the
@@ -343,9 +343,9 @@ win under contention) and `--entrypoint sh -c <script>`.
   compose project and that network exists (otherwise a log line and the default bridge), the default
   bridge without a compose project, `--network none` when the agent args say so.
 - **Limits**: `-e NAME=value`, `--memory` and `--cpus` from the allowlisted args. The defaults
-  and the maxima are `SHIFTCODES_CONTAINER_MEMORY` (2g) and `SHIFTCODES_CONTAINER_CPUS` (2); a
+  and the maxima are `JENDOCK_CONTAINER_MEMORY` (2g) and `JENDOCK_CONTAINER_CPUS` (2); a
   pipeline may lower them but a larger value fails the step ("exceeds the configured maximum").
-  Builds use `--memory SHIFTCODES_BUILD_MEMORY` (2g).
+  Builds use `--memory JENDOCK_BUILD_MEMORY` (2g).
 
 ### Secrets and the Docker client
 
@@ -360,8 +360,8 @@ win under contention) and `--entrypoint sh -c <script>`.
 - `dockerBuild` `args` values are passed with `--build-arg NAME` and the value in the docker client's
   environment (not argv); names that change the client's behaviour (`PATH`, `HOME`, `LD_*`, `DOCKER_*`,
   `BUILDKIT_*`, proxies ...) are refused.
-- The docker client is `SHIFTCODES_DOCKER_BINARY` (default `docker`; set a non-default path in
-  production) with `DOCKER_HOST` from `SHIFTCODES_DOCKER_HOST`. It always gets an explicit argv list.
+- The docker client is `JENDOCK_DOCKER_BINARY` (default `docker`; set a non-default path in
+  production) with `DOCKER_HOST` from `JENDOCK_DOCKER_HOST`. It always gets an explicit argv list.
 
 ### Workspaces and source
 
@@ -369,21 +369,21 @@ win under contention) and `--entrypoint sh -c <script>`.
 cancel and shutdown. `LocalGitSource` runs `git clone --no-checkout`, refuses a commit that
 tracks `.env`, `id_rsa`, `id_ed25519`, `id_ecdsa` or `id_dsa` (before writing the tree), then
 `git checkout --detach <sha>` and verifies `HEAD == sha`. The clone URL is
-`SHIFTCODES_GIT_URL_TEMPLATE` (default `https://github.com/{repository}.git`, public repositories
+`JENDOCK_GIT_URL_TEMPLATE` (default `https://github.com/{repository}.git`, public repositories
 only) for projects on the `https` transport; `ssh` projects use the deploy key (see "GitHub
 integration"). A workspace
-larger than `SHIFTCODES_WORKSPACE_MAX_BYTES` (2 GiB) fails the run; it is measured after checkout and
+larger than `JENDOCK_WORKSPACE_MAX_BYTES` (2 GiB) fails the run; it is measured after checkout and
 after each `sh` step (a single step can still exceed it until it ends). When the worker itself runs
-in a container, `SHIFTCODES_WORKSPACE_HOST_DIR` must name the host directory mounted at
+in a container, `JENDOCK_WORKSPACE_HOST_DIR` must name the host directory mounted at
 `<data_dir>/workspaces` because the host daemon resolves bind mounts (compose does this with
-`WORKSPACES_HOST_DIR`, default `/var/lib/shiftcodes-workspaces`, which must exist and be owned by
+`WORKSPACES_HOST_DIR`, default `/var/lib/jendock-workspaces`, which must exist and be owned by
 uid 10001). The worker image contains git and a pinned docker CLI.
 
 ### Logs
 
 Output of each step goes to `<data_dir>/logs/<run_id>/<step_id>.log` (files 0640, directories 0750)
 after secrets were masked **line by line** (a multi-line secret is also masked per line); a step
-log stops at `SHIFTCODES_STEP_LOG_MAX_BYTES` (5 MiB) with one truncation marker. Known limits:
+log stops at `JENDOCK_STEP_LOG_MAX_BYTES` (5 MiB) with one truncation marker. Known limits:
 a secret split over two lines, or transformed (base64, URL-encoded), is not recognised; a line
 longer than 64 KiB is delivered in pieces.
 
@@ -396,7 +396,7 @@ API (scope `read`; sessions hold every scope):
   `offset=next_offset` (`complete` is true when the step ended and nothing is left).
 - `GET /api/runs/{id}/events` - Server-Sent Events: `status` (full run JSON, sent when it changes),
   `log` (`{step_id, offset, text}` for new lines; the history is replayed first), `: heartbeat`
-  comments every `SHIFTCODES_SSE_HEARTBEAT_INTERVAL` (15 s) and `end` when the run finished. It uses
+  comments every `JENDOCK_SSE_HEARTBEAT_INTERVAL` (15 s) and `end` when the run finished. It uses
   the background principal, so it never extends the session's idle timer; the session is
   re-checked (also without touching it) at each heartbeat and the stream closes when it expired.
   A stream lasts at most one hour (clients reconnect).
@@ -405,8 +405,8 @@ API (scope `read`; sessions hold every scope):
 
 `POST /api/runs/{id}/cancel` (scope `run`, CSRF and exact Origin for sessions, audited as
 `run.cancel`): a queued run becomes `cancelled` immediately; a running run gets
-`cancel_requested_at`. The worker watches that column every `SHIFTCODES_CANCEL_POLL_INTERVAL`
-(1 s): it stops between steps, kills containers labelled `shiftcodes.run_id=<id>` on every poll
+`cancel_requested_at`. The worker watches that column every `JENDOCK_CANCEL_POLL_INTERVAL`
+(1 s): it stops between steps, kills containers labelled `jendock.run_id=<id>` on every poll
 (and terminates a running build), the run ends `cancelled`, `post` `aborted`/`always`/`cleanup` still
 run. A finished run answers 409. On SIGTERM the worker interrupts its runs (`interrupted`, post
 skipped) and waits up to 30 s.
@@ -419,31 +419,31 @@ label and every workspace directory removed, then are marked `interrupted` with 
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SHIFTCODES_DOCKER_BINARY` | `docker` | docker CLI path |
-| `SHIFTCODES_DOCKER_HOST` | `unix:///var/run/docker.sock` | daemon address |
-| `SHIFTCODES_MAX_CONCURRENT_RUNS` | `1` | runs executing at once |
-| `SHIFTCODES_PARALLEL_WORKERS` | `2` | threads per `parallel` group |
-| `SHIFTCODES_CONTAINER_MEMORY` / `_CPUS` | `2g` / `2` | step container default and maximum |
-| `SHIFTCODES_BUILD_MEMORY` | `2g` | `docker build --memory` |
-| `SHIFTCODES_STEP_TIMEOUT_SECONDS` | `3600` | default limit of a container step |
-| `SHIFTCODES_WORKSPACE_MAX_BYTES` | 2 GiB | workspace bound |
-| `SHIFTCODES_STEP_LOG_MAX_BYTES` | 5 MiB | log bound per step |
-| `SHIFTCODES_WORKSPACE_HOST_DIR` | unset | host path of the workspaces (worker in a container) |
-| `SHIFTCODES_GIT_URL_TEMPLATE` / `_GIT_BINARY` | GitHub https / `git` | source clone |
-| `SHIFTCODES_GIT_SSH_KEY_FILE` | unset | deploy key (ssh transport); worker-only keys volume |
-| `SHIFTCODES_GIT_SSH_KNOWN_HOSTS_FILE` | `/etc/shiftcodes/github_known_hosts` | pinned GitHub host key |
-| `SHIFTCODES_GITHUB_WEBHOOK_SECRET_FILE` | unset | webhook secret; worker-only keys volume |
-| `SHIFTCODES_GITHUB_STATUS_ENABLED` / `_GITHUB_STATUS_TOKEN_SECRET` | `false` / `GITHUB_STATUS_TOKEN` | commit statuses |
-| `SHIFTCODES_QUEUE_POLL_INTERVAL`, `_CANCEL_POLL_INTERVAL` | 1 s | worker polling |
-| `SHIFTCODES_SSE_POLL_INTERVAL`, `_SSE_HEARTBEAT_INTERVAL` | 0.5 s / 15 s | event stream |
-| `SHIFTCODES_FRONTEND_DIST` | unset | built web UI served by the API (the API image sets it) |
+| `JENDOCK_DOCKER_BINARY` | `docker` | docker CLI path |
+| `JENDOCK_DOCKER_HOST` | `unix:///var/run/docker.sock` | daemon address |
+| `JENDOCK_MAX_CONCURRENT_RUNS` | `1` | runs executing at once |
+| `JENDOCK_PARALLEL_WORKERS` | `2` | threads per `parallel` group |
+| `JENDOCK_CONTAINER_MEMORY` / `_CPUS` | `2g` / `2` | step container default and maximum |
+| `JENDOCK_BUILD_MEMORY` | `2g` | `docker build --memory` |
+| `JENDOCK_STEP_TIMEOUT_SECONDS` | `3600` | default limit of a container step |
+| `JENDOCK_WORKSPACE_MAX_BYTES` | 2 GiB | workspace bound |
+| `JENDOCK_STEP_LOG_MAX_BYTES` | 5 MiB | log bound per step |
+| `JENDOCK_WORKSPACE_HOST_DIR` | unset | host path of the workspaces (worker in a container) |
+| `JENDOCK_GIT_URL_TEMPLATE` / `_GIT_BINARY` | GitHub https / `git` | source clone |
+| `JENDOCK_GIT_SSH_KEY_FILE` | unset | deploy key (ssh transport); worker-only keys volume |
+| `JENDOCK_GIT_SSH_KNOWN_HOSTS_FILE` | `/etc/jendock/github_known_hosts` | pinned GitHub host key |
+| `JENDOCK_GITHUB_WEBHOOK_SECRET_FILE` | unset | webhook secret; worker-only keys volume |
+| `JENDOCK_GITHUB_STATUS_ENABLED` / `_GITHUB_STATUS_TOKEN_SECRET` | `false` / `GITHUB_STATUS_TOKEN` | commit statuses |
+| `JENDOCK_QUEUE_POLL_INTERVAL`, `_CANCEL_POLL_INTERVAL` | 1 s | worker polling |
+| `JENDOCK_SSE_POLL_INTERVAL`, `_SSE_HEARTBEAT_INTERVAL` | 0.5 s / 15 s | event stream |
+| `JENDOCK_FRONTEND_DIST` | unset | built web UI served by the API (the API image sets it) |
 
 ## GitHub integration (Task 6)
 
 ### Trust split
 
 GitHub secrets never reach the API. The **worker** holds the webhook secret
-(`SHIFTCODES_GITHUB_WEBHOOK_SECRET_FILE`) and the deploy key (`SHIFTCODES_GIT_SSH_KEY_FILE`), both
+(`JENDOCK_GITHUB_WEBHOOK_SECRET_FILE`) and the deploy key (`JENDOCK_GIT_SSH_KEY_FILE`), both
 files in the `keys` volume, and runs every `git` command (`ls-remote`, fetch, clone). The API
 forwards the raw webhook body and the `X-Hub-Signature-256` header over the worker socket
 (`github.verify_webhook`) and gets back a boolean; it also asks `github.branch_head` for branch
@@ -487,7 +487,7 @@ Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids],
 ### Setup
 
 1. Webhook secret: `openssl rand -hex 32 > github_webhook_secret` into the `keys` volume (mode
-   0600, owner uid 10001, e.g. `docker compose run --rm -T worker sh -c 'cat > /run/shiftcodes-keys/github_webhook_secret'`),
+   0600, owner uid 10001, e.g. `docker compose run --rm -T worker sh -c 'cat > /run/jendock-keys/github_webhook_secret'`),
    the same value in the GitHub webhook (content type `application/json`, events: push; URL
    `https://<host>/api/github/webhook`). Surrounding whitespace in the file is ignored; the file is
    read at each delivery, so rotating it needs no restart.
@@ -499,7 +499,7 @@ Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids],
 3. Commit statuses (optional, off by default): set `GITHUB_STATUS_ENABLED=true` and store a token
    with the `repo:status` permission as the environment secret `GITHUB_STATUS_TOKEN`. The worker
    posts `pending` when a run starts and `success`, `failure` or `error` (cancelled or interrupted)
-   when it ends, context `shiftcodes/<environment>`, linking to `/runs/<id>`. A missing secret, a
+   when it ends, context `jendock/<environment>`, linking to `/runs/<id>`. A missing secret, a
    GitHub error or a timeout is logged (type only, never the token) and never affects the run.
    Reading the token is audited as `secret.resolve`.
 
@@ -513,7 +513,7 @@ Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids],
 shell-quoted by `shlex.join`; a test checks that paths with shell metacharacters round-trip). It
 connects to `ssh.github.com:443` (port 22 is blocked on the production VPS) and verifies the host
 key against `docker/github_known_hosts`, which the worker image installs at
-`/etc/shiftcodes/github_known_hosts`. Only the ed25519 host key is pinned (fingerprint
+`/etc/jendock/github_known_hosts`. Only the ed25519 host key is pinned (fingerprint
 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`); to refresh it after a GitHub key
 rotation run `scripts/refresh_github_known_hosts.py`, compare the fingerprint with GitHub's
 documentation and commit the file. The worker image now includes `openssh-client`.
@@ -545,17 +545,17 @@ The API process serves a [Model Context Protocol](https://modelcontextprotocol.i
 `POST /mcp` (official `mcp` SDK 2.3.0, streamable HTTP, stateless JSON responses). It is mounted in
 the API instead of being a separate service: one process and one database, and the tools call
 the **same services as the REST routers** (the response shapes are the REST schemas), so no logic
-is duplicated and nothing is reachable that the API itself could not do. `SHIFTCODES_MCP_ENABLED=false`
+is duplicated and nothing is reachable that the API itself could not do. `JENDOCK_MCP_ENABLED=false`
 removes the route.
 
 ### Authentication and scopes
 
-- Only `Authorization: Bearer sct_...` (the API tokens above) is accepted; cookies are never read,
+- Only `Authorization: Bearer jdt_...` (the API tokens above) is accepted; cookies are never read,
   so a browser session cannot reach `/mcp`. A missing or invalid token answers 401 with
   `WWW-Authenticate: Bearer`.
-- A request with an `Origin` header must carry exactly `SHIFTCODES_PUBLIC_ORIGIN` (403 otherwise);
+- A request with an `Origin` header must carry exactly `JENDOCK_PUBLIC_ORIGIN` (403 otherwise);
   agents normally send none. The SDK also checks the `Host` header against the public origin's host
-  plus `SHIFTCODES_MCP_ALLOWED_HOSTS` (comma separated; set it when a reverse proxy changes the
+  plus `JENDOCK_MCP_ALLOWED_HOSTS` (comma separated; set it when a reverse proxy changes the
   Host header, e.g. `127.0.0.1:8000`).
 - `tools/list` shows only the tools whose scope the token holds, and `tools/call` re-checks the
   scope (an unknown tool and a missing scope give the same `forbidden` answer). `admin` implies
@@ -582,7 +582,7 @@ moved in between. There is no tool to reveal, set or delete a secret, and step l
 already-masked ones. Failed calls return `isError` results `{"error": {"code", "message",
 "diagnostics"?}}` using the REST error codes.
 
-Adding an area is one module in `shiftcodes/mcp/tools/` that defines `TOOLS` (a tuple of `Tool`
+Adding an area is one module in `backend/mcp/tools/` that defines `TOOLS` (a tuple of `Tool`
 with scope, JSON Schema and a handler that uses `ToolContext.container`), registered in
 `tools/__init__.py`; containers, database and domain tools join there when those tasks merge.
 
@@ -598,17 +598,17 @@ services themselves (`run.create`, `run.cancel`, pipeline saves) with the same t
 
 1. In the UI (session only; a token can never manage tokens) create a token under API tokens,
    with the smallest set of scopes the agent needs (for example `read` + `run`), and copy the
-   `sct_...` value, which is shown once. Revoke it there when the agent is done.
+   `jdt_...` value, which is shown once. Revoke it there when the agent is done.
 2. Point the client at `https://<host>/mcp` with the header `Authorization: Bearer <token>`:
 
    ```
-   claude mcp add --transport http shiftcodes https://<host>/mcp \
-     --header "Authorization: Bearer sct_..."
+   claude mcp add --transport http jendock https://<host>/mcp \
+     --header "Authorization: Bearer jdt_..."
    ```
 
    Other clients take the same two values in their server configuration, for example
-   `{"mcpServers": {"shiftcodes": {"type": "http", "url": "https://<host>/mcp",
-   "headers": {"Authorization": "Bearer sct_..."}}}}`.
+   `{"mcpServers": {"jendock": {"type": "http", "url": "https://<host>/mcp",
+   "headers": {"Authorization": "Bearer jdt_..."}}}}`.
 3. Check with `tools/list`: the tools shown are exactly those the token's scopes allow.
 
 ## Pipelines (Jenkinsfile)
@@ -616,7 +616,7 @@ services themselves (`run.create`, `run.cancel`, pipeline saves) with the same t
 Pipelines are a **subset of Jenkins Declarative Pipeline**. Everything the engine accepts is
 meant to be parseable by real Jenkins too (platform steps look like shared-library steps); what
 it does not support is rejected with a positioned error, never ignored. The engine is pure
-code (`shiftcodes.pipeline`): `parse(text) -> Pipeline`, `validate(pipeline, context) ->
+code (`backend.pipeline`): `parse(text) -> Pipeline`, `validate(pipeline, context) ->
 list[Diagnostic]`, `serialize(pipeline) -> str`, `PipelineSyntaxError`. Nothing evaluates Groovy
 or runs a process. `PipelineService.save` validates with `JenkinsfileValidator` (secret names
 come from the environment's secrets) and raises `ValidationError` whose `diagnostics` are
@@ -700,7 +700,7 @@ text-mode edits keep the user's own text.
 
 ### Editors, templates and dry run
 
-The browser never parses Jenkinsfile text. `shiftcodes/pipeline/model*.py` define the JSON
+The browser never parses Jenkinsfile text. `backend/pipeline/model*.py` define the JSON
 editing model (pydantic) and its two converters (`to_model` / `to_ast`, round trip tested on every
 valid fixture); `catalog.py` generates the step catalogue (titles, help texts, enums, bounds and
 image roles come from `steps.py`, so forms and validator cannot disagree);
@@ -710,7 +710,7 @@ image roles come from `steps.py`, so forms and validator cannot disagree);
 (`pipeline.repository_file` RPC, a depth-1 filtered fetch of the environment branch).
 
 The API image builds `frontend/` (node stage) and serves it, with a fallback to `index.html`
-for client routes (`shiftcodes/api/frontend.py`).
+for client routes (`backend/api/frontend.py`).
 
 ### Example
 

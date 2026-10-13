@@ -7,15 +7,15 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from shiftcodes.adapters.acme.client import AcmeClient, AcmeConfig, AcmeError
-from shiftcodes.adapters.acme.issuer import AcmeIssuer
-from shiftcodes.adapters.acme.jws import AccountKey, load_or_create_account_key
-from shiftcodes.adapters.acme.solvers import (
+from backend.adapters.acme.client import AcmeClient, AcmeConfig, AcmeError
+from backend.adapters.acme.issuer import AcmeIssuer
+from backend.adapters.acme.jws import AccountKey, load_or_create_account_key
+from backend.adapters.acme.solvers import (
     Dns01CloudflareSolver,
     Http01HelperSolver,
     dns01_value,
 )
-from shiftcodes.domain.ingress import MANAGED_TAG
+from backend.domain.ingress import MANAGED_TAG
 from tests.fake_acme import BASE, FakeAcmeCa
 from tests.ingress_support import HOST, FakeCloudflare, FakeHelper
 

@@ -1,8 +1,8 @@
 import pytest
 
-from shiftcodes.domain.audit import validate_audit_details
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.domain.values import (
+from backend.domain.audit import validate_audit_details
+from backend.domain.errors import ValidationError
+from backend.domain.values import (
     BranchName,
     CommitSha,
     GitHubRepository,

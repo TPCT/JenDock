@@ -11,22 +11,22 @@ import httpx
 import pytest
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.acme.solvers import dns01_value
-from shiftcodes.adapters.worker_client import WorkerClient
-from shiftcodes.config import Settings
-from shiftcodes.config_ingress import IngressSettings, get_ingress_settings
-from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import ActorType
-from shiftcodes.domain.errors import ConfigurationError, NotFoundError
-from shiftcodes.domain.ingress import CLOUDFLARE_TOKEN_SECRET, DomainStatus
-from shiftcodes.logging import SecretRedactor
-from shiftcodes.repositories.database import UnitOfWork, create_session_factory
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.domains import DomainDraft
-from shiftcodes.services.secret_cipher import SecretCipher
-from shiftcodes.services.secrets import SecretService
-from shiftcodes.worker.__main__ import build_ingress, build_rpc_server
-from shiftcodes.worker.ingress_wiring import IngressFactory
+from backend.adapters.acme.solvers import dns01_value
+from backend.adapters.worker_client import WorkerClient
+from backend.config import Settings
+from backend.config_ingress import IngressSettings, get_ingress_settings
+from backend.domain.actor import Actor
+from backend.domain.enums import ActorType
+from backend.domain.errors import ConfigurationError, NotFoundError
+from backend.domain.ingress import CLOUDFLARE_TOKEN_SECRET, DomainStatus
+from backend.logging import SecretRedactor
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.audit import AuditService
+from backend.services.domains import DomainDraft
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretService
+from backend.worker.__main__ import build_ingress, build_rpc_server
+from backend.worker.ingress_wiring import IngressFactory
 from tests.api_support import FakeClock
 from tests.conftest import DEV
 from tests.fake_acme import BASE, FakeAcmeCa
@@ -161,10 +161,10 @@ def test_ingress_is_off_unless_enabled(
         {"data_dir": tmp_path / "d", "secret_key_file": tmp_path / "k"}
     )
     factory = create_session_factory(engine)
-    monkeypatch.delenv("SHIFTCODES_INGRESS_ENABLED", raising=False)
+    monkeypatch.delenv("JENDOCK_INGRESS_ENABLED", raising=False)
     get_ingress_settings.cache_clear()
     assert build_ingress(settings, factory, SecretRedactor()) is None
-    monkeypatch.setenv("SHIFTCODES_INGRESS_ENABLED", "true")
+    monkeypatch.setenv("JENDOCK_INGRESS_ENABLED", "true")
     get_ingress_settings.cache_clear()
     try:
         enabled = build_ingress(settings, factory, SecretRedactor())

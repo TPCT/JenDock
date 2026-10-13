@@ -1,7 +1,7 @@
 """Helpers for the tests that need a real Docker daemon (``make test-docker``).
 
-Everything the tests create carries the label ``shiftcodes.test=1`` and a label unique to this
-pytest session, ``shiftcodes.test.session=<uuid>``. Cleanup and ``assert_nothing_left`` only look
+Everything the tests create carries the label ``jendock.test=1`` and a label unique to this
+pytest session, ``jendock.test.session=<uuid>``. Cleanup and ``assert_nothing_left`` only look
 at the session label, so suites running in parallel (other agents, CI jobs) on one daemon never
 see or delete each other's resources. Use ``session_labels()`` for every container, image, network,
 volume or compose project a test creates (``label_args()`` gives ``--label`` arguments).
@@ -13,15 +13,15 @@ import shutil
 import subprocess
 import uuid
 
-TEST_LABEL = "shiftcodes.test=1"
+TEST_LABEL = "jendock.test=1"
 SESSION_ID = uuid.uuid4().hex
-SESSION_LABEL = f"shiftcodes.test.session={SESSION_ID}"
+SESSION_LABEL = f"jendock.test.session={SESSION_ID}"
 BASE_CANDIDATES = ("alpine:3.20", "alpine:3.24")
 
 
 def session_labels() -> dict[str, str]:
     """The labels every resource created by a test must carry."""
-    return {"shiftcodes.test": "1", "shiftcodes.test.session": SESSION_ID}
+    return {"jendock.test": "1", "jendock.test.session": SESSION_ID}
 
 
 def label_args() -> list[str]:

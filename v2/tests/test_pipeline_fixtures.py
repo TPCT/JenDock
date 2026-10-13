@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.domain.diagnostics import Severity
-from shiftcodes.pipeline import PipelineSyntaxError, parse, serialize, validate
+from backend.domain.diagnostics import Severity
+from backend.pipeline import PipelineSyntaxError, parse, serialize, validate
 from tests.pipeline_support import CONTEXT, FIXTURES
 
 VALID = sorted((FIXTURES / "valid").glob("*.groovy"))

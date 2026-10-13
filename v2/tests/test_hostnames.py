@@ -1,8 +1,8 @@
 import pytest
 
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.domain.hostnames import Hostname
-from shiftcodes.domain.ingress import DnsRecordType, validate_dns_target, validate_port
+from backend.domain.errors import ValidationError
+from backend.domain.hostnames import Hostname
+from backend.domain.ingress import DnsRecordType, validate_dns_target, validate_port
 
 
 @pytest.mark.parametrize(

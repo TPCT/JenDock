@@ -4,8 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.api.app import create_app, create_asgi_app, wrap_security_headers
-from shiftcodes.api.container import AppContainer
+from backend.api.app import create_app, create_asgi_app, wrap_security_headers
+from backend.api.container import AppContainer
 from tests.api_support import FakeClock, make_container, make_settings
 
 EXPECTED = {

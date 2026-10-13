@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.adapters.host_helper_client import HostHelperClient, HostHelperError
-from shiftcodes.hosthelper.config import ConfigError, load_config, parse_config
-from shiftcodes.hosthelper.server import MAX_REQUEST_BYTES, HelperServer, handle_line
-from shiftcodes.hosthelper.service import HelperService
+from backend.adapters.host_helper_client import HostHelperClient, HostHelperError
+from backend.hosthelper.config import ConfigError, load_config, parse_config
+from backend.hosthelper.server import MAX_REQUEST_BYTES, HelperServer, handle_line
+from backend.hosthelper.service import HelperService
 from tests.host_helper_support import ScriptedApache, make_config, make_service
 
 HOST = "app.example.com"

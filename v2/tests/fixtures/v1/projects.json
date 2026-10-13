@@ -188,7 +188,7 @@
     }
   },
   "aic-ops": {
-    "repository": "TPCT/daily.shiftcodes.net",
+    "repository": "TPCT/daily.example.com",
     "repository_id": 1367287794,
     "branch": "main",
     "enabled": true,
@@ -196,7 +196,7 @@
     "image_prefixes": [
       "aic-ops-"
     ],
-    "label": "ops.shiftcodes.net",
+    "label": "ops.example.com",
     "container_prefixes": [
       "aic-ops-"
     ],
@@ -267,7 +267,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://ops.shiftcodes.net/",
+          "url": "https://ops.example.com/",
           "statuses": [
             200
           ]
@@ -276,7 +276,7 @@
     }
   },
   "aic-academy": {
-    "repository": "TPCT/aa01sc2026.shiftcodes.net",
+    "repository": "TPCT/aa01sc2026.example.com",
     "repository_id": 1303111288,
     "branch": "development",
     "enabled": true,
@@ -284,7 +284,7 @@
     "image_prefixes": [
       "aic-academy-"
     ],
-    "label": "aa01sc2026.shiftcodes.net",
+    "label": "aa01sc2026.example.com",
     "container_prefixes": [
       "aic-academy-"
     ],
@@ -354,7 +354,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://aa01sc2026.shiftcodes.net/",
+          "url": "https://aa01sc2026.example.com/",
           "statuses": [
             200
           ]
@@ -363,7 +363,7 @@
     }
   },
   "captcha": {
-    "repository": "TPCT/captcha.shiftcodes.net",
+    "repository": "TPCT/captcha.example.com",
     "repository_id": 1411719795,
     "branch": "main",
     "enabled": true,
@@ -402,7 +402,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://captcha.shiftcodes.net/health",
+          "url": "https://captcha.example.com/health",
           "statuses": [
             200
           ]
@@ -412,13 +412,13 @@
     "image_prefixes": [
       "dsl-captcha:"
     ],
-    "label": "captcha.shiftcodes.net",
+    "label": "captcha.example.com",
     "container_prefixes": [
       "dsl-captcha-"
     ]
   },
   "dsl01": {
-    "repository": "TPCT/dsl01sc2025.shiftcodes.net",
+    "repository": "TPCT/dsl01sc2025.example.com",
     "repository_id": 1062878648,
     "branch": "master",
     "enabled": true,
@@ -479,20 +479,20 @@
       ],
       "http_checks": [
         {
-          "url": "https://dsl01sc2025.shiftcodes.net/",
+          "url": "https://dsl01sc2025.example.com/",
           "statuses": [
             200
           ]
         }
       ]
     },
-    "label": "dsl01sc2025.shiftcodes.net",
+    "label": "dsl01sc2025.example.com",
     "container_prefixes": [
       "dsl-dsl01-"
     ]
   },
   "dsl02": {
-    "repository": "TPCT/crm01sc2025.shiftcodes.net",
+    "repository": "TPCT/crm01sc2025.example.com",
     "repository_id": 1124009541,
     "branch": "main",
     "enabled": true,
@@ -548,20 +548,20 @@
       ],
       "http_checks": [
         {
-          "url": "https://dsl02sc2025.shiftcodes.net/",
+          "url": "https://dsl02sc2025.example.com/",
           "statuses": [
             200
           ]
         }
       ]
     },
-    "label": "dsl02sc2025.shiftcodes.net",
+    "label": "dsl02sc2025.example.com",
     "container_prefixes": [
       "dsl-dsl02-"
     ]
   },
   "elfak01": {
-    "repository": "TPCT/fak01sc2025.shiftcodes.net",
+    "repository": "TPCT/fak01sc2025.example.com",
     "repository_id": 1376157514,
     "branch": "developement",
     "enabled": true,
@@ -569,7 +569,7 @@
     "image_prefixes": [
       "elfak01-"
     ],
-    "label": "elfak01sc2026.shiftcodes.net",
+    "label": "elfak01sc2026.example.com",
     "container_prefixes": [
       "elfak-elfak01-"
     ],
@@ -641,7 +641,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://elfak01sc2026.shiftcodes.net/",
+          "url": "https://elfak01sc2026.example.com/",
           "statuses": [
             200
           ]
@@ -650,7 +650,7 @@
     }
   },
   "elfak-legacy": {
-    "repository": "TPCT/elfakharany.shiftcodes.net",
+    "repository": "TPCT/elfakharany.example.com",
     "repository_id": 1369885095,
     "branch": "developement",
     "enabled": true,
@@ -658,7 +658,7 @@
     "image_prefixes": [
       "elfak-legacy-"
     ],
-    "label": "elfakharany.shiftcodes.net",
+    "label": "elfakharany.example.com",
     "container_prefixes": [
       "elfak-legacy-"
     ],
@@ -717,7 +717,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://elfakharany.shiftcodes.net/",
+          "url": "https://elfakharany.example.com/",
           "statuses": [
             200
           ]
@@ -726,7 +726,7 @@
     }
   },
   "elnahy": {
-    "repository": "TPCT/elnahy.shiftcodes.net",
+    "repository": "TPCT/elnahy.example.com",
     "repository_id": 1129116696,
     "branch": "master",
     "enabled": true,
@@ -734,7 +734,7 @@
     "image_prefixes": [
       "elnahy-"
     ],
-    "label": "elnahy.shiftcodes.net",
+    "label": "elnahy.example.com",
     "container_prefixes": [
       "elnahy-"
     ],
@@ -793,7 +793,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://elnahy.shiftcodes.net/",
+          "url": "https://elnahy.example.com/",
           "statuses": [
             200
           ]
@@ -808,17 +808,17 @@
     "enabled": true,
     "reason": "Pushes trigger automatic build, isolated checks and deployment. Runtime failures restore the previous images.",
     "image_prefixes": [
-      "shiftcodes-licence-"
+      "jendock-licence-"
     ],
-    "label": "licence.shiftcodes.net",
+    "label": "licence.example.com",
     "container_prefixes": [
-      "shiftcodes-licence-"
+      "jendock-licence-"
     ],
     "recipe": {
-      "compose_project": "shiftcodes",
-      "env_file": "/opt/docker-engine/projects/shiftcodes/.env",
+      "compose_project": "jendock",
+      "env_file": "/opt/docker-engine/projects/jendock/.env",
       "compose_files": [
-        "/opt/docker-engine/projects/shiftcodes/compose.yml"
+        "/opt/docker-engine/projects/jendock/compose.yml"
       ],
       "services": [
         "licence-app",
@@ -826,7 +826,7 @@
       ],
       "images": [
         {
-          "name": "shiftcodes-licence-app",
+          "name": "jendock-licence-app",
           "env_key": "LICENCE_VERSION",
           "target": "app",
           "dockerfile": "Dockerfile",
@@ -834,7 +834,7 @@
           "env_mode": "version"
         },
         {
-          "name": "shiftcodes-licence-web",
+          "name": "jendock-licence-web",
           "env_key": "LICENCE_VERSION",
           "target": "web",
           "dockerfile": "Dockerfile",
@@ -844,7 +844,7 @@
       ],
       "tests": [
         {
-          "image": "shiftcodes-licence-app",
+          "image": "jendock-licence-app",
           "environment": {
             "APP_ENV": "testing",
             "APP_KEY": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -869,7 +869,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://licence.shiftcodes.net/",
+          "url": "https://licence.example.com/",
           "statuses": [
             200
           ]
@@ -878,23 +878,23 @@
     }
   },
   "us01": {
-    "repository": "TPCT/us01sc2025.shiftcodes.net",
+    "repository": "TPCT/us01sc2025.example.com",
     "repository_id": 1005235674,
     "branch": "main",
     "enabled": true,
     "reason": "Pushes trigger automatic build, isolated checks and deployment. Runtime failures restore the previous images.",
     "image_prefixes": [
-      "shiftcodes-us01-"
+      "jendock-us01-"
     ],
-    "label": "us01sc2025.shiftcodes.net",
+    "label": "us01sc2025.example.com",
     "container_prefixes": [
-      "shiftcodes-us01-"
+      "jendock-us01-"
     ],
     "recipe": {
-      "compose_project": "shiftcodes",
-      "env_file": "/opt/docker-engine/projects/shiftcodes/.env",
+      "compose_project": "jendock",
+      "env_file": "/opt/docker-engine/projects/jendock/.env",
       "compose_files": [
-        "/opt/docker-engine/projects/shiftcodes/compose.yml"
+        "/opt/docker-engine/projects/jendock/compose.yml"
       ],
       "services": [
         "us01-app",
@@ -902,7 +902,7 @@
       ],
       "images": [
         {
-          "name": "shiftcodes-us01-app",
+          "name": "jendock-us01-app",
           "env_key": "US01_VERSION",
           "target": "app",
           "dockerfile": "Dockerfile",
@@ -910,7 +910,7 @@
           "env_mode": "version"
         },
         {
-          "name": "shiftcodes-us01-web",
+          "name": "jendock-us01-web",
           "env_key": "US01_VERSION",
           "target": "web",
           "dockerfile": "Dockerfile",
@@ -920,7 +920,7 @@
       ],
       "tests": [
         {
-          "image": "shiftcodes-us01-app",
+          "image": "jendock-us01-app",
           "environment": {
             "APP_ENV": "testing",
             "APP_KEY": "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -945,7 +945,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://us01sc2025.shiftcodes.net/",
+          "url": "https://us01sc2025.example.com/",
           "statuses": [
             200
           ]
@@ -954,19 +954,19 @@
     }
   },
   "website": {
-    "repository": "TPCT/shiftcodes.net",
+    "repository": "TPCT/example.com",
     "repository_id": 1311068352,
     "branch": "main",
     "enabled": true,
     "reason": "Pushes trigger automatic build, isolated checks and deployment. Runtime failures restore the previous images.",
     "image_prefixes": [
-      "shiftcodes-website-"
+      "jendock-website-"
     ],
     "recipe": {
-      "compose_project": "shiftcodes",
-      "env_file": "/opt/docker-engine/projects/shiftcodes/.env",
+      "compose_project": "jendock",
+      "env_file": "/opt/docker-engine/projects/jendock/.env",
       "compose_files": [
-        "/opt/docker-engine/projects/shiftcodes/compose.yml"
+        "/opt/docker-engine/projects/jendock/compose.yml"
       ],
       "services": [
         "website-app",
@@ -974,14 +974,14 @@
       ],
       "images": [
         {
-          "name": "shiftcodes-website-app",
+          "name": "jendock-website-app",
           "dockerfile": "Dockerfile",
           "target": "app",
           "env_key": "WEBSITE_VERSION",
           "env_mode": "version"
         },
         {
-          "name": "shiftcodes-website-web",
+          "name": "jendock-website-web",
           "dockerfile": "Dockerfile",
           "target": "web",
           "env_key": "WEBSITE_VERSION",
@@ -1010,20 +1010,20 @@
       ],
       "http_checks": [
         {
-          "url": "https://shiftcodes.net/",
+          "url": "https://example.com/",
           "statuses": [
             200
           ]
         }
       ]
     },
-    "label": "shiftcodes.net",
+    "label": "example.com",
     "container_prefixes": [
-      "shiftcodes-website-"
+      "jendock-website-"
     ]
   },
   "30sv01": {
-    "repository": "TPCT/30sv01sc2026.shiftcodes.net",
+    "repository": "TPCT/30sv01sc2026.example.com",
     "repository_id": 1310001074,
     "branch": "developement",
     "enabled": true,
@@ -1080,20 +1080,20 @@
       ],
       "http_checks": [
         {
-          "url": "https://30sv01sc2026.shiftcodes.net/",
+          "url": "https://30sv01sc2026.example.com/",
           "statuses": [
             200
           ]
         }
       ]
     },
-    "label": "30sv01sc2026.shiftcodes.net",
+    "label": "30sv01sc2026.example.com",
     "container_prefixes": [
       "30sv01-"
     ]
   },
   "eo01": {
-    "repository": "TPCT/eo01sc2026.shiftcodes.net",
+    "repository": "TPCT/eo01sc2026.example.com",
     "repository_id": 1343051852,
     "branch": "main",
     "enabled": true,
@@ -1150,14 +1150,14 @@
       ],
       "http_checks": [
         {
-          "url": "https://eo01sc2026.shiftcodes.net/",
+          "url": "https://eo01sc2026.example.com/",
           "statuses": [
             200
           ]
         }
       ]
     },
-    "label": "eo01sc2026.shiftcodes.net",
+    "label": "eo01sc2026.example.com",
     "container_prefixes": [
       "eo01-"
     ]
@@ -1335,7 +1335,7 @@
     "image_prefixes": [
       "lms-v2-"
     ],
-    "label": "lms-v2.shiftcodes.net",
+    "label": "lms-v2.example.com",
     "container_prefixes": [
       "lms-v2-"
     ],
@@ -1412,7 +1412,7 @@
       ],
       "http_checks": [
         {
-          "url": "https://lms-v2.shiftcodes.net/",
+          "url": "https://lms-v2.example.com/",
           "statuses": [
             200
           ]
@@ -1482,7 +1482,7 @@
     }
   },
   "crm": {
-    "repository": "TPCT/crm.shiftcodes.net",
+    "repository": "TPCT/crm.example.com",
     "repository_id": 1148536167,
     "branch": "master",
     "enabled": true,
@@ -1536,14 +1536,14 @@
       ],
       "http_checks": [
         {
-          "url": "https://crm.shiftcodes.net/",
+          "url": "https://crm.example.com/",
           "statuses": [
             200
           ]
         }
       ]
     },
-    "label": "crm.shiftcodes.net",
+    "label": "crm.example.com",
     "container_prefixes": [
       "crm-"
     ]

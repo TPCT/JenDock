@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.cli import CLI_ACTOR, build_parser, main, run
-from shiftcodes.config import get_settings
-from shiftcodes.domain.errors import ValidationError
-from shiftcodes.repositories.database import UnitOfWork
-from shiftcodes.repositories.migrate import upgrade_to_head
-from shiftcodes.services.audit import AuditService
-from shiftcodes.services.users import UserService
+from backend.cli import CLI_ACTOR, build_parser, main, run
+from backend.config import get_settings
+from backend.domain.errors import ValidationError
+from backend.repositories.database import UnitOfWork
+from backend.repositories.migrate import upgrade_to_head
+from backend.services.audit import AuditService
+from backend.services.users import UserService
 from tests.api_support import fast_hasher
 
 PASSWORD = "a-long-enough-password"
@@ -76,7 +76,7 @@ def test_environment_variables_are_not_a_password_source(
     service: UserService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PASSWORD", PASSWORD)
-    monkeypatch.setenv("SHIFTCODES_PASSWORD", PASSWORD)
+    monkeypatch.setenv("JENDOCK_PASSWORD", PASSWORD)
     assert run(["users", "create", "alice"], service, prompt=_prompt("x" * 12, "y" * 12)) == 1
 
 
@@ -140,7 +140,7 @@ def restore_umask() -> Iterator[None]:
 def test_main_uses_database_from_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", f"sqlite:///{tmp_path / 'cli.db'}")
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", f"sqlite:///{tmp_path / 'cli.db'}")
     get_settings.cache_clear()
     upgrade_to_head()
     monkeypatch.setattr("sys.stdin", io.StringIO(PASSWORD + "\n"))

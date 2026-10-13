@@ -14,26 +14,27 @@ from pathlib import Path
 
 import pytest
 
-from shiftcodes.backup.create import BackupSource, create_backup
-from shiftcodes.backup.manifest import (
+from backend.backup.create import BackupSource, create_backup
+from backend.backup.manifest import (
+    ARCHIVE_PREFIX,
     BackupError,
     Manifest,
     archive_name,
     validate_member,
 )
-from shiftcodes.backup.restore import known_revisions, restore_backup
-from shiftcodes.backup.retention import key_copy_of, list_archives, prune_archives
-from shiftcodes.backup.schedule import BackupScheduler, next_run
-from shiftcodes.cli import main
-from shiftcodes.config import Settings, get_settings
-from shiftcodes.domain.actor import Actor
-from shiftcodes.repositories.database import (
+from backend.backup.restore import known_revisions, restore_backup
+from backend.backup.retention import key_copy_of, list_archives, prune_archives
+from backend.backup.schedule import BackupScheduler, next_run
+from backend.cli import main
+from backend.config import Settings, get_settings
+from backend.domain.actor import Actor
+from backend.repositories.database import (
     UnitOfWork,
     create_db_engine,
     create_session_factory,
 )
-from shiftcodes.repositories.migrate import upgrade_to_head
-from shiftcodes.services.users import UserService
+from backend.repositories.migrate import upgrade_to_head
+from backend.services.users import UserService
 from tests.api_support import fast_hasher
 
 KEY = b"super-secret-key-material"
@@ -46,7 +47,7 @@ class World:
     def __init__(self, root: Path) -> None:
         self.data = root / "data"
         self.data.mkdir()
-        self.db = self.data / "shiftcodes.db"
+        self.db = self.data / "jendock.db"
         self.url = f"sqlite:///{self.db}"
         self.key = root / "keys" / "secret.key"
         self.key.parent.mkdir()
@@ -111,10 +112,10 @@ def test_archive_holds_snapshot_overrides_and_manifest_without_the_key(
     world: World, tmp_path: Path
 ) -> None:
     result = create_backup(world.source, tmp_path / "out", now=NOW)
-    assert result.archive.name == "shiftcodes-backup-20261014T030000Z.tar.gz"
+    assert result.archive.name == "jendock-backup-20261014T030000Z.tar.gz"
     names = _names(result.archive)
     assert sorted(names) == [
-        "db/shiftcodes.db",
+        "db/jendock.db",
         "manifest.json",
         "overrides/demo-dev/override.yml",
         "overrides/demo-dev/override.yml.prev",
@@ -191,21 +192,21 @@ def test_round_trip_restores_everything_and_migrations_still_pass(
 ) -> None:
     result = create_backup(world.source, tmp_path / "out", include_logs=True, now=NOW)
     target = tmp_path / "new" / "data"
-    new = BackupSource(target, target / "shiftcodes.db", tmp_path / "new" / "keys" / "secret.key")
+    new = BackupSource(target, target / "jendock.db", tmp_path / "new" / "keys" / "secret.key")
     restored = restore_backup(result.archive, new, key_file=None)
     assert restored.files == 4
     assert not restored.key_restored
     assert (target / "deployments" / "demo-dev" / "override.yml").read_text().startswith('{"serv')
     assert (target / "logs" / "7" / "3.log").read_text() == "hello log\n"
     assert not (target / "deployments" / "demo-dev" / "journal.json").exists()
-    assert stat.S_IMODE((target / "shiftcodes.db").stat().st_mode) == 0o660
-    url = f"sqlite:///{target / 'shiftcodes.db'}"
+    assert stat.S_IMODE((target / "jendock.db").stat().st_mode) == 0o660
+    url = f"sqlite:///{target / 'jendock.db'}"
     upgrade_to_head(url)  # `make migrate` on the restored database
     engine = create_db_engine(url)
     with UnitOfWork(create_session_factory(engine)) as uow:
         assert uow.users.get_by_username("alice") is not None
     engine.dispose()
-    with closing(sqlite3.connect(target / "shiftcodes.db")) as database:
+    with closing(sqlite3.connect(target / "jendock.db")) as database:
         assert database.execute("SELECT version_num FROM alembic_version").fetchone() == (
             known_revisions()[1],
         )
@@ -214,7 +215,7 @@ def test_round_trip_restores_everything_and_migrations_still_pass(
 def test_restore_can_put_a_saved_key_in_place(world: World, tmp_path: Path) -> None:
     result = create_backup(world.source, tmp_path / "out", include_key=True, now=NOW)
     target = tmp_path / "new"
-    new = BackupSource(target, target / "shiftcodes.db", tmp_path / "keys2" / "secret.key")
+    new = BackupSource(target, target / "jendock.db", tmp_path / "keys2" / "secret.key")
     assert result.key_copy is not None
     restored = restore_backup(result.archive, new, key_file=result.key_copy)
     assert restored.key_restored
@@ -316,12 +317,18 @@ def test_prune_keeps_the_newest_and_only_touches_archives(tmp_path: Path) -> Non
         stamp = datetime(2026, 10, day, 3, 0, tzinfo=UTC)
         (tmp_path / archive_name(stamp)).write_bytes(b"x")
     (tmp_path / "notes.txt").write_text("keep me")
-    (tmp_path / "shiftcodes-backup-20261001T030000Z.secret.key").write_text("k")
+    (tmp_path / "jendock-backup-20261001T030000Z.secret.key").write_text("k")
     removed = prune_archives(tmp_path, 2)
-    assert [p.name[18:26] for p in removed] == ["20261003", "20261002", "20261001"]
-    assert [p.name[18:26] for p in list_archives(tmp_path)] == ["20261005", "20261004"]
+    assert [p.name[len(ARCHIVE_PREFIX) : len(ARCHIVE_PREFIX) + 8] for p in removed] == [
+        "20261003",
+        "20261002",
+        "20261001",
+    ]
+    assert [
+        p.name[len(ARCHIVE_PREFIX) : len(ARCHIVE_PREFIX) + 8] for p in list_archives(tmp_path)
+    ] == ["20261005", "20261004"]
     assert (tmp_path / "notes.txt").exists()
-    assert (tmp_path / "shiftcodes-backup-20261001T030000Z.secret.key").exists()
+    assert (tmp_path / "jendock-backup-20261001T030000Z.secret.key").exists()
     with pytest.raises(ValueError, match="at least 1"):
         prune_archives(tmp_path, 0)
 
@@ -363,7 +370,9 @@ def test_scheduler_backs_up_prunes_and_never_includes_the_key(world: World, tmp_
     scheduler = BackupScheduler(settings, clock=lambda: next(moments))
     for _ in range(4):
         scheduler.run_once()
-    assert [p.name[18:26] for p in list_archives(backups)] == ["20261004", "20261003"]
+    assert [
+        p.name[len(ARCHIVE_PREFIX) : len(ARCHIVE_PREFIX) + 8] for p in list_archives(backups)
+    ] == ["20261004", "20261003"]
     assert not list(backups.glob("*.secret.key"))
 
 
@@ -422,9 +431,9 @@ def test_cli_create_restore_prune(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("SHIFTCODES_DATA_DIR", str(world.data))
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", world.url)
-    monkeypatch.setenv("SHIFTCODES_SECRET_KEY_FILE", str(world.key))
+    monkeypatch.setenv("JENDOCK_DATA_DIR", str(world.data))
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", world.url)
+    monkeypatch.setenv("JENDOCK_SECRET_KEY_FILE", str(world.key))
     get_settings.cache_clear()
     out = tmp_path / "cli-out"
     assert main(["backup", "create", "--to", str(out), "--include-key", "--keep", "5"]) == 0
@@ -434,15 +443,15 @@ def test_cli_create_restore_prune(
     archive = list_archives(out)[0]
     # restore into a fresh location
     fresh = tmp_path / "fresh"
-    monkeypatch.setenv("SHIFTCODES_DATA_DIR", str(fresh))
-    monkeypatch.setenv("SHIFTCODES_DATABASE_URL", f"sqlite:///{fresh / 'shiftcodes.db'}")
-    monkeypatch.setenv("SHIFTCODES_SECRET_KEY_FILE", str(fresh / "secret.key"))
+    monkeypatch.setenv("JENDOCK_DATA_DIR", str(fresh))
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", f"sqlite:///{fresh / 'jendock.db'}")
+    monkeypatch.setenv("JENDOCK_SECRET_KEY_FILE", str(fresh / "secret.key"))
     get_settings.cache_clear()
     assert (
         main(["backup", "restore", "--from", str(archive), "--key-file", str(key_copy_of(archive))])
         == 0
     )
-    assert (fresh / "shiftcodes.db").exists()
+    assert (fresh / "jendock.db").exists()
     assert main(["backup", "restore", "--from", str(archive)]) == 1  # not empty any more
     assert "refusing to restore" in capsys.readouterr().err
     assert main(["backup", "prune", "--dir", str(out), "--keep", "1"]) == 0

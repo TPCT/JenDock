@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from shiftcodes.inspector.model import MAX_STATEMENT_CHARS, Engine, ErrorCode, InspectorError
-from shiftcodes.inspector.sql_guard import validate_statement
+from backend.inspector.model import MAX_STATEMENT_CHARS, Engine, ErrorCode, InspectorError
+from backend.inspector.sql_guard import validate_statement
 
 PG = Engine.POSTGRESQL
 MY = Engine.MYSQL

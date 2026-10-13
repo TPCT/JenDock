@@ -9,20 +9,20 @@
 services:
   api:
     environment:
-      SHIFTCODES_INGRESS_ALLOW_WILDCARDS: "${INGRESS_ALLOW_WILDCARDS:-false}"
+      JENDOCK_INGRESS_ALLOW_WILDCARDS: "${INGRESS_ALLOW_WILDCARDS:-false}"
 
   worker:
     environment:
-      SHIFTCODES_INGRESS_ENABLED: "true"
-      SHIFTCODES_INGRESS_HELPER_SOCKET_PATH: /run/shiftcodes-ingress/host.sock
-      SHIFTCODES_INGRESS_PUBLIC_IPV4: "${INGRESS_PUBLIC_IPV4:-}"
-      SHIFTCODES_INGRESS_PUBLIC_IPV6: "${INGRESS_PUBLIC_IPV6:-}"
-      SHIFTCODES_INGRESS_ALLOW_WILDCARDS: "${INGRESS_ALLOW_WILDCARDS:-false}"
-      SHIFTCODES_INGRESS_ACME_EMAIL: "${INGRESS_ACME_EMAIL:?set INGRESS_ACME_EMAIL}"
+      JENDOCK_INGRESS_ENABLED: "true"
+      JENDOCK_INGRESS_HELPER_SOCKET_PATH: /run/jendock-ingress/host.sock
+      JENDOCK_INGRESS_PUBLIC_IPV4: "${INGRESS_PUBLIC_IPV4:-}"
+      JENDOCK_INGRESS_PUBLIC_IPV6: "${INGRESS_PUBLIC_IPV6:-}"
+      JENDOCK_INGRESS_ALLOW_WILDCARDS: "${INGRESS_ALLOW_WILDCARDS:-false}"
+      JENDOCK_INGRESS_ACME_EMAIL: "${INGRESS_ACME_EMAIL:?set INGRESS_ACME_EMAIL}"
       # Use the staging directory until the setup is proven:
       #   https://acme-staging-v02.api.letsencrypt.org/directory
-      SHIFTCODES_INGRESS_ACME_DIRECTORY_URL: "${INGRESS_ACME_DIRECTORY_URL:-https://acme-v02.api.letsencrypt.org/directory}"
-      SHIFTCODES_INGRESS_ACME_CHALLENGE: "${INGRESS_ACME_CHALLENGE:-dns-01}"
+      JENDOCK_INGRESS_ACME_DIRECTORY_URL: "${INGRESS_ACME_DIRECTORY_URL:-https://acme-v02.api.letsencrypt.org/directory}"
+      JENDOCK_INGRESS_ACME_CHALLENGE: "${INGRESS_ACME_CHALLENGE:-dns-01}"
     volumes:
       # Only the socket directory is shared, never Apache's configuration.
-      - ${INGRESS_HELPER_SOCKET_DIR:-/run/shiftcodes-ingress}:/run/shiftcodes-ingress
+      - ${INGRESS_HELPER_SOCKET_DIR:-/run/jendock-ingress}:/run/jendock-ingress

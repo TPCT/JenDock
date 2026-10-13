@@ -16,7 +16,7 @@ import {
   NavList,
   PageLayout,
 } from "@primer/react";
-import { useRef, useState, type ElementType, type ReactNode } from "react";
+import { memo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useLogout, useSession } from "../api/hooks";
 import { THEME_CHOICES, useTheme } from "../lib/theme";
@@ -49,7 +49,8 @@ function NavItem({
   );
 }
 
-function MainNav({ onNavigate }: { onNavigate?: () => void }) {
+/** Memoised for the reason given at RunSidebar: Primer re-creates link anchors on every render. */
+const MainNav = memo(function MainNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <NavList aria-label="Main" onClick={onNavigate}>
       <NavItem
@@ -75,7 +76,7 @@ function MainNav({ onNavigate }: { onNavigate?: () => void }) {
       </NavItem>
     </NavList>
   );
-}
+});
 
 function UserMenu() {
   const navigate = useNavigate();
@@ -165,7 +166,7 @@ export function Shell() {
         <Header.Item>
           <Header.Link as={Link} to="/projects" className={styles.brand}>
             <TerminalIcon size={24} aria-hidden="true" />
-            <span>Shiftcodes</span>
+            <span>Jendock</span>
           </Header.Link>
         </Header.Item>
         <Header.Item full />

@@ -20,7 +20,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 deploy(services: [captcha: 'dsl-captcha'])
-                healthCheck(url: 'https://captcha.shiftcodes.net/health', expectStatus: 200)
+                healthCheck(url: 'https://captcha.example.com/health', expectStatus: 200)
             }
         }
     }
