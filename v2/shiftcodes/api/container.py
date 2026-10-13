@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import timedelta
 
 from sqlalchemy import Engine
 
+from shiftcodes.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from shiftcodes.adapters.worker_client import SecretsGateway, WorkerClient
 from shiftcodes.api.cookies import CookiePolicy
 from shiftcodes.config import Settings
+from shiftcodes.config_ingress import IngressSettings, get_ingress_settings
 from shiftcodes.domain.clock import Clock, utcnow
 from shiftcodes.execution.logs import LogStore
 from shiftcodes.repositories.database import (
@@ -18,6 +21,9 @@ from shiftcodes.repositories.database import (
     create_session_factory,
 )
 from shiftcodes.services.auth import AuthService
+from shiftcodes.services.certificates import RenewalPolicy
+from shiftcodes.services.domain_status import DomainStatusService
+from shiftcodes.services.domains import DomainService
 from shiftcodes.services.passwords import PasswordHasher
 from shiftcodes.services.rate_limit import LoginRateLimiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
@@ -42,6 +48,8 @@ class AppContainer:
     limiter: LoginRateLimiter
     secrets: SecretsGateway
     cookies: CookiePolicy
+    ingress: IngressGateway = field(default_factory=UnavailableIngress)
+    ingress_settings: IngressSettings = field(default_factory=IngressSettings)
 
     @classmethod
     def build(
@@ -64,6 +72,8 @@ class AppContainer:
             limiter=limiter or LoginRateLimiter(clock),
             secrets=secrets or WorkerClient(settings.worker_socket_path),
             cookies=CookiePolicy.for_settings(settings),
+            ingress=IngressClient(settings.worker_socket_path),
+            ingress_settings=get_ingress_settings(),
         )
 
     def uow(self) -> UnitOfWork:
@@ -91,6 +101,20 @@ class AppContainer:
     def run_lifecycle(self) -> RunLifecycleService:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
+
+    def domain_service(self) -> DomainService:
+        """Return a domain service with its own unit of work."""
+        return DomainService(
+            self.uow(), self.clock, allow_wildcards=self.ingress_settings.allow_wildcards
+        )
+
+    def domain_status_service(self) -> DomainStatusService:
+        """Return the read-only domain status service."""
+        policy = RenewalPolicy(
+            renew_before=timedelta(days=self.ingress_settings.renew_before_days),
+            retry_after=timedelta(hours=self.ingress_settings.renew_retry_hours),
+        )
+        return DomainStatusService(self.uow(), self.domain_service(), policy, self.clock)
 
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""

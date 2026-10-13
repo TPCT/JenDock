@@ -39,6 +39,7 @@ from shiftcodes.domain.enums import (
     RunStatus,
     RunTrigger,
 )
+from shiftcodes.domain.ingress import DnsRecordType, DomainStatus
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -280,3 +281,70 @@ class AuditEvent(Base):
     target_type: Mapped[str] = mapped_column(String(32))
     target_id: Mapped[str | None] = mapped_column(String(64), default=None)
     details: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+
+
+class Domain(Base):
+    """A public hostname of an environment, routed to one service port by Apache.
+
+    ``hostname`` is unique across all projects. Environments are never deleted (projects are
+    archived), so the reference is RESTRICT: removing one must first tear its ingress down.
+    """
+
+    __tablename__ = "domains"
+    __table_args__ = (Index("ix_domains_environment_id", "environment_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="RESTRICT"))
+    hostname: Mapped[str] = mapped_column(String(253), unique=True)
+    service: Mapped[str] = mapped_column(String(63))
+    container_port: Mapped[int]
+    published_port: Mapped[int]
+    dns_record_type: Mapped[DnsRecordType] = mapped_column(
+        _enum(DnsRecordType), default=DnsRecordType.A
+    )
+    dns_target: Mapped[str | None] = mapped_column(String(255), default=None)
+    dns_proxied: Mapped[bool] = mapped_column(default=False)
+    tls_enabled: Mapped[bool] = mapped_column(default=True)
+    status: Mapped[DomainStatus] = mapped_column(_enum(DomainStatus), default=DomainStatus.DRAFT)
+    status_message: Mapped[str | None] = mapped_column(String(500), default=None)
+    cloudflare_zone_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    cloudflare_record_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    applied_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    last_verified_ok: Mapped[bool | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class DomainCertificate(Base):
+    """The current certificate of a domain. Key material is never stored here."""
+
+    __tablename__ = "domain_certificates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), unique=True
+    )
+    serial: Mapped[str] = mapped_column(String(64))
+    fingerprint_sha256: Mapped[str] = mapped_column(String(64))
+    challenge: Mapped[str] = mapped_column(String(16))
+    not_before: Mapped[datetime] = mapped_column(UtcDateTime)
+    not_after: Mapped[datetime] = mapped_column(UtcDateTime)
+    issued_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    attempts: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None] = mapped_column(String(500), default=None)
+
+
+class DomainCheck(Base):
+    """The latest status check of a domain (DNS, HTTPS, backend); one row per domain."""
+
+    __tablename__ = "domain_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), unique=True
+    )
+    checked_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    ok: Mapped[bool]
+    results: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)

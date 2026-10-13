@@ -18,6 +18,7 @@ from shiftcodes.domain.errors import (
     NotFoundError,
     PermissionDeniedError,
     RateLimitedError,
+    UpstreamError,
     ValidationError,
     WorkerError,
     WorkerUnavailableError,
@@ -33,6 +34,7 @@ _STATUS: tuple[tuple[type[DomainError], int, str], ...] = (
     (RateLimitedError, 429, "rate_limited"),
     (WorkerUnavailableError, 503, "worker_unavailable"),
     (WorkerError, 502, "worker_error"),
+    (UpstreamError, 502, "upstream_error"),
     (ConfigurationError, 500, "configuration_error"),
 )
 # Messages of these categories can mention internals, so clients only get a fixed text.

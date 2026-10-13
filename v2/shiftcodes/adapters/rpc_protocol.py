@@ -19,6 +19,7 @@ from shiftcodes.domain.errors import (
     ConflictError,
     DomainError,
     NotFoundError,
+    UpstreamError,
     ValidationError,
     WorkerError,
 )
@@ -34,6 +35,7 @@ class ErrorCode(StrEnum):
     CONFLICT = "conflict"
     VALIDATION = "validation"
     CONFIGURATION = "configuration"
+    UPSTREAM = "upstream"
     BAD_REQUEST = "bad_request"
     UNKNOWN_METHOD = "unknown_method"
     TOO_LARGE = "too_large"
@@ -45,6 +47,7 @@ _DOMAIN_ERRORS: dict[ErrorCode, type[DomainError]] = {
     ErrorCode.CONFLICT: ConflictError,
     ErrorCode.VALIDATION: ValidationError,
     ErrorCode.CONFIGURATION: ConfigurationError,
+    ErrorCode.UPSTREAM: UpstreamError,
 }
 
 

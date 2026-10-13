@@ -53,3 +53,11 @@ class WorkerError(DomainError):
 
 class WorkerUnavailableError(WorkerError):
     """The worker could not be reached in time."""
+
+
+class UpstreamError(DomainError):
+    """An external system the platform manages (Cloudflare, Apache helper, ACME CA) failed.
+
+    Unlike ``WorkerError`` the message is meant for the operator and is shown as is; whoever
+    raises it must keep credentials and internal paths out of it.
+    """
