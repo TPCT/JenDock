@@ -120,15 +120,27 @@ def test_env_example_is_allowed(tmp_path: Path) -> None:
 
 
 @requires_git
+def test_checkout_fetches_only_the_pinned_commit(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    commit(repo, {"a": "1"})
+    commit(repo, {"a": "2"}, "second")
+    sha = commit(repo, {"a": "3"}, "third")
+    destination = WorkspaceManager(tmp_path / "ws").create(1)
+    LocalGitSource(lambda _n: f"file://{repo}").checkout(CheckoutRequest("o/r", sha), destination)
+    assert (destination / "a").read_text() == "3"
+    assert git(destination, "rev-list", "--count", "HEAD") == "1"
+
+
+@requires_git
 def test_unknown_commit_and_missing_repository(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     commit(repo, {"a": "1"})
     manager = WorkspaceManager(tmp_path / "ws")
-    with pytest.raises(SourceError, match="git ls-tree failed"):
+    with pytest.raises(SourceError, match="git fetch failed"):
         LocalGitSource(lambda _n: str(repo)).checkout(
             CheckoutRequest("o/r", "f" * 40), manager.create(1)
         )
-    with pytest.raises(SourceError, match="git clone failed"):
+    with pytest.raises(SourceError, match="git fetch failed"):
         LocalGitSource(lambda _n: str(tmp_path / "nope")).checkout(
             CheckoutRequest("o/r", "f" * 40), manager.create(2)
         )
