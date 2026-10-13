@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { resetAdminMock } from "./src/mocks/admin";
+import { resetContainersMock } from "./src/mocks/containers";
 import { resetMockData } from "./src/mocks/data";
 import { server } from "./src/mocks/server";
 import { setMockAuthenticated } from "./src/mocks/handlers";
@@ -50,6 +51,7 @@ afterEach(() => {
   server.resetHandlers();
   resetMockData();
   resetAdminMock();
+  resetContainersMock();
 });
 afterAll(() => {
   server.close();

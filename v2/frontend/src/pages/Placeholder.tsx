@@ -1,15 +1,10 @@
-import { DatabaseIcon, PackageIcon, SearchIcon } from "@primer/octicons-react";
+import { DatabaseIcon, SearchIcon } from "@primer/octicons-react";
 import { Button } from "@primer/react";
 import { Link, useLocation } from "react-router-dom";
 import { EmptyState } from "../components/Feedback";
 import { useDocumentTitle } from "../components/PageHead";
 
 const TAB_TEXT = {
-  containers: {
-    icon: PackageIcon,
-    title: "Containers are coming soon",
-    text: "Running containers, their logs and resource use will be listed here.",
-  },
   database: {
     icon: DatabaseIcon,
     title: "Database is coming soon",

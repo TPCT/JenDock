@@ -2,6 +2,7 @@ import { http, HttpResponse, sse, type HttpHandler } from "msw";
 import type { EnvironmentName, Page, RunSummary, Session } from "../api/types";
 import type { Model } from "../api/pipelineTypes";
 import { adminHandlers } from "./admin";
+import { containerHandlers } from "./containers";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
   MOCK_CSRF,
@@ -74,6 +75,7 @@ const SIMULATED_LINES = 10;
 
 export const handlers: HttpHandler[] = [
   ...adminHandlers({ authenticated: () => authenticated, error, unauthenticated }),
+  ...containerHandlers({ authenticated: () => authenticated, error, unauthenticated }),
 
   http.get("/api/auth/session", () =>
     authenticated ? HttpResponse.json(session()) : unauthenticated(),

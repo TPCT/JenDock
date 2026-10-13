@@ -16,6 +16,8 @@ import styles from "./App.module.css";
 import { ErrorCallout, Loading } from "./components/Feedback";
 import { Shell } from "./components/Shell";
 import { LoginPage } from "./pages/Login";
+import { ContainerDetailPage } from "./pages/ContainerDetail";
+import { ContainersPage } from "./pages/Containers";
 import { DomainsPage } from "./pages/Domains";
 import { AgentsPage, GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
 import { NewProjectPage } from "./pages/NewProject";
@@ -86,6 +88,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
 }
 
 const PipelinePage = lazy(() => import("./pages/Pipeline"));
+const TerminalPage = lazy(() => import("./pages/TerminalPage"));
 
 function Root() {
   return (
@@ -93,6 +96,14 @@ function Root() {
       <UnauthenticatedRedirect />
       <Outlet />
     </>
+  );
+}
+
+function TerminalRoute() {
+  return (
+    <Suspense fallback={<Loading label="Loading the terminal" />}>
+      <TerminalPage />
+    </Suspense>
   );
 }
 
@@ -126,7 +137,13 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ProjectOverviewPage /> },
               { path: "environments/:env/runs", element: <EnvironmentRunsPage /> },
               { path: "environments/:env/pipeline", element: <PipelineRoute /> },
-              { path: "containers", element: <ProjectTabPlaceholder /> },
+              { path: "environments/:env/containers", element: <ContainersPage /> },
+              { path: "environments/:env/containers/:id", element: <ContainerDetailPage /> },
+              { path: "environments/:env/containers/:id/terminal", element: <TerminalRoute /> },
+              {
+                path: "containers",
+                element: <Navigate to="../environments/development/containers" replace />,
+              },
               { path: "database", element: <ProjectTabPlaceholder /> },
               { path: "environments/:env/domains", element: <DomainsPage /> },
               {

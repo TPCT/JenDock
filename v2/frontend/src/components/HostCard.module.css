@@ -1,0 +1,15 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--base-size-16);
+}
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+.note {
+  font-weight: var(--base-text-weight-normal);
+  font-size: var(--text-body-size-small);
+}
