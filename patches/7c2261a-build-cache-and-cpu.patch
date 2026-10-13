@@ -1,0 +1,21 @@
+--- a/worker.py
++++ b/worker.py
+@@ -216,12 +216,16 @@
+             tag = spec['name'] + ':' + version
+             set_status(db, job['id'], 'building', 'Building image ' + spec['name'] + ' from Git.')
+             args = [DOCKER, 'build', '--force-rm', '--memory', '1536m', '--cpu-period', '100000',
+-                    '--cpu-quota', '100000', '--cpu-shares', '128', '--network', 'deploy-build',
++                    # build_cpus raises the cap for heavy projects; cpu-shares 128 keeps
++                    # builds yielding to running services whenever the host is busy.
++                    '--cpu-quota', str(int(recipe.get('build_cpus', 1)) * 100000), '--cpu-shares', '128', '--network', 'deploy-build',
+                     '--label', 'net.shiftcodes.deployer=deploy-monitor',
+                     '--label', 'net.shiftcodes.job=' + str(job['id']),
+                     '--label', 'org.opencontainers.image.revision=' + sha,
+                     '-t', tag, '-f', str(source / spec['dockerfile'])]
+-            if index == 0:
++            # Layer cache is reused unless the recipe opts out: dependency layers only
++            # rebuild when their lock files change; the source is always a fresh clone.
++            if index == 0 and recipe.get('no_cache', False):
+                 args += ['--no-cache']
+             for key, value in spec.get('build_args', {}).items():
+                 args += ['--build-arg', key + '=' + value]
