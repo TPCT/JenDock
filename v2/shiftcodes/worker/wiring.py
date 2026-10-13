@@ -12,6 +12,7 @@ from shiftcodes.adapters.docker_commands import DockerCommands
 from shiftcodes.adapters.http_probe import UrllibProbe
 from shiftcodes.adapters.workspace import WorkspaceManager
 from shiftcodes.config import Settings
+from shiftcodes.containers.locks import EnvironmentLocks, LockedDeployer, managed_files
 from shiftcodes.execution.config import ExecutionConfig
 from shiftcodes.execution.environment import ExecutionEnv
 from shiftcodes.execution.logs import LogStore
@@ -25,6 +26,7 @@ from shiftcodes.repositories.database import SessionFactory, UnitOfWork
 from shiftcodes.services.deployments import DatabaseLedger
 from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
+from shiftcodes.worker.container_wiring import OVERRIDES_DIR_NAME
 from shiftcodes.worker.git_wiring import build_source
 
 PRIVATE_DIR_NAME = "worker-private"
@@ -37,11 +39,13 @@ def build_execution_env(
     session_factory: SessionFactory,
     cipher: SecretCipher,
     redactor: SecretRedactor,
+    locks: EnvironmentLocks | None = None,
 ) -> ExecutionEnv:
     """Wire the docker CLI runtime, git source, workspaces, logs and secret access.
 
     Deployment goes through ``ComposeDeployer`` (journals and managed overrides live under
-    ``<data_dir>/deployments``). The git source clones over ssh (deploy key) or https
+    ``<data_dir>/deployments``), wrapped so every deployment holds its environment's lock, shared
+    with container operations (``locks``). The git source clones over ssh (deploy key) or https
     depending on the project; commit status reporting is off unless enabled.
     """
     data_dir = settings.data_dir
@@ -72,7 +76,9 @@ def build_execution_env(
             private_dir=data_dir / PRIVATE_DIR_NAME,
         ),
         source=build_source(settings),
-        deployer=deployer,
+        deployer=LockedDeployer(
+            deployer, locks or EnvironmentLocks(), managed_files(data_dir / OVERRIDES_DIR_NAME)
+        ),
         probe=probe,
         workspaces=WorkspaceManager(
             data_dir / WORKSPACES_DIR_NAME,

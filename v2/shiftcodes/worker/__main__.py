@@ -10,6 +10,7 @@ from types import FrameType
 
 from shiftcodes.config import Settings, get_settings
 from shiftcodes.config_ingress import get_ingress_settings
+from shiftcodes.containers.locks import EnvironmentLocks
 from shiftcodes.execution.recovery import recover_interrupted_runs
 from shiftcodes.execution.scheduler import RunScheduler
 from shiftcodes.logging import SecretRedactor, configure_logging
@@ -22,6 +23,8 @@ from shiftcodes.repositories.database import (
 )
 from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
+from shiftcodes.worker.container_handlers import build_container_handlers
+from shiftcodes.worker.container_wiring import build_container_parts
 from shiftcodes.worker.git_wiring import build_branch_files, build_heads
 from shiftcodes.worker.github_handlers import github_handlers, project_source
 from shiftcodes.worker.handlers import build_handlers
@@ -95,11 +98,14 @@ def build_ingress(
 
 
 def build_scheduler(
-    settings: Settings, session_factory: SessionFactory, redactor: SecretRedactor
+    settings: Settings,
+    session_factory: SessionFactory,
+    redactor: SecretRedactor,
+    locks: EnvironmentLocks | None = None,
 ) -> RunScheduler:
     """Create the run queue; it shares the key file with the RPC server (same process)."""
     cipher = SecretCipher(settings.secret_key_file)
-    return RunScheduler(build_execution_env(settings, session_factory, cipher, redactor))
+    return RunScheduler(build_execution_env(settings, session_factory, cipher, redactor, locks))
 
 
 def _start_renewal(
@@ -125,21 +131,34 @@ def main() -> None:
     redactor = configure_logging(settings)
     engine = create_db_engine(settings.database_url)
     session_factory = create_session_factory(engine)
+    locks = EnvironmentLocks()  # shared by deployments and container operations
+    containers = build_container_parts(settings, session_factory, locks)
     ingress = build_ingress(settings, session_factory, redactor)
-    extra = (
-        build_ingress_handlers(ingress.ingress_service, ingress.check_service) if ingress else None
-    )
+    extra = {
+        **build_container_handlers(containers.services),
+        **(
+            build_ingress_handlers(ingress.ingress_service, ingress.check_service)
+            if ingress
+            else {}
+        ),
+    }
     server = build_rpc_server(settings, session_factory, redactor, extra)
-    scheduler = build_scheduler(settings, session_factory, redactor)
+    scheduler = build_scheduler(settings, session_factory, redactor, locks)
     shutdown = ShutdownHandler()
     shutdown.install()
     server.start()
+    containers.terminals.start()
+    containers.terminal_server.start()
+    containers.collector.start()
     recover_interrupted_runs(scheduler.env)
     renewal = _start_renewal(ingress, shutdown)
     logger.info("worker started")
     try:
         scheduler.run_forever(shutdown)
     finally:
+        containers.collector.stop()
+        containers.terminal_server.stop()
+        containers.terminals.shutdown()
         if renewal is not None:
             renewal.join(timeout=5)
         server.stop()

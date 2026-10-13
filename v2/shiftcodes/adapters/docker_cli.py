@@ -35,6 +35,16 @@ ENV_FILE_MODE = 0o600
 _BASE_ENV_KEYS = ("PATH", "HOME", "LANG", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
 
 
+def docker_client_env(docker_host: str | None) -> dict[str, str]:
+    """The minimal environment of a docker client process (no inherited secrets)."""
+    env = {key: os.environ[key] for key in _BASE_ENV_KEYS if key in os.environ}
+    if docker_host:
+        env["DOCKER_HOST"] = docker_host
+    elif "DOCKER_HOST" in os.environ:
+        env["DOCKER_HOST"] = os.environ["DOCKER_HOST"]
+    return env
+
+
 class _EnvFile:
     """A 0600 file removed on ``release`` (idempotent, thread-safe)."""
 
@@ -77,12 +87,7 @@ class DockerCliRuntime:
 
     @staticmethod
     def _client_env(docker_host: str | None) -> dict[str, str]:
-        env = {key: os.environ[key] for key in _BASE_ENV_KEYS if key in os.environ}
-        if docker_host:
-            env["DOCKER_HOST"] = docker_host
-        elif "DOCKER_HOST" in os.environ:
-            env["DOCKER_HOST"] = os.environ["DOCKER_HOST"]
-        return env
+        return docker_client_env(docker_host)
 
     # --- queries ------------------------------------------------------------------
 

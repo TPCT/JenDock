@@ -145,6 +145,17 @@ class WorkerClient:
             raise WorkerError("worker returned an unexpected response")
         return value
 
+    def call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
+        """Call any worker method; ``timeout`` overrides the default for slow operations."""
+        return self._call(method, actor, params, timeout=timeout)
+
     def verify_webhook(self, signature: str, body: bytes) -> bool:
         """Ask the worker to check a webhook signature; the secret never leaves the worker."""
         params = {"signature": signature, "body_b64": base64.b64encode(body).decode("ascii")}
