@@ -1,9 +1,46 @@
-import { useMemo } from "react";
+import { Details, Heading } from "@primer/react";
+import { useMemo, type ReactNode } from "react";
 import type { Catalog, Model } from "../../api/pipelineTypes";
+import styles from "../pipeline.module.css";
 import { CallList } from "./CallList";
 import { EditorEnvContext, builtImagesOf } from "./context";
 import { AgentPicker, EnvEditor, PostEditor } from "./Sections";
 import { StageList } from "./StageList";
+
+function Panel({
+  id,
+  title,
+  hint,
+  children,
+}: {
+  id: string;
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={styles.panel} aria-labelledby={id}>
+      <Heading as="h3" id={id} className={styles.panelTitle}>
+        {title}
+      </Heading>
+      {hint ? <p className={styles.hint}>{hint}</p> : null}
+      {children}
+    </section>
+  );
+}
+
+function Collapsible({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Details className={`${styles.panel} ${styles.more}`}>
+      <Details.Summary className={styles.summary}>
+        <Heading as="h3" className={styles.inlineTitle}>
+          {title}
+        </Heading>
+      </Details.Summary>
+      {children}
+    </Details>
+  );
+}
 
 export function VisualEditor({
   model,
@@ -38,11 +75,10 @@ export function VisualEditor({
 
   return (
     <EditorEnvContext value={env}>
-      <fieldset className="visual" disabled={readOnly}>
-        <legend className="sr-only">Visual pipeline editor</legend>
+      <fieldset className={styles.visual} disabled={readOnly}>
+        <legend className={styles.legendHidden}>Visual pipeline editor</legend>
 
-        <section className="panel" aria-labelledby="ve-agent">
-          <h3 id="ve-agent">Where the pipeline runs</h3>
+        <Panel id="ve-agent" title="Where the pipeline runs">
           <AgentPicker
             label="Default agent"
             allowInherit={false}
@@ -51,11 +87,13 @@ export function VisualEditor({
               set({ agent });
             }}
           />
-        </section>
+        </Panel>
 
-        <section className="panel" aria-labelledby="ve-stages">
-          <h3 id="ve-stages">Stages</h3>
-          <p className="hint">Stages run one after another, from top to bottom.</p>
+        <Panel
+          id="ve-stages"
+          title="Stages"
+          hint="Stages run one after another, from top to bottom."
+        >
           <StageList
             stages={model.stages}
             scope="stages"
@@ -63,12 +101,9 @@ export function VisualEditor({
               set({ stages });
             }}
           />
-        </section>
+        </Panel>
 
-        <details className="panel more">
-          <summary>
-            <h3 className="inline">Variables</h3>
-          </summary>
+        <Collapsible title="Variables">
           <EnvEditor
             scope="pipeline-env"
             value={model.environment}
@@ -76,12 +111,9 @@ export function VisualEditor({
               set({ environment });
             }}
           />
-        </details>
+        </Collapsible>
 
-        <details className="panel more">
-          <summary>
-            <h3 className="inline">Options</h3>
-          </summary>
+        <Collapsible title="Options">
           <CallList
             calls={model.options}
             defs={catalog.options}
@@ -93,12 +125,9 @@ export function VisualEditor({
               set({ options });
             }}
           />
-        </details>
+        </Collapsible>
 
-        <details className="panel more">
-          <summary>
-            <h3 className="inline">Parameters</h3>
-          </summary>
+        <Collapsible title="Parameters">
           <CallList
             calls={model.parameters}
             defs={catalog.parameters}
@@ -110,10 +139,9 @@ export function VisualEditor({
               set({ parameters });
             }}
           />
-        </details>
+        </Collapsible>
 
-        <section className="panel" aria-labelledby="ve-post">
-          <h3 id="ve-post">After the whole run</h3>
+        <Panel id="ve-post" title="After the whole run">
           <PostEditor
             scope="pipeline"
             value={model.post}
@@ -121,7 +149,7 @@ export function VisualEditor({
               set({ post });
             }}
           />
-        </section>
+        </Panel>
       </fieldset>
     </EditorEnvContext>
   );

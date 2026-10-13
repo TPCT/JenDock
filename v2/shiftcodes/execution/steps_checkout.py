@@ -27,7 +27,8 @@ class CheckoutStep(Step):
         """Fetch the commit and check the workspace size."""
         job = ctx.run.job
         ctx.line(f"checking out {job.repository} at {job.commit_sha[:SHA_LENGTH]}")
-        request = CheckoutRequest(job.repository, job.commit_sha)
+        ctx.line(f"pipeline source: {job.pipeline_source.value}")
+        request = CheckoutRequest(job.repository, job.commit_sha, job.git_transport)
         ctx.run.source.checkout(request, ctx.run.workspace)
         ctx.run.workspaces.enforce_limit(ctx.run.workspace)
         ctx.line("checkout complete")

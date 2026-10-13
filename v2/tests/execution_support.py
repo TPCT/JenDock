@@ -184,6 +184,7 @@ class FakeSource:
         self.files = dict(files or {"README.md": "hello\n", "Dockerfile": "FROM scratch\n"})
         self.error = error
         self.requests: list[CheckoutRequest] = []
+        self.reads: list[str] = []
 
     def checkout(self, request: CheckoutRequest, destination: Path) -> None:
         """Populate ``destination``."""
@@ -194,6 +195,11 @@ class FakeSource:
             target = destination / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
+
+    def read_file(self, request: CheckoutRequest, path: str) -> str | None:
+        """The file of the fake tree (``error`` only affects the checkout), or ``None``."""
+        self.reads.append(path)
+        return self.files.get(path)
 
 
 class FakeDeployer:

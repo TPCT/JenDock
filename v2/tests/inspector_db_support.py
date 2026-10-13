@@ -18,13 +18,8 @@ import psycopg
 import pymysql
 
 from shiftcodes.inspector.model import ConnectionSpec, Engine, TlsMode
+from tests.docker_support import label_args
 
-# Resources carry a label unique to this test run instead of the generic ``shiftcodes.test=1``:
-# other suites run ``rm -f`` on every ``shiftcodes.test=1`` container of the shared daemon, which
-# would kill these servers mid-test, and this run must not remove theirs either.
-OWNER = secrets.token_hex(4)
-OWNER_KEY = "shiftcodes.test.inspector"
-OWNER_LABEL = f"{OWNER_KEY}={OWNER}"
 ROOT_PASSWORD = "Root-Pass-" + secrets.token_hex(6)
 DATABASE = "inspectdb"
 IMAGES = {
@@ -81,7 +76,7 @@ def start_server(engine: Engine) -> RunningDb:
     image, port = IMAGES[engine]
     name = f"sc-test-{engine.value}-{secrets.token_hex(4)}"
     env = _server_env(engine)
-    args = ["run", "-d", "--name", name, "--label", OWNER_LABEL]
+    args = ["run", "-d", "--name", name, *label_args()]
     args += ["-p", f"127.0.0.1::{port}"]
     for key, value in env.items():
         args += ["-e", f"{key}={value}"]
@@ -242,25 +237,3 @@ def _seed_mysql(connection: Any) -> None:
     cursor.execute(
         f"INSERT INTO shop.`{hostile}` VALUES (1, 10, 20, 30)"  # noqa: S608
     )
-
-
-def remove_owned_resources() -> None:
-    """Remove the containers, images and networks created by this test run (only those)."""
-    filters = ["--filter", f"label={OWNER_LABEL}"]
-    containers = docker_cli("ps", "--all", "--quiet", *filters).stdout.split()
-    if containers:
-        docker_cli("rm", "--force", "--volumes", *containers)
-    networks = docker_cli("network", "ls", "--quiet", *filters).stdout.split()
-    if networks:
-        docker_cli("network", "rm", *networks)
-    images = docker_cli("image", "ls", "--all", "--quiet", *filters).stdout.split()
-    if images:
-        docker_cli("rmi", "--force", *images)
-
-
-def assert_nothing_owned_left() -> None:
-    """Fail when a container, network or image of this run survived."""
-    filters = ["--filter", f"label={OWNER_LABEL}"]
-    assert docker_cli("ps", "--all", "--quiet", *filters).stdout.split() == []
-    assert docker_cli("network", "ls", "--quiet", *filters).stdout.split() == []
-    assert docker_cli("image", "ls", "--all", "--quiet", *filters).stdout.split() == []

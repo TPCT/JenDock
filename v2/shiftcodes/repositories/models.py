@@ -35,11 +35,14 @@ from shiftcodes.domain.clock import utcnow
 from shiftcodes.domain.database import DatabaseEngine, TlsMode
 from shiftcodes.domain.enums import (
     ActorType,
+    DeploymentStatus,
     EnvironmentName,
+    GitTransport,
     PipelineSource,
     RunStatus,
     RunTrigger,
 )
+from shiftcodes.domain.ingress import DnsRecordType, DomainStatus
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -147,6 +150,9 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     repository: Mapped[str] = mapped_column(String(160))
+    git_transport: Mapped[GitTransport] = mapped_column(
+        _enum(GitTransport), default=GitTransport.HTTPS, server_default=GitTransport.HTTPS.value
+    )
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
 
@@ -164,6 +170,8 @@ class Environment(Base):
     auto_deploy: Mapped[bool] = mapped_column(default=False)
     compose_project: Mapped[str | None] = mapped_column(String(63), default=None)
     compose_files: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Interpolation env files for every compose invocation (absolute host paths).
+    compose_env_files: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     services: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
@@ -249,6 +257,39 @@ class StepRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
 
 
+class Deployment(Base):
+    """One rollout of built images to the services of an environment.
+
+    ``services`` holds one object per service: ``service``, ``previous_image``,
+    ``previous_image_id``, ``new_image`` and ``new_image_id`` (the previous ones are null when
+    the service was not running). A redeploy starts as a ``pending`` row that points at the
+    deployment whose images it reuses.
+    """
+
+    __tablename__ = "deployments"
+    __table_args__ = (
+        Index("ix_deployments_environment_id_created_at", "environment_id", "created_at"),
+        Index("ix_deployments_run_id", "run_id"),
+        Index("ix_deployments_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"))
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="RESTRICT"))
+    status: Mapped[DeploymentStatus] = mapped_column(
+        _enum(DeploymentStatus), default=DeploymentStatus.DEPLOYING
+    )
+    commit_sha: Mapped[str] = mapped_column(String(40))
+    services: Mapped[list[dict[str, str | None]]] = mapped_column(JSON, default=list)
+    message: Mapped[str | None] = mapped_column(String(500), default=None)
+    redeploy_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("deployments.id", ondelete="SET NULL"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+
+
 class Secret(Base):
     """An encrypted per-environment secret; the plaintext is never stored."""
 
@@ -307,3 +348,84 @@ class DatabaseConnection(Base):
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     last_tested_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     last_test_ok: Mapped[bool | None] = mapped_column(default=None)
+
+
+class Domain(Base):
+    """A public hostname of an environment, routed to one service port by Apache.
+
+    ``hostname`` is unique across all projects. Environments are never deleted (projects are
+    archived), so the reference is RESTRICT: removing one must first tear its ingress down.
+    """
+
+    __tablename__ = "domains"
+    __table_args__ = (Index("ix_domains_environment_id", "environment_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="RESTRICT"))
+    hostname: Mapped[str] = mapped_column(String(253), unique=True)
+    service: Mapped[str] = mapped_column(String(63))
+    container_port: Mapped[int]
+    published_port: Mapped[int]
+    dns_record_type: Mapped[DnsRecordType] = mapped_column(
+        _enum(DnsRecordType), default=DnsRecordType.A
+    )
+    dns_target: Mapped[str | None] = mapped_column(String(255), default=None)
+    dns_proxied: Mapped[bool] = mapped_column(default=False)
+    tls_enabled: Mapped[bool] = mapped_column(default=True)
+    status: Mapped[DomainStatus] = mapped_column(_enum(DomainStatus), default=DomainStatus.DRAFT)
+    status_message: Mapped[str | None] = mapped_column(String(500), default=None)
+    cloudflare_zone_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    cloudflare_record_id: Mapped[str | None] = mapped_column(String(64), default=None)
+    applied_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    last_verified_ok: Mapped[bool | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class DomainCertificate(Base):
+    """The current certificate of a domain. Key material is never stored here."""
+
+    __tablename__ = "domain_certificates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), unique=True
+    )
+    serial: Mapped[str] = mapped_column(String(64))
+    fingerprint_sha256: Mapped[str] = mapped_column(String(64))
+    challenge: Mapped[str] = mapped_column(String(16))
+    not_before: Mapped[datetime] = mapped_column(UtcDateTime)
+    not_after: Mapped[datetime] = mapped_column(UtcDateTime)
+    issued_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    attempts: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None] = mapped_column(String(500), default=None)
+
+
+class DomainCheck(Base):
+    """The latest status check of a domain (DNS, HTTPS, backend); one row per domain."""
+
+    __tablename__ = "domain_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), unique=True
+    )
+    checked_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    ok: Mapped[bool]
+    results: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+
+
+class WebhookDelivery(Base):
+    """A GitHub webhook delivery that was verified and handled (idempotency by delivery id)."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (Index("ix_webhook_deliveries_received_at", "received_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    delivery_id: Mapped[str] = mapped_column(String(64), unique=True)
+    event: Mapped[str] = mapped_column(String(32))
+    repository: Mapped[str | None] = mapped_column(String(160), default=None)
+    outcome: Mapped[str] = mapped_column(String(32))
+    received_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

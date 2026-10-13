@@ -11,10 +11,13 @@ import {
 } from "react-router-dom";
 import { isApiError, onUnauthenticated } from "./api/client";
 import { useSession } from "./api/hooks";
+import { BaseStyles } from "@primer/react";
+import styles from "./App.module.css";
 import { ErrorCallout, Loading } from "./components/Feedback";
 import { Shell } from "./components/Shell";
 import { LoginPage } from "./pages/Login";
-import { NotFoundPage, SettingsPlaceholderPage } from "./pages/Placeholder";
+import { NotFoundPage, ProjectTabPlaceholder, SettingsPlaceholderPage } from "./pages/Placeholder";
+import { ProjectLayout } from "./pages/ProjectLayout";
 import { ProjectOverviewPage } from "./pages/ProjectOverview";
 import { ProjectsPage } from "./pages/Projects";
 import { RunDetailPage } from "./pages/RunDetail";
@@ -60,7 +63,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
       return <Navigate to={`/login?next=${next}`} replace />;
     }
     return (
-      <div className="content">
+      <div className={styles.fullPage}>
         <ErrorCallout
           title="Could not reach the server"
           error={session.error}
@@ -105,9 +108,19 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "/projects", element: <ProjectsPage /> },
-          { path: "/projects/:slug", element: <ProjectOverviewPage /> },
-          { path: "/projects/:slug/environments/:env/runs", element: <EnvironmentRunsPage /> },
-          { path: "/projects/:slug/environments/:env/pipeline", element: <PipelineRoute /> },
+          {
+            path: "/projects/:slug",
+            element: <ProjectLayout />,
+            children: [
+              { index: true, element: <ProjectOverviewPage /> },
+              { path: "environments/:env/runs", element: <EnvironmentRunsPage /> },
+              { path: "environments/:env/pipeline", element: <PipelineRoute /> },
+              { path: "containers", element: <ProjectTabPlaceholder /> },
+              { path: "database", element: <ProjectTabPlaceholder /> },
+              { path: "domains", element: <ProjectTabPlaceholder /> },
+              { path: "settings", element: <ProjectTabPlaceholder /> },
+            ],
+          },
           { path: "/runs", element: <AllRunsPage /> },
           { path: "/runs/:id", element: <RunDetailPage /> },
           { path: "/settings", element: <SettingsPlaceholderPage /> },
@@ -123,7 +136,9 @@ export function App() {
   const [router] = useState(() => createBrowserRouter(appRoutes));
   return (
     <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
+      <BaseStyles>
+        <RouterProvider router={router} />
+      </BaseStyles>
     </QueryClientProvider>
   );
 }

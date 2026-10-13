@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from shiftcodes.domain.actor import Actor
 from shiftcodes.domain.enums import ActorType, TokenScope
+from shiftcodes.services.run_triggers import RunOrigin
 from shiftcodes.services.sessions import SessionContext
 from shiftcodes.services.tokens import AuthenticatedToken
 
@@ -37,3 +38,11 @@ class Principal:
         if self.token is None:
             return True
         return scope in self.token.scopes or TokenScope.ADMIN in self.token.scopes
+
+    def run_origin(self) -> RunOrigin:
+        """Who a run started by this principal is attributed to (user id or token id)."""
+        if self.session is not None:
+            return RunOrigin(self.actor, user_id=self.session.user_id)
+        if self.token is not None:
+            return RunOrigin(self.actor, token_id=self.token.id)
+        raise RuntimeError("principal has neither session nor token")

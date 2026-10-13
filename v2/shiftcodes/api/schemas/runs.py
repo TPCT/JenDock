@@ -8,7 +8,9 @@ from pydantic import BaseModel
 
 from shiftcodes.domain.enums import PipelineSource, RunStatus, RunTrigger
 from shiftcodes.execution.logs import LogChunk
-from shiftcodes.repositories.models import StepRun
+from shiftcodes.repositories.models import Run, StepRun
+from shiftcodes.services.project_queries import RunPage as RunPageData
+from shiftcodes.services.project_queries import RunSummaryData
 from shiftcodes.services.run_lifecycle import CancelOutcome
 from shiftcodes.services.run_queries import RunDetail, StageDetail
 
@@ -66,8 +68,8 @@ class StageResponse(BaseModel):
         )
 
 
-class RunResponse(BaseModel):
-    """A run with its stages and steps."""
+class RunSummary(BaseModel):
+    """A run without its stages (lists and trigger results)."""
 
     id: int
     number: int
@@ -83,17 +85,15 @@ class RunResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
-    stages: list[StageResponse]
 
     @classmethod
-    def from_detail(cls, detail: RunDetail) -> RunResponse:
-        """Build from the run read model."""
-        run = detail.run
+    def from_run(cls, run: Run, project: str, environment: str) -> RunSummary:
+        """Build from a run row and the names of its project and environment."""
         return cls(
             id=run.id,
             number=run.number,
-            project=detail.project,
-            environment=detail.environment,
+            project=project,
+            environment=environment,
             trigger=run.trigger,
             branch=run.branch,
             commit_sha=run.commit_sha,
@@ -104,7 +104,43 @@ class RunResponse(BaseModel):
             created_at=run.created_at,
             started_at=run.started_at,
             finished_at=run.finished_at,
-            stages=[StageResponse.from_detail(stage) for stage in detail.stages],
+        )
+
+    @classmethod
+    def from_data(cls, data: RunSummaryData) -> RunSummary:
+        """Build from the run list read model."""
+        return cls.from_run(data.run, data.project, data.environment)
+
+
+class RunResponse(RunSummary):
+    """A run with its stages and steps."""
+
+    stages: list[StageResponse]
+
+    @classmethod
+    def from_detail(cls, detail: RunDetail) -> RunResponse:
+        """Build from the run read model."""
+        summary = RunSummary.from_run(detail.run, detail.project, detail.environment)
+        stages = [StageResponse.from_detail(stage) for stage in detail.stages]
+        return cls(**summary.model_dump(), stages=stages)
+
+
+class RunPage(BaseModel):
+    """One page of runs, newest first."""
+
+    items: list[RunSummary]
+    total: int
+    limit: int
+    offset: int
+
+    @classmethod
+    def from_page(cls, page: RunPageData) -> RunPage:
+        """Build from the page read model."""
+        return cls(
+            items=[RunSummary.from_data(item) for item in page.items],
+            total=page.total,
+            limit=page.limit,
+            offset=page.offset,
         )
 
 

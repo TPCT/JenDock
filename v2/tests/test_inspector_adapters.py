@@ -20,7 +20,11 @@ from shiftcodes.inspector.model import (
     RowRequest,
 )
 from shiftcodes.inspector.operations import InspectorAdapter, open_adapter
-from tests.docker_support import docker_available
+from tests.docker_support import (
+    assert_nothing_left,
+    docker_available,
+    remove_test_resources,
+)
 from tests.inspector_db_support import (
     BINARY_LENGTH,
     HOSTILE_COLUMNS_MYSQL,
@@ -29,9 +33,7 @@ from tests.inspector_db_support import (
     HOSTILE_PG,
     ITEM_COUNT,
     RunningDb,
-    assert_nothing_owned_left,
     connect_admin,
-    remove_owned_resources,
     seed,
     start_server,
     stop_server,
@@ -52,8 +54,8 @@ def db(request: pytest.FixtureRequest) -> Iterator[RunningDb]:
         yield server
     finally:
         stop_server(server)
-        remove_owned_resources()
-        assert_nothing_owned_left()
+        remove_test_resources()
+        assert_nothing_left()
 
 
 @pytest.fixture

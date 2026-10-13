@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "errors": [{"code": 7003, "message": "Could not route to the requested resource"}],
+  "messages": [],
+  "result": null
+}

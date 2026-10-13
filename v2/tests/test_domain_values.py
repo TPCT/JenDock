@@ -8,6 +8,7 @@ from shiftcodes.domain.values import (
     GitHubRepository,
     ProjectSlug,
     SecretName,
+    validate_compose_env_files,
     validate_compose_files,
     validate_compose_project,
     validate_display_name,
@@ -115,6 +116,13 @@ def test_compose_files() -> None:
     for bad in [["compose.yml"], ["/srv/../etc/x"], ["/a", "/a"], ["/a\0b"]]:
         with pytest.raises(ValidationError):
             validate_compose_files(bad)
+
+
+def test_compose_env_files() -> None:
+    assert validate_compose_env_files(["/opt/p/ports.env"]) == ["/opt/p/ports.env"]
+    for bad in [["ports.env"], ["/srv/../etc/x"], ["/a", "/a"], ["/a\0b"]]:
+        with pytest.raises(ValidationError):
+            validate_compose_env_files(bad)
 
 
 def test_compose_project() -> None:

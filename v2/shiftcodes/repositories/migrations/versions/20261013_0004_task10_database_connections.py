@@ -1,7 +1,7 @@
 """database connections for the inspector
 
 Revision ID: 0004_task10
-Revises: 0003
+Revises: 0004_task07
 Create Date: 2026-10-13 15:00:00.000000
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0004_task10"
-down_revision: str | None = "0003"
+down_revision: str | None = "0004_task07"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

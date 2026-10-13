@@ -23,6 +23,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `shiftcodes/cli.py` - admin CLI (`python -m shiftcodes.cli users ...`)
 - `shiftcodes/mcp` - MCP server for AI agents
 - `shiftcodes/config.py`, `shiftcodes/logging.py` - settings (`SHIFTCODES_*`) and JSON logging
+- `shiftcodes/hosthelper` - the host helper (stdlib + cryptography): Apache vhosts, certificates;
+  ingress design in `docs/ingress.md`, install in `docs/ingress-host-helper.md`
 - `docker/` - `api.Dockerfile`, `worker.Dockerfile`; `compose.yml` wires them together
 
 ## Make targets
@@ -34,7 +36,10 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make test` - pytest (tests marked `docker` are deselected)
 - `make test-docker` - the real-Docker integration tests (`pytest -m docker`); they are skipped
   when no Docker daemon or git is available. They build and run containers in the local daemon,
-  label everything `shiftcodes.test=1`, and the teardown removes it and fails if anything is left
+  label everything `shiftcodes.test=1` plus a per-session `shiftcodes.test.session=<uuid>`
+  (`tests/docker_support.py`: `session_labels()`), and the teardown removes and checks only that
+  session's containers, images, networks and volumes, so parallel suites on one daemon do not
+  interfere
 - `make migrate` - `python -m shiftcodes.repositories.migrate` (upgrade head on
   `SHIFTCODES_DATABASE_URL`); the same command works inside the api/worker images
 - `make lock` - regenerate `requirements.lock` (needs Docker)
@@ -51,6 +56,12 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   `SHIFTCODES_DOCKER_HOST` points to.
 - `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
   see `stat -c %g <socket>`). Added to the worker via `group_add`.
+- `COMPOSE_PROJECTS_DIR` - host directory with the compose files and `--env-file` files of the
+  deployed projects (default `/opt/docker-engine/projects`). It is mounted read-only into the
+  worker at the **identical absolute path**: the compose CLI runs in the worker but the host
+  daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
+  file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
+  below it; the deployer refuses to start a deployment when one is not readable.
 
 ## Reproducible builds
 
@@ -70,7 +81,8 @@ Dockerfiles. `make lock` regenerates it inside `python:3.13.9-slim`.
   container mounts only `data` and `worker-socket`. Upgrading from Task 2: copy `secret.key`
   from the data volume into the `keys` volume, then delete it from the data volume.
 - Worker RPC (`shiftcodes/worker/rpc.py`, client `shiftcodes/adapters/worker_client.py`):
-  JSON lines, method allowlist (`ping`, `secrets.set|list|delete|reveal`), 1 MiB request limit,
+  JSON lines, method allowlist (`ping`, `secrets.set|list|delete|reveal`, `github.verify_webhook`,
+  `github.branch_head`), 2 MiB request limit (a 1 MiB webhook body travels base64-encoded),
   per-request id, 5 s client timeout, structured errors mapped back to domain errors. Each secret
   call carries the acting principal (user or token) which the worker writes to the audit log; the
   worker takes that identity at face value (see below). The socket is created with mode 0660
@@ -157,7 +169,7 @@ which is audited (name only, never the value).
 
 ### Model
 
-A run is created `queued` (Task 6 adds the webhook and manual triggers; tests use `RunService`).
+A run is created `queued` by a webhook push, a manual run or a retry (see "GitHub integration").
 The worker polls the queue (`SHIFTCODES_QUEUE_POLL_INTERVAL`), claims the **oldest** queued run
 with an atomic conditional update (`queued -> running`) while fewer than
 `SHIFTCODES_MAX_CONCURRENT_RUNS` (default 1, a global limit of this worker) are executing, and
@@ -199,9 +211,54 @@ the exit code.
   step). Strings are rendered from the AST parts and the resolved environment, never evaluated.
   `credentials('X')` is resolved by the worker through `SecretService.resolve_for_run` (audited as
   `secret.resolve`) and registered with the run's redactor.
-- `deploy` calls a `Deployer`; until Task 7 the worker wires `UnavailableDeployer`, which fails
-  the step with "deploy is not available yet (Task 7)". `healthCheck` does an HTTP GET (redirects
-  are not followed) every 2 s until the expected status or its timeout.
+- `deploy` calls a `Deployer` (`ComposeDeployer`, see Deployment below); optional
+  `healthUrl`/`healthStatus`/`healthTimeout` arguments add an HTTP check that must pass before
+  the deployment counts as good. `healthCheck` does an HTTP GET (redirects are not followed)
+  every 2 s until the expected status or its timeout.
+
+### Deployment (Task 7)
+
+`ComposeDeployer` (`shiftcodes/adapters/compose_deployer.py`) deploys the requested services of
+an environment and nothing else:
+
+0. Every compose invocation (config, ps, up, rm; deploy, rollback and recovery) starts with
+   `docker compose --env-file <f>... -p <project> -f <file>... [-f <override>]`, built only by
+   `ComposeProject.base_command` (Task 8 reuses it). `compose_env_files` of the environment
+   supply the variable interpolation of the compose files; every compose and env file must be
+   readable by the worker, otherwise the deployment is refused with a clear error.
+1. It checks that every service exists in `docker compose config` of the environment's own files
+   and that the new image exists locally (it never pulls or builds).
+2. It records, per service, the running image tag and id in a `deployments` row, and writes a
+   journal `<data_dir>/deployments/<compose project>/journal.json` (fsynced) with everything
+   needed to undo the change.
+3. It writes the managed override `<data_dir>/deployments/<compose project>/override.yml`
+   (atomic; the replaced version stays as `override.yml.prev`) that pins `image:` of each
+   deployed service, and runs `docker compose -p <project> -f <files...> -f <override> up -d
+   --no-deps --no-build --pull never <services>`. The override is always the last compose file, so
+   later restarts or recreations of the service keep the deployed image (Task 8 must append
+   `OverrideStore.path()` too).
+4. It waits (`SHIFTCODES_DEPLOY_HEALTH_TIMEOUT`, default 120 s) until every container is
+   `running` and, when it has a healthcheck, `healthy`, and stays so for
+   `SHIFTCODES_DEPLOY_SETTLE_SECONDS` (default 3) without its restart count increasing; then the
+   optional HTTP check runs.
+5. On any failure it restores the previous override, recreates the services from their previous
+   image (pinned by id when the tag moved; a service that did not exist before is removed) and
+   verifies them again: the deployment becomes `rolled_back`, or `rollback_failed` (the run fails
+   with a message starting `ROLLBACK FAILED`). Either way the step fails.
+6. After success it removes old images (`SHIFTCODES_IMAGE_RETENTION`, default 5): per logical
+   image (repository) of this project and environment (labels `shiftcodes.project` and
+   `shiftcodes.environment` are required, so foreign images are never touched) only the newest N
+   remain, plus any image used by a container and the images of the latest deployment
+   (previous and new).
+
+At worker start `recover_interrupted_deployments` (before runs are marked `interrupted`) rolls
+back every deployment whose journal is still on disk and marks deployments left `deploying`
+without a journal as `failed`. Recovery always rolls back rather than finishing, because the run
+that owned the deployment ends `interrupted`. One deployment per environment runs at a time.
+
+`GET .../deployments` lists the history and `POST .../deployments/{id}/redeploy` queues a run
+(trigger `redeploy`) that deploys the images of a successful deployment again without checkout
+or build; see `docs/api-contract.md`.
 
 ### Docker agents
 
@@ -247,7 +304,8 @@ cancel and shutdown. `LocalGitSource` runs `git clone --no-checkout`, refuses a 
 tracks `.env`, `id_rsa`, `id_ed25519`, `id_ecdsa` or `id_dsa` (before writing the tree), then
 `git checkout --detach <sha>` and verifies `HEAD == sha`. The clone URL is
 `SHIFTCODES_GIT_URL_TEMPLATE` (default `https://github.com/{repository}.git`, public repositories
-only until Task 6 adds deploy keys); the `SourceProvider` protocol is what Task 6 implements. A workspace
+only) for projects on the `https` transport; `ssh` projects use the deploy key (see "GitHub
+integration"). A workspace
 larger than `SHIFTCODES_WORKSPACE_MAX_BYTES` (2 GiB) fails the run; it is measured after checkout and
 after each `sh` step (a single step can still exceed it until it ends). When the worker itself runs
 in a container, `SHIFTCODES_WORKSPACE_HOST_DIR` must name the host directory mounted at
@@ -306,8 +364,182 @@ label and every workspace directory removed, then are marked `interrupted` with 
 | `SHIFTCODES_STEP_LOG_MAX_BYTES` | 5 MiB | log bound per step |
 | `SHIFTCODES_WORKSPACE_HOST_DIR` | unset | host path of the workspaces (worker in a container) |
 | `SHIFTCODES_GIT_URL_TEMPLATE` / `_GIT_BINARY` | GitHub https / `git` | source clone |
+| `SHIFTCODES_GIT_SSH_KEY_FILE` | unset | deploy key (ssh transport); worker-only keys volume |
+| `SHIFTCODES_GIT_SSH_KNOWN_HOSTS_FILE` | `/etc/shiftcodes/github_known_hosts` | pinned GitHub host key |
+| `SHIFTCODES_GITHUB_WEBHOOK_SECRET_FILE` | unset | webhook secret; worker-only keys volume |
+| `SHIFTCODES_GITHUB_STATUS_ENABLED` / `_GITHUB_STATUS_TOKEN_SECRET` | `false` / `GITHUB_STATUS_TOKEN` | commit statuses |
 | `SHIFTCODES_QUEUE_POLL_INTERVAL`, `_CANCEL_POLL_INTERVAL` | 1 s | worker polling |
 | `SHIFTCODES_SSE_POLL_INTERVAL`, `_SSE_HEARTBEAT_INTERVAL` | 0.5 s / 15 s | event stream |
+| `SHIFTCODES_FRONTEND_DIST` | unset | built web UI served by the API (the API image sets it) |
+
+## GitHub integration (Task 6)
+
+### Trust split
+
+GitHub secrets never reach the API. The **worker** holds the webhook secret
+(`SHIFTCODES_GITHUB_WEBHOOK_SECRET_FILE`) and the deploy key (`SHIFTCODES_GIT_SSH_KEY_FILE`), both
+files in the `keys` volume, and runs every `git` command (`ls-remote`, fetch, clone). The API
+forwards the raw webhook body and the `X-Hub-Signature-256` header over the worker socket
+(`github.verify_webhook`) and gets back a boolean; it also asks `github.branch_head` for branch
+heads. Chosen over giving the API its own HMAC key because the API is the process that parses
+internet input: with this split a compromised API cannot read the secret or the key, and the
+worker's constant-time comparison (`hmac.compare_digest`) is the only place the secret is used.
+Trade-off: while the worker is down the webhook answers 503 (GitHub shows a failed delivery; the
+runs could not execute then anyway) and a body goes over the socket base64-encoded, which is why
+the RPC limit is 2 MiB.
+
+### Webhook `POST /api/github/webhook`
+
+No session, token or CSRF: the HMAC signature is the authentication.
+
+- Order of checks: signature header format (401), `Content-Type: application/json` (415), body
+  at most 1 MiB, also when chunked (413), signature verified by the worker (401), delivery id
+  `X-GitHub-Delivery` (422), JSON object (422). Requests that fail signature verification
+  (missing, malformed or wrong) are counted per client IP; 30 per minute answers 429 with
+  `Retry-After` before the worker is called (the same in-memory limiter as logins, so a restart
+  resets it). Valid deliveries are never counted. Nothing is stored or audited for a rejected
+  request (a warning is logged).
+- Events: `ping` answers 200 `{"outcome": "pong"}`. `push` is routed; any other signed event is
+  acknowledged with 202 `ignored`.
+- Allowlist: the repository (`repository.full_name`, case-insensitive) must belong to a
+  non-archived project. A project's environments follow the branch they track (`branch` of the
+  environment). A push to that branch with `auto_deploy` on queues a run (trigger `push`, branch,
+  the pushed `after` sha pinned); with `auto_deploy` off the delivery is recorded (`recorded`, no
+  run). Branch deletes (`deleted` or an all-zero `after`), tags, other branches and unknown
+  repositories are `ignored` (202 with a `reason`). Several projects on one repository all run.
+- Idempotency: every handled delivery id is stored in `webhook_deliveries` in the same transaction
+  as its runs, so a replay (GitHub redelivery, a retry) answers 200 `duplicate` and changes
+  nothing. A delivery that failed with a 5xx stored nothing and may be retried. Rows older than 30
+  days are removed on the next delivery.
+- Audit: `github.webhook` (delivery id, event, repository, branch, outcome, run ids) by the
+  `system:github` actor and `run.create` for each run. A malformed push payload is 422 and is not
+  remembered. Repositories are matched by name, not by GitHub's numeric id (v1 also checked the id):
+  a renamed or transferred repository stops matching until the project is updated.
+
+Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids], "reason": ...}`.
+
+### Setup
+
+1. Webhook secret: `openssl rand -hex 32 > github_webhook_secret` into the `keys` volume (mode
+   0600, owner uid 10001, e.g. `docker compose run --rm -T worker sh -c 'cat > /run/shiftcodes-keys/github_webhook_secret'`),
+   the same value in the GitHub webhook (content type `application/json`, events: push; URL
+   `https://<host>/api/github/webhook`). Surrounding whitespace in the file is ignored; the file is
+   read at each delivery, so rotating it needs no restart.
+2. Deploy key (read-only is enough): `ssh-keygen -t ed25519 -N '' -f deploy_key`, add the public
+   half as a deploy key of each private repository, put the private file in the `keys` volume as
+   `deploy_key` (mode 0600). Projects with `git_transport: "ssh"` (the default for new projects)
+   then clone as `ssh://git@github.com/<owner>/<repo>.git`. Public repositories can use
+   `"https"` per project (`PATCH /api/projects/{slug}`); existing projects were migrated to `https`.
+3. Commit statuses (optional, off by default): set `GITHUB_STATUS_ENABLED=true` and store a token
+   with the `repo:status` permission as the environment secret `GITHUB_STATUS_TOKEN`. The worker
+   posts `pending` when a run starts and `success`, `failure` or `error` (cancelled or interrupted)
+   when it ends, context `shiftcodes/<environment>`, linking to `/runs/<id>`. A missing secret, a
+   GitHub error or a timeout is logged (type only, never the token) and never affects the run.
+   Reading the token is audited as `secret.resolve`.
+
+### SSH details
+
+`GitSshSource` runs `git` with an argv list (never a shell) and `GIT_SSH_COMMAND` set to
+`ssh -F /dev/null -i <key> -p 443 -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes
+-o PasswordAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<pinned>
+-o GlobalKnownHostsFile=/dev/null -o HostKeyAlgorithms=ssh-ed25519 -o HostKeyAlias=github.com
+-o Hostname=ssh.github.com ...` (git itself passes the string to `sh -c`, so every token is
+shell-quoted by `shlex.join`; a test checks that paths with shell metacharacters round-trip). It
+connects to `ssh.github.com:443` (port 22 is blocked on the production VPS) and verifies the host
+key against `docker/github_known_hosts`, which the worker image installs at
+`/etc/shiftcodes/github_known_hosts`. Only the ed25519 host key is pinned (fingerprint
+`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`); to refresh it after a GitHub key
+rotation run `scripts/refresh_github_known_hosts.py`, compare the fingerprint with GitHub's
+documentation and commit the file. The worker image now includes `openssh-client`.
+
+### Which pipeline a run executes (6.5)
+
+The run row is created with the environment's latest stored pipeline as a provisional snapshot.
+When the worker starts the run it reads `Jenkinsfile` at the repository root of the **pinned
+commit** (a depth-1 fetch of that commit, no clone): if present it is the pipeline (source
+`repository`), otherwise the latest stored platform pipeline (source `platform`; the snapshot taken
+at queue time is the fallback when nothing is stored), and with neither the run fails with a
+clear message. The pipeline editor's repository detection (`pipeline.repository_file`) uses the same code path
+(branch head via `git ls-remote`, then the file at that commit through the project's transport).
+A repository that cannot be read fails the run; it never silently falls back to
+the stored pipeline. The chosen source and the exact text are written back to the run, then the
+text is validated like any save. A missing pipeline or any diagnostic of an invalid one is written
+to the step log of a failed `Pipeline` stage (the run's other stages are not created); a valid run
+shows `pipeline source: repository|platform` in the Checkout log. A symlink, a directory or a file
+larger than 256 KiB named `Jenkinsfile` is an error.
+
+### Endpoints
+
+See `docs/api-contract.md` (Projects, Runs): project list, create and settings, environment
+runs, branch heads (`git ls-remote` in the worker), manual runs and retries.
+
+## MCP server for AI agents (Task 12)
+
+The API process serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at
+`POST /mcp` (official `mcp` SDK 2.3.0, streamable HTTP, stateless JSON responses). It is mounted in
+the API instead of being a separate service: one process and one database, and the tools call
+the **same services as the REST routers** (the response shapes are the REST schemas), so no logic
+is duplicated and nothing is reachable that the API itself could not do. `SHIFTCODES_MCP_ENABLED=false`
+removes the route.
+
+### Authentication and scopes
+
+- Only `Authorization: Bearer sct_...` (the API tokens above) is accepted; cookies are never read,
+  so a browser session cannot reach `/mcp`. A missing or invalid token answers 401 with
+  `WWW-Authenticate: Bearer`.
+- A request with an `Origin` header must carry exactly `SHIFTCODES_PUBLIC_ORIGIN` (403 otherwise);
+  agents normally send none. The SDK also checks the `Host` header against the public origin's host
+  plus `SHIFTCODES_MCP_ALLOWED_HOSTS` (comma separated; set it when a reverse proxy changes the
+  Host header, e.g. `127.0.0.1:8000`).
+- `tools/list` shows only the tools whose scope the token holds, and `tools/call` re-checks the
+  scope (an unknown tool and a missing scope give the same `forbidden` answer). `admin` implies
+  every scope.
+
+### Tools
+
+| Scope | Tools |
+| --- | --- |
+| `read` | `list_projects`, `get_project`, `list_secret_names` (names only), `list_runs`, `get_run`, `read_step_log`, `preview_commit`, `get_pipeline`, `list_pipeline_versions`, `get_pipeline_version`, `validate_pipeline`, `dry_run_pipeline`, `get_pipeline_catalog`, `get_pipeline_templates` |
+| `pipelines` | `save_pipeline` (needs the `base_version` you read; validated first) |
+| `run` | `trigger_run`, `retry_run`, `cancel_run` |
+| `read` (domains) | `list_domains` (status, certificate state and expiry, latest check), `get_domain`, `list_certificates` |
+| `admin` (domains) | `check_domain`, `preview_domain_change` (DNS and vhost plan with its `plan_hash`; nothing changes), `apply_domain` / `remove_domain` (only with the previewed `plan_hash`), `issue_certificate`; scopes mirror the REST routes |
+| `deploy` | none yet: `mcp/tools/deploy.py` is a marked stub (planned `list_deployments`, `redeploy`, `rollback`) until Task 7 is merged |
+
+A manual run is two steps: `preview_commit` shows the branch head (sha, message, author, date) and
+`trigger_run` must be given exactly that `commit_sha`; it fails with `conflict` when the branch
+moved in between. There is no tool to reveal, set or delete a secret, and step logs are the
+already-masked ones. Failed calls return `isError` results `{"error": {"code", "message",
+"diagnostics"?}}` using the REST error codes.
+
+Adding an area is one module in `shiftcodes/mcp/tools/` that defines `TOOLS` (a tuple of `Tool`
+with scope, JSON Schema and a handler that uses `ToolContext.container`), registered in
+`tools/__init__.py`; containers, database and domain tools join there when those tasks merge.
+
+### Audit
+
+Every `tools/call` writes an audit event `mcp.tool_call` with the **token** as actor
+(`ActorType.TOKEN`, the token id), target `mcp_tool/<name>`, and details `{tool, outcome, arguments}`
+where outcome is `ok`, `denied`, `invalid` or `error`. Arguments are recorded clipped to 200
+characters; a Jenkinsfile is recorded only as its length. Mutations are additionally audited by the
+services themselves (`run.create`, `run.cancel`, pipeline saves) with the same token identity.
+
+### Using it
+
+1. In the UI (session only; a token can never manage tokens) create a token under API tokens,
+   with the smallest set of scopes the agent needs (for example `read` + `run`), and copy the
+   `sct_...` value, which is shown once. Revoke it there when the agent is done.
+2. Point the client at `https://<host>/mcp` with the header `Authorization: Bearer <token>`:
+
+   ```
+   claude mcp add --transport http shiftcodes https://<host>/mcp \
+     --header "Authorization: Bearer sct_..."
+   ```
+
+   Other clients take the same two values in their server configuration, for example
+   `{"mcpServers": {"shiftcodes": {"type": "http", "url": "https://<host>/mcp",
+   "headers": {"Authorization": "Bearer sct_..."}}}}`.
+3. Check with `tools/list`: the tools shown are exactly those the token's scopes allow.
 
 ## Pipelines (Jenkinsfile)
 
@@ -395,6 +627,20 @@ written in the canonical call style). For every accepted text,
 `parse(serialize(parse(x))) == parse(x)` (spans are excluded from equality). Comments are not
 part of the AST and are not preserved: the visual editor rewrites the canonical form, while
 text-mode edits keep the user's own text.
+
+### Editors, templates and dry run
+
+The browser never parses Jenkinsfile text. `shiftcodes/pipeline/model*.py` define the JSON
+editing model (pydantic) and its two converters (`to_model` / `to_ast`, round trip tested on every
+valid fixture); `catalog.py` generates the step catalogue (titles, help texts, enums, bounds and
+image roles come from `steps.py`, so forms and validator cannot disagree);
+`pipeline/templates/` holds the starter Jenkinsfiles (also compared with real Jenkins);
+`execution/dry_run.py` plans a pipeline for a branch without executing it. The endpoints are in
+`docs/api-contract.md`, "Pipelines". The repository's `Jenkinsfile` is detected by the worker
+(`pipeline.repository_file` RPC, a depth-1 filtered fetch of the environment branch).
+
+The API image builds `frontend/` (node stage) and serves it, with a fallback to `index.html`
+for client routes (`shiftcodes/api/frontend.py`).
 
 ### Example
 

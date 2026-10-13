@@ -37,6 +37,17 @@ class RunTrigger(StrEnum):
     REDEPLOY = "redeploy"
 
 
+class DeploymentStatus(StrEnum):
+    """Outcome of one deployment of images to an environment."""
+
+    PENDING = "pending"  # a redeploy that is queued but has not started
+    DEPLOYING = "deploying"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"  # nothing was changed
+    ROLLED_BACK = "rolled_back"  # the new images failed; the previous ones run again
+    ROLLBACK_FAILED = "rollback_failed"  # the new images failed and so did the rollback
+
+
 class PipelineSource(StrEnum):
     """Where the pipeline text of a run came from."""
 
@@ -62,3 +73,10 @@ class TokenScope(StrEnum):
     TERMINAL = "terminal"
     PIPELINES = "pipelines"
     ADMIN = "admin"
+
+
+class GitTransport(StrEnum):
+    """How a project's repository is cloned."""
+
+    SSH = "ssh"  # deploy key over ssh.github.com:443
+    HTTPS = "https"  # public repositories only

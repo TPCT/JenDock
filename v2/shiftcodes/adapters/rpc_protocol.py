@@ -19,11 +19,14 @@ from shiftcodes.domain.errors import (
     ConflictError,
     DomainError,
     NotFoundError,
+    SourceUnavailableError,
+    UpstreamError,
     ValidationError,
     WorkerError,
 )
 
-MAX_MESSAGE_BYTES = 1024 * 1024
+# 2 MiB: a GitHub webhook body of up to 1 MiB travels base64-encoded (4/3 of its size).
+MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 MAX_ID_LENGTH = 64
 
 
@@ -34,6 +37,8 @@ class ErrorCode(StrEnum):
     CONFLICT = "conflict"
     VALIDATION = "validation"
     CONFIGURATION = "configuration"
+    UPSTREAM = "upstream"
+    SOURCE = "source"
     BAD_REQUEST = "bad_request"
     UNKNOWN_METHOD = "unknown_method"
     TOO_LARGE = "too_large"
@@ -45,6 +50,8 @@ _DOMAIN_ERRORS: dict[ErrorCode, type[DomainError]] = {
     ErrorCode.CONFLICT: ConflictError,
     ErrorCode.VALIDATION: ValidationError,
     ErrorCode.CONFIGURATION: ConfigurationError,
+    ErrorCode.UPSTREAM: UpstreamError,
+    ErrorCode.SOURCE: SourceUnavailableError,
 }
 
 

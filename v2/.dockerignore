@@ -7,5 +7,7 @@
 tests
 docs
 frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo
 *.md
 compose.yml

@@ -6,13 +6,27 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from shiftcodes.api.container import AppContainer
 from shiftcodes.api.errors import register_error_handlers
+from shiftcodes.api.frontend import mount_frontend
 from shiftcodes.api.middleware import SecurityHeadersMiddleware
-from shiftcodes.api.routers import auth, databases, runs, secrets, tokens
+from shiftcodes.api.routers import (
+    auth,
+    databases,
+    deployments,
+    domains,
+    github,
+    pipelines,
+    projects,
+    runs,
+    secrets,
+    tokens,
+)
 from shiftcodes.config import Settings, get_settings
+from shiftcodes.mcp.server import MCP_PATH, McpEndpoint
 
 
 def create_app(settings: Settings | None = None, container: AppContainer | None = None) -> FastAPI:
@@ -25,9 +39,15 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     wired = container or AppContainer.build(resolved)
     production = resolved.environment == "production"
 
+    mcp = McpEndpoint(wired) if resolved.mcp_enabled else None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
+        if mcp is None:
+            yield
+        else:
+            async with mcp.lifespan():
+                yield
         wired.engine.dispose()
 
     # No Swagger UI: its CDN assets conflict with the strict CSP. The schema is development-only.
@@ -44,12 +64,23 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(tokens.router)
     app.include_router(secrets.router)
     app.include_router(databases.router)
+    app.include_router(domains.router)
     app.include_router(runs.router)
+    app.include_router(deployments.router)
+    app.include_router(projects.router)
+    app.include_router(github.router)
+    app.include_router(pipelines.environment_router)
+    app.include_router(pipelines.editor_router)
+
+    if mcp is not None:
+        app.router.routes.append(Route(MCP_PATH, endpoint=mcp))  # bearer tokens only, see mcp/
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    if resolved.frontend_dist is not None:
+        mount_frontend(app, resolved.frontend_dist)  # last: it answers every unmatched path
     return app
 
 

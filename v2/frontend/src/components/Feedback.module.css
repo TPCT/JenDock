@@ -1,0 +1,24 @@
+.callout {
+  display: flex;
+  gap: var(--base-size-8);
+  align-items: flex-start;
+}
+.icon {
+  flex: none;
+  margin-top: var(--base-size-4);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+  margin-top: var(--base-size-4);
+}
+.emptyAction {
+  margin-top: var(--base-size-16);
+}

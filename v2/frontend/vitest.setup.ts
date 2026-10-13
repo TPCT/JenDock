@@ -1,15 +1,24 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
+import { cleanup, configure } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { resetMockData } from "./src/mocks/data";
 import { server } from "./src/mocks/server";
 import { setMockAuthenticated } from "./src/mocks/handlers";
 import { FakeEventSource } from "./src/test/fakeEventSource";
+import { installJsdomPolyfills } from "./src/test/jsdomPolyfills";
+
+// Node-environment suites (the CSP build check) have no DOM.
+const hasDom = typeof window !== "undefined";
+if (hasDom) {
+  installJsdomPolyfills();
+  configure({ asyncUtilTimeout: 4000 });
+}
 
 beforeAll(() => {
   server.listen({ onUnhandledFrame: "error" });
 });
 beforeEach(() => {
+  if (!hasDom) return;
   setMockAuthenticated(true);
   FakeEventSource.install();
   window.matchMedia = (query: string) =>
@@ -28,10 +37,17 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = () => undefined;
 });
 afterEach(() => {
-  cleanup();
+  if (hasDom) {
+    // CSP guard (production forbids inline <style>): whatever a test rendered, no component may
+    // have put a <style> element into the document or created Primer's <live-region>, whose
+    // shadow-root template contains one. See src/test/csp.test.ts.
+    expect(document.querySelectorAll("style")).toHaveLength(0);
+    expect(document.querySelector("live-region")).toBeNull();
+    cleanup();
+    window.localStorage.clear();
+  }
   server.resetHandlers();
   resetMockData();
-  window.localStorage.clear();
 });
 afterAll(() => {
   server.close();

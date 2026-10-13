@@ -245,7 +245,7 @@ def test_scopes_for_configuration_metadata_rows_and_console(
     _create(client, csrf, PROD_BASE)
     reader = _token(client, csrf, ["read"])
     admin = _token(client, csrf, ["admin"])
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     statement = {"statement": "SELECT 1"}
     tables = "schemas/public/tables"
     # read: configuration is visible, metadata and development data are readable
@@ -274,7 +274,7 @@ def test_scopes_for_configuration_metadata_rows_and_console(
 
 def test_unauthenticated_and_csrf(session_client: tuple[TestClient, str]) -> None:
     client, _csrf = session_client
-    anonymous = TestClient(client.app, base_url=client.base_url)
+    anonymous = TestClient(client.app, base_url=str(client.base_url))
     assert anonymous.get(DEV_BASE).status_code == 401
     assert (
         anonymous.post(f"{DEV_BASE}/main/query", json={"statement": "SELECT 1"}).status_code == 401

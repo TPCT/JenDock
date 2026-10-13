@@ -19,12 +19,15 @@ dependencies = [
     "psycopg[binary]>=3.2",
     # 1.2.x fails the first caching_sha2_password login of a non-root user (AttributeError).
     "PyMySQL>=1.1,<1.2",
+    "httpx>=0.27",
+    "idna>=3.7",
+    "mcp==2.3.0",  # official MCP SDK (streamable HTTP server for agents, mounted at /mcp)
+    "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",
     "ruff>=0.8",
     "mypy>=1.13",
 ]
@@ -34,6 +37,7 @@ include = ["shiftcodes*"]
 
 [tool.setuptools.package-data]
 "shiftcodes.repositories.migrations" = ["script.py.mako"]
+"shiftcodes.pipeline.templates" = ["*.Jenkinsfile"]
 
 [tool.ruff]
 line-length = 100

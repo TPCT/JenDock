@@ -1,0 +1,15 @@
+{
+  "socket_path": "/run/shiftcodes-ingress/host.sock",
+  "socket_mode": "0660",
+  "socket_group": "shiftcodes-ingress",
+  "allowed_uids": [10001],
+  "vhost_dir": "/etc/apache2/shiftcodes-managed",
+  "cert_dir": "/etc/shiftcodes/certs",
+  "webroot_dir": "/var/lib/shiftcodes/acme-webroot",
+  "apachectl": ["/usr/sbin/apachectl"],
+  "allowed_hostname_suffixes": ["example.com"],
+  "allowed_upstream_ports": [[20000, 29999]],
+  "allow_wildcards": false,
+  "max_vhosts": 200,
+  "command_timeout_seconds": 30
+}

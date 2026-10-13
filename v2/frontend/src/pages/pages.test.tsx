@@ -12,6 +12,7 @@ import {
 } from "../mocks/data";
 import { server } from "../mocks/server";
 import { FakeEventSource } from "../test/fakeEventSource";
+import { applyTheme } from "../lib/theme";
 import { renderApp } from "../test/render";
 
 let consoleError: ReturnType<typeof vi.spyOn>;
@@ -35,7 +36,7 @@ describe("every mock state renders without console errors", () => {
     ["/projects/shop-api", "Shop API"],
     ["/projects/missing", "Project not found"],
     ["/projects/internal-tools/environments/production/runs", "No runs yet"],
-    ["/projects/shop-api/environments/development/runs", "Shop API · Development"],
+    ["/projects/shop-api/environments/development/runs", "Development runs"],
     ["/projects/shop-api/environments/staging/runs", "Unknown environment"],
     ["/runs", "Runs"],
     ["/runs/101", /Run #42/],
@@ -128,18 +129,97 @@ describe("session expiry", () => {
 });
 
 describe("shell", () => {
-  it("toggles the theme and signs out", async () => {
+  afterEach(() => {
+    applyTheme("auto");
+  });
+
+  it("switches the colour mode from the user menu and remembers it", async () => {
     const user = userEvent.setup();
     renderApp("/projects");
     await screen.findByRole("heading", { name: "Projects" });
-    await user.click(screen.getByRole("button", { name: /Switch to (dark|light) theme/ }));
-    expect(["light", "dark"]).toContain(document.documentElement.getAttribute("data-theme"));
-    document.documentElement.removeAttribute("data-theme");
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(screen.getByRole("button", { name: "User menu" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Dark dimmed" }));
+    const root = document.documentElement;
+    expect(root.getAttribute("data-color-mode")).toBe("dark");
+    expect(root.getAttribute("data-dark-theme")).toBe("dark_dimmed");
+    expect(window.localStorage.getItem("theme")).toBe("dark_dimmed");
+    await user.click(screen.getByRole("button", { name: "User menu" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Light" }));
+    expect(root.getAttribute("data-color-mode")).toBe("light");
+  });
+
+  it("signs out from the user menu", async () => {
+    const user = userEvent.setup();
+    renderApp("/projects");
+    await screen.findByRole("heading", { name: "Projects" });
+    await user.click(screen.getByRole("button", { name: "User menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Sign out" }));
     expect(
       await screen.findByRole("heading", { name: "Sign in to Shiftcodes" }),
     ).toBeInTheDocument();
   });
+
+  it("marks the current section in the sidebar", async () => {
+    renderApp("/runs");
+    await screen.findByRole("heading", { name: "Runs" });
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Projects" })).not.toHaveAttribute("aria-current");
+  });
+});
+
+describe("project tabs", () => {
+  it("shows the GitHub-style tab strip with the current tab marked", async () => {
+    renderApp("/projects/shop-api/environments/production/runs");
+    await screen.findByRole("heading", { name: "Production runs" });
+    const tabs = screen.getByRole("navigation", { name: "Project" });
+    for (const name of [
+      "Overview",
+      "Runs",
+      "Pipeline",
+      "Containers",
+      "Database",
+      "Domains",
+      "Settings",
+    ]) {
+      expect(within(tabs).getByRole("link", { name })).toBeInTheDocument();
+    }
+    expect(within(tabs).getByRole("link", { name: "Runs" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // The tabs keep the environment you are looking at.
+    expect(within(tabs).getByRole("link", { name: "Pipeline" })).toHaveAttribute(
+      "href",
+      "/projects/shop-api/environments/production/pipeline",
+    );
+  });
+
+  it("switches environment with the segmented control", async () => {
+    const user = userEvent.setup();
+    const { router } = renderApp("/projects/shop-api/environments/development/runs");
+    await screen.findByRole("heading", { name: "Development runs" });
+    const production = screen.getByRole("button", { name: "Production" });
+    expect(screen.getByRole("button", { name: "Development" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(production);
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe(
+        "/projects/shop-api/environments/production/runs",
+      );
+    });
+    expect(await screen.findByRole("heading", { name: "Production runs" })).toBeInTheDocument();
+  });
+
+  it.each(["containers", "database", "domains", "settings"])(
+    "has a placeholder for the %s tab",
+    async (tab) => {
+      renderApp(`/projects/shop-api/${tab}`);
+      expect(await screen.findByRole("heading", { name: /coming soon/ })).toBeInTheDocument();
+    },
+  );
 });
 
 describe("projects", () => {
@@ -223,8 +303,20 @@ describe("runs list", () => {
 });
 
 describe("run detail", () => {
-  it("draws sequential and parallel stages and the steps", async () => {
+  it("opens a running run on its active stage and the summary shows the stage graph", async () => {
+    const user = userEvent.setup();
     renderApp("/runs/101");
+    // Like Actions, a running or failed step is opened straight away.
+    expect(await screen.findByRole("button", { name: /npm test/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    const sidebar = screen.getByRole("navigation", { name: "Run" });
+    expect(within(sidebar).getByRole("link", { name: /Unit tests/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await user.click(within(sidebar).getByRole("link", { name: "Summary" }));
     const graph = await screen.findByRole("list", { name: "Pipeline stages" });
     expect(
       within(graph).getByRole("list", { name: "Stages that run in parallel" }),
@@ -234,9 +326,20 @@ describe("run detail", () => {
     ).toBeInTheDocument();
     expect(within(graph).getByRole("button", { name: /Unit tests, Running/ })).toBeInTheDocument();
     expect(within(graph).getByRole("button", { name: /Deploy, Queued/ })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /npm test/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
+    // A node opens that stage.
+    await user.click(within(graph).getByRole("button", { name: /Build image, Succeeded/ }));
+    expect(await screen.findByRole("button", { name: /dockerBuild shop-api/ })).toBeInTheDocument();
+  });
+
+  it("lists every stage in the sidebar with its state", async () => {
+    renderApp("/runs/102");
+    await screen.findByRole("heading", { name: /Run #17/ });
+    const sidebar = screen.getByRole("navigation", { name: "Run" });
+    expect(within(sidebar).getByRole("link", { name: /Build, Succeeded/ })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("link", { name: /Deploy, Succeeded/ })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("link", { name: "Summary" })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
   });
 
@@ -244,21 +347,70 @@ describe("run detail", () => {
     const user = userEvent.setup();
     renderApp("/runs/102");
     await screen.findByRole("heading", { name: /Run #17/ });
-    const copy = screen.getByRole("button", { name: /Copy full commit SHA/ });
+    const [copy] = screen.getAllByRole("button", { name: /Copy full commit SHA/ });
+    if (!copy) throw new Error("copy button missing");
     await user.click(copy);
-    expect(await screen.findByText("Commit SHA copied")).toBeInTheDocument();
+    expect((await screen.findAllByText("Commit SHA copied")).length).toBeGreaterThan(0);
   });
 
-  it("loads the log of a finished step in chunks", async () => {
+  it("loads the log of a finished step in chunks, with line numbers", async () => {
     const user = userEvent.setup();
     renderApp("/runs/102");
     await screen.findByRole("heading", { name: /Run #17/ });
-    await user.click(screen.getByRole("button", { name: /dockerBuild app/ }));
+    await user.click(screen.getByRole("link", { name: /Build, Succeeded/ }));
+    await user.click(await screen.findByRole("button", { name: /dockerBuild app/ }));
     const log = await screen.findByRole("log");
     await waitFor(() => {
       expect(log).toHaveTextContent("All tests passed");
     });
     expect(log).toHaveTextContent("tests/unit/case-24.test.ts");
+    expect(within(log).getByText("1")).toBeInTheDocument();
+    // The mock log carries timestamps, hidden until asked for.
+    expect(log.querySelector("time")).toBeNull();
+  });
+
+  it("collapses and expands step groups", async () => {
+    const user = userEvent.setup();
+    renderApp("/runs/103");
+    const step = await screen.findByRole("button", { name: /npm test/ });
+    expect(step).toHaveAttribute("aria-expanded", "true");
+    await user.click(step);
+    expect(step).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("log")).not.toBeInTheDocument();
+  });
+
+  it("searches the open logs, highlights matches and counts them", async () => {
+    const user = userEvent.setup();
+    renderApp("/runs/103");
+    const log = await screen.findByRole("log");
+    await waitFor(() => {
+      expect(log).toHaveTextContent("AssertionError");
+    });
+    await user.type(screen.getByRole("textbox", { name: "Search logs" }), "pass");
+    await waitFor(() => {
+      expect(log.querySelectorAll("mark").length).toBe(24);
+    });
+    expect(screen.getByText("24 matches in open steps")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next match" }));
+    expect(log.querySelector("mark[data-current='true']")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(log.querySelectorAll("mark")).toHaveLength(0);
+  });
+
+  it("shows timestamps from the log settings menu", async () => {
+    const user = userEvent.setup();
+    renderApp("/runs/103");
+    const log = await screen.findByRole("log");
+    await waitFor(() => {
+      expect(log).toHaveTextContent("AssertionError");
+    });
+    expect(log.querySelector("time")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Log settings" }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: /Show timestamps/ }));
+    await waitFor(() => {
+      expect(log.querySelector("time")).not.toBeNull();
+    });
+    expect(log.querySelector("time")).toHaveTextContent("10:00:00.000");
   });
 
   it("opens the failed step automatically and shows its exit code", async () => {
@@ -273,30 +425,53 @@ describe("run detail", () => {
     const user = userEvent.setup();
     renderApp("/runs/101");
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
-    const dialog = screen.getByRole("dialog", { name: "Cancel run #42?" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Cancel run #42?" });
     await user.click(within(dialog).getByRole("button", { name: "Keep running" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel run" }));
     await user.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel run" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel run" }),
     );
     await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
-    expect(
-      await screen.findByText(/Cancel requested/, { selector: ".callout-body" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Cancel requested\. The run stops/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel requested" })).toBeDisabled();
   });
 
   it.each(["/runs/102", "/runs/103", "/runs/104", "/runs/106"])(
-    "has no cancel on finished run %s",
+    "has no cancel but a re-run on finished run %s",
     async (route) => {
       renderApp(route);
       await screen.findByRole("heading", { name: /Run #/ });
       expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Re-run" })).toBeEnabled();
     },
   );
+
+  it("re-runs the same commit and opens the new run", async () => {
+    const user = userEvent.setup();
+    renderApp("/runs/102");
+    await screen.findByRole("heading", { name: /Run #17/ });
+    await user.click(screen.getByRole("button", { name: "Re-run" }));
+    expect(await screen.findByRole("heading", { name: /Run #\d+/ })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+    });
+  });
+
+  it("reports a re-run the server refuses", async () => {
+    server.use(
+      http.post("/api/projects/:slug/environments/:env/runs", () =>
+        apiError(409, "conflict", "the commit is no longer on that branch"),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/runs/102");
+    await screen.findByRole("heading", { name: /Run #17/ });
+    await user.click(screen.getByRole("button", { name: "Re-run" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("no longer on that branch");
+  });
 
   it("explains a queued run", async () => {
     renderApp("/runs/105");
@@ -365,8 +540,9 @@ describe("run detail", () => {
       if (!run) throw new Error("mock run missing");
       source.emit("status", { ...run, status: "succeeded", finished_at: new Date().toISOString() });
     });
-    expect(await screen.findByText("Succeeded", { selector: ".status-label" })).toBeInTheDocument();
+    expect((await screen.findAllByText("Succeeded")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-run" })).toBeInTheDocument();
     act(() => {
       source.emit("end", { status: "succeeded" });
     });

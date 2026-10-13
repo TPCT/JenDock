@@ -54,6 +54,11 @@ class ValidationContext:
     """Facts about the target project that the text itself cannot tell."""
 
     secret_names: frozenset[str] = frozenset()
+    # Logical images that exist before the pipeline runs (a redeploy reuses built images).
+    built_images: frozenset[str] = frozenset()
+    # False when the target environment is unknown (editor without a project): credentials()
+    # names cannot be judged then and are not reported.
+    check_credentials: bool = True
 
 
 def validate(pipeline: Pipeline, context: ValidationContext) -> list[Diagnostic]:
@@ -71,8 +76,9 @@ class _Scope:
 class _Validator:
     def __init__(self, context: ValidationContext) -> None:
         self._secrets = context.secret_names
+        self._check_credentials = context.check_credentials
         self._found: list[Diagnostic] = []
-        self._built: set[str] = set()
+        self._built: set[str] = set(context.built_images)
 
     def run(self, pipeline: Pipeline) -> list[Diagnostic]:
         params = self._parameters(pipeline.parameters)
@@ -153,7 +159,7 @@ class _Validator:
             self._error(f"duplicate environment variable '{var.name}'", var.span)
 
     def _credential(self, credential: Credentials) -> None:
-        if credential.name not in self._secrets:
+        if self._check_credentials and credential.name not in self._secrets:
             message = f"unknown credential '{credential.name}'; create the secret first"
             self._error(message, credential.span)
 

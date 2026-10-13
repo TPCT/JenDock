@@ -457,7 +457,8 @@ def test_invalid_pipeline_text_fails_the_run(harness: Harness) -> None:
     assert outcome.status is FAIL
     assert outcome.message is not None
     assert "pipeline syntax error" in outcome.message
-    assert harness.detail(run).stages == ()
+    assert [d.stage.name for d in harness.detail(run).stages] == ["Pipeline"]
+    assert "pipeline syntax error" in harness.log_of(run, "Pipeline")
 
 
 # --- logs ----------------------------------------------------------------------------------
@@ -514,8 +515,8 @@ def test_unavailable_deployer_fails_the_step(harness: Harness) -> None:
     run, outcome = harness.run(pipeline(stage("Ship", steps), agent="agent none"))
     assert outcome.status is FAIL
     assert outcome.message is not None
-    assert "deploy is not available yet (Task 7)" in outcome.message
-    assert "deploy is not available yet (Task 7)" in harness.log_of(run, "Ship", 1)
+    assert "deploy is not available" in outcome.message
+    assert "deploy is not available" in harness.log_of(run, "Ship", 1)
 
 
 def test_health_check_retries_until_the_expected_status(harness: Harness) -> None:

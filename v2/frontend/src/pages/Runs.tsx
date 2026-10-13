@@ -1,44 +1,46 @@
 import { HistoryIcon, PlayIcon } from "@primer/octicons-react";
+import { Button, ButtonGroup } from "@primer/react";
 import { useCallback, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { RUNS_PAGE_SIZE, useAllRuns, useEnvironmentRuns, useProject } from "../api/hooks";
 import { ENVIRONMENTS, type EnvironmentName, type Page, type RunSummary } from "../api/types";
-import { useCrumbs } from "../components/Breadcrumbs";
+import { EnvToolbar } from "../components/EnvSwitch";
+import { runsPath } from "../components/EnvironmentCard";
 import { EmptyState, ErrorCallout, Loading } from "../components/Feedback";
+import { PageHead } from "../components/PageHead";
 import { RunList } from "../components/RunList";
 import { StartRunDialog } from "../components/StartRunDialog";
 import { capitalize } from "../lib/format";
+import box from "../styles/box.module.css";
 
 function Pager({ page, onChange }: { page: Page<RunSummary>; onChange: (offset: number) => void }) {
   const from = page.total === 0 ? 0 : page.offset + 1;
   const to = Math.min(page.offset + page.limit, page.total);
   return (
-    <div className="pager">
+    <div className={box.footer}>
       <span className="muted">
         {from}-{to} of {page.total}
       </span>
-      <div className="row-actions">
-        <button
-          type="button"
-          className="btn"
+      <ButtonGroup>
+        <Button
+          size="small"
           disabled={page.offset === 0}
           onClick={() => {
             onChange(Math.max(0, page.offset - RUNS_PAGE_SIZE));
           }}
         >
           Newer
-        </button>
-        <button
-          type="button"
-          className="btn"
+        </Button>
+        <Button
+          size="small"
           disabled={page.offset + page.limit >= page.total}
           onClick={() => {
             onChange(page.offset + RUNS_PAGE_SIZE);
           }}
         >
           Older
-        </button>
-      </div>
+        </Button>
+      </ButtonGroup>
     </div>
   );
 }
@@ -57,12 +59,6 @@ export function EnvironmentRunsPage() {
   const environment = project.data?.environments.find((item) => item.name === env);
   const dialogOpen = params.get("run") === "new" && environment !== undefined;
 
-  useCrumbs([
-    { label: "Projects", to: "/projects" },
-    { label: project.data?.name ?? slug, to: `/projects/${encodeURIComponent(slug)}` },
-    { label: `${capitalize(env)} runs` },
-  ]);
-
   const closeDialog = useCallback(() => {
     setParams({}, { replace: true });
   }, [setParams]);
@@ -73,9 +69,9 @@ export function EnvironmentRunsPage() {
         icon={<HistoryIcon size={32} aria-hidden="true" />}
         title="Unknown environment"
         action={
-          <Link className="btn" to={`/projects/${encodeURIComponent(slug)}`}>
+          <Button as={Link} to={`/projects/${encodeURIComponent(slug)}`}>
             Back to project
-          </Link>
+          </Button>
         }
       >
         Every project has exactly two environments: development and production.
@@ -84,35 +80,34 @@ export function EnvironmentRunsPage() {
   }
 
   return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>
-            {project.data?.name ?? slug} · {capitalize(env)}
-          </h1>
-          <p className="subtitle">
-            {environment ? (
-              <>
-                Branch <code>{environment.branch}</code>
-                {environment.auto_deploy ? ", deploys automatically on push" : ", manual deploys"}
-              </>
-            ) : (
-              "Runs of this environment"
-            )}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!environment}
-          onClick={() => {
-            setParams({ run: "new" });
-          }}
-        >
-          <PlayIcon size={16} aria-hidden="true" />
-          Run pipeline
-        </button>
-      </div>
+    <div className={box.stack}>
+      <EnvToolbar
+        title={`${capitalize(env)} runs`}
+        env={env}
+        pathFor={(next) => runsPath(slug, next)}
+        subtitle={
+          environment ? (
+            <>
+              Branch <code>{environment.branch}</code>
+              {environment.auto_deploy ? ", deploys automatically on push" : ", manual deploys"}
+            </>
+          ) : (
+            "Runs of this environment"
+          )
+        }
+        actions={
+          <Button
+            variant="primary"
+            leadingVisual={PlayIcon}
+            disabled={!environment}
+            onClick={() => {
+              setParams({ run: "new" });
+            }}
+          >
+            Run pipeline
+          </Button>
+        }
+      />
       {runs.isPending ? <Loading label="Loading runs" /> : null}
       {runs.isError ? (
         <ErrorCallout
@@ -122,17 +117,18 @@ export function EnvironmentRunsPage() {
         />
       ) : null}
       {runs.data?.total === 0 ? (
-        <div className="box">
-          <EmptyState icon={<HistoryIcon size={32} aria-hidden="true" />} title="No runs yet">
-            A run builds and deploys one commit.{" "}
-            {environment?.auto_deploy
-              ? `Push to ${environment.branch} on GitHub to start the first one, or press Run pipeline.`
-              : "Press Run pipeline to start the first one."}
-          </EmptyState>
-        </div>
+        <EmptyState icon={<HistoryIcon size={32} aria-hidden="true" />} title="No runs yet">
+          A run builds and deploys one commit.{" "}
+          {environment?.auto_deploy
+            ? `Push to ${environment.branch} on GitHub to start the first one, or press Run pipeline.`
+            : "Press Run pipeline to start the first one."}
+        </EmptyState>
       ) : null}
       {runs.data && runs.data.total > 0 ? (
-        <div className="box">
+        <div className={box.box}>
+          <div className={box.header}>
+            <span>{runs.data.total} runs</span>
+          </div>
           <RunList runs={runs.data.items} />
           <Pager page={runs.data} onChange={setOffset} />
         </div>
@@ -145,52 +141,49 @@ export function EnvironmentRunsPage() {
           onClose={closeDialog}
         />
       ) : null}
-    </>
+    </div>
   );
 }
 
 export function AllRunsPage() {
-  useCrumbs([{ label: "Runs" }]);
   const [offset, setOffset] = useState(0);
   const runs = useAllRuns(offset);
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1>Runs</h1>
-          <p className="subtitle">The latest runs across all projects and environments.</p>
-        </div>
-      </div>
-      {runs.isPending ? <Loading label="Loading runs" /> : null}
-      {runs.isError ? (
-        <ErrorCallout
-          title="Could not load runs"
-          error={runs.error}
-          onRetry={() => void runs.refetch()}
-        />
-      ) : null}
-      {runs.data?.total === 0 ? (
-        <div className="box">
+      <PageHead title="Runs" description="The latest runs across all projects and environments." />
+      <div className={box.section}>
+        {runs.isPending ? <Loading label="Loading runs" /> : null}
+        {runs.isError ? (
+          <ErrorCallout
+            title="Could not load runs"
+            error={runs.error}
+            onRetry={() => void runs.refetch()}
+          />
+        ) : null}
+        {runs.data?.total === 0 ? (
           <EmptyState
             icon={<HistoryIcon size={32} aria-hidden="true" />}
             title="No runs yet"
             action={
-              <Link className="btn" to="/projects">
+              <Button as={Link} to="/projects">
                 Go to projects
-              </Link>
+              </Button>
             }
           >
             Runs appear here after a push to a project branch or a manual run. Open a project to
             start one.
           </EmptyState>
-        </div>
-      ) : null}
-      {runs.data && runs.data.total > 0 ? (
-        <div className="box">
-          <RunList runs={runs.data.items} showProject />
-          <Pager page={runs.data} onChange={setOffset} />
-        </div>
-      ) : null}
+        ) : null}
+        {runs.data && runs.data.total > 0 ? (
+          <div className={box.box}>
+            <div className={box.header}>
+              <span>{runs.data.total} runs</span>
+            </div>
+            <RunList runs={runs.data.items} showProject />
+            <Pager page={runs.data} onChange={setOffset} />
+          </div>
+        ) : null}
+      </div>
     </>
   );
 }

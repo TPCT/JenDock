@@ -1,7 +1,18 @@
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "@primer/octicons-react";
+import { ArrowDownIcon, ArrowUpIcon } from "@primer/octicons-react";
+import {
+  ConfirmationDialog,
+  Details,
+  FormControl,
+  IconButton,
+  Radio,
+  RadioGroup,
+  TextInput,
+  VisuallyHidden,
+} from "@primer/react";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import type { Stage, StageBody } from "../../api/pipelineTypes";
-import { Dialog } from "../../components/Dialog";
+import styles from "../pipeline.module.css";
+import { AddButton, Group, RemoveButton } from "../ui";
 import { CallList } from "./CallList";
 import { moveItem, removeAt, replaceAt, useEditorEnv } from "./context";
 import { EnvEditor, AgentPicker, PostEditor, WhenEditor } from "./Sections";
@@ -87,76 +98,67 @@ function StageCard({
   ];
 
   return (
-    <li className="card stage-card" data-card={`${scope}-${index}`}>
-      <div className="card-head">
-        <div className="field grow">
-          <label htmlFor={nameId}>Stage name</label>
-          <input
-            id={nameId}
-            className="input"
-            value={stage.name}
-            aria-describedby={`${nameId}-keys`}
-            onKeyDown={onNameKey}
-            onChange={(event) => {
-              onChange({ ...stage, name: event.target.value });
-            }}
-          />
-          <span id={`${nameId}-keys`} className="sr-only">
-            Press Alt and the up or down arrow to move this stage.
-          </span>
+    <li className={styles.card} data-card={`${scope}-${index}`}>
+      <div className={styles.cardHead}>
+        <div className={styles.grow}>
+          <FormControl>
+            <FormControl.Label>Stage name</FormControl.Label>
+            <TextInput
+              block
+              value={stage.name}
+              onKeyDown={onNameKey}
+              onChange={(event) => {
+                onChange({ ...stage, name: event.target.value });
+              }}
+            />
+            <FormControl.Caption>
+              <VisuallyHidden>
+                Press Alt and the up or down arrow to move this stage.
+              </VisuallyHidden>
+            </FormControl.Caption>
+          </FormControl>
         </div>
-        <div className="row-actions">
-          <button
-            type="button"
-            className="btn btn-icon"
+        <div className={styles.cluster}>
+          <IconButton
+            icon={ArrowUpIcon}
+            size="small"
             data-focus-key={`${scope}-${index}-up`}
             aria-label={`Move stage ${label} up`}
+            tooltipDirection="s"
             disabled={index === 0}
             onClick={() => {
               onMove(-1);
             }}
-          >
-            <ArrowUpIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon"
+          />
+          <IconButton
+            icon={ArrowDownIcon}
+            size="small"
             data-focus-key={`${scope}-${index}-down`}
             aria-label={`Move stage ${label} down`}
+            tooltipDirection="s"
             disabled={index === count - 1}
             onClick={() => {
               onMove(1);
             }}
-          >
-            <ArrowDownIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-icon btn-danger"
-            aria-label={`Remove stage ${label}`}
-            onClick={onRemove}
-          >
-            <TrashIcon size={16} />
-          </button>
+          />
+          <RemoveButton label={`Remove stage ${label}`} onClick={onRemove} />
         </div>
       </div>
 
-      <fieldset className="subfield">
-        <legend>What does {label} do?</legend>
+      <RadioGroup
+        name={`${nameId}-body`}
+        onChange={(selected) => {
+          if (selected !== null) requestBody(selected as BodyType);
+        }}
+      >
+        <RadioGroup.Label>What does {label} do?</RadioGroup.Label>
         {bodyOptions.map((option) => (
-          <label key={option.type} className="check radio">
-            <input
-              type="radio"
-              name={`${nameId}-body`}
-              checked={stage.body.type === option.type}
-              onChange={() => {
-                requestBody(option.type);
-              }}
-            />
-            {option.label}
-          </label>
+          <FormControl key={option.type}>
+            <Radio value={option.type} checked={stage.body.type === option.type} />
+            <FormControl.Label>{option.label}</FormControl.Label>
+          </FormControl>
         ))}
-      </fieldset>
+      </RadioGroup>
 
       {stage.body.type === "steps" ? (
         <CallList
@@ -169,8 +171,8 @@ function StageCard({
           }}
         />
       ) : (
-        <div className="nested">
-          <p className="hint">
+        <div className={styles.nested}>
+          <p className={styles.hint}>
             {stage.body.type === "parallel"
               ? "These branches run at the same time:"
               : "These stages run one after another inside this stage:"}
@@ -193,9 +195,9 @@ function StageCard({
         </div>
       )}
 
-      <details className="more">
-        <summary>Settings for {label}</summary>
-        <div className="stack">
+      <Details className={styles.more}>
+        <Details.Summary className={styles.summary}>Settings for {label}</Details.Summary>
+        <div className={styles.stack}>
           <AgentPicker
             label={`Where ${label} runs`}
             allowInherit
@@ -210,8 +212,7 @@ function StageCard({
               onChange({ ...stage, when });
             }}
           />
-          <fieldset className="subfield">
-            <legend>Variables for {label}</legend>
+          <Group legend={`Variables for ${label}`}>
             <EnvEditor
               scope={`${scope}-${index}-env`}
               value={stage.environment}
@@ -219,9 +220,8 @@ function StageCard({
                 onChange({ ...stage, environment });
               }}
             />
-          </fieldset>
-          <fieldset className="subfield">
-            <legend>After {label}</legend>
+          </Group>
+          <Group legend={`After ${label}`}>
             <PostEditor
               scope={`${scope}-${index}`}
               value={stage.post}
@@ -229,40 +229,23 @@ function StageCard({
                 onChange({ ...stage, post });
               }}
             />
-          </fieldset>
+          </Group>
         </div>
-      </details>
+      </Details>
 
       {confirmBody ? (
-        <Dialog
+        <ConfirmationDialog
           title="Replace the contents of this stage?"
-          onClose={() => {
+          confirmButtonContent="Replace"
+          cancelButtonContent="Keep it"
+          confirmButtonType="danger"
+          onClose={(gesture) => {
+            if (gesture === "confirm") setBody(confirmBody);
             setConfirmBody(null);
           }}
         >
-          <p>Changing what the stage does removes what it currently contains.</p>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setConfirmBody(null);
-              }}
-            >
-              Keep it
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger-solid"
-              onClick={() => {
-                setBody(confirmBody);
-                setConfirmBody(null);
-              }}
-            >
-              Replace
-            </button>
-          </div>
-        </Dialog>
+          Changing what the stage does removes what it currently contains.
+        </ConfirmationDialog>
       ) : null}
     </li>
   );
@@ -284,9 +267,9 @@ export function StageList({
   const container = useRef<HTMLDivElement>(null);
   const focus = useFocusAfterMove(container);
   return (
-    <div ref={container} className="stagelist">
+    <div ref={container} className={styles.stack}>
       {stages.length === 0 ? <p className="muted">No stages yet.</p> : null}
-      <ol className="cards">
+      <ol className={styles.cards}>
         {stages.map((stage, index) => (
           <StageCard
             key={index}
@@ -308,16 +291,15 @@ export function StageList({
           />
         ))}
       </ol>
-      <button
-        type="button"
-        className="btn"
-        onClick={() => {
-          onChange([...stages, newStage(uniqueName(stages, inParallel ? "Branch" : "Stage"))]);
-        }}
-      >
-        <PlusIcon size={16} aria-hidden="true" />
-        {addLabel}
-      </button>
+      <div>
+        <AddButton
+          onClick={() => {
+            onChange([...stages, newStage(uniqueName(stages, inParallel ? "Branch" : "Stage"))]);
+          }}
+        >
+          {addLabel}
+        </AddButton>
+      </div>
     </div>
   );
 }

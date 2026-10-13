@@ -15,6 +15,7 @@ import pytest
 from shiftcodes.adapters.container_runtime import BuildSpec, Mount, RunSpec
 from shiftcodes.adapters.docker_cli import DockerCliRuntime
 from shiftcodes.adapters.errors import ContainerRuntimeError
+from tests.docker_support import session_labels
 
 FAKE = Path(__file__).parent / "fake_docker.py"
 SECRET = "very-secret-value-42"
@@ -34,7 +35,7 @@ class Fixture:
             binary=str(self.binary),
             docker_host="unix:///fake.sock",
             private_dir=self.private,
-            extra_labels={"shiftcodes.test": "1"},
+            extra_labels=session_labels(),
         )
 
     def behave(self, **values: object) -> None:

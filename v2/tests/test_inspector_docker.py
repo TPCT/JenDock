@@ -36,18 +36,20 @@ from tests.api_support import (
     make_settings,
     mutation_headers,
 )
-from tests.docker_support import docker_available
+from tests.docker_support import (
+    SESSION_LABEL,
+    assert_nothing_left,
+    docker_available,
+    label_args,
+    remove_test_resources,
+    session_labels,
+)
 from tests.inspector_db_support import (
     DATABASE,
-    OWNER,
-    OWNER_KEY,
-    OWNER_LABEL,
     ROOT_PASSWORD,
     RunningDb,
-    assert_nothing_owned_left,
     connect_admin,
     docker_cli,
-    remove_owned_resources,
     seed,
     start_server,
     stop_server,
@@ -70,14 +72,14 @@ ALIAS = "db"
 def _clean_module() -> Iterator[None]:
     """Created first, torn down last: whatever this module made must be gone."""
     yield
-    remove_owned_resources()
-    assert_nothing_owned_left()
+    remove_test_resources()
+    assert_nothing_left()
 
 
 @pytest.fixture(scope="module")
 def image() -> Iterator[str]:
     tag = f"shiftcodes-test-inspector:{secrets.token_hex(4)}"
-    labels = ["--label", OWNER_LABEL]
+    labels = label_args()
     built = docker_cli(
         "build", "--quiet", *labels, "-f", "docker/inspector.Dockerfile", "-t", tag, str(V2_DIR),
         timeout=900,
@@ -90,7 +92,7 @@ def image() -> Iterator[str]:
 @pytest.fixture(scope="module")
 def networks() -> Iterator[None]:
     for name in (NETWORK, OTHER_NETWORK):
-        created = docker_cli("network", "create", "--label", OWNER_LABEL, name)
+        created = docker_cli("network", "create", *label_args(), name)
         assert created.returncode == 0, created.stderr
     yield
     for name in (NETWORK, OTHER_NETWORK):
@@ -113,7 +115,7 @@ def db(request: pytest.FixtureRequest, networks: None) -> Iterator[RunningDb]:
 def runner(image: str) -> InspectorRunner:
     runtime = DockerCliRuntime(
         private_dir=Path("/tmp") / f"{PROJECT}-private",  # noqa: S108 - throwaway test dir
-        extra_labels={OWNER_KEY: OWNER},
+        extra_labels=session_labels(),
     )
     return InspectorRunner(runtime, image)
 
@@ -354,6 +356,6 @@ def assert_no_helper_containers() -> None:
         "--filter",
         "label=shiftcodes.inspector=1",
         "--filter",
-        f"label={OWNER_LABEL}",
+        f"label={SESSION_LABEL}",
     )
     assert left.stdout.split() == []

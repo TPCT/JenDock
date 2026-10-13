@@ -6,7 +6,7 @@ import pytest
 from argon2 import PasswordHasher as Argon2Hasher
 from fastapi import Depends
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx2 import Response
 from sqlalchemy import Engine, select
 
 from shiftcodes.api.app import create_app
