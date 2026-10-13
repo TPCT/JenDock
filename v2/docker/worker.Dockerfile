@@ -13,6 +13,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=docker:27.5.1-cli /usr/local/bin/docker /usr/local/bin/docker
+# The compose plugin of the same image: container env edits recreate single services with it.
+COPY --from=docker:27.5.1-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 # The worker user needs access to the Docker socket; compose adds the host docker GID via group_add.
 RUN groupadd --system --gid 10001 shiftcodes \
     && useradd --system --uid 10001 --gid shiftcodes --home-dir /var/lib/shiftcodes shiftcodes \
