@@ -126,7 +126,8 @@ def test_the_registry_has_unique_well_formed_tools() -> None:
         assert tool.input_schema["type"] == "object"
         assert tool.input_schema["additionalProperties"] is False
         assert tool.description
-        assert tool.read_only == (tool.scope is TokenScope.READ)
+        if tool.scope is TokenScope.READ:
+            assert tool.read_only
 
 
 def test_duplicate_names_are_refused() -> None:
@@ -143,10 +144,14 @@ def test_there_is_no_tool_that_reveals_or_writes_secrets() -> None:
         assert not tool.name.startswith(("set_secret", "delete_secret"))
 
 
-def test_deployment_tools_are_a_marked_stub() -> None:
-    assert deploy.TOOLS == ()
-    assert "redeploy" in deploy.PLANNED_TOOLS
-    assert REGISTRY.get("redeploy") is None
+def test_deployment_tools_mirror_the_rest_scopes() -> None:
+    scopes = {t.name: t.scope for t in deploy.TOOLS}
+    assert scopes == {
+        "list_deployments": TokenScope.READ,
+        "preview_redeploy": TokenScope.DEPLOY,
+        "redeploy": TokenScope.DEPLOY,
+    }
+    assert REGISTRY.get("rollback") is None  # the REST API has no rollback endpoint
 
 
 def test_visibility_follows_the_scopes() -> None:
@@ -159,7 +164,8 @@ def test_visibility_follows_the_scopes() -> None:
     assert pipelines == {"save_pipeline"}
     admin = {t.name for t in REGISTRY.visible_to(_principal(TokenScope.ADMIN))}
     assert admin == {t.name for t in REGISTRY.all()}
-    assert REGISTRY.visible_to(_principal(TokenScope.DEPLOY)) == []
+    deployer = {t.name for t in REGISTRY.visible_to(_principal(TokenScope.DEPLOY))}
+    assert deployer == {"preview_redeploy", "redeploy"}
 
 
 # --- scope enforcement per tool --------------------------------------------------------------

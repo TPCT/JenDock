@@ -504,7 +504,8 @@ removes the route.
 | `run` | `trigger_run`, `retry_run`, `cancel_run` |
 | `read` (domains) | `list_domains` (status, certificate state and expiry, latest check), `get_domain`, `list_certificates` |
 | `admin` (domains) | `check_domain`, `preview_domain_change` (DNS and vhost plan with its `plan_hash`; nothing changes), `apply_domain` / `remove_domain` (only with the previewed `plan_hash`), `issue_certificate`; scopes mirror the REST routes |
-| `deploy` | none yet: `mcp/tools/deploy.py` is a marked stub (planned `list_deployments`, `redeploy`, `rollback`) until Task 7 is merged |
+| `read` (deployments) | `list_deployments` |
+| `deploy` | `preview_redeploy` (images that would be deployed, images running now, whether a deployment is in progress), `redeploy` (same `deployment_id`; refused while a deployment of the environment is in progress). There is no rollback tool because the REST API has no rollback endpoint (failed deployments roll back automatically) |
 
 A manual run is two steps: `preview_commit` shows the branch head (sha, message, author, date) and
 `trigger_run` must be given exactly that `commit_sha`; it fails with `conflict` when the branch
