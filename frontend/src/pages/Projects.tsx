@@ -29,7 +29,7 @@ export function ProjectBox({ project }: { project: Project }) {
         {ENVIRONMENTS.map((name) => {
           const environment = project.environments.find((item) => item.name === name);
           return environment ? (
-            <EnvironmentCard key={name} project={project} environment={environment} />
+            <EnvironmentCard key={name} project={project} environment={environment} compact />
           ) : null;
         })}
       </div>
@@ -70,6 +70,7 @@ function BulkAutoDeploy({ projects }: { projects: Project[] }) {
     <div className={box.stack}>
       <div className={box.cluster}>
         <Button
+          className={styles.bulk}
           leadingVisual={ZapIcon}
           disabled={candidates.length === 0 || enable.isPending}
           onClick={() => {

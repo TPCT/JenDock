@@ -5,6 +5,7 @@ import { accountHandlers, MOCK_RECOVERY_CODES, MOCK_TOTP_CODE } from "./account"
 import { adminHandlers } from "./admin";
 import { accessHandlers, mockSession } from "./access";
 import { containerHandlers } from "./containers";
+import { deploymentHandlers } from "./deployments";
 import { databaseHandlers } from "./databases";
 import { notificationHandlers } from "./notifications";
 import { byText, byTime, listResponse, type MockList } from "./paging";
@@ -101,6 +102,7 @@ export const handlers: HttpHandler[] = [
   ...accessHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...accountHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...containerHandlers({ authenticated: () => authenticated, error, unauthenticated }),
+  ...deploymentHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...databaseHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...notificationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...integrationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
