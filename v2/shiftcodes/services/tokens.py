@@ -133,6 +133,17 @@ class TokenService:
                 row.last_used_at = now
             return AuthenticatedToken(row.id, row.name, frozenset(_scopes(row)))
 
+    def current(self, token_id: int) -> AuthenticatedToken | None:
+        """Re-check a token by id (no secret needed): ``None`` once revoked or expired."""
+        now = self._clock()
+        with self._uow:
+            row = self._uow.tokens.get(token_id)
+            if row is None or row.revoked_at is not None:
+                return None
+            if row.expires_at is not None and row.expires_at <= now:
+                return None
+            return AuthenticatedToken(row.id, row.name, frozenset(_scopes(row)))
+
     def _audit(self, actor: Actor, action: str, row: ApiToken, details: dict[str, object]) -> None:
         target = AuditTarget("api_token", str(row.id))
         add_audit_event(self._uow, AuditEntry(actor, action, target, details), self._clock)

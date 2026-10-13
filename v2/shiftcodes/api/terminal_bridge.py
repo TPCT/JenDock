@@ -18,9 +18,10 @@ from pathlib import Path
 from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocket, WebSocketState
 
-from shiftcodes.api.terminal_tickets import PrincipalKind, TicketGrant
+from shiftcodes.api.terminal_tickets import TicketGrant
 from shiftcodes.terminal.protocol import (
     MAX_DATA_BYTES,
+    REASON_ACCESS_REVOKED,
     Frame,
     FrameDecoder,
     FrameType,
@@ -37,7 +38,7 @@ CONNECT_TIMEOUT = 5.0
 READY_TIMEOUT = 15.0
 MAX_INPUT_MESSAGE = 64 * 1024
 MAX_CONTROL_MESSAGE = 4096
-SESSION_CHECK_SECONDS = 15.0
+SESSION_CHECK_SECONDS = 15.0  # how often the principal is re-validated
 SESSION_TOUCH_SECONDS = 300.0
 READ_CHUNK = 65536
 CLOSE_NORMAL = 1000
@@ -116,7 +117,7 @@ class TerminalBridge:
         tasks = [
             asyncio.create_task(self._upstream(writer)),
             asyncio.create_task(self._downstream(reader)),
-            asyncio.create_task(self._watch_session()),
+            asyncio.create_task(self._watch_session(writer)),
         ]
         try:
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -222,15 +223,19 @@ class TerminalBridge:
             return True
         return False
 
-    async def _watch_session(self) -> None:
+    async def _watch_session(self, writer: asyncio.StreamWriter) -> None:
         """End the terminal connection when the browser session ends (logout, expiry)."""
         check = self._check
-        if self._grant.kind is not PrincipalKind.SESSION or check is None:
+        if check is None:
             await asyncio.Event().wait()  # nothing to watch: wait until cancelled
             return
         while True:
             await asyncio.sleep(SESSION_CHECK_SECONDS)
             if not await run_in_threadpool(check, False):
+                # Access is gone: end the shell now (the worker audits the reason), do not wait
+                # for the detach grace period.
+                writer.write(encode_json(FrameType.CLOSE, {"reason": REASON_ACCESS_REVOKED}))
+                await writer.drain()
                 await self._close(CLOSE_SESSION_ENDED, "session ended")
                 return
 

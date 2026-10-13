@@ -19,6 +19,9 @@ MAX_JSON_BYTES = 4096
 MAX_DATA_BYTES = 16 * 1024
 MAX_FRAME_BYTES = MAX_DATA_BYTES + SEQUENCE.size
 SEQUENCE_MODULUS = 2**32
+REASON_CLOSED = "closed"
+REASON_ACCESS_REVOKED = "access_revoked"
+CLOSE_REASONS = frozenset({REASON_CLOSED, REASON_ACCESS_REVOKED})
 
 
 class FrameType(IntEnum):
@@ -27,7 +30,7 @@ class FrameType(IntEnum):
     OPEN = 1  # API -> worker: what to open (JSON)
     DATA = 2  # both: terminal bytes with sequence number
     RESIZE = 3  # API -> worker: {"rows": int, "cols": int}
-    CLOSE = 4  # API -> worker: end the terminal now
+    CLOSE = 4  # API -> worker: end the terminal now; optional {"reason": closed|access_revoked}
     READY = 5  # worker -> API: {"terminal_id": str}
     EXIT = 6  # worker -> API: {"code": int | null, "reason": str}
     ERROR = 7  # worker -> API: {"message": str}; the connection ends

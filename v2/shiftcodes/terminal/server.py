@@ -26,7 +26,9 @@ from shiftcodes.domain.containers import validate_container_id
 from shiftcodes.domain.enums import EnvironmentName
 from shiftcodes.domain.errors import DomainError
 from shiftcodes.terminal.protocol import (
+    CLOSE_REASONS,
     MAX_DATA_BYTES,
+    REASON_CLOSED,
     Frame,
     FrameDecoder,
     FrameType,
@@ -220,7 +222,7 @@ class _Connection:
                 if isinstance(rows, int) and isinstance(cols, int):
                     session.resize(*clamp_size(rows, cols))
             elif frame.type is FrameType.CLOSE:
-                session.finish("closed")
+                session.finish(_close_reason(frame))
             else:
                 raise ProtocolError("unexpected frame")
 
@@ -231,6 +233,14 @@ class _Connection:
         if isinstance(error, PydanticValidationError):
             message = "invalid request"
         self._sink.send_control(FrameType.ERROR, {"message": message[:300]})
+
+
+def _close_reason(frame: Frame) -> str:
+    """The audited reason of a CLOSE frame; anything unknown counts as a plain close."""
+    if not frame.payload:
+        return REASON_CLOSED
+    reason = decode_json(frame).get("reason")
+    return reason if isinstance(reason, str) and reason in CLOSE_REASONS else REASON_CLOSED
 
 
 class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):

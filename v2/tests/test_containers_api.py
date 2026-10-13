@@ -553,3 +553,47 @@ def test_closed_terminal_is_gone(wired: Wired) -> None:
     with wired.client.websocket_connect("/api/terminal/ws", headers=wired.ws_headers()) as socket:
         event = _auth(socket, again)
         assert event["type"] == "error" and "not found" in str(event["message"])
+
+
+def _terminal_token(wired: Wired) -> tuple[int, dict[str, str]]:
+    body = {"name": "t", "scopes": ["terminal"]}
+    created = wired.client.post("/api/tokens", json=body, headers=wired.headers()).json()
+    return int(created["info"]["id"]), {"Authorization": f"Bearer {created['token']}"}
+
+
+def test_token_terminal_ends_and_is_audited_when_the_token_is_revoked(
+    wired: Wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("shiftcodes.api.terminal_bridge.SESSION_CHECK_SECONDS", 0.2)
+    token_id, headers = _terminal_token(wired)
+    anonymous = wired.bare()
+    url = f"{BASE}/{wired.web}/terminal/tickets"
+    ticket = anonymous.post(url, json={}, headers=headers).json()["ticket"]
+    with anonymous.websocket_connect("/api/terminal/ws") as socket:
+        assert _auth(socket, ticket)["type"] == "ready"
+        revoked = wired.client.delete(f"/api/tokens/{token_id}", headers=wired.headers())
+        assert revoked.status_code == 200
+        ended = None
+        for _ in range(100):
+            message = socket.receive()
+            if message["type"] == "websocket.close":
+                ended = message["code"]
+                break
+        assert ended == 4401
+    assert wait_for(lambda: len(wired.audit("terminal.close")) == 1)
+    assert wired.audit("terminal.close")[0]["reason"] == "access_revoked"
+
+
+def test_session_terminal_ends_and_is_audited_on_logout(
+    wired: Wired, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("shiftcodes.api.terminal_bridge.SESSION_CHECK_SECONDS", 0.2)
+    ticket = _ticket(wired)
+    with wired.client.websocket_connect("/api/terminal/ws", headers=wired.ws_headers()) as socket:
+        assert _auth(socket, ticket)["type"] == "ready"
+        assert wired.client.post("/api/auth/logout", headers=wired.headers()).status_code == 204
+        for _ in range(100):
+            if socket.receive()["type"] == "websocket.close":
+                break
+    assert wait_for(lambda: len(wired.audit("terminal.close")) == 1)
+    assert wired.audit("terminal.close")[0]["reason"] == "access_revoked"

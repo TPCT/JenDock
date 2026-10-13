@@ -145,12 +145,13 @@ def _verify_session(
 ) -> SessionCheck | None:
     """Check that a session ticket is used by the browser session it was issued to.
 
-    Returns the ``check(touch)`` function that keeps verifying the session while the terminal is
-    open (``None`` for token tickets, which have no cookie). Raises ``PermissionDeniedError``
+    Returns the ``check(touch)`` function that keeps verifying the principal while the terminal
+    is open (the session; for token tickets, which have no cookie, the token's validity and
+    ``terminal`` scope). Raises ``PermissionDeniedError``
     when the cookie is missing or belongs to another session, or the ``Origin`` is absent.
     """
     if grant.kind is PrincipalKind.TOKEN:
-        return None
+        return _token_check(container, grant)
     cookie = websocket.cookies.get(container.cookies.name)
     if cookie is None or origin != container.settings.public_origin.rstrip("/"):
         raise PermissionDeniedError("session required")
@@ -161,5 +162,16 @@ def _verify_session(
     def check(touch: bool) -> bool:
         live = container.session_service().resolve(cookie, touch=touch)
         return live is not None and live.session_id == grant.principal_id
+
+    return check
+
+
+def _token_check(container: AppContainer, grant: TicketGrant) -> SessionCheck:
+    """A token's terminal lives only while the token is valid and may use terminals."""
+
+    def check(_touch: bool) -> bool:
+        current = container.token_service().current(grant.principal_id)
+        scopes = current.scopes if current else frozenset()
+        return TokenScope.TERMINAL in scopes or TokenScope.ADMIN in scopes
 
     return check
