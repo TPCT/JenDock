@@ -1,0 +1,29 @@
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-12);
+}
+.skeletonText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--base-size-8);
+}
+/* The previous page stays visible while the next one loads. */
+.stale {
+  opacity: 0.6;
+  transition: opacity 120ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stale {
+    transition: none;
+  }
+}

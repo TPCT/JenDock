@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { usePagedQuery } from "./pagedHooks";
 import type {
   ActionPlan,
   ActionResult,
@@ -34,10 +35,8 @@ export function containerStreamUrl(
   return `${one(slug, env, id)}/logs/stream?tail=${tail}`;
 }
 
-export function useContainers(slug: string, env: EnvironmentName) {
-  return useQuery({
-    queryKey: containerKeys.list(slug, env),
-    queryFn: ({ signal }) => api.get<ContainerView[]>(base(slug, env), signal),
+export function useContainers(slug: string, env: EnvironmentName, apiQuery: string) {
+  return usePagedQuery<ContainerView>(containerKeys.list(slug, env), base(slug, env), apiQuery, {
     refetchInterval: 10_000,
   });
 }

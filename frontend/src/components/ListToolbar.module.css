@@ -1,0 +1,21 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.search {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.menus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+@media (max-width: 543px) {
+  .menus {
+    width: 100%;
+  }
+}

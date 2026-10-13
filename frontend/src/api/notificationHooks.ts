@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { usePagedQuery } from "./pagedHooks";
 import type {
   CreateChannelBody,
-  DeliveryPage,
+  Delivery,
   NotificationChannel,
   NotificationPolicy,
   RuleItem,
@@ -105,14 +106,13 @@ export function useSaveRules(slug: string | null, env: EnvironmentName | null) {
   });
 }
 
-export function useDeliveries(slug: string | null, limit = 20) {
-  return useQuery({
-    queryKey: [...notificationKeys.deliveries(slug), limit] as const,
-    queryFn: ({ signal }) => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (slug !== null) params.set("project", slug);
-      return api.get<DeliveryPage>(`/api/notifications/deliveries?${params.toString()}`, signal);
-    },
-    refetchInterval: 10_000,
-  });
+export function useDeliveries(slug: string | null, apiQuery: string) {
+  const params = new URLSearchParams(apiQuery);
+  if (slug !== null) params.set("project", slug);
+  return usePagedQuery<Delivery>(
+    notificationKeys.deliveries(slug),
+    "/api/notifications/deliveries",
+    params.toString(),
+    { refetchInterval: 10_000 },
+  );
 }

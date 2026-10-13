@@ -97,11 +97,15 @@ export interface Project {
   git_transport: "ssh" | "https";
 }
 
+/** The envelope of every list endpoint (see "Lists" in docs/api-contract.md). */
 export interface Page<T> {
   items: T[];
   total: number;
-  limit: number;
-  offset: number;
+  /** 1-based. */
+  page: number;
+  per_page: number;
+  /** At least 1, even for an empty list. */
+  pages: number;
 }
 
 export interface StepRun {

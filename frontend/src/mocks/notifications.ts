@@ -18,9 +18,11 @@ import type {
 } from "../api/notificationTypes";
 import { MOCK_CSRF, projectExists } from "./data";
 import type { MockContext } from "./admin";
+import { byText, byTime, listResponse, type MockList } from "./paging";
 
 const MINUTE = 60_000;
 const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
+const ahead = (ms: number): string => new Date(Date.now() + ms).toISOString();
 
 const EVENTS: EventInfo[] = [
   { event: "run.failed", label: "Run failed", severity: "critical", project_scoped: true },
@@ -138,6 +140,47 @@ function initialDeliveries(): Delivery[] {
       delivered_at: ago(5 * 60 * MINUTE - 3000),
     },
   ];
+}
+
+const DELIVERY_LIST: MockList<Delivery> = {
+  text: (item) => [item.title, item.event, item.last_error],
+  filters: {
+    project: (item, value) => item.project === value,
+    status: (item, value) => item.status === value,
+  },
+  sorts: {
+    created: (a, b) => byTime(a.created_at, b.created_at),
+    status: (a, b) => byText(a.status, b.status),
+  },
+  defaultSort: "created",
+  descending: ["created"],
+};
+
+/** Seventy more messages in every state, so the history pages (dev mock mode only). */
+export function seedBulkDeliveries(): void {
+  const events = ["run.failed", "deployment.succeeded", "run.fixed", "certificate.expiring"];
+  const statuses = ["sent", "sent", "sent", "failed", "pending"] as const;
+  const extra: Delivery[] = Array.from({ length: 70 }, (_, index) => {
+    const status = statuses[index % statuses.length] ?? "sent";
+    const event = events[index % events.length] ?? "run.failed";
+    return {
+      id: 100 + index,
+      channel_id: 1,
+      channel_name: "#deploys",
+      event,
+      title: `${event === "run.failed" ? "Run failed" : "Deployment event"}: shop-api/${index % 2 === 0 ? "development" : "production"} #${String(index + 1)}`,
+      project: "shop-api",
+      status,
+      attempts: status === "sent" ? 1 : status === "failed" ? 7 : 2,
+      suppressed: index % 7 === 0 ? 2 : 0,
+      is_test: index % 13 === 0,
+      last_error: status === "failed" ? "the endpoint answered HTTP 404" : null,
+      created_at: ago((index + 1) * 47 * 60_000),
+      next_attempt_at: status === "pending" ? ahead(5 * 60_000) : null,
+      delivered_at: status === "sent" ? ago((index + 1) * 47 * 60_000 - 3000) : null,
+    };
+  });
+  deliveries = [...deliveries, ...extra];
 }
 
 let channels = initialChannels();
@@ -362,16 +405,7 @@ export function notificationHandlers(ctx: MockContext): HttpHandler[] {
     http.get("/api/notifications/deliveries", ({ request }) => {
       const denied = guard(request, false);
       if (denied) return denied;
-      const params = new URL(request.url).searchParams;
-      const project = params.get("project");
-      const limit = Number(params.get("limit") ?? 50);
-      const items = deliveries.filter((item) => project === null || item.project === project);
-      return HttpResponse.json({
-        items: items.slice(0, limit),
-        total: items.length,
-        limit,
-        offset: 0,
-      });
+      return listResponse(deliveries, request.url, DELIVERY_LIST);
     }),
     http.get("/api/notifications/rules", ({ request }) => {
       return guard(request, false) ?? HttpResponse.json(ruleSet(undefined, undefined));

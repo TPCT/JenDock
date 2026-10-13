@@ -14,6 +14,7 @@ import type {
   StatsSample,
 } from "../api/containerTypes";
 import { MOCK_CSRF, projectExists } from "./data";
+import { byText, byTime, listResponse, type MockList } from "./paging";
 import type { MockContext } from "./admin";
 
 const MINUTE = 60_000;
@@ -78,6 +79,44 @@ function seed(): Map<string, ContainerView[]> {
 }
 
 let containers = seed();
+
+const CONTAINER_LIST: MockList<ContainerView> = {
+  text: (item) => [item.name, item.service, item.image, item.commit, item.revision],
+  filters: { state: (item, value) => item.state === value },
+  sorts: {
+    service: (a, b) => byText(`${a.service}/${a.name}`, `${b.service}/${b.name}`),
+    name: (a, b) => byText(a.name, b.name),
+    started: (a, b) => byTime(a.started_at, b.started_at),
+  },
+  defaultSort: "service",
+  descending: ["started"],
+};
+
+/** Thirty more services in the shop development environment (dev mock mode only). */
+export function seedBulkContainers(): void {
+  const existing = containers.get("shop-api/development") ?? [];
+  const states = ["running", "running", "running", "exited", "restarting"] as const;
+  const extra = Array.from({ length: 34 }, (_, index): ContainerView => {
+    const state = states[index % states.length] ?? "running";
+    const number = String(index + 1).padStart(2, "0");
+    return {
+      ...(existing[0] as ContainerView),
+      id: hex(0x300 + index),
+      name: `shop-development-job${number}-1`,
+      service: `job${number}`,
+      image: `jendock/shop-development-job${number}:3f9c2ab41d0e-r12`,
+      state,
+      health: state === "running" ? "healthy" : null,
+      restart_count: state === "restarting" ? 12 : 0,
+      started_at: state === "exited" ? null : ago((index + 2) * 17 * MINUTE),
+      exit_code: state === "exited" ? 1 : null,
+      ports: [],
+      mounts: [],
+    };
+  });
+  containers.set("shop-api/development", [...existing, ...extra]);
+}
+
 const confirmations = new Map<string, { id: string; action: LifecycleAction }>();
 let overrides = new Map<string, Record<string, string>>();
 let counter = 0;
@@ -220,7 +259,8 @@ export function containerHandlers(ctx: MockContext): HttpHandler[] {
     http.get(
       BASE,
       ({ params, request }) =>
-        guard(request, false, params.slug) ?? HttpResponse.json(list(params.slug, params.env)),
+        guard(request, false, params.slug) ??
+        listResponse(list(params.slug, params.env), request.url, CONTAINER_LIST),
     ),
     http.get(`${BASE}/:id`, ({ params, request }) => {
       const denied = guard(request, false, params.slug);

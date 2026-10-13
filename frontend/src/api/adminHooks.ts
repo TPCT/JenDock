@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { usePagedQuery } from "./pagedHooks";
 import type {
   Certificate,
   Check,
@@ -210,11 +211,8 @@ export function useRevealSecret(slug: string, env: EnvironmentName) {
 
 const tokenKeys = ["tokens"] as const;
 
-export function useTokens() {
-  return useQuery({
-    queryKey: tokenKeys,
-    queryFn: ({ signal }) => api.get<TokenInfo[]>("/api/tokens", signal),
-  });
+export function useTokens(apiQuery: string) {
+  return usePagedQuery<TokenInfo>(tokenKeys, "/api/tokens", apiQuery);
 }
 
 export function useCreateToken() {

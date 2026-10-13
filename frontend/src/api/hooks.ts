@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fetchSession, isMfaRequired, login, loginTwoFactor, logout } from "./client";
+import { usePagedQuery } from "./pagedHooks";
 import type {
   Catalog,
   Diagnostics,
@@ -27,14 +28,12 @@ export const keys = {
   session: ["session"] as const,
   projects: ["projects"] as const,
   project: (slug: string) => ["projects", slug] as const,
-  runs: (slug: string, env: EnvironmentName, offset: number) =>
-    ["runs", slug, env, offset] as const,
-  allRuns: (offset: number) => ["runs", "all", offset] as const,
+  projectList: ["projects", "list"] as const,
+  runs: (slug: string, env: EnvironmentName) => ["runs", slug, env] as const,
+  allRuns: ["runs", "all"] as const,
   run: (id: number) => ["run", id] as const,
   log: (runId: number, stepId: number) => ["log", runId, stepId] as const,
 };
-
-export const RUNS_PAGE_SIZE = 20;
 
 export function useSession() {
   return useQuery<Session>({
@@ -77,10 +76,28 @@ export function useLogout() {
   });
 }
 
-export function useProjects() {
+/** One page of projects; `apiQuery` is `ListController.apiQuery`. */
+export function useProjects(apiQuery: string) {
+  return usePagedQuery<Project>(keys.projectList, "/api/projects", apiQuery);
+}
+
+const ALL_PROJECTS_PAGE = 100;
+
+/** Every project (all pages), for features that act on the whole set, such as bulk changes. */
+export function useAllProjects() {
   return useQuery({
-    queryKey: keys.projects,
-    queryFn: ({ signal }) => api.get<Project[]>("/api/projects", signal),
+    queryKey: [...keys.projects, "all"] as const,
+    queryFn: async ({ signal }) => {
+      const found: Project[] = [];
+      for (let page = 1; ; page += 1) {
+        const result = await api.get<Page<Project>>(
+          `/api/projects?per_page=${ALL_PROJECTS_PAGE}&page=${page}`,
+          signal,
+        );
+        found.push(...result.items);
+        if (page >= result.pages) return found;
+      }
+    },
   });
 }
 
@@ -91,25 +108,17 @@ export function useProject(slug: string) {
   });
 }
 
-export function useEnvironmentRuns(slug: string, env: EnvironmentName, offset: number) {
-  return useQuery({
-    queryKey: keys.runs(slug, env, offset),
-    queryFn: ({ signal }) =>
-      api.get<Page<RunSummary>>(
-        `/api/projects/${encodeURIComponent(slug)}/environments/${env}/runs?limit=${RUNS_PAGE_SIZE}&offset=${offset}`,
-        signal,
-      ),
-    placeholderData: keepPreviousData,
-    refetchInterval: 10_000,
-  });
+export function useEnvironmentRuns(slug: string, env: EnvironmentName, apiQuery: string) {
+  return usePagedQuery<RunSummary>(
+    keys.runs(slug, env),
+    `/api/projects/${encodeURIComponent(slug)}/environments/${env}/runs`,
+    apiQuery,
+    { refetchInterval: 10_000 },
+  );
 }
 
-export function useAllRuns(offset: number) {
-  return useQuery({
-    queryKey: keys.allRuns(offset),
-    queryFn: ({ signal }) =>
-      api.get<Page<RunSummary>>(`/api/runs?limit=${RUNS_PAGE_SIZE}&offset=${offset}`, signal),
-    placeholderData: keepPreviousData,
+export function useAllRuns(apiQuery: string) {
+  return usePagedQuery<RunSummary>(keys.allRuns, "/api/runs", apiQuery, {
     refetchInterval: 10_000,
   });
 }

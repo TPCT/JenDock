@@ -1,5 +1,5 @@
 import { http, HttpResponse, sse, type HttpHandler } from "msw";
-import type { EnvironmentName, Page, RunSummary, Session } from "../api/types";
+import type { EnvironmentName, Project, RunSummary, Session } from "../api/types";
 import type { Model } from "../api/pipelineTypes";
 import { accountHandlers, MOCK_RECOVERY_CODES, MOCK_TOTP_CODE } from "./account";
 import { adminHandlers } from "./admin";
@@ -7,6 +7,7 @@ import { accessHandlers, mockSession } from "./access";
 import { containerHandlers } from "./containers";
 import { databaseHandlers } from "./databases";
 import { notificationHandlers } from "./notifications";
+import { byText, byTime, listResponse, type MockList } from "./paging";
 import { integrationHandlers } from "./integrations";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
@@ -61,12 +62,33 @@ const unauthenticated = () => error(401, "unauthenticated", "session expired or 
 
 const session = (): Session => mockSession();
 
-function paginate(items: RunSummary[], url: string): Page<RunSummary> {
-  const params = new URL(url).searchParams;
-  const limit = Math.min(100, Math.max(1, Number(params.get("limit") ?? 20)));
-  const offset = Math.max(0, Number(params.get("offset") ?? 0));
-  return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
-}
+const RUN_LIST: MockList<RunSummary> = {
+  text: (run) => [run.project, run.branch, run.commit_sha, run.message, `#${String(run.number)}`],
+  filters: {
+    status: (run, value) => run.status === value,
+    trigger: (run, value) => run.trigger === value,
+    environment: (run, value) => run.environment === value,
+    project: (run, value) => run.project === value,
+  },
+  sorts: {
+    created: (a, b) => byTime(a.created_at, b.created_at),
+    finished: (a, b) => byTime(a.finished_at, b.finished_at),
+    number: (a, b) => a.number - b.number,
+  },
+  defaultSort: "created",
+  descending: ["created", "finished", "number"],
+};
+
+const PROJECT_LIST: MockList<Project> = {
+  text: (project) => [project.name, project.slug, project.repository],
+  sorts: {
+    name: (a, b) => byText(a.name.toLowerCase(), b.name.toLowerCase()),
+    slug: (a, b) => byText(a.slug, b.slug),
+    created: (a, b) => byTime(a.created_at, b.created_at),
+  },
+  defaultSort: "name",
+  descending: ["created"],
+};
 
 function isEnvironment(value: unknown): value is EnvironmentName {
   return value === "development" || value === "production";
@@ -141,8 +163,8 @@ export const handlers: HttpHandler[] = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.get("/api/projects", () =>
-    authenticated ? HttpResponse.json(projects()) : unauthenticated(),
+  http.get("/api/projects", ({ request }) =>
+    authenticated ? listResponse(projects(), request.url, PROJECT_LIST) : unauthenticated(),
   ),
 
   http.get("/api/projects/:slug", ({ params }) => {
@@ -157,7 +179,7 @@ export const handlers: HttpHandler[] = [
     if (!projects().some((item) => item.slug === slug) || !isEnvironment(params.env)) {
       return error(404, "not_found", "environment not found");
     }
-    return HttpResponse.json(paginate(runsFor(slug, params.env), request.url));
+    return listResponse(runsFor(slug, params.env), request.url, RUN_LIST);
   }),
 
   http.get("/api/projects/:slug/environments/:env/head", ({ request }) => {
@@ -279,7 +301,7 @@ export const handlers: HttpHandler[] = [
   }),
 
   http.get("/api/runs", ({ request }) =>
-    authenticated ? HttpResponse.json(paginate(allRuns(), request.url)) : unauthenticated(),
+    authenticated ? listResponse(allRuns(), request.url, RUN_LIST) : unauthenticated(),
   ),
 
   http.get("/api/runs/:id", ({ params }) => {

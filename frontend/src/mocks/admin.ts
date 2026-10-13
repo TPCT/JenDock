@@ -23,6 +23,7 @@ import {
   projectExists,
   retryRun,
 } from "./data";
+import { byText, byTime, listResponse, type MockList } from "./paging";
 
 export interface MockContext {
   authenticated: () => boolean;
@@ -156,6 +157,46 @@ function initialTokens(): TokenInfo[] {
 }
 let tokens = initialTokens();
 let nextTokenId = 10;
+
+function tokenState(token: TokenInfo): "active" | "expired" | "revoked" {
+  if (token.revoked_at !== null) return "revoked";
+  if (token.expires_at !== null && Date.parse(token.expires_at) <= Date.now()) return "expired";
+  return "active";
+}
+
+const TOKEN_LIST: MockList<TokenInfo> = {
+  text: (token) => [token.name, token.prefix],
+  filters: { state: (token, value) => tokenState(token) === value },
+  sorts: {
+    created: (a, b) => byTime(a.created_at, b.created_at),
+    name: (a, b) => byText(a.name.toLowerCase(), b.name.toLowerCase()),
+    last_used: (a, b) => byTime(a.last_used_at, b.last_used_at),
+  },
+  defaultSort: "created",
+  descending: ["created", "last_used"],
+};
+
+/** Forty more tokens in every state, so the token list pages (dev mock mode only). */
+export function seedBulkTokens(): void {
+  const names = [
+    "Deploy bot",
+    "Backup job",
+    "Grafana reader",
+    "Staging smoke test",
+    "Release script",
+  ];
+  const extra: TokenInfo[] = Array.from({ length: 40 }, (_, index) => ({
+    id: 100 + index,
+    name: `${names[index % names.length] ?? "Token"} ${String(index + 1)}`,
+    prefix: `jdt_${(0x1000 + index * 37).toString(16)}`,
+    scopes: index % 3 === 0 ? (["read", "run"] as TokenScope[]) : (["read"] as TokenScope[]),
+    created_at: ago((index + 3) * DAY),
+    last_used_at: index % 4 === 0 ? null : ago((index % 9) * 3_600_000 + 60_000),
+    expires_at: index % 5 === 0 ? ago(DAY) : index % 5 === 1 ? null : ahead((10 + index) * DAY),
+    revoked_at: index % 6 === 0 ? ago(2 * DAY) : null,
+  }));
+  tokens = [...tokens, ...extra];
+}
 const ALL_SCOPES: TokenScope[] = [
   "read",
   "run",
@@ -524,7 +565,10 @@ export function adminHandlers(ctx: MockContext): HttpHandler[] {
     ),
 
     // ---- tokens
-    http.get("/api/tokens", ({ request }) => guard(request, false) ?? HttpResponse.json(tokens)),
+    http.get(
+      "/api/tokens",
+      ({ request }) => guard(request, false) ?? listResponse(tokens, request.url, TOKEN_LIST),
+    ),
     http.post("/api/tokens", async ({ request }) => {
       const denied = guard(request, true);
       if (denied) return denied;
