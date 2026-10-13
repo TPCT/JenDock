@@ -45,6 +45,29 @@ def test_read_file_returns_the_text_at_the_pinned_commit(tmp_path: Path) -> None
     assert source.read_file(CheckoutRequest("o/r", second), "Jenkinsfile") == "pipeline { v2 }\n"
 
 
+def test_read_file_fetches_only_the_file_it_reads_from_a_filtering_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    sha = commit(repo, {"Jenkinsfile": "pipeline { ok }\n", "big.bin": "x" * 200_000})
+    git(repo, "config", "uploadpack.allowFilter", "true")
+    git(repo, "config", "uploadpack.allowAnySHA1InWant", "true")
+    real_run = GitRunner.run
+    fetches: list[list[str]] = []
+
+    def spy(
+        self: GitRunner, args: list[str], cwd: Path | None = None, timeout: float | None = None
+    ) -> str:
+        if args[0] == "fetch":
+            fetches.append(args)
+        return real_run(self, args, cwd, timeout)
+
+    monkeypatch.setattr(GitRunner, "run", spy)
+    source = LocalGitSource(lambda _n: f"file://{repo}")
+    assert source.read_file(CheckoutRequest("o/r", sha), "Jenkinsfile") == "pipeline { ok }\n"
+    assert fetches and "--filter=blob:none" in fetches[0]
+
+
 def test_read_file_reports_absence_as_none(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     sha = commit(repo, {"a.txt": "1", "sub/Jenkinsfile": "nested does not count"})
