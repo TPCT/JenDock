@@ -3,16 +3,39 @@
 from __future__ import annotations
 
 from shiftcodes.importer.apply import ProjectOutcome
+from shiftcodes.importer.notes import DECISION_ORDER
 from shiftcodes.importer.plan import EnvironmentPlan, ImportPlan, ProjectPlan
 
 
 def render_plan(plan: ImportPlan, *, full: bool = True) -> str:
     """The plan as text; ``full`` includes the generated Jenkinsfiles."""
-    lines: list[str] = []
+    lines: list[str] = _decision_summary(plan)
     for project in plan.projects:
         lines.extend(_project(project, full=full))
     lines.append(_summary(plan))
     return "\n".join(lines) + "\n"
+
+
+def _decision_summary(plan: ImportPlan) -> list[str]:
+    """The items a human must decide on, grouped by kind, before the per-project detail."""
+    grouped: dict[str, list[str]] = {}
+    for project in plan.projects:
+        for decision in project.decisions:
+            grouped.setdefault(decision.category, []).append(f"{project.slug}: {decision.text}")
+    lines = ["#" * 78, "NEEDS OPERATOR DECISION", "#" * 78]
+    if not grouped:
+        return [*lines, "nothing: every value came from v1 data", ""]
+    for category in (*DECISION_ORDER, *(c for c in grouped if c not in DECISION_ORDER)):
+        items = grouped.get(category)
+        if items:
+            lines.append(f"[{len(items)}] {category}")
+            lines.extend(f"    - {item}" for item in items)
+    transports = sorted({p.git_transport.value for p in plan.projects})
+    lines.append(f"git transport for all projects: {', '.join(transports)} (--https switches)")
+    keys = sorted({p.deploy_key_note for p in plan.projects if p.deploy_key_note})
+    lines.extend(f"    * {note.split(' (')[0]}" for note in keys[:1])
+    lines.append("")
+    return lines
 
 
 def _project(project: ProjectPlan, *, full: bool) -> list[str]:
@@ -20,6 +43,7 @@ def _project(project: ProjectPlan, *, full: bool) -> list[str]:
         "=" * 78,
         f"project {project.slug}  ({project.name})  repository {project.repository}",
         f"  recipe bound to: {project.bound.value}",
+        f"  git transport: {project.git_transport.value}",
     ]
     for env in project.environments:
         lines.extend(_environment(env, full=full))
@@ -30,6 +54,8 @@ def _project(project: ProjectPlan, *, full: bool) -> list[str]:
             for item in project.service_images
         )
     lines.extend(f"  secrets: {note}" for note in project.secrets)
+    if project.deploy_key_note:
+        lines.append(f"  deploy key: {project.deploy_key_note}")
     lines.extend(f"  WARNING: {text}" for text in project.warnings)
     lines.extend(f"  ERROR: {text}" for text in project.errors)
     return lines
@@ -44,7 +70,7 @@ def _environment(env: EnvironmentPlan, *, full: bool) -> list[str]:
     for name, value in env.values.items():
         lines.append(f"    {name} = {value}")
     for name, value in env.unmapped.items():
-        lines.append(f"    {name} = {value}   (recorded only: v2 has no field yet)")
+        lines.append(f"    {name} = {value}   (recorded only: v2 has no field for it)")
     if env.jenkinsfile and full:
         lines.append("    Jenkinsfile:")
         lines.extend(f"      | {line}" for line in env.jenkinsfile.rstrip("\n").split("\n"))

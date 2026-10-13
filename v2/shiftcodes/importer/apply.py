@@ -13,6 +13,7 @@ from typing import Any
 from shiftcodes.domain.actor import Actor
 from shiftcodes.domain.errors import DomainError, NotFoundError
 from shiftcodes.importer.plan import DEV, PROD, EnvironmentPlan, ImportPlan, ProjectPlan
+from shiftcodes.repositories.models import Project
 from shiftcodes.services.environments import EnvironmentService, EnvironmentUpdate
 from shiftcodes.services.pipelines import PipelineService
 from shiftcodes.services.projects import ProjectService
@@ -70,22 +71,22 @@ def _apply_project(
             project.repository,
             development_branch=branches[DEV],
             production_branch=branches[PROD],
+            git_transport=project.git_transport,
             actor=actor,
         )
         outcome.created = True
         outcome.changes.append(f"created project {project.slug} ({project.repository})")
     else:
-        _compare_project(project, existing.project.name, existing.project.repository, outcome)
+        _compare_project(project, existing.project, outcome)
     for env in project.environments:
         _apply_environment(project, env, services, actor, outcome)
 
 
-def _compare_project(
-    project: ProjectPlan, name: str, repository: str, outcome: ProjectOutcome
-) -> None:
+def _compare_project(project: ProjectPlan, current: Project, outcome: ProjectOutcome) -> None:
     for what, have, want in (
-        ("name", name, project.name),
-        ("repository", repository, project.repository),
+        ("name", current.name, project.name),
+        ("repository", current.repository, project.repository),
+        ("git transport", current.git_transport, project.git_transport),
     ):
         if have == want:
             outcome.unchanged.append(f"project {what} matches")

@@ -14,6 +14,8 @@ services:
       # per-IP limit becomes a global one. Apache on the host reaches the published port via
       # the compose network gateway, e.g. TRUSTED_PROXIES=172.18.0.1 (docker network inspect).
       SHIFTCODES_TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
+      # Extra Host header values accepted at /mcp (DNS rebinding protection), comma separated.
+      SHIFTCODES_MCP_ALLOWED_HOSTS: "${MCP_ALLOWED_HOSTS:-}"
     # api = uid 10002, worker = uid 10001, shared group 10001 (see the Dockerfiles): the socket
     # is 0660 in a setgid 2770 directory, so a compromised API cannot act as the worker user.
     ports:
@@ -71,6 +73,12 @@ services:
       - ${WORKSPACES_HOST_DIR:-/var/lib/shiftcodes-workspaces}:/var/lib/shiftcodes/workspaces
       # Host socket (set DOCKER_SOCKET_PATH if non-default) at a fixed in-container path.
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      # The compose CLI runs in this container but bind-mount sources are resolved by the host
+      # daemon, and relative paths in compose files resolve against the compose file's own
+      # directory: the host projects directory (compose files and --env-file files of deployed
+      # environments) is mounted read-only at the IDENTICAL absolute path. The managed override
+      # lives in the data volume, so nothing is written here. Set COMPOSE_PROJECTS_DIR to move it.
+      - ${COMPOSE_PROJECTS_DIR:-/opt/docker-engine/projects}:${COMPOSE_PROJECTS_DIR:-/opt/docker-engine/projects}:ro
     restart: unless-stopped
 
 volumes:

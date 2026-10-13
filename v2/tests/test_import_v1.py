@@ -19,7 +19,7 @@ import pytest
 from shiftcodes import cli
 from shiftcodes.config import get_settings
 from shiftcodes.domain.actor import Actor
-from shiftcodes.domain.enums import EnvironmentName
+from shiftcodes.domain.enums import EnvironmentName, GitTransport
 from shiftcodes.domain.errors import ValidationError
 from shiftcodes.importer.apply import ImportServices, apply_plan
 from shiftcodes.importer.cli import add_arguments, run_import
@@ -196,7 +196,8 @@ def test_project_and_environment_mapping_for_a_known_project(plan: ImportPlan) -
         "sys-scheduler",
         "sys-reverb",
     ]
-    assert prod.unmapped == {"env_file": "/opt/docker-engine/projects/aic/ports.env"}
+    assert prod.values["compose_env_files"] == ["/opt/docker-engine/projects/aic/ports.env"]
+    assert prod.unmapped == {}
     assert any("treated as the production" in w for w in project.warnings)
     assert any("no v1 data for the development" in w for w in project.warnings)
 
@@ -231,7 +232,7 @@ def test_the_environment_mapping_is_table_driven() -> None:
         "compose_project": "compose_project",
         "compose_files": "compose_files",
         "services": "services",
-        "env_file": None,  # recorded only, until v2 has a field for it
+        "env_file": "compose_env_files",
     }
 
 
@@ -457,7 +458,10 @@ def test_blank_compose_settings_of_an_existing_environment_are_filled(
     )
     [outcome] = apply_plan(small_plan({"captcha"}), services, ACTOR)
     assert not outcome.created
-    assert any("set compose_files, compose_project, services" in c for c in outcome.changes)
+    assert any(
+        "set compose_env_files, compose_files, compose_project, services" in c
+        for c in outcome.changes
+    )
     assert any("stored Jenkinsfile as version 1" in c for c in outcome.changes)
     assert any("project name" in d for d in outcome.differences)  # 'Captcha' != v1 label, reported
     env = EnvironmentService(uow).get("captcha", PROD)
@@ -487,7 +491,7 @@ def test_dry_run_prints_everything_and_never_touches_the_database() -> None:
     assert "20 project(s), 20 Jenkinsfile(s) generated and valid" in text
     assert "project aic-website" in text and "| pipeline {" in text
     assert "WARNING:" in text and "secrets: no secret is referenced" in text
-    assert "(recorded only: v2 has no field yet)" in text
+    assert "compose_env_files = ['/opt/docker-engine/projects/aic/ports.env']" in text
 
 
 def test_a_real_run_through_the_cli_function(services: ImportServices, uow: UnitOfWork) -> None:
@@ -527,3 +531,110 @@ def test_main_dry_run_does_not_create_a_database(
     assert code == 0
     assert not db.exists() and not db.parent.exists()
     assert "dry run: nothing was written" in capsys.readouterr().out
+
+
+# --- compose env files, git transport, decision summary -----------------------------------------
+
+
+def test_the_v1_env_file_becomes_the_compose_env_files_of_the_environment(
+    services: ImportServices, uow: UnitOfWork
+) -> None:
+    apply_plan(small_plan({"aic-sys"}), services, ACTOR)
+    env = EnvironmentService(uow).get("aic-sys", PROD)
+    assert env.compose_env_files == ["/opt/docker-engine/projects/aic/ports.env"]
+    assert EnvironmentService(uow).get("aic-sys", DEV).compose_env_files == []
+    [again] = apply_plan(small_plan({"aic-sys"}), services, ACTOR)
+    assert not again.changes and not again.differences
+    assert any("compose_env_files matches" in text for text in again.unchanged)
+
+
+def test_a_recipe_without_env_file_leaves_compose_env_files_empty(tmp_path: Path) -> None:
+    document = {
+        "p": {
+            "repository": "o/r",
+            "branch": "main",
+            "label": "P",
+            "recipe": {"services": ["app"], "images": [{"name": "p-app"}], "tests": []},
+        }
+    }
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps(document))
+    [project] = build_plan(load_projects(path)).projects
+    assert "compose_env_files" not in project.environment(PROD).values
+
+
+def test_imported_projects_default_to_ssh_with_a_deploy_key_note(
+    services: ImportServices, uow: UnitOfWork
+) -> None:
+    plan = small_plan({"captcha"})
+    assert plan.projects[0].git_transport is GitTransport.SSH
+    note = plan.projects[0].deploy_key_note
+    assert "SHIFTCODES_GIT_SSH_KEY_FILE" in note and "ssh.github.com:443" in note
+    assert "github.com/TPCT/captcha.shiftcodes.net" in note
+    apply_plan(plan, services, ACTOR)
+    assert ProjectService(uow).get("captcha").project.git_transport is GitTransport.SSH
+
+
+def test_the_https_flag_switches_the_transport(services: ImportServices, uow: UnitOfWork) -> None:
+    out = io.StringIO()
+    args = parse_args("--projects-json", str(PROJECTS), "--https", "--dry-run")
+    assert run_import(args, forbidden, out) == 0
+    assert "git transport: https" in out.getvalue() and "git transport: ssh" not in out.getvalue()
+    real = parse_args("--projects-json", str(PROJECTS), "--https")
+    run_import(real, lambda: services, io.StringIO())
+    assert ProjectService(uow).get("captcha").project.git_transport is GitTransport.HTTPS
+
+
+def test_an_existing_project_with_another_transport_is_reported_not_changed(
+    services: ImportServices, uow: UnitOfWork
+) -> None:
+    ProjectService(uow).create(
+        "captcha", "captcha.shiftcodes.net", "TPCT/captcha.shiftcodes.net", "development", "main"
+    )
+    [outcome] = apply_plan(small_plan({"captcha"}), services, ACTOR)
+    assert any("git transport" in d for d in outcome.differences)
+    assert ProjectService(uow).get("captcha").project.git_transport is GitTransport.HTTPS
+
+
+def test_the_dry_run_starts_with_a_grouped_summary_of_operator_decisions() -> None:
+    out = io.StringIO()
+    run_import(parse_args("--projects-json", str(PROJECTS), "--dry-run"), forbidden, out)
+    text = out.getvalue()
+    head, _, _ = text.partition("project aic-website")
+    assert head.startswith("#" * 78 + "\nNEEDS OPERATOR DECISION")
+    order = [
+        "ambiguous service -> image guesses",
+        "branches that look misspelled",
+        "single v1 branch assigned",
+        "other environment has no v1 data",
+        "tmpfs mounts dropped",
+        "test environment variables that look like credentials",
+    ]
+    positions = [head.index(title) for title in order]
+    assert positions == sorted(positions)
+    assert "- elfak01: branch 'developement' looks misspelled" in head
+    assert "- aic-sys: service 'sys-queue' -> image 'aic-sys-app' is a guess" in head
+    assert "- 30sv01: no v1 data for the production environment" in head
+    assert "- aic-ops: test in deploy-test-aic-ops: tmpfs mounts" in head
+    assert "git transport for all projects: ssh" in head
+    assert "[3] branches that look misspelled" in head
+
+
+def test_the_summary_says_so_when_nothing_needs_a_decision(tmp_path: Path) -> None:
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps({"p": {"repository": "o/r", "branch": "main", "label": "P"}}))
+    database = tmp_path / "v1.sqlite"
+    db = sqlite3.connect(database)
+    db.executescript(
+        "CREATE TABLE registry_projects(id TEXT, legacy_binding TEXT);"
+        "INSERT INTO registry_projects VALUES('p','production');"
+        "CREATE TABLE registry_environments(project TEXT, name TEXT, branch TEXT, automatic INT,"
+        " state TEXT);"
+        "INSERT INTO registry_environments VALUES('p','development','dev',0,'provisioned');"
+    )
+    db.commit()
+    db.close()
+    out = io.StringIO()
+    args = parse_args("--projects-json", str(path), "--v1-db", str(database), "--dry-run")
+    run_import(args, forbidden, out)
+    assert "nothing: every value came from v1 data" in out.getvalue()

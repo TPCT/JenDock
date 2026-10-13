@@ -1,8 +1,8 @@
 """End-to-end pipeline runs against a real Docker daemon.
 
 Run with ``make test-docker``. Skipped when Docker or git is unavailable. Every container and
-image created here is labelled ``shiftcodes.test=1`` and removed in the teardown, which also
-verifies that nothing is left behind.
+image created here carries ``shiftcodes.test=1`` and the session label and is removed in the
+teardown, which also verifies that nothing is left behind.
 """
 
 from __future__ import annotations
@@ -26,13 +26,14 @@ from shiftcodes.execution.runner import RunOutcome
 from shiftcodes.repositories.models import Run
 from shiftcodes.services.secret_cipher import SecretCipher
 from tests.docker_support import (
-    TEST_LABEL,
+    SESSION_LABEL,
     assert_nothing_left,
     docker_available,
     pick_base_image,
     remove_image,
     remove_test_resources,
     running_with_label,
+    session_labels,
 )
 from tests.execution_support import Harness, make_harness
 from tests.git_support import GIT, commit
@@ -73,7 +74,7 @@ class Live:
         self.tmp_path = tmp_path
         self.repo = tmp_path / "repo"
         self.private = tmp_path / "private"
-        runtime = DockerCliRuntime(private_dir=self.private, extra_labels={"shiftcodes.test": "1"})
+        runtime = DockerCliRuntime(private_dir=self.private, extra_labels=session_labels())
         source = LocalGitSource(lambda _repository: str(self.repo))
         config = ExecutionConfig(cancel_poll_interval=0.2, health_interval=0.1)
         self.harness = harness
@@ -302,7 +303,7 @@ def test_cancel_kills_a_long_running_container_within_seconds(live: Live) -> Non
     while not running_with_label(label) and time.monotonic() < deadline:
         time.sleep(0.2)
     assert running_with_label(label), "the container never started"
-    assert running_with_label(TEST_LABEL)  # labelled for cleanup as well
+    assert running_with_label(SESSION_LABEL)  # labelled for cleanup as well
     cancelled_at = time.monotonic()
     live.harness.env.lifecycle().request_cancel(run.id, Actor.system("integration"))
     thread.join(60)

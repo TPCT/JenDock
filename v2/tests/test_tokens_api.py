@@ -57,14 +57,14 @@ def test_create_shows_secret_once_and_stores_only_hash(
 
 def test_token_authenticates_with_scope_and_sessionless(client: TestClient, csrf: str) -> None:
     value = _create(client, csrf, ["read"])["token"]
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     path = "/api/projects/demo/environments/development/secrets"
     assert bare.get(path, headers=_bearer(value)).status_code == WORKER_DOWN
 
 
 def test_scope_enforced(client: TestClient, csrf: str, container: AppContainer) -> None:
     value = _create(client, csrf, ["read"])["token"]
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     path = "/api/projects/demo/environments/development/secrets/DB"
     response = bare.put(path, json={"value": "v"}, headers={**_bearer(value), **ORIGIN})
     assert response.status_code == 403
@@ -73,14 +73,14 @@ def test_scope_enforced(client: TestClient, csrf: str, container: AppContainer) 
 
 def test_admin_scope_implies_others(client: TestClient, csrf: str) -> None:
     value = _create(client, csrf, ["admin"])["token"]
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     path = "/api/projects/demo/environments/development/secrets"
     assert bare.get(path, headers=_bearer(value)).status_code == WORKER_DOWN
 
 
 def test_token_cannot_manage_tokens(client: TestClient, csrf: str) -> None:
     value = _create(client, csrf, ["admin", "read"])["token"]
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     headers = _bearer(value)
     assert bare.get("/api/tokens", headers=headers).status_code == 403
     assert (
@@ -114,7 +114,7 @@ def test_revoked_token_rejected(client: TestClient, csrf: str) -> None:
     revoke = client.delete(f"/api/tokens/{info['id']}", headers=mutation_headers(client, csrf))
     assert revoke.status_code == 200
     assert revoke.json()["revoked_at"] is not None
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     path = "/api/projects/demo/environments/development/secrets"
     assert bare.get(path, headers=_bearer(created["token"])).status_code == 401
     again = client.delete(f"/api/tokens/{info['id']}", headers=mutation_headers(client, csrf))
@@ -129,7 +129,7 @@ def test_revoke_unknown_token_is_404(client: TestClient, csrf: str) -> None:
 def test_expired_token_rejected(client: TestClient, csrf: str, clock: FakeClock) -> None:
     expires = (clock.now + timedelta(hours=1)).isoformat()
     value = _create(client, csrf, ["read"], expires_at=expires)["token"]
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     path = "/api/projects/demo/environments/development/secrets"
     assert bare.get(path, headers=_bearer(value)).status_code == WORKER_DOWN
     clock.advance(hours=2)
@@ -161,7 +161,7 @@ def test_token_management_requires_csrf(client: TestClient, csrf: str) -> None:
 
 
 def test_unknown_or_malformed_tokens_rejected(client: TestClient, admin: int) -> None:
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     for value in ("sct_" + "a" * 43, "nope", "sct_" + "a" * 500, ""):
         assert bare.get("/api/auth/session", headers=_bearer(value)).status_code == 401
 

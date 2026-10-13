@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TextIO
 
 from shiftcodes.domain.actor import Actor
+from shiftcodes.domain.enums import GitTransport
 from shiftcodes.domain.errors import DomainError
 from shiftcodes.importer.apply import ImportServices, apply_plan
 from shiftcodes.importer.plan import build_plan
@@ -29,6 +30,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="directory holding a copy of /opt/docker-engine/projects, to read compose files",
     )
     parser.add_argument(
+        "--https",
+        action="store_true",
+        help="clone over https (public repositories only) instead of ssh with the deploy key; "
+        "v1 used ssh, so ssh is the default",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="print the plan and write nothing (no database use)"
     )
 
@@ -41,7 +48,8 @@ def run_import(
     try:
         projects = load_projects(args.projects_json)
         registry: V1Registry | None = load_registry(args.v1_db) if args.v1_db else None
-        plan = build_plan(projects, registry, args.compose_root)
+        transport = GitTransport.HTTPS if args.https else GitTransport.SSH
+        plan = build_plan(projects, registry, args.compose_root, transport)
         if args.dry_run:
             stream.write(render_plan(plan))
             stream.write("dry run: nothing was written\n")

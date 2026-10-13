@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 
 import pytest
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx2 import Response
 
 from shiftcodes.adapters.worker_client import RepositoryFile
 from shiftcodes.api.container import AppContainer
@@ -224,7 +224,7 @@ def test_saving_is_audited_without_the_pipeline_text(
 
 def test_all_endpoints_need_authentication(session: tuple[TestClient, str]) -> None:
     client, _ = session
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     for path in (
         BASE,
         f"{BASE}/versions",
@@ -241,7 +241,7 @@ def test_all_endpoints_need_authentication(session: tuple[TestClient, str]) -> N
 
 def test_saving_needs_the_pipelines_scope(session: tuple[TestClient, str]) -> None:
     client, csrf = session
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     body = {"jenkinsfile": SIMPLE, "base_version": 0}
     reader = _token(client, csrf, ["read"])
     assert bare.get(BASE, headers=reader).status_code == 200

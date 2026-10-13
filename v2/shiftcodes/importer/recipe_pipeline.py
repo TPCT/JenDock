@@ -13,6 +13,13 @@ import shlex
 from dataclasses import dataclass
 
 from shiftcodes.importer.compose_images import ServiceImage
+from shiftcodes.importer.notes import (
+    CREDENTIAL_LIKE_ENV,
+    DROPPED_TMPFS,
+    UNMAPPED_SERVICE,
+    Decision,
+    Notes,
+)
 from shiftcodes.importer.v1_model import V1Check, V1Image, V1Recipe, V1Test
 from shiftcodes.pipeline import serialize
 from shiftcodes.pipeline.ast import (
@@ -46,14 +53,15 @@ class GeneratedPipeline:
 
     jenkinsfile: str
     warnings: tuple[str, ...]
+    decisions: tuple[Decision, ...] = ()
 
 
 def build_pipeline(recipe: V1Recipe, services: list[ServiceImage]) -> GeneratedPipeline:
     """Generate the Jenkinsfile of ``recipe``; ``services`` maps each service to its image."""
-    warnings: list[str] = []
+    notes = Notes()
     stages = [_build_stage(recipe.images)]
-    stages.extend(_test_stages(recipe.tests, warnings))
-    deploy = _deploy_stage(recipe, services, warnings)
+    stages.extend(_test_stages(recipe.tests, notes))
+    deploy = _deploy_stage(recipe, services, notes)
     if deploy is not None:
         stages.append(deploy)
     pipeline = Pipeline(
@@ -65,7 +73,7 @@ def build_pipeline(recipe: V1Recipe, services: list[ServiceImage]) -> GeneratedP
         post=None,
         span=SPAN,
     )
-    return GeneratedPipeline(serialize(pipeline), tuple(warnings))
+    return GeneratedPipeline(serialize(pipeline), tuple(notes.warnings), tuple(notes.decisions))
 
 
 # --- node helpers --------------------------------------------------------------------------
@@ -112,9 +120,9 @@ def _docker_build(image: V1Image) -> StepCall:
     return _call("dockerBuild", *args)
 
 
-def _test_stages(tests: tuple[V1Test, ...], warnings: list[str]) -> list[Stage]:
+def _test_stages(tests: tuple[V1Test, ...], notes: Notes) -> list[Stage]:
     names = _stage_names(tests)
-    return [_test_stage(name, test, warnings) for name, test in zip(names, tests, strict=True)]
+    return [_test_stage(name, test, notes) for name, test in zip(names, tests, strict=True)]
 
 
 def _stage_names(tests: tuple[V1Test, ...]) -> list[str]:
@@ -129,34 +137,35 @@ def _stage_names(tests: tuple[V1Test, ...]) -> list[str]:
     return names
 
 
-def _test_stage(name: str, test: V1Test, warnings: list[str]) -> Stage:
+def _test_stage(name: str, test: V1Test, notes: Notes) -> Stage:
     where = f"test in {test.image}"
     if test.tmpfs:
-        warnings.append(
+        notes.decide(
+            DROPPED_TMPFS,
             f"{where}: tmpfs mounts {list(test.tmpfs)} are not supported by v2 and were dropped; "
-            "make the test create the directories it needs (it may be slower or need writable dirs)"
+            "make the test create the directories it needs (it may be slower or need "
+            "writable dirs)",
         )
-    environment = tuple(_env_vars(test, where, warnings))
+    environment = tuple(_env_vars(test, where, notes))
     steps = [_call("sh", _arg("script", _text(_script(test.command))))] if test.command else []
     if not steps:
-        warnings.append(f"{where}: v1 test has no command; the stage is empty")
+        notes.warn(f"{where}: v1 test has no command; the stage is empty")
     return _stage(
         name, steps, agent=AgentDocker(_text(test.image), None, SPAN), environment=environment
     )
 
 
-def _env_vars(test: V1Test, where: str, warnings: list[str]) -> list[EnvVar]:
+def _env_vars(test: V1Test, where: str, notes: Notes) -> list[EnvVar]:
     result = []
     for name, value in test.environment.items():
         if not ENV_NAME.fullmatch(name):
-            warnings.append(
-                f"{where}: environment name '{name}' is not valid in v2 and was dropped"
-            )
+            notes.warn(f"{where}: environment name '{name}' is not valid in v2 and was dropped")
             continue
         if SENSITIVE_NAME.search(name):
-            warnings.append(
+            notes.decide(
+                CREDENTIAL_LIKE_ENV,
                 f"{where}: '{name}' looks like a credential; its v1 value was copied as a literal "
-                "test value into the Jenkinsfile (verify it is a dummy, never a real secret)"
+                "test value into the Jenkinsfile (verify it is a dummy, never a real secret)",
             )
         result.append(EnvVar(name, _text(value), SPAN))
     return result
@@ -169,27 +178,26 @@ def _script(command: tuple[str, ...]) -> str:
     return shlex.join(command)
 
 
-def _deploy_stage(
-    recipe: V1Recipe, services: list[ServiceImage], warnings: list[str]
-) -> Stage | None:
+def _deploy_stage(recipe: V1Recipe, services: list[ServiceImage], notes: Notes) -> Stage | None:
     mapped = [item for item in services if item.image is not None]
     for item in services:
         if item.image is None:
-            warnings.append(
+            notes.decide(
+                UNMAPPED_SERVICE,
                 f"service '{item.service}' has no image mapping ({item.note}); it is NOT in the "
-                "deploy step and must be added by hand"
+                "deploy step and must be added by hand",
             )
     steps: list[StepCall] = []
     if mapped:
         entries = tuple(MapEntry(item.service, _text(str(item.image)), SPAN) for item in mapped)
         steps.append(_call("deploy", _arg("services", MapValue(entries, SPAN))))
-    steps.extend(_health_check(check, warnings) for check in recipe.checks)
+    steps.extend(_health_check(check, notes) for check in recipe.checks)
     return _stage("Deploy", steps) if steps else None
 
 
-def _health_check(check: V1Check, warnings: list[str]) -> StepCall:
+def _health_check(check: V1Check, notes: Notes) -> StepCall:
     if len(check.statuses) > 1:
-        warnings.append(
+        notes.warn(
             f"health check {check.url}: v1 accepts statuses {list(check.statuses)}; v2 accepts "
             f"one, so {check.statuses[0]} was used"
         )
