@@ -14,13 +14,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=docker:27.5.1-cli /usr/local/bin/docker /usr/local/bin/docker
-<<<<<<< HEAD
 # The compose plugin of the same image: container env edits recreate single services with it.
 COPY --from=docker:27.5.1-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
-=======
 # Pinned GitHub host key: the ssh transport only trusts this file (StrictHostKeyChecking=yes).
 COPY docker/github_known_hosts /etc/shiftcodes/github_known_hosts
->>>>>>> v2-platform
 # The worker user needs access to the Docker socket; compose adds the host docker GID via group_add.
 RUN groupadd --system --gid 10001 shiftcodes \
     && useradd --system --uid 10001 --gid shiftcodes --home-dir /var/lib/shiftcodes shiftcodes \
