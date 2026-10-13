@@ -1,4 +1,5 @@
-"""Admin command line: ``python -m shiftcodes.cli users create|reset-password <username>``.
+"""Admin command line: ``python -m shiftcodes.cli users create|reset-password <username>``
+and ``backup create|restore|prune`` (see README "Backup and restore").
 
 Passwords are read from a hidden prompt, or from stdin with ``--password-stdin``. They are
 never accepted as arguments or environment variables, so they stay out of shell history
@@ -13,6 +14,7 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TextIO
 
+from shiftcodes.backup.cli import add_backup_parser, run_backup
 from shiftcodes.config import get_settings
 from shiftcodes.domain.actor import Actor
 from shiftcodes.domain.errors import DomainError, ValidationError
@@ -40,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="read the password from the first line of stdin instead of prompting",
         )
+    add_backup_parser(groups)
     return parser
 
 
@@ -79,6 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entry point wiring the real database."""
     apply_shared_umask()
     parsed = list(sys.argv[1:] if argv is None else argv)
+    if parsed[:1] == ["backup"]:
+        return run_backup(build_parser().parse_args(parsed), get_settings())
     engine = create_db_engine(get_settings().database_url)
     try:
         service = UserService(UnitOfWork(create_session_factory(engine)), PasswordHasher())
