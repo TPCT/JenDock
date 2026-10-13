@@ -46,7 +46,11 @@ export class LogStore {
     return this.entries.get(stepId) ?? EMPTY_ENTRY;
   }
 
+  /** Changes whenever any buffer changes; a cheap snapshot for derived values (search counts). */
+  version = 0;
+
   private set(stepId: number, patch: Partial<LogEntry>): void {
+    this.version += 1;
     this.entries.set(stepId, { ...this.get(stepId), ...patch });
     this.listeners.forEach((listener) => {
       listener();
@@ -109,6 +113,7 @@ export class LogStore {
   }
 
   clear(): void {
+    this.version += 1;
     this.entries = new Map();
     this.loads = new Map();
     this.watched = new Set();

@@ -1,7 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import "./styles/tokens.css";
+import "@primer/primitives/dist/css/primitives.css";
+import "@primer/primitives/dist/css/functional/themes/light.css";
+import "@primer/primitives/dist/css/functional/themes/dark.css";
+import "@primer/primitives/dist/css/functional/themes/dark-dimmed.css";
 import "./styles/global.css";
 
 async function start(): Promise<void> {

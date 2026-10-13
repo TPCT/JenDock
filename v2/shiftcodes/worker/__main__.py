@@ -25,8 +25,9 @@ from shiftcodes.services.secrets import SecretService
 from shiftcodes.worker.handlers import build_handlers
 from shiftcodes.worker.ingress_handlers import build_ingress_handlers
 from shiftcodes.worker.ingress_wiring import IngressFactory
+from shiftcodes.worker.pipeline_handlers import PipelineHandlers
 from shiftcodes.worker.rpc import Handler, RpcServer
-from shiftcodes.worker.wiring import build_execution_env
+from shiftcodes.worker.wiring import build_execution_env, build_repository_reader
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,11 @@ def build_rpc_server(
     def secret_service() -> SecretService:
         return SecretService(UnitOfWork(session_factory), cipher, redactor)
 
-    handlers = {**build_handlers(secret_service), **(extra_handlers or {})}
+    pipelines = PipelineHandlers(
+        lambda: UnitOfWork(session_factory), build_repository_reader(settings)
+    )
+    extra = {**pipelines.handlers(), **(extra_handlers or {})}
+    handlers = build_handlers(secret_service, extra)
     return RpcServer(settings.worker_socket_path, handlers)
 
 

@@ -1,14 +1,16 @@
-import { GitBranchIcon } from "@primer/octicons-react";
+import { ClockIcon, GitBranchIcon, StopwatchIcon } from "@primer/octicons-react";
+import { BranchName, VisuallyHidden } from "@primer/react";
 import { Link } from "react-router-dom";
 import type { RunSummary } from "../api/types";
-import { capitalize } from "../lib/format";
+import { STATUS_LABEL, capitalize } from "../lib/format";
 import { CopySha } from "./CopySha";
-import { StatusBadge } from "./Status";
+import styles from "./RunList.module.css";
+import { StatusIcon } from "./Status";
 import { Duration, RelativeTime } from "./Time";
-import "./RunList.css";
 
 const TRIGGER_TEXT = { push: "Push", manual: "Manual", redeploy: "Redeploy" } as const;
 
+/** Modelled on the GitHub Actions run list: state icon, title and meta on the left, times right. */
 export function RunList({
   runs,
   showProject = false,
@@ -17,31 +19,36 @@ export function RunList({
   showProject?: boolean;
 }) {
   return (
-    <ul className="runs" aria-label="Runs">
+    <ul className={styles.runs} aria-label="Runs">
       {runs.map((run) => (
-        <li key={run.id} className="run-row">
-          <div className="run-status">
-            <StatusBadge status={run.status} />
-          </div>
-          <div className="run-main">
-            <Link to={`/runs/${run.id}`} className="run-title">
+        <li key={run.id} className={styles.row}>
+          <span className={styles.state}>
+            <StatusIcon status={run.status} />
+            <VisuallyHidden>{STATUS_LABEL[run.status]}</VisuallyHidden>
+          </span>
+          <div className={styles.main}>
+            <Link to={`/runs/${run.id}`} className={styles.title}>
               {showProject ? `${run.project} · ${capitalize(run.environment)} · ` : ""}Run #
               {run.number}
             </Link>
-            <div className="run-meta">
-              <span className="run-branch">
-                <GitBranchIcon size={14} aria-hidden="true" />
-                <span className="sr-only">Branch</span>
-                <code>{run.branch}</code>
-              </span>
+            <div className={styles.meta}>
+              <span>{TRIGGER_TEXT[run.trigger]}</span>
               <CopySha sha={run.commit_sha} />
-              <span className="label">{TRIGGER_TEXT[run.trigger]}</span>
+              <span className={styles.branch}>
+                <GitBranchIcon size={14} aria-hidden="true" />
+                <VisuallyHidden>Branch</VisuallyHidden>
+                <BranchName as="span">{run.branch}</BranchName>
+              </span>
             </div>
           </div>
-          <div className="run-time muted">
-            <RelativeTime iso={run.created_at} />
-            <span>
-              <span className="sr-only">Duration </span>
+          <div className={styles.times}>
+            <span className={styles.time}>
+              <ClockIcon size={14} aria-hidden="true" />
+              <RelativeTime iso={run.created_at} />
+            </span>
+            <span className={styles.time}>
+              <StopwatchIcon size={14} aria-hidden="true" />
+              <VisuallyHidden>Duration </VisuallyHidden>
               <Duration startedAt={run.started_at} finishedAt={run.finished_at} />
             </span>
           </div>

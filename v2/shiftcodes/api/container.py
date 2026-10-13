@@ -8,7 +8,12 @@ from datetime import timedelta
 from sqlalchemy import Engine
 
 from shiftcodes.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
-from shiftcodes.adapters.worker_client import SecretsGateway, WorkerClient
+from shiftcodes.adapters.worker_client import (
+    RepositoryGateway,
+    SecretsGateway,
+    UnavailableRepositoryGateway,
+    WorkerClient,
+)
 from shiftcodes.api.cookies import CookiePolicy
 from shiftcodes.config import Settings
 from shiftcodes.config_ingress import IngressSettings, get_ingress_settings
@@ -25,6 +30,8 @@ from shiftcodes.services.certificates import RenewalPolicy
 from shiftcodes.services.domain_status import DomainStatusService
 from shiftcodes.services.domains import DomainService
 from shiftcodes.services.passwords import PasswordHasher
+from shiftcodes.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
+from shiftcodes.services.pipelines import PipelineService
 from shiftcodes.services.rate_limit import LoginRateLimiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
 from shiftcodes.services.run_queries import RunQueryService
@@ -50,6 +57,7 @@ class AppContainer:
     cookies: CookiePolicy
     ingress: IngressGateway = field(default_factory=UnavailableIngress)
     ingress_settings: IngressSettings = field(default_factory=IngressSettings)
+    repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
 
     @classmethod
     def build(
@@ -63,6 +71,7 @@ class AppContainer:
     ) -> AppContainer:
         """Create the default wiring; tests override individual collaborators."""
         engine = create_db_engine(settings.database_url)
+        worker = WorkerClient(settings.worker_socket_path)
         return cls(
             settings=settings,
             engine=engine,
@@ -70,10 +79,11 @@ class AppContainer:
             clock=clock,
             hasher=hasher or PasswordHasher(),
             limiter=limiter or LoginRateLimiter(clock),
-            secrets=secrets or WorkerClient(settings.worker_socket_path),
+            secrets=secrets or worker,
             cookies=CookiePolicy.for_settings(settings),
             ingress=IngressClient(settings.worker_socket_path),
             ingress_settings=get_ingress_settings(),
+            repository=worker,
         )
 
     def uow(self) -> UnitOfWork:
@@ -115,6 +125,19 @@ class AppContainer:
             retry_after=timedelta(hours=self.ingress_settings.renew_retry_hours),
         )
         return DomainStatusService(self.uow(), self.domain_service(), policy, self.clock)
+
+    def pipeline_editor(self) -> PipelineEditorService:
+        """Return the parse/render/validate service with its own unit of work."""
+        return PipelineEditorService(self.uow())
+
+    def pipeline_documents(self) -> PipelineDocumentService:
+        """Return the stored-pipeline service (repository file, versions, dry run)."""
+        return PipelineDocumentService(
+            self.uow(),
+            PipelineService(self.uow(), clock=self.clock),
+            self.pipeline_editor(),
+            self.repository,
+        )
 
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""

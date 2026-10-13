@@ -33,7 +33,9 @@ class SecurityHeadersMiddleware:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 for name, value in self._headers.items():
-                    headers[name] = value
+                    # A response may choose its own caching (hashed static assets).
+                    if name != "Cache-Control" or name not in headers:
+                        headers[name] = value
             await send(message)
 
         await self._app(scope, receive, send_with_headers)

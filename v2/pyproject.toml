@@ -32,6 +32,7 @@ include = ["shiftcodes*"]
 
 [tool.setuptools.package-data]
 "shiftcodes.repositories.migrations" = ["script.py.mako"]
+"shiftcodes.pipeline.templates" = ["*.Jenkinsfile"]
 
 [tool.ruff]
 line-length = 100
