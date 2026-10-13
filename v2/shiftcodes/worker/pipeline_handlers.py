@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from shiftcodes.adapters.errors import SourceError
-from shiftcodes.adapters.repo_files import RepositoryFileReader
-from shiftcodes.domain.enums import EnvironmentName
+from shiftcodes.adapters.git_remote import BranchFileReader
+from shiftcodes.domain.enums import EnvironmentName, GitTransport
 from shiftcodes.repositories.database import UnitOfWork
 from shiftcodes.services.lookup import require_environment, require_project
 from shiftcodes.worker.rpc import BadRequestError, Handler, RpcCall
@@ -27,9 +27,9 @@ class _EnvParams(BaseModel):
 
 
 class PipelineHandlers:
-    """Adapts a ``RepositoryFileReader`` and the project data to RPC calls."""
+    """Adapts a ``BranchFileReader`` and the project data to RPC calls."""
 
-    def __init__(self, uow_factory: Callable[[], UnitOfWork], reader: RepositoryFileReader) -> None:
+    def __init__(self, uow_factory: Callable[[], UnitOfWork], reader: BranchFileReader) -> None:
         self._uow_factory = uow_factory
         self._reader = reader
 
@@ -45,9 +45,9 @@ class PipelineHandlers:
         except PydanticValidationError as error:
             raise BadRequestError("invalid params") from error
         call.require_actor()
-        repository, branch = self._locate(params)
+        repository, transport, branch = self._locate(params)
         try:
-            text = self._reader.read_file(repository, branch, JENKINSFILE_PATH)
+            text = self._reader.read_file(repository, transport, branch, JENKINSFILE_PATH)
         except SourceError as error:
             logger.warning(
                 "cannot read the Jenkinsfile of a repository",
@@ -56,12 +56,12 @@ class PipelineHandlers:
             return {"reachable": False, "text": None}
         return {"reachable": True, "text": text}
 
-    def _locate(self, params: _EnvParams) -> tuple[str, str]:
+    def _locate(self, params: _EnvParams) -> tuple[str, GitTransport, str]:
         uow = self._uow_factory()
         with uow:
             project = require_project(uow, params.slug)
             environment = require_environment(uow, params.slug, params.env)
-            return project.repository, environment.branch
+            return project.repository, project.git_transport, environment.branch
 
     def handlers(self) -> dict[str, Handler]:
         """The methods to register with the RPC server."""

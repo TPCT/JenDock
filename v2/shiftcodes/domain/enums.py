@@ -62,3 +62,10 @@ class TokenScope(StrEnum):
     TERMINAL = "terminal"
     PIPELINES = "pipelines"
     ADMIN = "admin"
+
+
+class GitTransport(StrEnum):
+    """How a project's repository is cloned."""
+
+    SSH = "ssh"  # deploy key over ssh.github.com:443
+    HTTPS = "https"  # public repositories only

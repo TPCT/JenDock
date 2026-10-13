@@ -54,6 +54,11 @@ services:
       SHIFTCODES_MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-1}"
       # The key lives in the worker-only `keys` volume; the API never sees it.
       SHIFTCODES_SECRET_KEY_FILE: /run/shiftcodes-keys/secret.key
+      # GitHub (README "GitHub integration"): deploy key for the ssh transport and the webhook
+      # secret, both files in the worker-only keys volume. Unset until you create them.
+      SHIFTCODES_GIT_SSH_KEY_FILE: /run/shiftcodes-keys/deploy_key
+      SHIFTCODES_GITHUB_WEBHOOK_SECRET_FILE: /run/shiftcodes-keys/github_webhook_secret
+      SHIFTCODES_GITHUB_STATUS_ENABLED: "${GITHUB_STATUS_ENABLED:-false}"
     # Set DOCKER_GID to the host's docker group id (getent group docker).
     group_add:
       - "${DOCKER_GID:-999}"

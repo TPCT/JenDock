@@ -8,8 +8,8 @@ from datetime import datetime
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
-from shiftcodes.domain.enums import RunStatus
-from shiftcodes.repositories.models import Run, StageRun, StepRun
+from shiftcodes.domain.enums import EnvironmentName, RunStatus
+from shiftcodes.repositories.models import Environment, Project, Run, StageRun, StepRun
 
 
 class RunRepository:
@@ -57,6 +57,42 @@ class RunRepository:
             .offset(offset)
         )
         return self._session.scalars(query).all()
+
+    def latest_for_environment(self, environment_id: int) -> Run | None:
+        """Return the newest run (by creation time) of an environment, any status."""
+        query = (
+            select(Run)
+            .where(Run.environment_id == environment_id)
+            .order_by(Run.created_at.desc(), Run.id.desc())
+            .limit(1)
+        )
+        return self._session.scalar(query)
+
+    def page(
+        self, *, environment_id: int | None, limit: int, offset: int
+    ) -> Sequence[tuple[Run, str, EnvironmentName]]:
+        """Return runs with their project slug and environment name, newest first.
+
+        ``environment_id`` limits the page to one environment; ``None`` spans all of them.
+        """
+        query = (
+            select(Run, Project.slug, Environment.name)
+            .join(Environment, Environment.id == Run.environment_id)
+            .join(Project, Project.id == Environment.project_id)
+            .order_by(Run.created_at.desc(), Run.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if environment_id is not None:
+            query = query.where(Run.environment_id == environment_id)
+        return [(row[0], row[1], row[2]) for row in self._session.execute(query).all()]
+
+    def count(self, *, environment_id: int | None = None) -> int:
+        """Return the number of runs, optionally of one environment."""
+        query = select(func.count()).select_from(Run)
+        if environment_id is not None:
+            query = query.where(Run.environment_id == environment_id)
+        return self._session.scalar(query) or 0
 
     def list_by_status(self, status: RunStatus) -> Sequence[Run]:
         """Return runs in ``status``, oldest first."""
