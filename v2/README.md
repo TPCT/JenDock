@@ -502,6 +502,8 @@ removes the route.
 | `read` | `list_projects`, `get_project`, `list_secret_names` (names only), `list_runs`, `get_run`, `read_step_log`, `preview_commit`, `get_pipeline`, `list_pipeline_versions`, `get_pipeline_version`, `validate_pipeline`, `dry_run_pipeline`, `get_pipeline_catalog`, `get_pipeline_templates` |
 | `pipelines` | `save_pipeline` (needs the `base_version` you read; validated first) |
 | `run` | `trigger_run`, `retry_run`, `cancel_run` |
+| `read` (domains) | `list_domains` (status, certificate state and expiry, latest check), `get_domain`, `list_certificates` |
+| `admin` (domains) | `check_domain`, `preview_domain_change` (DNS and vhost plan with its `plan_hash`; nothing changes), `apply_domain` / `remove_domain` (only with the previewed `plan_hash`), `issue_certificate`; scopes mirror the REST routes |
 | `deploy` | none yet: `mcp/tools/deploy.py` is a marked stub (planned `list_deployments`, `redeploy`, `rollback`) until Task 7 is merged |
 
 A manual run is two steps: `preview_commit` shows the branch head (sha, message, author, date) and
