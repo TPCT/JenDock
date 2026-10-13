@@ -1,0 +1,99 @@
+"""Worker process entrypoint."""
+
+from __future__ import annotations
+
+import logging
+import signal
+import threading
+from types import FrameType
+
+from shiftcodes.config import Settings, get_settings
+from shiftcodes.execution.recovery import recover_interrupted_runs
+from shiftcodes.execution.scheduler import RunScheduler
+from shiftcodes.logging import SecretRedactor, configure_logging
+from shiftcodes.process import apply_shared_umask
+from shiftcodes.repositories.database import (
+    SessionFactory,
+    UnitOfWork,
+    create_db_engine,
+    create_session_factory,
+)
+from shiftcodes.services.secret_cipher import SecretCipher
+from shiftcodes.services.secrets import SecretService
+from shiftcodes.worker.handlers import build_handlers
+from shiftcodes.worker.rpc import RpcServer
+from shiftcodes.worker.wiring import build_execution_env
+
+logger = logging.getLogger(__name__)
+
+
+class ShutdownHandler:
+    """Signal handler that flips a stop event so loops can exit gracefully."""
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+
+    @property
+    def requested(self) -> bool:
+        """Whether shutdown has been requested."""
+        return self._stop.is_set()
+
+    def handle(self, signum: int, _frame: FrameType | None) -> None:
+        """Record the shutdown request."""
+        logger.info("shutdown requested", extra={"signal": signum})
+        self._stop.set()
+
+    def wait(self, timeout: float) -> bool:
+        """Sleep up to ``timeout`` seconds; return True if shutdown was requested."""
+        return self._stop.wait(timeout)
+
+    def install(self) -> None:
+        """Register for SIGTERM and SIGINT."""
+        signal.signal(signal.SIGTERM, self.handle)
+        signal.signal(signal.SIGINT, self.handle)
+
+
+def build_rpc_server(
+    settings: Settings, session_factory: SessionFactory, redactor: SecretRedactor
+) -> RpcServer:
+    """Create the RPC server; the worker is the only process that loads the key file."""
+    cipher = SecretCipher(settings.secret_key_file)
+
+    def secret_service() -> SecretService:
+        return SecretService(UnitOfWork(session_factory), cipher, redactor)
+
+    return RpcServer(settings.worker_socket_path, build_handlers(secret_service))
+
+
+def build_scheduler(
+    settings: Settings, session_factory: SessionFactory, redactor: SecretRedactor
+) -> RunScheduler:
+    """Create the run queue; it shares the key file with the RPC server (same process)."""
+    cipher = SecretCipher(settings.secret_key_file)
+    return RunScheduler(build_execution_env(settings, session_factory, cipher, redactor))
+
+
+def main() -> None:
+    """Configure logging, recover interrupted runs, serve RPC and run the queue until SIGTERM."""
+    apply_shared_umask()
+    settings = get_settings()
+    redactor = configure_logging(settings)
+    engine = create_db_engine(settings.database_url)
+    session_factory = create_session_factory(engine)
+    server = build_rpc_server(settings, session_factory, redactor)
+    scheduler = build_scheduler(settings, session_factory, redactor)
+    shutdown = ShutdownHandler()
+    shutdown.install()
+    server.start()
+    recover_interrupted_runs(scheduler.env)
+    logger.info("worker started")
+    try:
+        scheduler.run_forever(shutdown)
+    finally:
+        server.stop()
+        engine.dispose()
+    logger.info("worker stopped")
+
+
+if __name__ == "__main__":
+    main()

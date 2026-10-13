@@ -1,0 +1,74 @@
+name: shiftcodes-v2
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      SHIFTCODES_ENVIRONMENT: production
+      SHIFTCODES_DATA_DIR: /var/lib/shiftcodes
+      SHIFTCODES_WORKER_SOCKET_PATH: /run/shiftcodes/worker.sock
+      # Reverse proxies whose X-Forwarded-For is trusted for login rate limiting (IPs/CIDRs,
+      # comma separated). Empty trusts nobody, so every client looks like the proxy and the
+      # per-IP limit becomes a global one. Apache on the host reaches the published port via
+      # the compose network gateway, e.g. TRUSTED_PROXIES=172.18.0.1 (docker network inspect).
+      SHIFTCODES_TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
+    # api = uid 10002, worker = uid 10001, shared group 10001 (see the Dockerfiles): the socket
+    # is 0660 in a setgid 2770 directory, so a compromised API cannot act as the worker user.
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - data:/var/lib/shiftcodes
+      - worker-socket:/run/shiftcodes
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    # Deliberately no Docker socket: the API reaches Docker only through the worker socket.
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    environment:
+      SHIFTCODES_ENVIRONMENT: production
+      SHIFTCODES_DATA_DIR: /var/lib/shiftcodes
+      SHIFTCODES_WORKER_SOCKET_PATH: /run/shiftcodes/worker.sock
+      SHIFTCODES_DOCKER_HOST: unix:///var/run/docker.sock  # in-container path, see volumes
+      SHIFTCODES_DOCKER_BINARY: /usr/local/bin/docker
+      # Containers started for `sh` steps mount the run workspace, and the host daemon resolves
+      # bind mount paths on the host: that host directory is mounted below and named here.
+      SHIFTCODES_WORKSPACE_HOST_DIR: "${WORKSPACES_HOST_DIR:-/var/lib/shiftcodes-workspaces}"
+      # Resource ceilings for step containers and builds (a pipeline may only lower them),
+      # concurrent runs and the per-step log bound. See README "Execution".
+      SHIFTCODES_CONTAINER_MEMORY: "${CONTAINER_MEMORY:-2g}"
+      SHIFTCODES_CONTAINER_CPUS: "${CONTAINER_CPUS:-2}"
+      SHIFTCODES_MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-1}"
+      # The key lives in the worker-only `keys` volume; the API never sees it.
+      SHIFTCODES_SECRET_KEY_FILE: /run/shiftcodes-keys/secret.key
+    # Set DOCKER_GID to the host's docker group id (getent group docker).
+    group_add:
+      - "${DOCKER_GID:-999}"
+    volumes:
+      - data:/var/lib/shiftcodes
+      - worker-socket:/run/shiftcodes
+      - keys:/run/shiftcodes-keys
+      # Host directory (owned by uid 10001, mode 0750) that holds the run workspaces; the host
+      # daemon mounts subdirectories of it into step containers. Set WORKSPACES_HOST_DIR to move it.
+      - ${WORKSPACES_HOST_DIR:-/var/lib/shiftcodes-workspaces}:/var/lib/shiftcodes/workspaces
+      # Host socket (set DOCKER_SOCKET_PATH if non-default) at a fixed in-container path.
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+    restart: unless-stopped
+
+volumes:
+  data:
+  worker-socket:
+  keys:  # mounted in the worker only

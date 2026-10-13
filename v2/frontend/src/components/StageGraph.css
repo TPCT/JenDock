@@ -1,0 +1,93 @@
+.graph {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.graph-column {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.graph-arrow {
+  flex: none;
+  margin: 0 0.25rem;
+  color: var(--fg-muted);
+}
+.graph-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.graph-parallel {
+  padding: 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.graph-tag {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.graph-node {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 9rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.graph-node:hover {
+  background: var(--bg-hover);
+}
+.graph-succeeded {
+  border-left: 3px solid var(--success);
+}
+.graph-failed {
+  border-left: 3px solid var(--danger);
+}
+.graph-running {
+  border-left: 3px solid var(--attention);
+}
+.graph-queued,
+.graph-skipped,
+.graph-cancelled {
+  border-left: 3px solid var(--neutral);
+}
+.graph-interrupted {
+  border-left: 3px solid var(--done);
+}
+.graph-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+.graph-time {
+  font-size: 0.85rem;
+}
+@media (max-width: 47.99rem) {
+  .graph {
+    flex-direction: column;
+  }
+  .graph-column {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .graph-arrow {
+    align-self: center;
+    margin: 0.25rem 0;
+    transform: rotate(90deg);
+  }
+}

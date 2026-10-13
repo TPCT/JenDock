@@ -1,0 +1,80 @@
+.run-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+.run-heading .status-label {
+  font-size: 1rem;
+}
+.run-summary {
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+.stale-banner {
+  margin-bottom: 1rem;
+}
+.section-title {
+  margin: 1.5rem 0 0.75rem;
+}
+.graph-box {
+  padding: 1rem;
+  overflow-wrap: anywhere;
+}
+.stage {
+  scroll-margin-top: 1rem;
+}
+.stage-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  border-top: 1px solid var(--border-muted);
+}
+.step:first-child {
+  border-top: 0;
+}
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.step-head:hover {
+  background: var(--bg-hover);
+}
+.step-label {
+  flex: 1;
+  min-width: 0;
+}
+.step-type {
+  color: var(--fg-muted);
+}
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 1rem 1rem;
+}
+@media (max-width: 47.99rem) {
+  .step-type {
+    display: none;
+  }
+}
+.run-message {
+  margin-bottom: 1rem;
+}
