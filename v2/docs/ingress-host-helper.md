@@ -43,8 +43,8 @@ The helper needs only Python >= 3.13 and `cryptography` (already pinned in
 ```
 python3 -m venv /opt/jendock-host-helper/venv
 /opt/jendock-host-helper/venv/bin/pip install 'cryptography==<version from requirements.lock>'
-install -d -m 0755 /opt/jendock-host-helper/lib/jendock
-cp -r v2/jendock/__init__.py v2/backend/hosthelper /opt/jendock-host-helper/lib/jendock/
+install -d -m 0755 /opt/jendock-host-helper/lib/backend
+cp -r v2/backend/__init__.py v2/backend/hosthelper /opt/jendock-host-helper/lib/backend/
 chown -R root:root /opt/jendock-host-helper && chmod -R go-w /opt/jendock-host-helper
 ```
 

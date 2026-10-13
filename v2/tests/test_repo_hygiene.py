@@ -14,6 +14,8 @@ SKIPPED_DIRS = {
     "dist",
     ".mypy_cache",
     ".ruff_cache",
+    ".pytest_cache",
+    "coverage",
 }
 MARKERS = ("<" * 7 + " ", ">" * 7 + " ")
 MAX_BYTES = 2 * 1024 * 1024
