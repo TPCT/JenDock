@@ -45,6 +45,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make lock` - regenerate `requirements.lock` (needs Docker)
 - `make test-py313` - run tests on Python 3.13 in Docker (installs git in the throwaway container)
 - `make check` - lint, typecheck, test
+- `make preflight` - read-only host check before the production installation (`PREFLIGHT_ARGS`
+  passes flags, e.g. `--env-file .env`); see `docs/deployment.md`
 - `make lint-jenkins` - compare the Jenkinsfile engine with a real Jenkins linter in a throwaway
   container (needs Docker and network); rewrites `docs/jenkins-compatibility.md`
 
@@ -62,6 +64,14 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
   file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
   below it; the deployer refuses to start a deployment when one is not readable.
+
+## Production installation next to v1
+
+`docs/deployment.md` is the step-by-step plan (users, directories, Docker socket, Apache vhost,
+secrets, first admin, per-project cutover, rollback); `deployment/compose.production.yml`,
+`deployment/env.production.example` and `deployment/apache-deploy.shiftcodes.net.conf` are its
+files, and `make preflight` (`scripts/preflight.py`, read-only, flags via `PREFLIGHT_ARGS`)
+checks a host against every prerequisite and prints a report.
 
 ## Backup and restore
 
