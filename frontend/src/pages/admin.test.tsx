@@ -236,7 +236,7 @@ describe("API tokens", () => {
     const shown = await screen.findByRole("dialog", { name: "Copy your new token" });
     expect(shown).toHaveTextContent("only time you will see it");
     const token = within(shown).getByLabelText("Token Claude agent").textContent;
-    expect(token).toMatch(/^sc_/);
+    expect(token).toMatch(/^jdt_/);
     await user.click(within(shown).getByRole("button", { name: "I have copied it" }));
     expect(screen.queryByText(token)).not.toBeInTheDocument();
     const row = within(await screen.findByRole("list", { name: "API tokens" })).getByText(
