@@ -98,7 +98,8 @@ class PagedCloudflare:
             items = [
                 r
                 for r in self.records.get(path[1], [])
-                if params.get("type") in (None, r["type"]) and params.get("name") in (None, r["name"])
+                if params.get("type") in (None, r["type"])
+                and params.get("name") in (None, r["name"])
             ]
             return self._page(items, params)
         return httpx.Response(404, json=_error("not found", 7003))

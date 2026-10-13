@@ -114,8 +114,9 @@ class DiscoveryRepository:
             conditions.append(DiscoveredDomain.zone_name == zone)
         if link is LinkFilter.LINKED:
             conditions.append(Domain.id.is_not(None))
-        elif link is LinkFilter.UNLINKED:
+        elif link is LinkFilter.UNLINKED:  # neither linked nor suggested: needs a person
             conditions.append(Domain.id.is_(None))
+            conditions.append(DiscoveredDomain.suggested_project.is_(None))
         elif link is LinkFilter.SUGGESTED:
             conditions.append(Domain.id.is_(None))
             conditions.append(DiscoveredDomain.suggested_project.is_not(None))

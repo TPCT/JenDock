@@ -92,3 +92,39 @@ def test_existing_users_become_owners_and_access_grants_exist(
     assert tuple(row) == ("owner", "", None, 0)
     assert "access_grants" in inspect(engine).get_table_names()
     engine.dispose()
+
+
+def test_existing_domains_stay_managed_and_the_discovery_tables_come_and_go(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = f"sqlite:///{tmp_path / 'domains' / 'old.db'}"
+    monkeypatch.setenv("JENDOCK_DATABASE_URL", url)
+    upgrade_to_head()
+    command.downgrade(build_config(), "0009_resources")
+    engine = create_db_engine(url)
+    assert "discovered_domains" not in inspect(engine).get_table_names()
+    stamp = "'2026-10-13 12:00:00'"
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "INSERT INTO projects (id, slug, name, repository, git_transport, created_at) "
+            f"VALUES (1, 'demo', 'Demo', 'octo/demo', 'https', {stamp})"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO environments (id, project_id, name, branch, auto_deploy, services, "
+            "compose_files, compose_env_files, created_at, updated_at) VALUES (1, 1, "
+            f"'production', 'main', 0, '[]', '[]', '[]', {stamp}, {stamp})"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO domains (environment_id, hostname, service, container_port, "
+            "published_port, dns_record_type, dns_proxied, tls_enabled, status, created_at, "
+            f"updated_at) VALUES (1, 'app.example.com', 'web', 8080, 20001, 'A', 0, 1, "
+            f"'active', {stamp}, {stamp})"
+        )
+    engine.dispose()
+    upgrade_to_head()
+    engine = create_db_engine(url)
+    with engine.connect() as connection:
+        row = connection.exec_driver_sql("SELECT origin, adopted_at, vhost_file FROM domains").one()
+    assert tuple(row) == ("managed", None, None)
+    assert {"discovered_domains", "discovery_state"} <= set(inspect(engine).get_table_names())
+    engine.dispose()
