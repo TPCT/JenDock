@@ -225,7 +225,7 @@ export function Shell() {
       </Header>
       <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none">
         {mobile ? null : (
-          <PageLayout.Pane position="start" width="small" divider="line" padding="condensed">
+          <PageLayout.Pane position="start" width="small" divider="line" padding="condensed" sticky>
             <MainNav />
           </PageLayout.Pane>
         )}

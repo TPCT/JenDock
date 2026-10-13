@@ -110,7 +110,11 @@ function AttentionCard({ runs, hasProjects }: { runs: DashboardRun[]; hasProject
                   <span>{TRIGGER_TEXT[run.trigger]}</span>
                   <RelativeTime iso={run.finished_at ?? run.started_at ?? run.created_at} />
                 </span>
-                {run.message ? <span className="muted">{run.message}</span> : null}
+                {run.message ? (
+                  <span className={`muted ${styles.message}`} title={run.message}>
+                    {run.message}
+                  </span>
+                ) : null}
               </div>
               {run.status === "running" || run.status === "queued" ? (
                 <Duration startedAt={run.started_at} finishedAt={run.finished_at} />
@@ -403,17 +407,21 @@ function Content({ data }: { data: Dashboard }) {
     <div className={box.stack}>
       {!hasProjects ? <Welcome /> : null}
       {hasProjects ? (
-        <div className={styles.grid}>
-          <AttentionCard runs={data.attention} hasProjects={hasProjects} />
-          <RecentRunsCard />
-          <DeploymentsCard items={data.deployments} hasProjects={hasProjects} />
-          <ManualDeploysCard items={data.manual_deploys} />
-          <CertificatesCard items={data.certificates} domainCount={data.domain_count} />
-          <HostCard host={data.host} error={data.host_error} />
-          <QuickLinksCard />
+        <div className={styles.layout}>
+          <div className={styles.column}>
+            <AttentionCard runs={data.attention} hasProjects={hasProjects} />
+            <RecentRunsCard />
+          </div>
+          <aside className={styles.column} aria-label="Overview">
+            <HostCard host={data.host} error={data.host_error} />
+            <DeploymentsCard items={data.deployments} hasProjects={hasProjects} />
+            <ManualDeploysCard items={data.manual_deploys} />
+            <CertificatesCard items={data.certificates} domainCount={data.domain_count} />
+            <QuickLinksCard />
+          </aside>
         </div>
       ) : (
-        <div className={styles.grid}>
+        <div className={styles.layout}>
           <HostCard host={data.host} error={data.host_error} />
         </div>
       )}

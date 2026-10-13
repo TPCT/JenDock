@@ -124,28 +124,30 @@ const RunSidebar = memo(
           </NavList.LeadingVisual>
           Summary
         </NavList.Item>
-        <NavList.Divider />
-        <NavList.Group title="Stages">
-          {stages.map((stage) => (
-            <NavList.Item
-              key={stage.id}
-              as={Link}
-              to={{ search: `?stage=${String(stage.id)}` }}
-              aria-current={selectedId === stage.id ? "page" : undefined}
-            >
-              <NavList.LeadingVisual>
-                <StatusIcon status={stage.status} />
-              </NavList.LeadingVisual>
-              {stage.name}
-              <VisuallyHidden>, {STATUS_LABEL[stage.status]}</VisuallyHidden>
-              <NavList.TrailingVisual>
-                <span className="muted">
-                  <Duration startedAt={stage.started_at} finishedAt={stage.finished_at} />
-                </span>
-              </NavList.TrailingVisual>
-            </NavList.Item>
-          ))}
-        </NavList.Group>
+        {stages.length === 0 ? null : <NavList.Divider />}
+        {stages.length === 0 ? null : (
+          <NavList.Group title="Stages">
+            {stages.map((stage) => (
+              <NavList.Item
+                key={stage.id}
+                as={Link}
+                to={{ search: `?stage=${String(stage.id)}` }}
+                aria-current={selectedId === stage.id ? "page" : undefined}
+              >
+                <NavList.LeadingVisual>
+                  <StatusIcon status={stage.status} />
+                </NavList.LeadingVisual>
+                {stage.name}
+                <VisuallyHidden>, {STATUS_LABEL[stage.status]}</VisuallyHidden>
+                <NavList.TrailingVisual>
+                  <span className="muted">
+                    <Duration startedAt={stage.started_at} finishedAt={stage.finished_at} />
+                  </span>
+                </NavList.TrailingVisual>
+              </NavList.Item>
+            ))}
+          </NavList.Group>
+        )}
       </NavList>
     );
   },
