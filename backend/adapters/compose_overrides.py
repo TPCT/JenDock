@@ -1,4 +1,4 @@
-"""Per-service managed overrides written as a Compose override file (Task 8).
+"""Per-service managed overrides written as a Compose override file.
 
 This module owns exactly one file per environment: ``container-overrides.yml`` in
 ``<root>/<project>/<environment>/``. It holds what a user changed in the platform on top of the

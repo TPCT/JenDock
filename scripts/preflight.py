@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only preflight of a host before Jendock v2 is started on it.
+"""Read-only preflight of a host before Jendock is started on it.
 
 Checks every prerequisite listed in docs/deployment.md and prints a report; it changes nothing
 (no file is written, no container started, no service touched). Exit status 1 when any check
@@ -10,7 +10,7 @@ FAILs, so it can gate the checklist. Standard library only: it runs with the hos
 
 Defaults come from the same environment variables as compose.yml (DOCKER_SOCKET_PATH,
 COMPOSE_PROJECTS_DIR, WORKSPACES_HOST_DIR, BACKUP_HOST_DIR, ...), then from the paths of the
-existing v1 installation.
+usual production host layout.
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ def check_apache(root: Path) -> list[Result]:
                 "apache",
                 Status.FAIL,
                 f"no Apache configuration in {root}",
-                "pass --apache-root of the host Apache that serves monitoring.example.com",
+                "pass --apache-root of the host Apache that will serve Jendock",
             )
         ]
     results.append(Result("apache", Status.PASS, f"configuration in {root}"))
@@ -243,15 +243,13 @@ def check_env_file(path: Path | None) -> list[Result]:
     origin = values.get("PUBLIC_ORIGIN", "")
     if origin and not origin.startswith("https://"):
         results.append(Result("PUBLIC_ORIGIN", Status.FAIL, f"{origin!r} is not https://"))
-    if "monitoring.example.com" in origin:
-        results.append(Result("PUBLIC_ORIGIN", Status.FAIL, "points at the v1 host name"))
     if path.stat().st_mode & 0o004:
         results.append(Result(name + " mode", Status.WARN, "world-readable", f"chmod 0640 {path}"))
     return results
 
 
 def check_dns(hostname: str) -> Result:
-    """The v2 host name resolves (the vhost and certificate need it)."""
+    """The Jendock host name resolves (the vhost and certificate need it)."""
     name = f"dns {hostname}"
     try:
         addresses = sorted({info[4][0] for info in socket.getaddrinfo(hostname, None)})
@@ -328,14 +326,14 @@ def run_checks(
         check_executable(
             "docker CLI",
             targets.docker_binary,
-            "set DOCKER_BINARY_HOST_PATH to the v1 docker binary",
+            "set DOCKER_BINARY_HOST_PATH to the host's docker binary",
         )
     )
     results.append(
         check_executable(
             "docker compose binary",
             targets.compose_binary,
-            "set DOCKER_COMPOSE_HOST_PATH to the v1 compose binary",
+            "set DOCKER_COMPOSE_HOST_PATH to the host's compose binary",
         )
     )
     results.append(check_socket(targets.docker_socket))
@@ -389,7 +387,7 @@ def render(results: Sequence[Result]) -> str:
 def build_parser(env: Mapping[str, str]) -> argparse.ArgumentParser:
     """Arguments; every default comes from the compose variable of the same meaning."""
     defaults = Targets()
-    parser = argparse.ArgumentParser(description="Read-only host preflight for Jendock v2")
+    parser = argparse.ArgumentParser(description="Read-only host preflight for Jendock")
     parser.add_argument("--env-file", type=Path, help="the compose .env to validate")
     parser.add_argument("--hostname", default=env.get("DEPLOY_HOSTNAME", defaults.hostname))
     parser.add_argument("--api-port", type=int, default=defaults.api_port)

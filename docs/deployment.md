@@ -1,34 +1,31 @@
-# Running Jendock v2 next to v1 on the VPS
+# Production installation
 
-This document **prepares** the first production installation of v2. Nothing in the repository
-executes any of it: every command below is run by an administrator, on purpose, step by step.
-v1 keeps running untouched the whole time; the last section describes how to remove v2 again
-without a trace on v1.
+This document describes the first production installation of Jendock on a VPS that runs Docker
+and Apache. Nothing in the repository executes any of it: every command below is run by an
+administrator, on purpose, step by step. The last sections describe how to back out again.
 
-> The facts about v1 below (paths, ports, socket, binaries) were read from the v1 repository
-> (`compose.yml`, `deploy_service.py`, `README.md`, `deployment/`, `docs/operations/*`), not from
-> the machine. `make preflight` checks the host against them and says what differs; where it
-> and this document disagree with the machine, the machine wins and the `.env` is adjusted.
+> The paths, ports, socket and binaries below describe the usual layout of such a host
+> (an isolated Docker daemon, a pinned docker CLI, a host Apache with certbot). `make preflight`
+> checks the host against them and says what differs; where it and this document disagree with
+> the machine, the machine wins and the `.env` is adjusted.
 
 ## 1. The picture
 
-| | v1 (running) | v2 (this document) |
-|---|---|---|
-| public name | `monitoring.example.com` | `deploy.example.com` (a new vhost) |
-| compose project | `deploy-monitor` in `/opt/docker-engine/projects/deploy-monitor` | `jendock-v2` in `/opt/docker-engine/projects/jendock-v2` (a release checkout) |
-| host port (loopback only) | `127.0.0.1:19190` (receiver), `19192` (MCP) | `127.0.0.1:8000` (API, web UI, `/mcp`) |
-| Docker daemon | isolated daemon, `/run/docker-isolation.sock` | the same daemon, as a client; v2's own containers also run there |
-| docker CLI / compose | `/opt/docker-engine/29.8.2/docker/docker`, `/opt/docker-engine/tools/docker-compose` | mounted read-only from the same paths |
-| state | external volumes `deploy-monitor_state`, `_worker-state`, `_work` | volumes `jendock-v2_data`, `_worker-socket`, `_keys` (new) |
-| GitHub access | ssh over `ssh.github.com:443`, pinned `known_hosts` | the same transport; host key pinned in the image |
-| TLS | host Apache, Docker-based certbot with a shared HTTP-01 webroot | host Apache, the same certbot mechanism, a new certificate |
+| | |
+|---|---|
+| public name | `deploy.example.com` (a new vhost) |
+| release directory | `/opt/docker-engine/projects/jendock-v2`, a release checkout (the directory and the compose project name `jendock-v2` are kept as they are: the volumes and images of a running installation carry them) |
+| host port (loopback only) | `127.0.0.1:8000` (API, web UI, `/mcp`) |
+| Docker daemon | the host's isolated daemon, `/run/docker-isolation.sock`; Jendock is a client of it and its own containers run there too |
+| docker CLI | `/opt/docker-engine/29.8.2/docker/docker`, mounted read-only into the worker |
+| state | volumes `jendock-v2_data`, `_worker-socket`, `_keys` |
+| GitHub access | ssh over `ssh.github.com:443`, host key pinned in the image |
+| TLS | host Apache and certbot with an HTTP-01 webroot, or Jendock's own ACME certificates (`docs/ingress.md`) |
 
-Both stacks talk to the **same Docker daemon and see the same containers**. v2 only ever starts,
-stops and recreates the compose services that an environment explicitly names (never anything
-else, never with `--remove-orphans`), and builds images tagged `jendock/<project>-<env>-<image>:...`,
-a namespace v1 does not use. The rule that matters is operational: **a project is deployed by v1
-or by v2, never both**. Environments in v2 start with auto-deploy off; a project is cut over
-only after its v1 hook is disabled (section 10).
+Jendock only ever starts, stops and recreates the compose services that an environment
+explicitly names (never anything else, never with `--remove-orphans`), and builds images tagged
+`jendock/<project>-<env>-<image>:...`. Environments start with auto-deploy off; turn it on per
+environment once a manual deployment has worked (section 10).
 
 ## 2. Users, groups and host directories
 
@@ -54,7 +51,7 @@ Why the projects directory is mounted at the identical path: the compose CLI run
 worker container, but bind-mount sources and relative paths in compose files are resolved by
 the **host** daemon against the compose file's own directory. An environment's `compose_files`
 and `compose_env_files` (variable interpolation files such as
-`/opt/docker-engine/projects/aic/ports.env`) are absolute paths below `COMPOSE_PROJECTS_DIR`;
+`/opt/docker-engine/projects/shop/ports.env`) are absolute paths below `COMPOSE_PROJECTS_DIR`;
 the deployer refuses a deployment when one of them is not readable.
 
 ## 3. Docker socket, binary and group
@@ -63,17 +60,16 @@ the deployer refuses a deployment when one of them is not readable.
   `/var/run/docker.sock` in the worker).
 - `DOCKER_GID` is that socket's group id: `stat -c %g /run/docker-isolation.sock`. The worker
   gets it through `group_add`; the API has no Docker access at all.
-- The worker deploys with `docker compose`. The overlay mounts **v1's pinned docker CLI** over
+- The worker deploys with `docker compose`. The overlay mounts the **host's pinned docker CLI** over
   `/usr/local/bin/docker` (`DOCKER_BINARY_HOST_PATH`); `docker compose` is the plugin shipped in
-  the worker image (v1's standalone `docker-compose` is root-only on the host).
+  the worker image (a standalone host binary may be root-only).
 - `API_HOST_PORT` is the loopback port Apache proxies to (default 8000; pick a free one).
 
 ## 4. Settings (`.env`)
 
 Copy `deployment/env.production.example` to `.env` (mode 0640). Everything in it is non-secret:
 
-- `PUBLIC_ORIGIN=https://deploy.example.com`: required; the default inside the image is v1's
-  name. Login cookies, CSRF `Origin` checks and commit-status links use it.
+- `PUBLIC_ORIGIN=https://deploy.example.com`: required (the compose file refuses to start without it). Login cookies, CSRF `Origin` checks and commit-status links use it.
 - `TRUSTED_PROXIES`: the address the API sees for Apache. Apache reaches the loopback port, and
   traffic arrives from the compose network's gateway. After the first `up` read it with
   `docker network inspect jendock-v2_default -f '{{(index .IPAM.Config 0).Gateway}}'`, put it
@@ -86,14 +82,14 @@ Copy `deployment/env.production.example` to `.env` (mode 0640). Everything in it
 
 ## 5. Apache
 
-`deployment/apache-deploy.example.com.conf` is a **new** site file (v1's vhost and its
-include files are not edited): a port-80 vhost that serves the ACME challenge from the shared
+`deployment/apache-deploy.example.com.conf` is a **new** site file (existing vhosts are not
+edited): a port-80 vhost that serves the ACME challenge from the shared
 webroot and redirects everything else, and a port-443 vhost that proxies to `127.0.0.1:8000`
 with `ProxyPreserveHost On`, a 3600 s timeout (server-sent run logs, MCP) and the client address
 in `X-Forwarded-For` (client-supplied values are discarded). Required modules: `proxy`,
 `proxy_http`, `headers`, `ssl`, `rewrite`. Set the two certificate paths to where the host's
-Docker-based certbot stores `deploy.example.com` (request that certificate first, with the
-same mechanism and webroot v1 uses; the HTTP-01 path works as soon as the port-80 vhost is up).
+Docker-based certbot stores `deploy.example.com` (request that certificate first with the
+host's certbot and the shared webroot; the HTTP-01 path works as soon as the port-80 vhost is up).
 
 ## 6. Secrets and where they live
 
@@ -117,7 +113,7 @@ Nothing secret goes into `.env`, the repository or `docker compose` arguments.
   keys*, "Allow write access" off). `deploy-key show owner/name` prints it again,
   `deploy-key list` lists the repositories with a key, and `deploy-key create --rotate
   owner/name` replaces a key (replace it on GitHub as well; creating and rotating are audited
-  without key material). Do not reuse v1's key. A repository without its own key falls back to
+  without key material). Do not reuse a key between repositories. A repository without its own key falls back to
   the optional shared `JENDOCK_GIT_SSH_KEY_FILE`. Create the webhook secret from stdin:
 
   ```
@@ -133,7 +129,7 @@ Nothing secret goes into `.env`, the repository or `docker compose` arguments.
   in the UI/API and stored encrypted in the database.
 - **Admin password**: only ever typed at a prompt or piped to the CLI (section 7).
 
-`$DC` stands for the stack command used throughout (the isolated daemon, v1's compose binary):
+`$DC` stands for the stack command used throughout (the isolated daemon and the host's compose binary):
 
 ```
 export DC='env DOCKER_HOST=unix:///run/docker-isolation.sock /opt/docker-engine/tools/docker-compose -f compose.yml -f deployment/compose.production.yml'
@@ -165,7 +161,7 @@ archive per day (03:00 UTC, newest 7 kept). `backup restore --from <archive>` re
 **empty** data directory only; afterwards run the migrations. Restore drill (do it once on a
 scratch host before relying on it): `docker run --rm -v <scratch volume>:/var/lib/jendock ...
 python -m backend.cli backup restore --from /backups/<archive> --key-file <saved key>`.
-Details: README "Backup and restore".
+Details: `docs/operations.md`.
 
 ## 9. Per-project preparation in the UI
 
@@ -173,7 +169,7 @@ Create the project (repository, branch per environment), set `compose_project`,
 `compose_files` and, when the project is deployed with an interpolation file,
 `compose_env_files`, all as **absolute paths below `COMPOSE_PROJECTS_DIR`**, and the service
 names to deploy. Keep **auto-deploy off**. Use a manual run or a dry run to verify the pipeline
-while v1 still owns production.
+before turning on auto-deploy.
 
 ## 10. Step-by-step checklist
 
@@ -184,10 +180,10 @@ Each step has a check. Stop at the first one that does not give the expected res
 2. **Directories.** `ls -ldn /var/lib/jendock-workspaces /var/backups/jendock` shows
    `10001 10001` and `drwxr-x---`.
 3. **DNS and certificate.** `getent hosts deploy.example.com` resolves to the VPS; request the
-   certificate with v1's certbot mechanism after step 4's port-80 vhost is enabled.
+   certificate with the host's certbot after step 4's port-80 vhost is enabled.
 4. **Apache.** Install the vhost file, `a2ensite deploy.example.com`, then
-   `apachectl configtest` (expect `Syntax OK`) and a graceful reload. v1 check:
-   `curl -sI https://monitoring.example.com/ | head -1` is unchanged.
+   `apachectl configtest` (expect `Syntax OK`) and a graceful reload. Other vhosts on the host
+   keep answering as before.
 5. **Stack.** `$DC config > /dev/null`, `$DC up -d --build`, `$DC --profile tools build inspector`
    (database inspector helper image `jendock-v2-inspector:latest`; override the name with
    `INSPECTOR_IMAGE` in `.env`; rebuild it after upgrades), `$DC ps` shows `api` and `worker`
@@ -204,42 +200,35 @@ Each step has a check. Stop at the first one that does not give the expected res
 11. **Dry run of a project.** In the UI create a project, press *Dry run* / start a **manual run**
     of a repository whose pipeline only builds and tests (no `deploy`). The run succeeds and
     the workspace is cleaned (`ls /var/lib/jendock-workspaces` is empty again).
-12. **Webhook.** In GitHub add the v2 webhook to one test repository; *Recent deliveries* shows a
+12. **Webhook.** In GitHub add the webhook to one test repository; *Recent deliveries* shows a
     `200`; a run appears in the UI.
 13. **Backup.** `$DC exec worker python -m backend.cli backup create --to /backups`, then
     `ls -l /var/backups/jendock` shows a 0600 archive. Copy the key out once:
     `... backup create --to /backups --include-key` and move the `.secret.key` offline.
-14. **Cutover of one project** (only when everything above is green): disable that project's v1
-    hook, set the v2 environment's compose settings and enable auto-deploy there, push a trivial
-    commit, watch the deployment, health check and (if you break the health check on purpose
-    in a scratch environment) the automatic rollback. Repeat per project.
+14. **First real project** (only when everything above is green): set the environment's compose
+    settings and enable auto-deploy there, push a trivial commit, watch the deployment, health
+    check and (if you break the health check on purpose in a scratch environment) the automatic
+    rollback. Repeat per project.
 
-## 11. Rolling back: stop v2, v1 untouched
+## 11. Backing out
 
-v2 never edits v1's files, volumes, vhost or containers, so backing out is removing v2:
-
-1. **Per project:** re-enable the v1 hook and disable auto-deploy in v2. If a v2 deployment left
-   an environment on a v2 image, redeploy with v1 (v1 sets its own image) or use the v2 history
-   (*Redeploy* of the previous version) before stopping v2. The managed override of a project is
-   `<data volume>/deployments/<compose project>/override.yml`: while it exists, **any**
-   `docker compose` run with that file keeps the v2 image; v1 does not use it.
+1. **Per project:** disable auto-deploy. If a deployment left an environment on a Jendock-built
+   image, use the history (*Redeploy* of the previous version) before stopping the stack. The
+   managed override of a project is `<data volume>/deployments/<compose project>/override.yml`:
+   while it exists, **any** `docker compose` run with that file keeps the deployed image.
 2. **Stop the stack:** `$DC down` (no `-v`; the volumes keep the data, including `secret.key`).
 3. **Disable the vhost:** `a2dissite deploy.example.com`, `apachectl configtest`, reload.
-   `monitoring.example.com` is unaffected.
-4. **Verify v1:** `docker ps` on the isolated daemon shows v1's containers unchanged;
-   `curl -sI https://monitoring.example.com/` as before.
-5. **Remove everything** (only when abandoning v2 for good): `$DC down -v`, delete the
+4. **Remove everything** (only when abandoning Jendock for good): `$DC down -v`, delete the
    checkout, `/var/lib/jendock-workspaces`, the backup directory and the GitHub webhooks and
-   deploy keys of v2. The images `jendock/...` that v2 built can be removed with `docker rmi`.
+   deploy keys. The images `jendock/...` that Jendock built can be removed with `docker rmi`.
 
 ## 12. Known limits
 
 - The worker mounts the Docker socket of the isolated daemon: a compromised worker can act on
-  that daemon. v2 narrows what it does (named services only) but does not sandbox itself from the
+  that daemon. Jendock narrows what it does (named services only) but does not sandbox itself from the
   daemon; keep the API without it (it has none).
 - Scheduled backups support SQLite only and write into a directory the worker can write.
-- Both stacks poll the same GitHub repositories with different keys; a repository added to v2
-  needs its own deploy key and webhook.
-- The mounts of the docker CLI and compose binary assume v1's layout; if the host binary is
+- A repository added to Jendock needs its own deploy key and webhook.
+- The mounts of the docker CLI and compose binary assume the host layout in section 1; if the host binary is
   dynamically linked against libraries missing in the slim worker image, use the CLI baked
   into the image (drop the `DOCKER_BINARY_HOST_PATH` mount) and keep only the compose plugin.

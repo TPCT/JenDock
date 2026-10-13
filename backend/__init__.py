@@ -1,1 +1,1 @@
-"""Jendock platform v2."""
+"""Jendock: self-hosted CI/CD for Docker Compose applications."""

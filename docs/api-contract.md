@@ -1,11 +1,9 @@
 # API contract used by the web UI
 
-Status per endpoint: **exists** (shape copied from the code under `backend/api`) or
-**proposed** (the frontend is built and mocked against this shape; the backend should match it).
-The frontend types live in `frontend/src/api/types.ts`; the MSW mock in
+The shapes below are copied from the code under `backend/api`. The frontend types live in `frontend/src/api/types.ts`; the MSW mock in
 `frontend/src/mocks/` implements everything below and is the executable form of this document.
 
-## Conventions (exists)
+## Conventions
 
 - JSON everywhere, UTC ISO-8601 timestamps, same-origin (`/api/...`), session cookie
   (`__Host-session` over https, `jendock_session` over http), sent with `credentials: include`.
@@ -53,18 +51,18 @@ their `limit`/`offset` arguments still work. `list_projects` defaults to 100 per
 
 ## Auth
 
-### `POST /api/auth/login` (exists)
+### `POST /api/auth/login`
 
 Body `{username: string (1-64), password: string (1-1024)}`, extra keys rejected.
 200 `Session` (below) + session cookie. A disabled user cannot sign in.
 For a user with two-factor authentication turned on the password step answers 200
 `{mfa_required: true, challenge: string}` instead and sets **no** cookie: complete it with
 `POST /api/auth/login/two-factor`. The session records the client address (from the trusted
-proxy, see README) and the `User-Agent` for the sessions list.
+proxy, see `security.md`) and the `User-Agent` for the sessions list.
 401 `unauthenticated` (same body for unknown user and wrong password), 422 with `fields`,
 429 `rate_limited` with `Retry-After`.
 
-### `POST /api/auth/login/two-factor` (exists)
+### `POST /api/auth/login/two-factor`
 
 Body `{challenge: string, code: string}`: `code` is the six-digit TOTP code or one recovery code
 (`xxxx-xxxx-xxxx-xxxx`, case, spaces and dashes ignored). 200 as the login of a user without
@@ -73,7 +71,7 @@ an unknown, used or expired challenge (5 minutes, single use, dropped after 5 wr
 Wrong codes count against the same limiter as wrong passwords: 429 `rate_limited`. A TOTP time
 step is accepted once, so a code cannot be replayed within its 30 second window.
 
-### `GET /api/auth/session` (exists)
+### `GET /api/auth/session`
 
 200 `Session`; 401 when there is no valid session. The UI calls it at start and keeps
 `csrf_token` in memory.
@@ -114,7 +112,7 @@ generated password): every endpoint except `GET /api/auth/session`, `POST /api/a
 `POST /api/auth/change-password` answers 403 with code `password_change_required` until the
 password is changed. The UI shows the change-password screen.
 
-### `POST /api/auth/change-password` (exists)
+### `POST /api/auth/change-password`
 
 Own password only. Body `{current_password, new_password (12-1024 characters)}`, extra keys
 rejected. 200 `Session` (refreshed). 422 when the current password is wrong, the new one is
@@ -122,7 +120,7 @@ too short or equals the current one. Wrong current passwords count against a per
 per-IP limit (same window and limits as login): 429 `rate_limited` with `Retry-After`. Clears `must_change_password`, ends the user's other
 sessions, audited as `user.password_change` (never with a password).
 
-### `POST /api/auth/logout` (exists)
+### `POST /api/auth/logout`
 
 204, clears the cookie.
 
@@ -220,14 +218,12 @@ Grant: {"id": 7, "user_id": 3, "username": "maria", "display_name": "Maria Lopez
 Audit details of grant events: `{project, user, user_id, environment, service, role,
 permissions}`, target `project/<slug>`, actor the administrator.
 
-## Projects (implemented, Task 6)
+## Projects
 
 Reads need scope `read` (sessions always have it) and, for members, a grant: the lists only
 contain what the caller may see (`GET /api/projects` also hides environments, and the last run of
 those whose runs they cannot read; `GET /api/runs` only runs of readable environments). Archived
-projects are omitted. Everything in
-this and the Runs section below is implemented; where the implementation differs from the original
-proposal the entry says so ("Deviation").
+projects are omitted.
 
 ### `GET /api/projects`
 
@@ -248,10 +244,10 @@ proposal the entry says so ("Deviation").
 }
 ```
 
-`git_transport` is an addition (not in the original proposal): how the worker clones the
+`git_transport`: how the worker clones the
 repository, `ssh` = deploy key over ssh.github.com:443, `https` = public repositories.
 
-`has_pipeline` (addition) is true when a pipeline is stored for the environment (a repository
+`has_pipeline` is true when a pipeline is stored for the environment (a repository
 `Jenkinsfile` alone does not count). With the compose settings it tells the UI whether an
 environment can deploy by itself: the Projects page offers "turn on automatic deploy for all
 configured environments" only for environments with `compose_project`, `compose_files` and
@@ -318,8 +314,8 @@ any more (the branch moved after the preview, so the user should look at the new
 404 when the branch does not exist. Any branch may be built, not only the environment's tracked
 one. Trigger is `manual`; `triggered_by` or `triggered_by_token_id` is recorded. 201 `RunSummary`
 (status `queued`). Audited as `run.create`.
-Deviation: the proposal said "not on that branch"; the implemented rule is "not the head of
-that branch", which is what makes the previewed commit the confirmed one.
+The rule is "not the head of that branch", which is what makes the previewed commit the
+confirmed one.
 
 ### `RunSummary`
 
@@ -345,9 +341,9 @@ as `run.create` with `retry_of`.
 ### `POST /api/github/webhook`
 
 Not for the UI: GitHub calls it, authenticated by `X-Hub-Signature-256` only (no session, no
-CSRF). See the README, "GitHub integration", for the full behaviour.
+CSRF). See `github.md` for the full behaviour.
 
-### `GET /api/runs/{run_id}` (exists)
+### `GET /api/runs/{run_id}`
 
 200 `RunResponse` = `RunSummary` + `stages`:
 
@@ -399,18 +395,18 @@ so the UI cannot tell parallel from sequential stages. Until the backend sends `
 with sequential sub-stages is not representable with one integer; the first version may give
 each such sub-stage its own column.
 
-### `GET /api/runs/{run_id}/steps/{step_id}/log?offset=0` (exists)
+### `GET /api/runs/{run_id}/steps/{step_id}/log?offset=0`
 
 200 `{offset, next_offset, size, text, complete}`; `offset` is a **byte** offset, the server caps
 the chunk (`CHUNK_BYTES`); continue with `offset=next_offset`; `complete` is true when the step
 finished and nothing is left. The text is already secret-masked. The UI loops until `complete`
 or `next_offset == offset`.
 
-**Optional log timestamps (proposed):** if each log line starts with an RFC 3339 timestamp followed by a
+**Optional log timestamps:** if each log line starts with an RFC 3339 timestamp followed by a
 space (`2026-01-15T10:00:01.250Z text`, as `docker logs -t` writes), the UI hides it from the text and
 shows it in the gutter when the user turns on "Show timestamps". Without them the toggle is disabled.
 
-### `GET /api/runs/{run_id}/events` (exists)
+### `GET /api/runs/{run_id}/events`
 
 `text/event-stream`, session cookie (no idle-timer extension). Events (JSON `data`):
 
@@ -425,14 +421,14 @@ The UI uses `EventSource` with credentials, lets the browser reconnect, and mark
 **stale** (banner, dashed log border) while the connection is down. It does not open a stream
 for finished runs.
 
-### `POST /api/runs/{run_id}/cancel` (exists)
+### `POST /api/runs/{run_id}/cancel`
 
 Scope `run`, CSRF. 200 `{outcome: "cancelled" | "requested", run: RunResponse}`.
 `cancelled` = queued run cancelled at once; `requested` = running run flagged, it ends later
 (`cancel_requested_at` set, status still `running`). The UI offers cancel only while
 `queued|running`, behind a confirmation, and shows "Cancel requested" afterwards.
 
-## Deployments (exists)
+## Deployments
 
 A deployment is one rollout of built images to the services of an environment. The worker
 records it (previous and new image per service) before it changes anything, verifies container
@@ -480,7 +476,7 @@ retention keeps the newest ones). Audited as `deployment.redeploy`.
 404 `not_found` (unknown deployment, or one of another environment), 409 `conflict` (the
 deployment did not succeed, or the run number was taken concurrently: retry).
 
-## Pipelines (implemented)
+## Pipelines
 
 The browser never parses or serializes Jenkinsfile text. The server is the single source of
 truth: `parse` turns text into an editing **model**, `render` turns a model back into the
@@ -690,7 +686,7 @@ ${BRANCH_NAME}` to `failure` / `success`, and `cleanup`. A condition tree that m
   Text -> Visual: text -> `parse` on entering the Visual tab. Text tab: `validate` 400 ms after
   typing stops.
 
-## Database (exists)
+## Database
 
 The database inspector. Base path `/api/projects/{slug}/environments/{env}/databases`. The API holds no
 database password and never connects: the worker runs a short-lived, hardened helper container
@@ -786,7 +782,7 @@ always rolled back. Audited as `database.query` with the statement text and outc
 All shapes are flat JSON with stable keys; there is no HTML or driver-specific type. A read-only agent
 token (`read`) can enumerate schemas/tables/columns and read/query development data; production data
 needs an `admin` token.
-## Containers (exists, Task 8)
+## Containers
 
 Base: `/api/projects/{slug}/environments/{env}/containers`. Only containers of the environment's
 compose project (`com.docker.compose.project` label = the environment's `compose_project`) are
@@ -881,7 +877,7 @@ Audit actions: `container.start|stop|restart`, `container.env.update` (variable 
 outcome applied|restored|restore_failed), `container.env.reveal`, `container.limits.update`,
 `container.file.read` (path), `terminal.open`, `terminal.close`.
 
-## Terminal (exists, Task 9)
+## Terminal
 
 Needs `container.terminal` on the container (a `maintainer` role, or a container grant with
 `terminal` for exactly that service; see "Access control").
@@ -908,7 +904,7 @@ Needs `container.terminal` on the container (a `maintainer` role, or a container
    and output are never stored or logged; the audit holds only open/close with who, container,
    reason, duration and exit code.
 
-## Domains (exists, Task 11)
+## Domains
 
 A **domain** routes a public hostname to one service port of an environment: Cloudflare DNS
 record, Apache vhost (reverse proxy to `127.0.0.1:<published_port>`) and a TLS certificate.
@@ -1040,7 +1036,7 @@ happens automatically 30 days before expiry.
 
 Scope `read`. Expiry monitoring: 200 `[{domain_id, hostname} + Certificate]`, soonest expiry first.
 
-## Notifications (exists, Jira 16.5)
+## Notifications
 
 Alerts to Slack, generic webhooks (Microsoft Teams / Discord compatible) and email. Everything
 below needs scope `admin` (plus CSRF for sessions) except `GET /api/notifications/policy`
@@ -1073,7 +1069,7 @@ Cancelled runs and deployments that changed nothing are not announced.
 
 200 `{enabled, dedupe_minutes, max_attempts, disk_threshold_percent, webhook_failure_threshold,
 webhook_failure_window_minutes, events: [{event, label, severity, project_scoped}]}`. The numbers are
-set by the operator (`JENDOCK_NOTIFY_*`, see the README); `events` is the catalogue above.
+set by the operator (`JENDOCK_NOTIFY_*`, see `notifications.md`); `events` is the catalogue above.
 
 ### Channels
 
@@ -1140,7 +1136,7 @@ failed_step, message, log_tail, details, url, delivery_id, timestamp}`; `text` a
 readable summary for Teams and Discord. Headers: `X-Jendock-Event`, `X-Jendock-Delivery` and, when a
 signing secret is configured, `X-Jendock-Signature: sha256=<hex>`, the HMAC-SHA256 of the exact body.
 
-## Integrations (exists)
+## Integrations
 
 Settings > Integrations and the Domains page's readiness check. Every endpoint below except
 `GET /api/ingress/readiness` is for **browser sessions only** (a bearer token gets 403) and every
@@ -1234,7 +1230,7 @@ environment's own `CLOUDFLARE_API_TOKEN` secret also counts as a token. 200
 `{ready, token_configured, reasons}`. The Domains page shows a Banner linking to Settings >
 Integrations while a blocking reason exists.
 
-## MCP tools of a scope selection (exists)
+## MCP tools of a scope selection
 
 ### `GET /api/mcp/tools?scopes=read,run`
 
@@ -1247,7 +1243,7 @@ Unknown scope names give 422; no scopes give an empty list. 200:
  "tools": [{"name": "list_projects", "description": "...", "scope": "read", "read_only": true}]}
 ```
 
-## Account: profile, sessions, tokens, two-factor, security log (exists)
+## Account: profile, sessions, tokens, two-factor, security log
 
 All routes under `/api/me` act on the signed-in user (taken from the session, never from the
 URL). They are authorized by the policy action `account.manage` (any user, **browser session
@@ -1302,7 +1298,7 @@ the API stores the ciphertext (`users.totp_secret`) and never holds the key that
 The caller's own activity (events they caused or that were done to their account), same item and
 paging shape as the audit log below.
 
-## Audit log (exists)
+## Audit log
 
 Policy action `audit.read`: any user, browser session only (a token gets 403). **Owners and
 admins** read every event. A **member** reads only their own activity (what they did and what was
@@ -1348,7 +1344,7 @@ JSON), at most the **10 000** newest matching events read in batches of 500 (hea
 `X-Export-Max-Rows`). Cells starting with `= + - @` are prefixed with `'` so spreadsheets do not
 run them as formulas. Invalid filters answer 422 before streaming starts.
 
-## Dashboard (exists)
+## Dashboard
 
 ### `GET /api/dashboard`
 

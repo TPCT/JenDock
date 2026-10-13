@@ -2,6 +2,6 @@
 # as published at https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
 # The worker connects to ssh.github.com:443 with HostKeyAlias=github.com, so the first line is
 # the one that is looked up; the bracketed form covers a client that does not use the alias.
-# Refresh: scripts/refresh_github_known_hosts.py (see README, "GitHub integration").
+# Refresh: scripts/refresh_github_known_hosts.py (see docs/github.md).
 github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 [ssh.github.com]:443 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl

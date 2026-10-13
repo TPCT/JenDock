@@ -1,17 +1,17 @@
-# Production overlay for running Jendock v2 next to v1 on the VPS (docs/deployment.md).
+# Production overlay for running Jendock on a VPS with an isolated Docker daemon (docs/deployment.md).
 #
 #   cd /opt/docker-engine/projects/jendock-v2        # a checkout of this release
 #   cp deployment/env.production.example .env && chmod 0640 .env   # then edit it
 #   docker-compose -f compose.yml -f deployment/compose.production.yml config   # review
 #   docker-compose -f compose.yml -f deployment/compose.production.yml up -d
 #
-# It never touches v1: a separate compose project (`jendock-v2`, set in compose.yml), its own
-# named volumes (`jendock-v2_*`), its own loopback port (127.0.0.1:8000; v1 uses 19190 and
-# 19192) and its own public name. It joins v1's isolated Docker daemon only as a client.
+# It uses its own compose project (`jendock-v2`, set in compose.yml; the name is kept because
+# the volumes and images of a running installation carry it), named volumes (`jendock-v2_*`)
+# and a loopback port (127.0.0.1:8000). It talks to the host's isolated Docker daemon as a client.
 #
 # What this overlay adds to compose.yml:
-#   * PUBLIC_ORIGIN (the v2 sub-domain; compose.yml's default is v1's host name);
-#   * the host's pinned docker CLI and the standalone docker-compose binary of v1, mounted
+#   * PUBLIC_ORIGIN (the public https origin; required);
+#   * the host's pinned docker CLI, mounted
 #     read-only (the worker deploys with `docker compose`, which finds the binary as a CLI
 #     plugin);
 #   * a backup directory for scheduled backups (off until BACKUP_ENABLED=true);
@@ -52,10 +52,10 @@ services:
       JENDOCK_BACKUP_KEEP: "${BACKUP_KEEP:-7}"
       JENDOCK_BACKUP_HOUR_UTC: "${BACKUP_HOUR_UTC:-3}"
     volumes:
-      # The CLI v1 uses (29.8.2 at the time of writing); read-only, replaces the one in the image.
+      # The host's pinned CLI (29.8.2 at the time of writing); read-only, replaces the one in the image.
       - ${DOCKER_BINARY_HOST_PATH:-/opt/docker-engine/29.8.2/docker/docker}:/usr/local/bin/docker:ro
-      # `docker compose` is the plugin shipped in the worker image (v1's standalone binary is
-      # root-only on the host, mode 0700, so the worker user could not execute it).
+      # `docker compose` is the plugin shipped in the worker image (a standalone host binary may be
+      # root-only, mode 0700, so the worker user could not execute it).
       # Host directory for scheduled backups, owned by uid 10001 (mode 0750).
       - ${BACKUP_HOST_DIR:-/var/backups/jendock}:/backups
     cap_drop: [ALL]

@@ -13,7 +13,7 @@ from backend.domain.values import GitHubRepository
 SSH_HOST = "ssh.github.com"
 SSH_PORT = 443
 # Names the host in known_hosts; the pinned file lists github.com, the connection goes to
-# ssh.github.com:443 (port 22 is blocked on some networks, v1 used the same arrangement).
+# ssh.github.com:443 (port 22 is blocked on some networks).
 SSH_HOST_KEY_ALIAS = "github.com"
 SSH_CONNECT_TIMEOUT = 15
 SSH_NULL_FILE = "/dev/null"

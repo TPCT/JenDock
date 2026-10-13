@@ -2,7 +2,7 @@
 
 The webhook secret lives in a file of the worker-only keys volume. The API forwards the raw
 body and the signature header and only learns whether the signature is valid, so the process
-that parses internet input never holds the secret (see README, "GitHub integration").
+that parses internet input never holds the secret (see docs/github.md).
 """
 
 from __future__ import annotations

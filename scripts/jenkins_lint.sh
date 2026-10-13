@@ -2,7 +2,7 @@
 # Lint pipelines with a real Jenkins (Declarative linter) in a throwaway container and compare
 # the verdicts with the platform's own engine. Usage:
 #   scripts/jenkins_lint.sh [--purge] [extra.groovy ...]
-# Without arguments it lints every fixture, the README example and the serializer output of each
+# Without arguments it lints every fixture, the pipelines doc example and the serializer output of each
 # valid fixture, and rewrites docs/jenkins-compatibility.md. The container is always removed on
 # exit; the plugin image is kept for fast reruns unless --purge is given.
 set -euo pipefail

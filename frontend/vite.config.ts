@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 // In development the API runs on :8000. Its Origin check requires
-// JENDOCK_PUBLIC_ORIGIN to equal the dev server origin (see README).
+// JENDOCK_PUBLIC_ORIGIN to equal the dev server origin (see frontend/README.md).
 export default defineConfig({
   plugins: [react()],
   server: {

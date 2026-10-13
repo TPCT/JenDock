@@ -48,9 +48,8 @@ def test_invalid_fixture_reports_expected_error(path: Path) -> None:
     assert fragment in found[0][1]
 
 
-def test_readme_example_is_valid_and_canonical() -> None:
-    readme = (Path(__file__).parent.parent / "README.md").read_text()
-    section = readme.split("## Pipelines (Jenkinsfile)", 1)[1]
+def test_docs_example_is_valid_and_canonical() -> None:
+    section = (Path(__file__).parent.parent / "docs" / "pipelines.md").read_text()
     example = section.split("```groovy\n", 1)[1].split("```", 1)[0]
     pipeline = parse(example)
     assert [d for d in validate(pipeline, CONTEXT) if d.severity is Severity.ERROR] == []

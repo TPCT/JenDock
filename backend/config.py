@@ -17,7 +17,7 @@ from backend.domain.errors import ValidationError
 from backend.domain.resources import parse_cpus, parse_memory
 
 DEFAULT_DATA_DIR = Path("/var/lib/jendock")
-DEFAULT_PUBLIC_ORIGIN = "https://monitoring.example.com"
+DEFAULT_PUBLIC_ORIGIN = "https://deploy.example.com"
 SESSION_IDLE_TIMEOUT = timedelta(hours=1)
 SESSION_ABSOLUTE_TIMEOUT = timedelta(hours=12)
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     build_network: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
     # Default wall-clock limit of one container step when no ``timeout`` applies.
     step_timeout_seconds: int = Field(default=3600, gt=0)
-    # Container management (Tasks 8 and 9): the maxima a per-container CPU/RAM limit may reach,
+    # Container management: the maxima a per-container CPU/RAM limit may reach,
     # how long a recreated service gets to become healthy, how long a container operation waits
     # for a running deployment of the same environment, and the terminal bounds.
     managed_max_cpus: str = "8"
