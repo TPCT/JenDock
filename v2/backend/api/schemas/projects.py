@@ -22,6 +22,8 @@ class EnvironmentResponse(BaseModel):
     compose_files: list[str]
     compose_env_files: list[str]
     services: list[str]
+    # Whether a pipeline is stored for the environment (automatic deploy needs one).
+    has_pipeline: bool
     last_run: RunSummary | None
 
     @classmethod
@@ -36,6 +38,7 @@ class EnvironmentResponse(BaseModel):
             compose_files=list(environment.compose_files),
             compose_env_files=list(environment.compose_env_files),
             services=list(environment.services),
+            has_pipeline=view.has_pipeline,
             last_run=RunSummary.from_data(view.last_run) if view.last_run else None,
         )
 

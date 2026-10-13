@@ -429,3 +429,27 @@ class WebhookDelivery(Base):
     repository: Mapped[str | None] = mapped_column(String(160), default=None)
     outcome: Mapped[str] = mapped_column(String(32))
     received_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class PlatformSecret(Base):
+    """An encrypted platform-level secret (for example the Cloudflare API token).
+
+    Only the worker holds the key that decrypts it; the API reads names and timestamps only.
+    """
+
+    __tablename__ = "platform_secrets"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+class PlatformSetting(Base):
+    """A non-secret platform setting; the environment variable of the same name is the default."""
+
+    __tablename__ = "platform_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

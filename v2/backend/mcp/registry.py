@@ -115,6 +115,12 @@ class ToolRegistry:
         """Every tool, ordered by name."""
         return sorted(self._tools.values(), key=lambda tool: tool.name)
 
+    def visible_for_scopes(self, scopes: Iterable[TokenScope]) -> list[Tool]:
+        """The tools a token holding exactly ``scopes`` would see (``admin`` implies all)."""
+        held = set(scopes)
+        everything = TokenScope.ADMIN in held
+        return [tool for tool in self.all() if everything or tool.scope in held]
+
     def visible_to(self, principal: Principal) -> list[Tool]:
         """The tools whose scope the principal holds."""
         return [tool for tool in self.all() if principal.has_scope(tool.scope)]

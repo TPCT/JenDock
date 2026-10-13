@@ -113,6 +113,18 @@ class CloudflareClient:
                 return Zone(str(result[0]["id"]), str(result[0]["name"]))
         raise CloudflareError(f"no Cloudflare zone is reachable with this token for {hostname}")
 
+    def verify_token(self) -> str:
+        """The token's status as Cloudflare reports it (``GET /user/tokens/verify``)."""
+        payload = self._request("GET", "/user/tokens/verify", params=None, body=None)
+        result = payload.get("result")
+        status = result.get("status") if isinstance(result, dict) else None
+        return str(status) if status else "unknown"
+
+    def list_zone_names(self, limit: int = 200) -> list[str]:
+        """Names of the active zones the token can see, sorted (at most ``limit``)."""
+        items = self._get("/zones", {"status": "active"})
+        return sorted(str(item["name"]) for item in items if "name" in item)[:limit]
+
     def list_records(self, zone_id: str, name: str) -> list[DnsRecord]:
         """Return all records with exactly this name."""
         items = self._get(f"/zones/{zone_id}/dns_records", {"name": name})
