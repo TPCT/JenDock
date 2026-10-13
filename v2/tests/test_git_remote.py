@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from backend.adapters.errors import SourceError
-from backend.adapters.git_access import GitAccess, unavailable_ssh_access
+from backend.adapters.git_access import GitAccess, SshSettings, ssh_access
 from backend.adapters.git_remote import GitBranchHeads
 from backend.adapters.sources import (
     MAX_REPOSITORY_FILE_BYTES,
@@ -24,7 +24,7 @@ pytestmark = requires_git
 
 
 def _local(repo: Path) -> GitAccess:
-    return GitAccess(lambda _name: str(repo), {}, lambda: None)
+    return GitAccess(lambda _name: str(repo), lambda _n: {}, lambda _n: None)
 
 
 def _heads(repo: Path) -> GitBranchHeads:
@@ -151,7 +151,9 @@ def test_head_rejects_unsafe_branch_names_before_running_git(tmp_path: Path) -> 
 def test_head_over_a_transport_that_is_not_usable(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     commit(repo, {"a": "1"})
-    heads = GitBranchHeads({GitTransport.SSH: unavailable_ssh_access()})
+    heads = GitBranchHeads(
+        {GitTransport.SSH: ssh_access(SshSettings(None, tmp_path / "hosts", key_dir=tmp_path))}
+    )
     with pytest.raises(SourceError, match="SSH access is not configured"):
         heads.head("o/r", GitTransport.SSH, "main", details=False)
     with pytest.raises(SourceError, match="no git access for transport https"):

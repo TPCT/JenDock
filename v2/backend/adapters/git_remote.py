@@ -77,8 +77,8 @@ class GitBranchHeads:
         access = self._accesses.get(transport)
         if access is None:
             raise SourceError(f"no git access for transport {transport.value}")
-        access.check()
-        runner = GitRunner(self._git, access.env)
+        access.check(repository)
+        runner = GitRunner(self._git, access.env_for(repository))
         url = access.resolve(repository)
         ref = f"refs/heads/{name}"
         listing = runner.run(["ls-remote", "--heads", "--", url, ref], timeout=LOOKUP_TIMEOUT)

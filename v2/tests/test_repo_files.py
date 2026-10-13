@@ -40,7 +40,7 @@ def origin(tmp_path: Path) -> Path:
 
 
 def _reader(url: str | Path) -> HeadFileReader:
-    access = GitAccess(lambda _repository: str(url), {}, lambda: None)
+    access = GitAccess(lambda _repository: str(url), lambda _r: {}, lambda _r: None)
     return HeadFileReader(
         GitBranchHeads({GitTransport.HTTPS: access}), LocalGitSource(access.resolve, "git")
     )
@@ -91,9 +91,11 @@ def test_credentials_in_the_remote_url_never_reach_the_error() -> None:
 
 def test_the_transport_of_the_project_decides_the_access(origin: Path) -> None:
     ssh = GitAccess(
-        lambda _r: str(origin), {}, lambda: (_ for _ in ()).throw(SourceError("no key"))
+        lambda _r: str(origin),
+        lambda _r: {},
+        lambda _r: (_ for _ in ()).throw(SourceError("no key")),
     )
-    https = GitAccess(lambda _r: str(origin), {}, lambda: None)
+    https = GitAccess(lambda _r: str(origin), lambda _r: {}, lambda _r: None)
     accesses = {GitTransport.SSH: ssh, GitTransport.HTTPS: https}
     reader = HeadFileReader(GitBranchHeads(accesses), LocalGitSource(https.resolve))
     assert reader.read_file("o/r", GitTransport.HTTPS, "main", "Jenkinsfile") == TEXT

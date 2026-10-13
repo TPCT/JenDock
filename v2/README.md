@@ -86,8 +86,7 @@ registry binding when `--v1-db` is given, else from the branch name) and every g
 The service -> image mapping is exact when `--compose-root` makes the compose files readable and
 a flagged name-based guess otherwise. The field mapping is the table `ENVIRONMENT_FIELDS` in
 `backend/importer/plan.py` (v1 `env_file` -> `compose_env_files`). Projects default to
-`git_transport = ssh` like v1 (deploy key `JENDOCK_GIT_SSH_KEY_FILE` must exist and be a
-deploy key of each repository); `--https` overrides. The dry run starts with a "needs operator
+`git_transport = ssh` like v1 (each repository needs its own deploy key, see "GitHub integration" Setup); `--https` overrides. The dry run starts with a "needs operator
 decision" summary (ambiguous guesses, misspelled-looking branches, missing environment data,
 dropped tmpfs).
 
@@ -430,7 +429,8 @@ label and every workspace directory removed, then are marked `interrupted` with 
 | `JENDOCK_STEP_LOG_MAX_BYTES` | 5 MiB | log bound per step |
 | `JENDOCK_WORKSPACE_HOST_DIR` | unset | host path of the workspaces (worker in a container) |
 | `JENDOCK_GIT_URL_TEMPLATE` / `_GIT_BINARY` | GitHub https / `git` | source clone |
-| `JENDOCK_GIT_SSH_KEY_FILE` | unset | deploy key (ssh transport); worker-only keys volume |
+| `JENDOCK_GIT_SSH_KEY_DIR` | `/run/jendock-keys/deploy_keys` | per-repository deploy keys `<owner>__<name>` (ssh transport); worker-only keys volume |
+| `JENDOCK_GIT_SSH_KEY_FILE` | unset | optional single deploy key, used for repositories without their own key |
 | `JENDOCK_GIT_SSH_KNOWN_HOSTS_FILE` | `/etc/jendock/github_known_hosts` | pinned GitHub host key |
 | `JENDOCK_GITHUB_WEBHOOK_SECRET_FILE` | unset | webhook secret; worker-only keys volume |
 | `JENDOCK_GITHUB_STATUS_ENABLED` / `_GITHUB_STATUS_TOKEN_SECRET` | `false` / `GITHUB_STATUS_TOKEN` | commit statuses |
@@ -443,8 +443,8 @@ label and every workspace directory removed, then are marked `interrupted` with 
 ### Trust split
 
 GitHub secrets never reach the API. The **worker** holds the webhook secret
-(`JENDOCK_GITHUB_WEBHOOK_SECRET_FILE`) and the deploy key (`JENDOCK_GIT_SSH_KEY_FILE`), both
-files in the `keys` volume, and runs every `git` command (`ls-remote`, fetch, clone). The API
+(`JENDOCK_GITHUB_WEBHOOK_SECRET_FILE`) and the deploy keys (`JENDOCK_GIT_SSH_KEY_DIR`), both
+in the `keys` volume, and runs every `git` command (`ls-remote`, fetch, clone). The API
 forwards the raw webhook body and the `X-Hub-Signature-256` header over the worker socket
 (`github.verify_webhook`) and gets back a boolean; it also asks `github.branch_head` for branch
 heads. Chosen over giving the API its own HMAC key because the API is the process that parses
@@ -491,11 +491,19 @@ Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids],
    the same value in the GitHub webhook (content type `application/json`, events: push; URL
    `https://<host>/api/github/webhook`). Surrounding whitespace in the file is ignored; the file is
    read at each delivery, so rotating it needs no restart.
-2. Deploy key (read-only is enough): `ssh-keygen -t ed25519 -N '' -f deploy_key`, add the public
-   half as a deploy key of each private repository, put the private file in the `keys` volume as
-   `deploy_key` (mode 0600). Projects with `git_transport: "ssh"` (the default for new projects)
-   then clone as `ssh://git@github.com/<owner>/<repo>.git`. Public repositories can use
-   `"https"` per project (`PATCH /api/projects/{slug}`); existing projects were migrated to `https`.
+2. Deploy keys, one per repository (GitHub allows a deploy key on a single repository only):
+   `$DC exec worker python -m backend.cli deploy-key create <owner>/<name>` generates an ed25519
+   key at `/run/jendock-keys/deploy_keys/<owner>__<name>` (mode 0600, directory 0700) and prints
+   only the **public** key. Add that line as a **read-only** deploy key under the repository's
+   *Settings -> Deploy keys* (leave "Allow write access" off). The command refuses to replace an
+   existing key; `--rotate` generates a new one (replace it on GitHub too). `deploy-key show
+   <owner>/<name>` prints the public key again and `deploy-key list` names the repositories that
+   have a key; creating and rotating are audited (`deploy_key.create`, `deploy_key.rotate`, no
+   key material). A repository without its own key falls back to the optional shared
+   `JENDOCK_GIT_SSH_KEY_FILE`, which is only for installations that already have one. Projects
+   with `git_transport: "ssh"` (the default for new projects) then clone as
+   `ssh://git@github.com/<owner>/<repo>.git`. Public repositories can use `"https"` per project
+   (`PATCH /api/projects/{slug}`); existing projects were migrated to `https`.
 3. Commit statuses (optional, off by default): set `GITHUB_STATUS_ENABLED=true` and store a token
    with the `repo:status` permission as the environment secret `GITHUB_STATUS_TOKEN`. The worker
    posts `pending` when a run starts and `success`, `failure` or `error` (cancelled or interrupted)
@@ -506,7 +514,7 @@ Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids],
 ### SSH details
 
 `GitSshSource` runs `git` with an argv list (never a shell) and `GIT_SSH_COMMAND` set to
-`ssh -F /dev/null -i <key> -p 443 -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes
+`ssh -F /dev/null -i <key of the repository> -p 443 -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes
 -o PasswordAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<pinned>
 -o GlobalKnownHostsFile=/dev/null -o HostKeyAlgorithms=ssh-ed25519 -o HostKeyAlias=github.com
 -o Hostname=ssh.github.com ...` (git itself passes the string to `sh -c`, so every token is
@@ -516,7 +524,8 @@ key against `docker/github_known_hosts`, which the worker image installs at
 `/etc/jendock/github_known_hosts`. Only the ed25519 host key is pinned (fingerprint
 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`); to refresh it after a GitHub key
 rotation run `scripts/refresh_github_known_hosts.py`, compare the fingerprint with GitHub's
-documentation and commit the file. The worker image now includes `openssh-client`.
+documentation and commit the file. The worker image includes `openssh-client` (which provides `ssh-keygen` for the
+`deploy-key` commands).
 
 ### Which pipeline a run executes (6.5)
 

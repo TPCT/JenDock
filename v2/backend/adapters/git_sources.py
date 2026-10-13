@@ -16,16 +16,16 @@ class GitAccessSource:
 
     def __init__(self, access: GitAccess, git: str = "git") -> None:
         self._access = access
-        self._source = LocalGitSource(access.resolve, git, access.env)
+        self._source = LocalGitSource(access.resolve, git, access.env_for)
 
     def checkout(self, request: CheckoutRequest, destination: Path) -> None:
         """Clone and check out the pinned commit."""
-        self._access.check()
+        self._access.check(request.repository)
         self._source.checkout(request, destination)
 
     def read_file(self, request: CheckoutRequest, path: str) -> str | None:
         """Read one file at the pinned commit."""
-        self._access.check()
+        self._access.check(request.repository)
         return self._source.read_file(request, path)
 
 
