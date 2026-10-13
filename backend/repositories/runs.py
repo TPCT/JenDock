@@ -3,13 +3,36 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy import ColumnElement, CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
-from backend.domain.enums import EnvironmentName, RunStatus
+from backend.domain.enums import EnvironmentName, RunStatus, RunTrigger
+from backend.domain.paging import PageQuery
 from backend.repositories.models import Environment, Project, Run, StageRun, StepRun
+from backend.repositories.paging import contains, ordered
+
+RUN_SORTS = {
+    "created": Run.created_at,
+    "finished": Run.finished_at,
+    "number": Run.number,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class RunFilter:
+    """Which runs a list shows; every field left ``None`` matches everything."""
+
+    environment_id: int | None = None
+    # Limits the list to these environments (an empty collection matches none): the caller's
+    # access, applied before paging and counting.
+    environment_ids: Collection[int] | None = None
+    project: str | None = None
+    environment: EnvironmentName | None = None
+    status: RunStatus | None = None
+    trigger: RunTrigger | None = None
 
 
 class RunRepository:
@@ -69,31 +92,62 @@ class RunRepository:
         return self._session.scalar(query)
 
     def page(
-        self,
-        *,
-        environment_id: int | None,
-        limit: int,
-        offset: int,
-        environment_ids: Collection[int] | None = None,
-    ) -> Sequence[tuple[Run, str, EnvironmentName]]:
-        """Return runs with their project slug and environment name, newest first.
+        self, query: PageQuery, where: RunFilter
+    ) -> tuple[Sequence[tuple[Run, str, EnvironmentName]], int]:
+        """One page of runs with their project slug and environment name, and the total.
 
-        ``environment_id`` limits the page to one environment; ``None`` spans all of them.
-        ``environment_ids`` limits it to those environments (an empty collection matches none).
+        The search text matches the project slug, branch, commit, message and the run number
+        (``42`` or ``#42``). Sort keys: ``created`` (default, newest first), ``finished`` and
+        ``number``.
         """
-        query = (
+        filters = self._filters(query, where)
+        joined = (
             select(Run, Project.slug, Environment.name)
             .join(Environment, Environment.id == Run.environment_id)
             .join(Project, Project.id == Environment.project_id)
-            .order_by(Run.created_at.desc(), Run.id.desc())
-            .limit(limit)
-            .offset(offset)
+            .where(*filters)
         )
-        if environment_id is not None:
-            query = query.where(Run.environment_id == environment_id)
-        if environment_ids is not None:
-            query = query.where(Run.environment_id.in_(environment_ids))
-        return [(row[0], row[1], row[2]) for row in self._session.execute(query).all()]
+        statement = ordered(
+            joined,
+            query,
+            RUN_SORTS,
+            "created",
+            descending=frozenset({"created", "finished", "number"}),
+            tiebreak=Run.id,
+        )
+        rows = self._session.execute(statement.limit(query.limit).offset(query.offset)).all()
+        counted = (
+            select(func.count())
+            .select_from(Run)
+            .join(Environment, Environment.id == Run.environment_id)
+            .join(Project, Project.id == Environment.project_id)
+            .where(*filters)
+        )
+        return [(row[0], row[1], row[2]) for row in rows], int(self._session.scalar(counted) or 0)
+
+    @staticmethod
+    def _filters(query: PageQuery, where: RunFilter) -> list[ColumnElement[bool]]:
+        filters: list[ColumnElement[bool]] = []
+        if where.environment_id is not None:
+            filters.append(Run.environment_id == where.environment_id)
+        if where.environment_ids is not None:
+            filters.append(Run.environment_id.in_(where.environment_ids))
+        if where.project is not None:
+            filters.append(Project.slug == where.project)
+        if where.environment is not None:
+            filters.append(Environment.name == where.environment)
+        if where.status is not None:
+            filters.append(Run.status == where.status)
+        if where.trigger is not None:
+            filters.append(Run.trigger == where.trigger)
+        term = query.term
+        if term is not None:
+            matches = contains([Project.slug, Run.branch, Run.commit_sha, Run.message], term)
+            digits = term.removeprefix("#")
+            if digits.isdecimal() and len(digits) <= 9:
+                matches = matches | (Run.number == int(digits))
+            filters.append(matches)
+        return filters
 
     def count(
         self, *, environment_id: int | None = None, environment_ids: Collection[int] | None = None

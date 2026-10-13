@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 from backend.api import authz
-from backend.api.schemas.projects import ProjectResponse
+from backend.api.schemas.projects import ProjectPage, ProjectResponse
 from backend.api.schemas.secrets import SecretResponse
 from backend.domain.enums import TokenScope
 from backend.mcp import schema
 from backend.mcp.registry import Args, Tool, ToolContext
 
+MCP_PROJECTS_PER_PAGE = 100  # the tool used to return every project; keep that for most setups
 
-def list_projects(ctx: ToolContext, _args: Args) -> object:
-    """Every project with its two environments (branch, auto-deploy, latest run)."""
-    views = ctx.container.project_queries().list_projects(authz.project_filter(ctx.principal))
-    return [ProjectResponse.from_view(view).model_dump(mode="json") for view in views]
+
+def list_projects(ctx: ToolContext, args: Args) -> object:
+    """A page of the projects the token may see, with their two environments."""
+    only = authz.project_filter(ctx.principal)
+    page = ctx.container.project_queries().search_projects(
+        args.page_query(MCP_PROJECTS_PER_PAGE), only
+    )
+    return ProjectPage.from_page(page).model_dump(mode="json")
 
 
 def get_project(ctx: ToolContext, args: Args) -> object:
@@ -33,9 +38,10 @@ TOOLS = (
     Tool(
         "list_projects",
         "List the projects with their development and production environments: tracked branch, "
-        "auto-deploy flag and the latest run of each.",
+        "auto-deploy flag and the latest run of each. Paged (up to 100 per page): page, "
+        "per_page, q (name, slug or repository), sort (name, slug, created).",
         TokenScope.READ,
-        schema.obj(),
+        schema.obj(schema.paging(("name", "slug", "created"), MCP_PROJECTS_PER_PAGE)),
         list_projects,
     ),
     Tool(

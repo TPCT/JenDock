@@ -14,23 +14,24 @@ from backend.api.schemas.deployments import (
     DeploymentResponse,
     RedeployResponse,
 )
-from backend.domain.enums import TokenScope
+from backend.domain.enums import DeploymentStatus, TokenScope
 from backend.mcp import schema
 from backend.mcp.registry import Args, Tool, ToolContext
-from backend.services.deployments import MAX_PAGE_SIZE
 
 _ENV = {"slug": schema.SLUG, "environment": schema.ENVIRONMENT}
 _DEPLOYMENT = {**_ENV, "deployment_id": schema.RUN_ID}
-_LIMIT = {"type": "integer", "minimum": 1, "maximum": MAX_PAGE_SIZE, "default": 20}
 
 
 def list_deployments(ctx: ToolContext, args: Args) -> object:
     """Deployments of an environment, newest first, with the images each one changed."""
-    limit, offset = args.integer("limit", 20), args.integer("offset", 0)
+    status = args.optional_text("status")
     page = ctx.container.deployment_service().history(
-        args.text("slug"), args.environment(), limit=limit, offset=offset
+        args.text("slug"),
+        args.environment(),
+        args.page_query(),
+        DeploymentStatus(status) if status else None,
     )
-    return DeploymentPageResponse.from_page(page, limit, offset).model_dump(mode="json")
+    return DeploymentPageResponse.from_page(page).model_dump(mode="json")
 
 
 def preview_redeploy(ctx: ToolContext, args: Args) -> object:
@@ -70,9 +71,17 @@ TOOLS = (
         "list_deployments",
         "List the deployments of an environment, newest first: status, commit, run, and for each "
         "service the previous and new image. A failed deployment is rolled back automatically "
-        "(status rolled_back).",
+        "(status rolled_back). Paged: page, per_page, q (commit, message or run number), "
+        "status, sort (created, finished).",
         TokenScope.READ,
-        schema.obj({**_ENV, "limit": _LIMIT, "offset": schema.OFFSET}, ["slug", "environment"]),
+        schema.obj(
+            {
+                **_ENV,
+                **schema.paging(("created", "finished")),
+                "status": {"type": "string", "enum": [s.value for s in DeploymentStatus]},
+            },
+            ["slug", "environment"],
+        ),
         list_deployments,
     ),
     Tool(

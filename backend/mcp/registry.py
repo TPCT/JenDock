@@ -11,6 +11,7 @@ from backend.api.principal import Principal
 from backend.domain.actor import Actor
 from backend.domain.enums import EnvironmentName, TokenScope
 from backend.domain.errors import ValidationError
+from backend.domain.paging import PageQuery, SortOrder
 from backend.services import policy
 from backend.services.run_triggers import RunOrigin
 
@@ -46,6 +47,26 @@ class Args:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValidationError(f"argument {name} must be an integer")
         return value
+
+    def page_query(self, default_per_page: int = 20) -> PageQuery:
+        """The shared list parameters (``page``, ``per_page``, ``q``, ``sort``, ``order``).
+
+        ``limit`` and ``offset`` are still understood (``limit`` = ``per_page``).
+        """
+        per_page = self.integer("per_page", default_per_page)
+        page, skip = self.integer("page", 1), None
+        if "limit" in self._values:
+            per_page, skip = self.integer("limit"), self.integer("offset", 0)
+            page = skip // per_page + 1
+        order = self.optional_text("order")
+        return PageQuery(
+            page,
+            per_page,
+            self.optional_text("q"),
+            self.optional_text("sort"),
+            SortOrder(order) if order else None,
+            skip,
+        )
 
     def environment(self, name: str = "environment") -> EnvironmentName:
         """A required environment name."""

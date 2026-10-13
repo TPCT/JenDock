@@ -17,6 +17,7 @@ from backend.domain.clock import Clock, utcnow
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import NotFoundError, ValidationError
 from backend.domain.notifications import parse_events
+from backend.domain.paging import Page, PageQuery
 from backend.repositories.database import UnitOfWork
 from backend.repositories.notification_models import (
     NotificationChannel,
@@ -26,8 +27,6 @@ from backend.repositories.notification_models import (
 from backend.repositories.notifications import NotificationRepository
 from backend.services.audit import add_audit_event
 from backend.services.lookup import require_environment, require_project
-
-MAX_PAGE = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,14 +78,6 @@ class DeliveryView:
     row: NotificationDelivery
     channel_name: str
     project: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class DeliveryPage:
-    """A page of the delivery history."""
-
-    items: list[DeliveryView]
-    total: int
 
 
 def _repo(uow: UnitOfWork) -> NotificationRepository:
@@ -205,30 +196,23 @@ class NotificationQueryService:
 
     def deliveries(
         self,
+        query: PageQuery,
         *,
         slug: str | None,
         channel_id: int | None,
         status: str | None,
-        limit: int,
-        offset: int,
-    ) -> DeliveryPage:
+    ) -> Page[DeliveryView]:
         """The delivery history, newest first, optionally of one project/channel/status."""
-        if not 1 <= limit <= MAX_PAGE or offset < 0:
-            raise ValidationError(f"limit must be 1-{MAX_PAGE} and offset >= 0")
         with self._uow:
             repo = _repo(self._uow)
             project_id = require_project(self._uow, slug).id if slug else None
             rows, total = repo.page(
-                project_id=project_id,
-                channel_id=channel_id,
-                status=status,
-                limit=limit,
-                offset=offset,
+                query, project_id=project_id, channel_id=channel_id, status=status
             )
             names = {c.id: c.name for c in repo.list_channels()}
             slugs = {p.id: p.slug for p in self._uow.projects.list(include_archived=True)}
-            items = [
+            items = (
                 DeliveryView(r, names.get(r.channel_id, "(deleted)"), slugs.get(r.project_id or 0))
                 for r in rows
-            ]
-            return DeliveryPage(items, total)
+            )
+            return Page.of(items, total, query)

@@ -6,7 +6,9 @@ from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from backend.api.paging import PageResponse
 from backend.domain.enums import TokenScope
+from backend.domain.paging import Page
 from backend.services.tokens import CreatedToken, TokenInfo
 
 
@@ -45,6 +47,15 @@ class TokenResponse(BaseModel):
             expires_at=info.expires_at,
             revoked_at=info.revoked_at,
         )
+
+
+class TokenPage(PageResponse[TokenResponse]):
+    """One page of tokens."""
+
+    @classmethod
+    def from_page(cls, page: Page[TokenInfo]) -> TokenPage:
+        """Build from a page of service metadata."""
+        return cls.of(page, [TokenResponse.from_info(info) for info in page.items])
 
 
 class CreatedTokenResponse(BaseModel):

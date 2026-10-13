@@ -23,6 +23,34 @@ The frontend types live in `frontend/src/api/types.ts`; the MSW mock in
 - Statuses of runs, stages and steps: `queued | running | succeeded | failed | cancelled |
 interrupted | skipped`. Finished = not queued and not running.
 
+## Lists (search, filter, paging)
+
+Every list that can grow takes the same query parameters and returns the same envelope:
+`GET ...?page=1&per_page=25&q=<text>&sort=<key>&order=asc|desc`.
+
+- `page` >= 1 (default 1), `per_page` 1-100 (default 25), `q` at most 100 characters (case-
+  insensitive "contains"; `%` and `_` are literal), `sort` one of the list's keys (422 otherwise),
+  `order` overrides the key's natural direction. Unknown filter values are 422.
+- 200 `{items, total, page, per_page, pages}`; `total` counts all matches, `pages` is at least 1,
+  a page past the end has empty `items`.
+- Runs, deployments and notification deliveries also return `limit` and `offset` (the older
+  spelling); `limit`/`offset` are still accepted as query parameters (`limit` = `per_page`,
+  `offset` = rows to skip) and are deprecated.
+
+| List | `q` matches | Filters | `sort` keys (default first) |
+| --- | --- | --- | --- |
+| `GET /api/projects` | name, slug, repository | | `name`, `slug`, `created` (newest first) |
+| `GET /api/runs` | project, branch, commit, message, run number (`42` or `#42`) | `status`, `trigger`, `project` (slug), `environment` | `created` (newest first), `finished`, `number` |
+| `GET /api/projects/{slug}/environments/{env}/runs` | as above | `status`, `trigger` | as above |
+| `GET /api/projects/{slug}/environments/{env}/deployments` | commit, message, run number | `status` | `created` (newest first), `finished` |
+| `GET /api/projects/{slug}/environments/{env}/containers` | name, service, image, commit | `state` | `service` (then name), `name`, `started` |
+| `GET /api/notifications/deliveries` | title, event, last error | `project`, `channel_id`, `status` | `created` (newest first), `status` |
+| `GET /api/tokens` | name, prefix | `state`: `active`, `revoked`, `expired` | `created` (newest first), `name`, `last_used` |
+
+The MCP tools `list_projects`, `list_runs` and `list_deployments` take the same `page`,
+`per_page`, `q` and `sort`/`order` arguments (and `status`/`trigger` where the table lists them);
+their `limit`/`offset` arguments still work. `list_projects` defaults to 100 per page.
+
 ## Auth
 
 ### `POST /api/auth/login` (exists)
@@ -203,7 +231,7 @@ proposal the entry says so ("Deviation").
 
 ### `GET /api/projects`
 
-200 `Project[]`, ordered by name:
+200 a page (see Lists) of `Project`, ordered by name by default:
 
 ```json
 {
@@ -262,12 +290,13 @@ last_run}` (the `Project.environments[]` entry has the same keys). Audited as
 `environment.update` (before and after branch and auto-deploy, plus the resulting compose
 settings).
 
-### `GET /api/projects/{slug}/environments/{env}/runs?limit=20&offset=0`
+### `GET /api/projects/{slug}/environments/{env}/runs`
 
-`env` is `development|production`. `limit` 1-100 (default 20), `offset` >= 0.
-200 `{items: RunSummary[], total, limit, offset}`, newest first. 404 for unknown project.
+`env` is `development|production`. Paged, searchable and filterable (see Lists).
+200 `{items: RunSummary[], total, page, per_page, pages, limit, offset}`, newest first. 404 for
+unknown project.
 
-### `GET /api/runs?limit=20&offset=0`
+### `GET /api/runs`
 
 Same page shape across all projects and environments, newest first (the "Runs" sidebar page).
 
@@ -414,9 +443,10 @@ and the previous ones run again) and `rollback_failed` (both failed: needs manua
 run is failed with a message starting `ROLLBACK FAILED`). A `pending` row whose run ended
 without deploying is reported as `failed` with the run's message.
 
-### `GET /api/projects/{slug}/environments/{env}/deployments?limit=20&offset=0`
+### `GET /api/projects/{slug}/environments/{env}/deployments`
 
-Scope `read`. `env` is `development|production`; `limit` 1-100, `offset` >= 0. 200, newest first:
+Scope `read`. `env` is `development|production`; paged, searchable and filterable (see Lists).
+200, newest first:
 
 ```json
 {
@@ -431,7 +461,7 @@ Scope `read`. `env` is `development|production`; `limit` 1-100, `offset` >= 0. 2
     "message": null, "redeploy_of": null,
     "created_at": "2026-10-13T10:00:00Z", "started_at": "...", "finished_at": "..."
   }],
-  "total": 1, "limit": 20, "offset": 0
+  "total": 1, "page": 1, "per_page": 25, "pages": 1, "limit": 25, "offset": 0
 }
 ```
 
@@ -774,7 +804,7 @@ exited|removing|dead), health (starting|healthy|unhealthy | null), restart_count
 null, exit_code | null, cpus | null, memory_bytes | null, ports: [{container_port, host_ip,
 host_port}], mounts: [{type, source, destination, read_only}]}`. No env values.
 
-- `GET ""` -> `ContainerView[]` ordered by service, name. `GET "/{id}"` -> `ContainerView`.
+- `GET ""` -> a page (see Lists) of `ContainerView`, ordered by service, name by default. `GET "/{id}"` -> `ContainerView`.
 - `POST "/{id}/actions"` body `{action: "start"|"stop"|"restart"}` -> step one, changes nothing:
   `{action, container, effects: string[], confirmation, expires_at}`. 409 if not applicable
   (start of a running / stop of a stopped container).
@@ -1058,10 +1088,10 @@ while the scope has no rules of its own.
 unknown event, a channel listed twice, or a default-only event (`webhook.signature_spike`,
 `disk.usage_high`) below the default scope; 404 for an unknown channel or project.
 
-### `GET /api/notifications/deliveries?project=&channel_id=&status=&limit=50&offset=0`
+### `GET /api/notifications/deliveries?project=&channel_id=&status=`
 
 The delivery history (the outbox), newest first. `status` is `pending` (queued or waiting for a
-retry), `sending`, `sent` or `failed` (attempts exhausted). 200 `{items, total, limit, offset}` with
+retry), `sending`, `sent` or `failed` (attempts exhausted). 200 a page (see Lists) with
 items `{id, channel_id, channel_name, event, title, project, status, attempts, suppressed, is_test,
 last_error, created_at, next_attempt_at (pending only), delivered_at}`. `suppressed` counts the
 duplicates collapsed into the message. `last_error` is a short safe reason.

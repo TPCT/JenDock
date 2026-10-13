@@ -6,10 +6,11 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from backend.api.paging import LegacyPageResponse
 from backend.domain.enums import PipelineSource, RunStatus, RunTrigger
+from backend.domain.paging import Page
 from backend.execution.logs import LogChunk
 from backend.repositories.models import Run, StepRun
-from backend.services.project_queries import RunPage as RunPageData
 from backend.services.project_queries import RunSummaryData
 from backend.services.run_lifecycle import CancelOutcome
 from backend.services.run_queries import RunDetail, StageDetail
@@ -125,23 +126,13 @@ class RunResponse(RunSummary):
         return cls(**summary.model_dump(), stages=stages)
 
 
-class RunPage(BaseModel):
-    """One page of runs, newest first."""
-
-    items: list[RunSummary]
-    total: int
-    limit: int
-    offset: int
+class RunPage(LegacyPageResponse[RunSummary]):
+    """One page of runs (default order: newest first)."""
 
     @classmethod
-    def from_page(cls, page: RunPageData) -> RunPage:
+    def from_page(cls, page: Page[RunSummaryData]) -> RunPage:
         """Build from the page read model."""
-        return cls(
-            items=[RunSummary.from_data(item) for item in page.items],
-            total=page.total,
-            limit=page.limit,
-            offset=page.offset,
-        )
+        return cls.of(page, [RunSummary.from_data(item) for item in page.items])
 
 
 class LogChunkResponse(BaseModel):

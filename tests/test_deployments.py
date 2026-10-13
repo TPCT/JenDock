@@ -14,6 +14,7 @@ from backend.adapters.deployer import DeployRequest
 from backend.adapters.errors import DeployError
 from backend.api.container import AppContainer
 from backend.domain.enums import DeploymentStatus, RunStatus, RunTrigger
+from backend.domain.paging import PageQuery
 from backend.repositories.models import Run
 from backend.services.audit import AuditService
 from backend.services.deployments import DatabaseLedger, DeploymentService, DeploymentView
@@ -97,7 +98,7 @@ def test_ledger_records_a_deployment(deployed: Run, harness: Harness) -> None:
 
 
 def _page_via_service(harness: Harness) -> list[DeploymentView]:
-    page = DeploymentService(harness.uow()).history("demo", DEV, limit=50, offset=0)
+    page = DeploymentService(harness.uow()).history("demo", DEV, PageQuery(per_page=50))
     return list(page.items)
 
 

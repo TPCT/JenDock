@@ -13,9 +13,11 @@ from backend.domain.audit import AuditEntry, AuditTarget
 from backend.domain.clock import Clock, utcnow
 from backend.domain.enums import TokenScope
 from backend.domain.errors import NotFoundError, ValidationError
+from backend.domain.paging import Page, PageQuery
 from backend.domain.values import validate_display_name
 from backend.repositories.database import UnitOfWork
 from backend.repositories.models import ApiToken, User
+from backend.repositories.tokens import TOKEN_STATES
 from backend.services.audit import add_audit_event
 from backend.services.sessions import hash_token
 
@@ -107,6 +109,21 @@ class TokenService:
         with self._uow:
             rows = self._uow.tokens.list()
             return [_info(row) for row in rows if owner_id in (None, row.created_by)]
+
+    def search(
+        self, query: PageQuery, state: str | None = None, owner_id: int | None = None
+    ) -> Page[TokenInfo]:
+        """A page of tokens (never their values); ``state`` is active, revoked or expired.
+
+        Only ``owner_id``'s tokens when given; the owner filter applies before paging and counting.
+        """
+        if state is not None and state not in TOKEN_STATES:
+            raise ValidationError(f"state must be one of {', '.join(TOKEN_STATES)}")
+        with self._uow:
+            rows, total = self._uow.tokens.search(
+                query, state=state, now=self._clock(), owner_id=owner_id
+            )
+            return Page.of((_info(row) for row in rows), total, query)
 
     def revoke(self, token_id: int, actor: Actor, owner_id: int | None = None) -> TokenInfo:
         """Revoke a token; revoking twice keeps the first revocation time.

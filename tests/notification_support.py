@@ -15,6 +15,7 @@ from backend.adapters.notify_senders import Deliverer, DeliveryError
 from backend.domain.actor import Actor
 from backend.domain.enums import EnvironmentName
 from backend.domain.notifications import ChannelKind, EventPayload, NotificationEvent
+from backend.domain.paging import MAX_PER_PAGE, PageQuery
 from backend.repositories.database import UnitOfWork, create_session_factory
 from backend.repositories.notification_models import NotificationDelivery
 from backend.repositories.notifications import NotificationRepository
@@ -162,7 +163,7 @@ class World:
         """All outbox rows, oldest first."""
         with self.uow() as uow:
             rows = NotificationRepository(uow.session).page(
-                project_id=None, channel_id=None, status=None, limit=200, offset=0
+                PageQuery(per_page=MAX_PER_PAGE), project_id=None, channel_id=None, status=None
             )[0]
             return sorted(rows, key=lambda row: row.id)
 

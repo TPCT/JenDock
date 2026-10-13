@@ -132,7 +132,7 @@ def wired(
 def test_inventory_and_detail_shapes(wired: Wired) -> None:
     listing = wired.client.get(BASE)
     assert listing.status_code == 200
-    items = listing.json()
+    items = listing.json()["items"]
     assert [item["service"] for item in items] == ["web", "worker"]
     web = items[0]
     assert set(web) == {
@@ -600,3 +600,18 @@ def test_session_terminal_ends_and_is_audited_on_logout(
                 break
     assert wait_for(lambda: len(wired.audit("terminal.close")) == 1)
     assert wired.audit("terminal.close")[0]["reason"] == "access_revoked"
+
+
+def test_inventory_is_searchable_filterable_and_paged(wired: Wired) -> None:
+    everything = wired.client.get(BASE).json()
+    assert (everything["total"], everything["pages"]) == (2, 1)
+    worker = wired.client.get(BASE, params={"q": "WORKER"}).json()
+    assert [item["service"] for item in worker["items"]] == ["worker"]
+    state = everything["items"][0]["state"]
+    assert wired.client.get(BASE, params={"state": state}).json()["total"] >= 1
+    assert wired.client.get(BASE, params={"state": "nonexistent"}).json()["items"] == []
+    second = wired.client.get(BASE, params={"per_page": 1, "page": 2}).json()
+    assert [item["service"] for item in second["items"]] == ["worker"]
+    reverse = wired.client.get(BASE, params={"sort": "name", "order": "desc"}).json()
+    assert [item["service"] for item in reverse["items"]] == ["worker", "web"]
+    assert wired.client.get(BASE, params={"sort": "bogus"}).status_code == 422

@@ -13,12 +13,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response
 
 from backend.api.deps import Container, Target, require
+from backend.api.paging import Paging
 from backend.api.principal import Principal
 from backend.api.schemas.notifications import (
     ChannelResponse,
     CreateChannelRequest,
     DeliveryPageResponse,
-    DeliveryResponse,
     PolicyResponse,
     RulesRequest,
     RulesResponse,
@@ -35,7 +35,6 @@ from backend.services.notification_rules import RuleScope
 router = APIRouter(prefix="/api", tags=["notifications"])
 Reader = Annotated[Principal, Depends(require(Action.NOTIFICATION_POLICY, Target.NONE))]
 Admin = Annotated[Principal, Depends(require(Action.NOTIFICATION_MANAGE, Target.NONE))]
-DEFAULT_PAGE = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,24 +171,21 @@ def put_environment_rules(
 
 
 @router.get("/notifications/deliveries")
-def list_deliveries(  # noqa: PLR0913, PLR0917 - one query parameter each
+def list_deliveries(
     _principal: Admin,
     container: Container,
+    paging: Paging,
     project: Annotated[str | None, Query(max_length=64)] = None,
     channel_id: Annotated[int | None, Query(ge=1)] = None,
     status: Annotated[str | None, Query(max_length=16)] = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_PAGE,
-    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> DeliveryPageResponse:
-    """The delivery history, newest first; ``project`` limits it to one project."""
+    """The delivery history, newest first; ``project`` limits it to one project.
+
+    ``q`` matches title, event and last error; ``sort`` is ``created`` or ``status``.
+    """
     if status is not None and status not in {s.value for s in DeliveryStatus}:
         raise ValidationError("unknown status")
     page = container.notification_queries().deliveries(
-        slug=project, channel_id=channel_id, status=status, limit=limit, offset=offset
+        paging.query, slug=project, channel_id=channel_id, status=status
     )
-    return DeliveryPageResponse(
-        items=[DeliveryResponse.from_view(view) for view in page.items],
-        total=page.total,
-        limit=limit,
-        offset=offset,
-    )
+    return DeliveryPageResponse.from_page(page)

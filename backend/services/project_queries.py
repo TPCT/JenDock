@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import NotFoundError
+from backend.domain.paging import Page, PageQuery
 from backend.repositories.database import UnitOfWork
 from backend.repositories.models import Environment, Project, Run
+from backend.repositories.runs import RunFilter
 from backend.services.lookup import require_environment, require_project
+
+ANY_RUN = RunFilter()
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,16 +23,6 @@ class RunSummaryData:
     run: Run
     project: str
     environment: str
-
-
-@dataclass(frozen=True, slots=True)
-class RunPage:
-    """One page of runs, newest first."""
-
-    items: tuple[RunSummaryData, ...]
-    total: int
-    limit: int
-    offset: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,12 +59,19 @@ class ProjectQueryService:
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 
-    def list_projects(self, only: ProjectFilter | None = None) -> list[ProjectView]:
-        """Active projects ordered by name; with ``only``, just what the caller may see."""
+    def search_projects(
+        self, query: PageQuery, only: ProjectFilter | None = None
+    ) -> Page[ProjectView]:
+        """A page of active projects (default order: name), each with its environments.
+
+        With ``only``, just what the caller may see: the access filter is applied before the
+        search, the paging and the total, so a member never counts or finds a project it cannot
+        see.
+        """
         with self._uow:
-            projects = sorted(self._uow.projects.list(), key=lambda p: (p.name.lower(), p.slug))
-            views = [self._view(project, only) for project in projects]
-            return [view for view in views if only is None or view.environments]
+            slugs = None if only is None else self._visible_slugs(only)
+            projects, total = self._uow.projects.search(query, slugs=slugs)
+            return Page.of((self._view(project, only) for project in projects), total, query)
 
     def get(self, slug: str, only: ProjectFilter | None = None) -> ProjectView:
         """One active project; archived projects are not found."""
@@ -89,20 +90,35 @@ class ProjectQueryService:
             return self._environment_view(project, require_environment(self._uow, slug, name))
 
     def environment_runs(
-        self, slug: str, name: EnvironmentName, *, limit: int, offset: int
-    ) -> RunPage:
-        """A page of the runs of one environment."""
+        self, slug: str, name: EnvironmentName, query: PageQuery, where: RunFilter = ANY_RUN
+    ) -> Page[RunSummaryData]:
+        """A page of the runs of one environment, filtered by ``where``."""
         with self._uow:
             environment = require_environment(self._uow, slug, name)
-            return self._page(environment.id, limit, offset)
+            return self._page(query, replace(where, environment_id=environment.id))
 
     def all_runs(
-        self, *, limit: int, offset: int, only: EnvironmentPredicate | None = None
-    ) -> RunPage:
-        """A page of the runs of every project and environment (or of those ``only`` allows)."""
+        self,
+        query: PageQuery,
+        where: RunFilter = ANY_RUN,
+        only: EnvironmentPredicate | None = None,
+    ) -> Page[RunSummaryData]:
+        """A page of the runs of every project and environment (or of those ``only`` allows).
+
+        The access filter is applied before the search, the paging and the total.
+        """
         with self._uow:
-            ids = None if only is None else self._allowed_environment_ids(only)
-            return self._page(None, limit, offset, ids)
+            if only is not None:
+                where = replace(where, environment_ids=self._allowed_environment_ids(only))
+            return self._page(query, where)
+
+    def _visible_slugs(self, only: ProjectFilter) -> frozenset[str]:
+        found = set()
+        for project in self._uow.projects.list():
+            environments = self._uow.environments.list_for_project(project.id)
+            if any(only.sees(project.slug, e.name) for e in environments):
+                found.add(project.slug)
+        return frozenset(found)
 
     def _allowed_environment_ids(self, allowed: EnvironmentPredicate) -> frozenset[int]:
         found = set()
@@ -112,22 +128,10 @@ class ProjectQueryService:
                     found.add(environment.id)
         return frozenset(found)
 
-    def _page(
-        self,
-        environment_id: int | None,
-        limit: int,
-        offset: int,
-        environment_ids: frozenset[int] | None = None,
-    ) -> RunPage:
-        rows = self._uow.runs.page(
-            environment_id=environment_id,
-            limit=limit,
-            offset=offset,
-            environment_ids=environment_ids,
-        )
-        items = tuple(RunSummaryData(run, slug, name.value) for run, slug, name in rows)
-        total = self._uow.runs.count(environment_id=environment_id, environment_ids=environment_ids)
-        return RunPage(items, total, limit, offset)
+    def _page(self, query: PageQuery, where: RunFilter) -> Page[RunSummaryData]:
+        rows, total = self._uow.runs.page(query, where)
+        items = (RunSummaryData(run, slug, name.value) for run, slug, name in rows)
+        return Page.of(items, total, query)
 
     def _view(self, project: Project, only: ProjectFilter | None = None) -> ProjectView:
         environments = self._uow.environments.list_for_project(project.id)

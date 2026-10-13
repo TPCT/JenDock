@@ -7,8 +7,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.api.paging import LegacyPageResponse
 from backend.config_notifications import NotificationSettings
 from backend.domain.notifications import CATALOGUE, ChannelKind, EventInfo
+from backend.domain.paging import Page
 from backend.repositories.notification_models import NotificationChannel
 from backend.services.notification_rules import DeliveryView, RuleInput, RulesView
 
@@ -203,10 +205,10 @@ class DeliveryResponse(BaseModel):
         )
 
 
-class DeliveryPageResponse(BaseModel):
+class DeliveryPageResponse(LegacyPageResponse[DeliveryResponse]):
     """A page of the delivery history."""
 
-    items: list[DeliveryResponse]
-    total: int
-    limit: int
-    offset: int
+    @classmethod
+    def from_page(cls, page: Page[DeliveryView]) -> DeliveryPageResponse:
+        """Build from a page of history rows."""
+        return cls.of(page, [DeliveryResponse.from_view(view) for view in page.items])

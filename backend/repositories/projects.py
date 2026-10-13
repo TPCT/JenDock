@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
+from backend.domain.paging import PageQuery
 from backend.repositories.models import Project
+from backend.repositories.paging import contains, ordered
+
+PROJECT_SORTS = {
+    "name": func.lower(Project.name),
+    "slug": Project.slug,
+    "created": Project.created_at,
+}
 
 
 class ProjectRepository:
@@ -46,3 +54,36 @@ class ProjectRepository:
         if not include_archived:
             query = query.where(Project.archived_at.is_(None))
         return self._session.scalars(query).all()
+
+    def search(
+        self,
+        query: PageQuery,
+        *,
+        include_archived: bool = False,
+        slugs: Collection[str] | None = None,
+    ) -> tuple[Sequence[Project], int]:
+        """One page of projects and the total number of matches.
+
+        ``slugs`` limits the result to those projects (an empty collection matches none): the
+        caller's access, applied before paging and counting. The search text matches the name,
+        slug and repository. Sort keys: ``name`` (default, a-z), ``slug`` and ``created``
+        (newest first).
+        """
+        filters: list[ColumnElement[bool]] = []
+        if not include_archived:
+            filters.append(Project.archived_at.is_(None))
+        if slugs is not None:
+            filters.append(Project.slug.in_(slugs))
+        if query.term is not None:
+            filters.append(contains([Project.name, Project.slug, Project.repository], query.term))
+        statement = ordered(
+            select(Project).where(*filters),
+            query,
+            PROJECT_SORTS,
+            "name",
+            descending=frozenset({"created"}),
+            tiebreak=Project.slug,
+        )
+        rows = self._session.scalars(statement.limit(query.limit).offset(query.offset)).all()
+        total = self._session.scalar(select(func.count()).select_from(Project).where(*filters))
+        return rows, int(total or 0)
