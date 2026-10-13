@@ -34,6 +34,7 @@ from backend.services.certificates import CertificateService, RenewalPolicy
 from backend.services.domain_checks import CheckProbes, DomainCheckService
 from backend.services.domains import DomainService
 from backend.services.ingress import IngressPorts, IngressService
+from backend.services.notification_events import CertificateNotifier
 from backend.services.platform_secrets import CLOUDFLARE_TOKEN, PlatformSecretService
 from backend.services.platform_settings import PlatformSettingsService
 from backend.services.renewal import RenewalScheduler
@@ -56,7 +57,9 @@ class IngressFactory:
         cipher: SecretCipher,
         redactor: SecretRedactor,
         transport: httpx.BaseTransport | None = None,
+        notifier: CertificateNotifier | None = None,
     ) -> None:
+        self._notifier = notifier
         self._data_dir = settings.data_dir
         self._ingress = ingress_settings
         self._session_factory = session_factory
@@ -101,7 +104,9 @@ class IngressFactory:
 
     def renewal_scheduler(self) -> RenewalScheduler:
         """The loop renewing certificates before they expire."""
-        return RenewalScheduler(self.certificates(), self._ingress.renewal_interval_seconds)
+        return RenewalScheduler(
+            self.certificates(), self._ingress.renewal_interval_seconds, self._notifier
+        )
 
     def effective(self) -> IngressSettings:
         """The environment settings with the stored platform values applied (read per call)."""

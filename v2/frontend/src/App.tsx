@@ -24,6 +24,7 @@ import { DomainsPage } from "./pages/Domains";
 import { AgentsPage } from "./pages/AgentsPage";
 import { GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
 import { IntegrationsPage } from "./pages/Integrations";
+import { NotificationsPage } from "./pages/Notifications";
 import { NewProjectPage } from "./pages/NewProject";
 import { NotFoundPage } from "./pages/Placeholder";
 import {
@@ -32,6 +33,7 @@ import {
   ProjectSettingsLayout,
   WebhookSettingsPage,
 } from "./pages/ProjectSettings";
+import { ProjectNotificationsPage } from "./pages/ProjectNotifications";
 import { SecretsSettingsPage } from "./pages/SecretsSettings";
 import { ProjectLayout } from "./pages/ProjectLayout";
 import { ProjectOverviewPage } from "./pages/ProjectOverview";
@@ -177,6 +179,7 @@ export const appRoutes: RouteObject[] = [
                   { path: "environments", element: <EnvironmentsSettingsPage /> },
                   { path: "webhook", element: <WebhookSettingsPage /> },
                   { path: "secrets", element: <SecretsSettingsPage /> },
+                  { path: "notifications", element: <ProjectNotificationsPage /> },
                 ],
               },
             ],
@@ -189,6 +192,7 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <Navigate to="/settings/tokens" replace /> },
               { path: "tokens", element: <TokensPage /> },
+              { path: "notifications", element: <NotificationsPage /> },
               { path: "agents", element: <AgentsPage /> },
               { path: "integrations", element: <IntegrationsPage /> },
             ],

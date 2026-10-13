@@ -33,6 +33,7 @@ from backend.worker.handlers import build_handlers
 from backend.worker.ingress_handlers import build_ingress_handlers
 from backend.worker.ingress_wiring import IngressFactory
 from backend.worker.integrations_wiring import build_integrations
+from backend.worker.notification_wiring import NotificationParts, build_notification_parts
 from backend.worker.pipeline_handlers import PipelineHandlers
 from backend.worker.rpc import Handler, RpcServer
 from backend.worker.wiring import build_execution_env
@@ -71,6 +72,7 @@ def build_rpc_server(
     session_factory: SessionFactory,
     redactor: SecretRedactor,
     extra_handlers: Mapping[str, Handler] | None = None,
+    notifications: NotificationParts | None = None,
 ) -> RpcServer:
     """Create the RPC server; the worker is the only process that loads the key file."""
     cipher = SecretCipher(settings.secret_key_file)
@@ -82,17 +84,20 @@ def build_rpc_server(
         settings.github_webhook_secret_file,
         build_heads(settings),
         project_source(lambda: UnitOfWork(session_factory)),
+        notifications.webhook.record_failure if notifications else None,
     )
     pipelines = PipelineHandlers(lambda: UnitOfWork(session_factory), build_branch_files(settings))
     inspection = build_inspection_handlers(settings, session_factory, cipher, redactor)
     integrations = build_integrations(
         settings, get_ingress_settings(), session_factory, cipher, redactor
     )
+    channels = notifications.handlers if notifications else {}
     extra = {
         **github,
         **pipelines.handlers(),
         **inspection,
         **integrations,
+        **channels,
         **(extra_handlers or {}),
     }
     handlers = build_handlers(secret_service, extra)
@@ -100,14 +105,20 @@ def build_rpc_server(
 
 
 def build_ingress(
-    settings: Settings, session_factory: SessionFactory, redactor: SecretRedactor
+    settings: Settings,
+    session_factory: SessionFactory,
+    redactor: SecretRedactor,
+    notifications: NotificationParts | None = None,
 ) -> IngressFactory | None:
     """Create the ingress wiring when ``JENDOCK_INGRESS_ENABLED`` is set."""
     ingress_settings = get_ingress_settings()
     if not ingress_settings.enabled:
         return None
     cipher = SecretCipher(settings.secret_key_file)
-    return IngressFactory(settings, ingress_settings, session_factory, cipher, redactor)
+    notifier = notifications.certificates if notifications else None
+    return IngressFactory(
+        settings, ingress_settings, session_factory, cipher, redactor, notifier=notifier
+    )
 
 
 def build_scheduler(
@@ -115,10 +126,12 @@ def build_scheduler(
     session_factory: SessionFactory,
     redactor: SecretRedactor,
     locks: EnvironmentLocks | None = None,
+    notifications: NotificationParts | None = None,
 ) -> RunScheduler:
     """Create the run queue; it shares the key file with the RPC server (same process)."""
     cipher = SecretCipher(settings.secret_key_file)
-    return RunScheduler(build_execution_env(settings, session_factory, cipher, redactor, locks))
+    env = build_execution_env(settings, session_factory, cipher, redactor, locks, notifications)
+    return RunScheduler(env)
 
 
 def _start_renewal(
@@ -160,7 +173,10 @@ def main() -> None:
     session_factory = create_session_factory(engine)
     locks = EnvironmentLocks()  # shared by deployments and container operations
     containers = build_container_parts(settings, session_factory, locks)
-    ingress = build_ingress(settings, session_factory, redactor)
+    notifications = build_notification_parts(
+        settings, session_factory, SecretCipher(settings.secret_key_file), redactor
+    )
+    ingress = build_ingress(settings, session_factory, redactor, notifications)
     extra = {
         **build_container_handlers(containers.services),
         **(
@@ -169,8 +185,8 @@ def main() -> None:
             else {}
         ),
     }
-    server = build_rpc_server(settings, session_factory, redactor, extra)
-    scheduler = build_scheduler(settings, session_factory, redactor, locks)
+    server = build_rpc_server(settings, session_factory, redactor, extra, notifications)
+    scheduler = build_scheduler(settings, session_factory, redactor, locks, notifications)
     shutdown = ShutdownHandler()
     shutdown.install()
     server.start()
@@ -180,6 +196,7 @@ def main() -> None:
     recover_interrupted_runs(scheduler.env)
     renewal = _start_renewal(ingress, shutdown)
     backups = _start_backups(settings, shutdown)
+    notifiers = notifications.start(shutdown)
     logger.info("worker started")
     try:
         scheduler.run_forever(shutdown)
@@ -187,6 +204,8 @@ def main() -> None:
         containers.collector.stop()
         containers.terminal_server.stop()
         containers.terminals.shutdown()
+        for thread in notifiers:
+            thread.join(timeout=5)
         if backups is not None:
             backups.join(timeout=5)
         if renewal is not None:

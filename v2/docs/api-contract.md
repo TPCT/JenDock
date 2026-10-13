@@ -826,6 +826,106 @@ happens automatically 30 days before expiry.
 
 Scope `read`. Expiry monitoring: 200 `[{domain_id, hostname} + Certificate]`, soonest expiry first.
 
+## Notifications (exists, Jira 16.5)
+
+Alerts to Slack, generic webhooks (Microsoft Teams / Discord compatible) and email. Everything
+below needs scope `admin` (plus CSRF for sessions) except `GET /api/notifications/policy`
+(`read`). Every configuration change is audited (`notification.channel.create|update|delete|test`,
+`notification.rules.update`); audit details name fields and ids, never a URL or credential.
+
+**Channel secrets are write-only.** A webhook URL, a signing secret or SMTP credentials are sent
+once (create or update); the API forwards them to the worker, which validates, encrypts and stores
+them. No response, log line or audit event contains them: a channel only shows `configured: true`,
+`hint` (the last 4 characters of a webhook URL, `null` for email) and a non-secret `summary`.
+
+### Events
+
+| `event` | Severity | Scope | Meaning |
+| --- | --- | --- | --- |
+| `run.failed` | critical | project | a run failed (payload: failing stage and step, last 20 masked log lines) |
+| `run.fixed` | info | project | a run succeeded after the previous finished run of the environment failed |
+| `run.interrupted` | warning | project | the worker stopped or restarted mid-run |
+| `deployment.succeeded` | info | project | |
+| `deployment.rolled_back` | critical | project | the new images failed and the previous ones run again |
+| `deployment.rollback_failed` | critical | project | rollback failed, manual intervention needed |
+| `certificate.expiring` | warning | project | a certificate has fewer than 14 days left (checked hourly) |
+| `certificate.renewal_failed` | critical | project | a renewal attempt failed |
+| `webhook.signature_spike` | warning | default only | more than N invalid GitHub webhook signatures within a window |
+| `disk.usage_high` | warning | default only | the data volume is fuller than the threshold |
+
+Cancelled runs and deployments that changed nothing are not announced.
+
+### `GET /api/notifications/policy`
+
+200 `{enabled, dedupe_minutes, max_attempts, disk_threshold_percent, webhook_failure_threshold,
+webhook_failure_window_minutes, events: [{event, label, severity, project_scoped}]}`. The numbers are
+set by the operator (`JENDOCK_NOTIFY_*`, see the README); `events` is the catalogue above.
+
+### Channels
+
+`NotificationChannel`: `{id, name, kind: slack|webhook|email, enabled, configured: true,
+hint: string|null, summary, last_test_at, last_test_ok, created_at, updated_at}`. `summary` is
+`{}` for Slack, `{signed: bool}` for a webhook and `{host, port, security, from_address,
+to_addresses, authenticated}` for email.
+
+- `GET /api/notifications/channels`: 200 `[NotificationChannel]` by name.
+- `POST /api/notifications/channels` `{name, kind, config}`: 201 `NotificationChannel`.
+  `config` per kind: Slack `{webhook_url}` (https); webhook `{url, signing_secret?}` (http or https,
+  no credentials in the URL); email `{host, port=587, security=starttls|tls|none, username?,
+  password?, from_address, to_addresses: [1-10]}` (a username needs a password). 409 for a duplicate
+  name, 422 for invalid input (the message never echoes the input).
+- `PATCH /api/notifications/channels/{id}` `{name?, enabled?, config?}`: 200. Fields left out of
+  `config` keep their stored value (rotate only the password, only the URL...).
+- `DELETE /api/notifications/channels/{id}`: 204; its rules and delivery history go with it.
+- `POST /api/notifications/channels/{id}/test`: sends a real test message now (recorded in the
+  history as a test). 200 `{ok, error}`: a failed delivery is `ok: false` with a short, safe
+  reason such as `the endpoint answered HTTP 404` or `SMTP authentication failed`, never a URL.
+
+### Rules
+
+A rule subscribes one channel to a list of events in a **scope**: the global default, a project, or
+one environment. The most specific scope that has any rule decides (environment, else project, else
+default). Below the default, a rule with an empty `events` list (or `enabled: false`) mutes that
+channel for the scope without falling back to wider rules; replacing the set with `[]` removes the
+override. `RuleSet`: `{scope: default|project|environment, rules: [{channel_id, events, enabled}],
+inherited_from: "project"|"default"|null}` where `inherited_from` names the wider scope that applies
+while the scope has no rules of its own.
+
+| Scope | Endpoints |
+| --- | --- |
+| default | `GET`/`PUT /api/notifications/rules` |
+| project | `GET`/`PUT /api/projects/{slug}/notifications/rules` |
+| environment | `GET`/`PUT /api/projects/{slug}/environments/{env}/notifications/rules` |
+
+`PUT {rules: [...]}` replaces the whole set atomically and returns the new `RuleSet`. 422 for an
+unknown event, a channel listed twice, or a default-only event (`webhook.signature_spike`,
+`disk.usage_high`) below the default scope; 404 for an unknown channel or project.
+
+### `GET /api/notifications/deliveries?project=&channel_id=&status=&limit=50&offset=0`
+
+The delivery history (the outbox), newest first. `status` is `pending` (queued or waiting for a
+retry), `sending`, `sent` or `failed` (attempts exhausted). 200 `{items, total, limit, offset}` with
+items `{id, channel_id, channel_name, event, title, project, status, attempts, suppressed, is_test,
+last_error, created_at, next_attempt_at (pending only), delivered_at}`. `suppressed` counts the
+duplicates collapsed into the message. `last_error` is a short safe reason.
+
+### Delivery semantics
+
+Emission points only write outbox rows; the worker's dispatcher sends them, so a notification never
+blocks or fails a run, a deployment or a renewal. A failed attempt is retried with exponential
+backoff (30 s, 1 min, 2 min, ... capped at 1 hour) up to `max_attempts` (default 7). Within the quiet
+period the same event for the same resource (an environment, a domain...) collapses into one message
+per channel: `dedupe_minutes` (default 30), at least 24 h for `certificate.expiring` and 6 h for
+renewal failures and disk alerts. Messages link to the run or domain page on the public origin and
+carry the 7 character commit, who or what triggered the run and the failing stage. The only log
+content is the last 20 lines of the failing step's log, masked and cut to 240 characters per line.
+
+Webhook body (JSON, `Content-Type: application/json`): `{event, severity, title, text, content,
+project, environment, run_id, run_number, deployment_id, commit, triggered_by, failed_stage,
+failed_step, message, log_tail, details, url, delivery_id, timestamp}`; `text` and `content` repeat a
+readable summary for Teams and Discord. Headers: `X-Jendock-Event`, `X-Jendock-Delivery` and, when a
+signing secret is configured, `X-Jendock-Signature: sha256=<hex>`, the HMAC-SHA256 of the exact body.
+
 ## Integrations (exists)
 
 Settings > Integrations and the Domains page's readiness check. Every endpoint below except

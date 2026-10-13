@@ -453,3 +453,6 @@ class PlatformSetting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(String(255))
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+
+
+import backend.repositories.notification_models  # noqa: E402, F401 - registers the tables

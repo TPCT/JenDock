@@ -7,6 +7,7 @@ from typing import Protocol
 
 from backend.services.certificates import CertificateService, RenewalOutcome
 from backend.services.ingress_lock import INGRESS_LOCK
+from backend.services.notification_events import CertificateNotifier, safely
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,20 @@ class RenewalScheduler:
     """Renews certificates that expire within the policy window (30 days by default).
 
     ``tick`` does one pass and is what tests drive with a fake clock; ``run_forever`` repeats it
-    every ``interval`` seconds until shutdown. A failed renewal is retried after the policy's
-    retry delay, long before the certificate actually expires.
+    every ``interval`` seconds until shutdown. With a ``notifier`` each pass also announces failed
+    renewals and certificates with fewer than 14 days left. A failed renewal is retried after the
+    policy's retry delay, long before the certificate actually expires.
     """
 
-    def __init__(self, certificates: CertificateService, interval: float) -> None:
+    def __init__(
+        self,
+        certificates: CertificateService,
+        interval: float,
+        notifier: CertificateNotifier | None = None,
+    ) -> None:
         self._certificates = certificates
         self._interval = interval
+        self._notifier = notifier
 
     def tick(self) -> list[RenewalOutcome]:
         """Renew whatever is due now."""
@@ -37,6 +45,9 @@ class RenewalScheduler:
         for outcome in outcomes:
             if outcome.ok:
                 logger.info("certificate renewed", extra={"domain_id": outcome.domain_id})
+        if self._notifier is not None:
+            notifier = self._notifier
+            safely(lambda: notifier.after_pass(outcomes, self._certificates.report()), "renewal")
         return outcomes
 
     def run_forever(self, stop: StopSignal) -> None:

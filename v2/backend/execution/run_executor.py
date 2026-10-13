@@ -84,6 +84,7 @@ class RunExecutor:
             watcher.stop()
             self._cleanup(run_id)
         env.lifecycle().finish(run_id, outcome.status, outcome.message)
+        env.notifications.run_finished(run_id, outcome.status)
         if job is not None:
             self._report(lambda: env.status.finished(job, outcome.status, outcome.message))
         return outcome

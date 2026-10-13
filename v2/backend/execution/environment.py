@@ -15,6 +15,7 @@ from backend.execution.config import ExecutionConfig
 from backend.execution.logs import LogStore
 from backend.execution.status_reporter import NoStatusReporter, StatusReporter
 from backend.repositories.database import SessionFactory, UnitOfWork
+from backend.services.notification_events import NoRunNotifications, RunNotifications
 from backend.services.run_lifecycle import RunLifecycleService
 from backend.services.run_progress import RunRecorder
 from backend.services.secrets import SecretService
@@ -36,6 +37,7 @@ class ExecutionEnv:
     secret_service: Callable[[], SecretService]
     clock: Clock = utcnow
     status: StatusReporter = field(default_factory=NoStatusReporter)
+    notifications: RunNotifications = field(default_factory=NoRunNotifications)
 
     def uow(self) -> UnitOfWork:
         """A fresh unit of work."""
