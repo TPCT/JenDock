@@ -1,10 +1,13 @@
-import { AlertIcon, SignInIcon } from "@primer/octicons-react";
+import { TerminalIcon } from "@primer/octicons-react";
+import { Button, FormControl, Heading, TextInput } from "@primer/react";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { useLogin } from "../api/hooks";
 import { safeNext } from "../lib/next";
-import "./Login.css";
+import { Callout } from "../components/Feedback";
+import { useDocumentTitle } from "../components/PageHead";
+import styles from "./Login.module.css";
 
 type FieldName = "username" | "password";
 type FieldErrors = Partial<Record<FieldName, string>>;
@@ -28,9 +31,9 @@ export function LoginPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  useDocumentTitle("Sign in");
 
   useEffect(() => {
-    document.title = "Sign in · Shiftcodes";
     usernameRef.current?.focus();
   }, []);
 
@@ -93,61 +96,56 @@ export function LoginPage() {
   };
 
   return (
-    <div className="login">
-      <div className="login-card">
-        <h1>Sign in to Shiftcodes</h1>
+    <div className={styles.login}>
+      <div className={styles.card}>
+        <TerminalIcon size={48} className={styles.logo} aria-hidden="true" />
+        <Heading as="h1" className={styles.title}>
+          Sign in to Shiftcodes
+        </Heading>
         {formError ? (
-          <div className="callout callout-danger" role="alert">
-            <AlertIcon size={16} aria-hidden="true" />
-            <div className="callout-body">{formError}</div>
-          </div>
+          <Callout variant="danger" role="alert">
+            {formError}
+          </Callout>
         ) : null}
-        <form className="box login-form" onSubmit={onSubmit} noValidate>
-          <div className="field">
-            <label htmlFor="username">Username</label>
-            <input
+        <form className={styles.form} onSubmit={onSubmit} noValidate>
+          <FormControl>
+            <FormControl.Label>Username</FormControl.Label>
+            <TextInput
               ref={usernameRef}
-              id="username"
               name="username"
-              className="input"
+              block
               autoComplete="username"
               autoCapitalize="none"
               spellCheck={false}
-              aria-invalid={fieldErrors.username ? true : undefined}
-              aria-describedby={fieldErrors.username ? "username-error" : undefined}
+              validationStatus={fieldErrors.username ? "error" : undefined}
             />
             {fieldErrors.username ? (
-              <p id="username-error" className="field-error">
-                <AlertIcon size={14} aria-hidden="true" />
+              <FormControl.Validation variant="error">
                 {fieldErrors.username}
-              </p>
+              </FormControl.Validation>
             ) : null}
-          </div>
-          <div className="field">
-            <label htmlFor="password">Password</label>
-            <input
+          </FormControl>
+          <FormControl>
+            <FormControl.Label>Password</FormControl.Label>
+            <TextInput
               ref={passwordRef}
-              id="password"
               name="password"
               type="password"
-              className="input"
+              block
               autoComplete="current-password"
-              aria-invalid={fieldErrors.password ? true : undefined}
-              aria-describedby={fieldErrors.password ? "password-error" : undefined}
+              validationStatus={fieldErrors.password ? "error" : undefined}
             />
             {fieldErrors.password ? (
-              <p id="password-error" className="field-error">
-                <AlertIcon size={14} aria-hidden="true" />
+              <FormControl.Validation variant="error">
                 {fieldErrors.password}
-              </p>
+              </FormControl.Validation>
             ) : null}
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={login.isPending}>
-            <SignInIcon size={16} aria-hidden="true" />
+          </FormControl>
+          <Button type="submit" variant="primary" block disabled={login.isPending}>
             {login.isPending ? "Signing in…" : "Sign in"}
-          </button>
+          </Button>
         </form>
-        <p className="muted">
+        <p className={styles.note}>
           No account yet? An administrator creates accounts; ask them for a username.
         </p>
       </div>

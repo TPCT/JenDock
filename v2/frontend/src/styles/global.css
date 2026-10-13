@@ -1,400 +1,45 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
+/* Everything visual comes from Primer: @primer/primitives (CSS variables for both colour modes,
+   typography, spacing) and @primer/react (component CSS). Only page-level glue lives here. */
 html {
   -webkit-text-size-adjust: 100%;
 }
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  background: var(--bgColor-default);
+  color: var(--fgColor-default);
+  font-family: var(--fontStack-system);
+  font-size: var(--text-body-size-medium);
+  line-height: var(--text-body-lineHeight-medium);
   overflow-wrap: anywhere;
 }
-h1,
-h2,
-h3 {
-  margin: 0;
-  line-height: 1.25;
-}
-h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-}
-h2 {
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-h3 {
-  font-size: 1rem;
-  font-weight: 600;
-}
-p {
-  margin: 0;
-}
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
 code,
+kbd,
+samp {
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeInline-size);
+}
 .mono {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-}
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  font-family: var(--fontStack-monospace);
 }
 .muted {
-  color: var(--fg-muted);
+  color: var(--fgColor-muted);
 }
+/* Commit SHAs, branches and paths read left to right even on right-to-left pages. */
 .ltr {
   direction: ltr;
   unicode-bidi: isolate;
 }
-.skip-link {
-  position: absolute;
-  left: 0.5rem;
-  top: -4rem;
-  z-index: 100;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.skip-link:focus {
-  top: 0.5rem;
-}
-
-/* Buttons */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 2rem;
-  padding: 0.25rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-  color: var(--fg);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: none;
-}
-.btn:hover {
-  background: var(--bg-hover);
-  text-decoration: none;
-}
-.btn:disabled,
-.btn[aria-disabled="true"] {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.btn-primary {
-  background: var(--btn-primary-bg);
-  border-color: transparent;
-  color: var(--btn-primary-fg);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--btn-primary-hover);
-}
-.btn-danger {
-  color: var(--btn-danger-fg);
-}
-.btn-danger:hover:not(:disabled) {
-  background: var(--danger);
-  color: #fff;
-  border-color: transparent;
-}
-.btn-danger-solid {
-  background: var(--danger);
-  border-color: transparent;
-  color: #fff;
-}
-.btn-danger-solid:hover:not(:disabled) {
-  filter: brightness(0.92);
-  background: var(--danger);
-}
-.btn-invisible {
-  border-color: transparent;
-  background: transparent;
-}
-.btn-icon {
-  width: 2rem;
-  padding: 0;
-}
-
-/* Forms */
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.field > label {
-  font-weight: 600;
-}
-.field .hint {
-  color: var(--fg-muted);
-  font-size: 0.85rem;
-}
-.input {
-  width: 100%;
-  min-height: 2rem;
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-}
-.input[aria-invalid="true"] {
-  border-color: var(--danger);
-}
-.field-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.35rem;
-  color: var(--danger);
-  font-size: 0.85rem;
-}
-.field-error svg {
-  margin-top: 0.2rem;
-  flex: none;
-}
-
-/* Surfaces */
-.box {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg);
-}
-.box-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-subtle);
-  border-radius: var(--radius) var(--radius) 0 0;
-}
-.box-row {
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border-muted);
-}
-.box-row:first-child {
-  border-top: 0;
-}
-.callout {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-subtle);
-}
-.callout > svg {
-  flex: none;
-  margin-top: 0.2rem;
-}
-.callout-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
-}
-.callout-danger {
-  border-color: var(--danger);
-  background: var(--danger-subtle);
-}
-.callout-danger > svg {
-  color: var(--danger);
-}
-.callout-attention {
-  border-color: var(--attention);
-  background: var(--attention-subtle);
-}
-.callout-attention > svg {
-  color: var(--attention);
-}
-.callout-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
-}
-
-/* Status */
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  white-space: nowrap;
-}
-.status-succeeded {
-  color: var(--success);
-}
-.status-failed {
-  color: var(--danger);
-}
-.status-running {
-  color: var(--attention);
-}
-.status-queued,
-.status-skipped,
-.status-cancelled {
-  color: var(--neutral);
-}
-.status-interrupted {
-  color: var(--done);
-}
-.status-label {
-  color: var(--fg);
-  font-weight: 500;
-}
-.spin {
-  animation: spin 1.2s linear infinite;
-}
+/* The animated status icon; Primer's Spinner is a different shape, so the sync octicon turns. */
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
+.spin {
+  animation: spin 1.2s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .spin {
     animation: none;
   }
-  * {
-    scroll-behavior: auto !important;
-  }
-}
-
-.label {
-  display: inline-block;
-  padding: 0 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 2rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.4rem;
-  color: var(--fg-muted);
-  white-space: nowrap;
-}
-
-/* Page scaffolding */
-.page-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1rem;
-  margin-bottom: 1.25rem;
-}
-.page-header .subtitle {
-  color: var(--fg-muted);
-  margin-top: 0.25rem;
-}
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-.centered {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 3rem 1rem;
-  text-align: center;
-  color: var(--fg-muted);
-}
-.centered h2 {
-  color: var(--fg);
-}
-.centered p {
-  max-width: 36rem;
-}
-.skeleton {
-  border-radius: var(--radius);
-  background: var(--bg-inset);
-  min-height: 1rem;
-}
-.dl {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.35rem 1rem;
-  margin: 0;
-}
-.dl dt {
-  color: var(--fg-muted);
-}
-.dl dd {
-  margin: 0;
-  min-width: 0;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--border-muted);
-}
-
-/* Dialog */
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: var(--overlay);
-}
-.dialog {
-  width: min(28rem, 100%);
-  max-height: 100%;
-  overflow: auto;
-  padding: 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  box-shadow: var(--shadow);
-}
-.dialog h2 {
-  margin-bottom: 0.5rem;
-}
-.dialog-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1.25rem;
 }

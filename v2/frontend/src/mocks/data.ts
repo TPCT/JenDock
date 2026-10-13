@@ -391,6 +391,10 @@ export function detailFor(id: number): RunDetail | null {
 
 const COLOUR = (code: number, text: string): string => `\u001b[${code}m${text}\u001b[0m`;
 
+function logTimestamp(index: number): string {
+  return `2026-01-15T10:00:${String(Math.floor(index / 4) % 60).padStart(2, "0")}.${String((index % 4) * 250).padStart(3, "0")}Z`;
+}
+
 export function logText(stepId: number, status: RunStatus): string {
   if (status === "queued") return "";
   const lines = [
@@ -413,7 +417,8 @@ export function logText(stepId: number, status: RunStatus): string {
     lines.push("", COLOUR(32, "All tests passed"));
   }
   if (stepId % 11 === 0) return "";
-  return lines.join("\n") + "\n";
+  // Lines carry an RFC 3339 timestamp, as `docker logs -t` writes them; the UI shows it on demand.
+  return lines.map((line, i) => `${logTimestamp(i)} ${line}`).join("\n") + "\n";
 }
 
 export function logChunk(

@@ -1,18 +1,25 @@
 import { GitBranchIcon, HistoryIcon, PlayIcon, WorkflowIcon } from "@primer/octicons-react";
+import { BranchName, Heading, Label, LinkButton, VisuallyHidden } from "@primer/react";
 import { Link } from "react-router-dom";
 import type { EnvironmentSummary, Project } from "../api/types";
 import { capitalize } from "../lib/format";
+import box from "../styles/box.module.css";
 import { CopySha } from "./CopySha";
+import styles from "./EnvironmentCard.module.css";
 import { StatusBadge } from "./Status";
 import { Duration, RelativeTime } from "./Time";
-import "./EnvironmentCard.css";
 
 export function runsPath(slug: string, env: string): string {
   return `/projects/${encodeURIComponent(slug)}/environments/${env}/runs`;
 }
 
-const TRIGGER_TEXT = { push: "Push", manual: "Manual run", redeploy: "Redeploy" } as const;
+export function pipelinePath(slug: string, env: string): string {
+  return `/projects/${encodeURIComponent(slug)}/environments/${env}/pipeline`;
+}
 
+export const TRIGGER_TEXT = { push: "Push", manual: "Manual run", redeploy: "Redeploy" } as const;
+
+/** One environment of a project: branch, deployment mode, last run and the shortcuts. */
 export function EnvironmentCard({
   project,
   environment,
@@ -25,21 +32,21 @@ export function EnvironmentCard({
   const { last_run: run } = environment;
   const headingId = `env-${project.slug}-${environment.name}`;
   return (
-    <section className="env" aria-labelledby={headingId}>
-      <div className="env-head">
-        <h3 id={headingId}>{capitalize(environment.name)}</h3>
-        <span className="label">
-          {environment.auto_deploy ? "Auto-deploy on" : "Manual deploys"}
-        </span>
+    <section className={styles.env} aria-labelledby={headingId}>
+      <div className={box.spread}>
+        <Heading as="h3" id={headingId} className={styles.title}>
+          {capitalize(environment.name)}
+        </Heading>
+        <Label>{environment.auto_deploy ? "Auto-deploy on" : "Manual deploys"}</Label>
       </div>
-      <p className="env-branch">
+      <p className={styles.branch}>
         <GitBranchIcon size={14} aria-hidden="true" />
-        <span className="sr-only">Branch</span>
-        <code>{environment.branch}</code>
+        <VisuallyHidden>Branch</VisuallyHidden>
+        <BranchName as="span">{environment.branch}</BranchName>
       </p>
       {run ? (
-        <div className="env-run">
-          <div className="env-run-line">
+        <div className={styles.run}>
+          <div className={box.cluster}>
             <StatusBadge status={run.status} />
             <Link to={`/runs/${run.id}`}>Run #{run.number}</Link>
             <span className="muted">
@@ -47,7 +54,7 @@ export function EnvironmentCard({
             </span>
           </div>
           {detailed ? (
-            <dl className="dl env-run-detail">
+            <dl className={box.defs}>
               <dt>Commit</dt>
               <dd>
                 <CopySha sha={run.commit_sha} />
@@ -69,32 +76,36 @@ export function EnvironmentCard({
             : "Open runs to start one manually."}
         </p>
       )}
-      <div className="row-actions">
-        <Link
-          className="btn"
+      <div className={box.cluster}>
+        <LinkButton
+          as={Link}
           to={runsPath(project.slug, environment.name)}
+          size="small"
+          leadingVisual={HistoryIcon}
           aria-label={`View ${environment.name} runs of ${project.name}`}
         >
-          <HistoryIcon size={16} aria-hidden="true" />
           View runs
-        </Link>
-        <Link
-          className="btn"
-          to={`/projects/${encodeURIComponent(project.slug)}/environments/${environment.name}/pipeline`}
+        </LinkButton>
+        <LinkButton
+          as={Link}
+          to={pipelinePath(project.slug, environment.name)}
+          size="small"
+          leadingVisual={WorkflowIcon}
           aria-label={`Edit the ${environment.name} pipeline of ${project.name}`}
         >
-          <WorkflowIcon size={16} aria-hidden="true" />
           Pipeline
-        </Link>
+        </LinkButton>
         {detailed ? (
-          <Link
-            className="btn btn-primary"
+          <LinkButton
+            as={Link}
             to={`${runsPath(project.slug, environment.name)}?run=new`}
+            size="small"
+            variant="primary"
+            leadingVisual={PlayIcon}
             aria-label={`Run pipeline for ${environment.name} of ${project.name}`}
           >
-            <PlayIcon size={16} aria-hidden="true" />
             Run pipeline
-          </Link>
+          </LinkButton>
         ) : null}
       </div>
     </section>

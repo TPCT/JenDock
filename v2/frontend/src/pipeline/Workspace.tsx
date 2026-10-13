@@ -1,21 +1,22 @@
-import { AlertIcon, CheckIcon, LockIcon } from "@primer/octicons-react";
+import { CheckIcon } from "@primer/octicons-react";
+import { Button, ConfirmationDialog } from "@primer/react";
+import { UnderlinePanels } from "@primer/react/experimental";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBlocker } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { pipelineApi, pipelineKeys, pipelinePath, useCatalog, useSecretNames } from "../api/hooks";
 import type { Model, PipelineDocument } from "../api/pipelineTypes";
 import type { Diagnostic, EnvironmentName, Project } from "../api/types";
 import { api } from "../api/client";
-import { Dialog } from "../components/Dialog";
-import { ErrorCallout, Loading, errorMessage } from "../components/Feedback";
+import { Callout, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { RelativeTime } from "../components/Time";
 import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
 import { DiagnosticsList } from "./DiagnosticsList";
 import { History } from "./History";
 import { STARTER_MODEL } from "./starter";
 import { VisualEditor } from "./visual/VisualEditor";
-import "./pipeline.css";
+import styles from "./pipeline.module.css";
 
 type Tab = "visual" | "text";
 const VALIDATE_DELAY_MS = 400;
@@ -203,14 +204,6 @@ export function Workspace({
     else validatedText.current = text;
   };
 
-  const onTabKey = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const next: Tab = tab === "visual" ? "text" : "visual";
-    switchTab(next);
-    document.getElementById(`tab-${next}`)?.focus();
-  };
-
   // Jump requested from the visual tab's problem list: open Text, then move the cursor.
   const jump = (line: number, column: number) => {
     if (tab === "text") {
@@ -286,31 +279,20 @@ export function Workspace({
   const textReadOnly = readOnly || rendering;
 
   return (
-    <div className="workspace">
+    <div className={styles.workspace}>
       {readOnly ? (
-        <div className="callout" role="status">
-          <LockIcon size={16} aria-hidden="true" />
-          <div className="callout-body">
-            <strong>
-              This pipeline is defined by the Jenkinsfile in {project.repository}@{branch}; edit it
-              in the repository.
-            </strong>
-            <span>
-              Runs use the file from the repository at the commit they build. You can look at it
-              here and at the history of pipelines saved in this platform earlier.
-            </span>
-          </div>
-        </div>
+        <Callout
+          role="status"
+          title={`This pipeline is defined by the Jenkinsfile in ${project.repository}@${branch}; edit it in the repository.`}
+        >
+          Runs use the file from the repository at the commit they build. You can look at it here
+          and at the history of pipelines saved in this platform earlier.
+        </Callout>
       ) : null}
       {starter ? (
-        <div className="callout" role="status">
-          <div className="callout-body">
-            <strong>This environment has no pipeline yet.</strong>
-            <span>
-              Below is a starter you can change. Nothing is stored until you press Save pipeline.
-            </span>
-          </div>
-        </div>
+        <Callout role="status" title="This environment has no pipeline yet.">
+          Below is a starter you can change. Nothing is stored until you press Save pipeline.
+        </Callout>
       ) : null}
       {doc.version > 0 && !readOnly ? (
         <p className="muted">
@@ -324,174 +306,140 @@ export function Workspace({
         </p>
       ) : null}
 
-      <div className="toolbar">
-        <div role="tablist" aria-label="Editor mode" className="tabs">
-          {(["visual", "text"] as const).map((name) => (
-            <button
-              key={name}
-              id={`tab-${name}`}
-              type="button"
-              role="tab"
-              aria-selected={tab === name}
-              aria-controls={`panel-${name}`}
-              tabIndex={tab === name ? 0 : -1}
-              className="tab"
-              onKeyDown={onTabKey}
-              onClick={() => {
-                switchTab(name);
-              }}
-            >
-              {name === "visual" ? "Visual" : "Text"}
-            </button>
-          ))}
-        </div>
-        <div className="row-actions">
-          <span role="status" className="muted save-state">
-            {rendering ? "Applying changes…" : null}
-            {!rendering && dirty ? "Unsaved changes" : null}
-            {!rendering && !dirty && justSaved ? (
-              <span className="saved">
-                <CheckIcon size={14} aria-hidden="true" /> Saved
-              </span>
-            ) : null}
-          </span>
-          {!readOnly ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={!dirty || rendering || saving}
-              onClick={() => void save()}
-            >
-              <CheckIcon size={16} aria-hidden="true" />
-              {saving ? "Saving…" : "Save pipeline"}
-            </button>
+      <div className={styles.toolbar}>
+        <span role="status" className={styles.saveState}>
+          {rendering ? "Applying changes…" : null}
+          {!rendering && dirty ? "Unsaved changes" : null}
+          {!rendering && !dirty && justSaved ? (
+            <span className={styles.saved}>
+              <CheckIcon size={14} aria-hidden="true" /> Saved
+            </span>
           ) : null}
-        </div>
+        </span>
+        {!readOnly ? (
+          <Button
+            variant="primary"
+            leadingVisual={CheckIcon}
+            disabled={!dirty || rendering || saving}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : "Save pipeline"}
+          </Button>
+        ) : null}
       </div>
 
       {saveError && !(isApiError(saveError) && saveError.status === 422) ? (
-        <div className="callout callout-danger" role="alert">
-          <AlertIcon size={16} aria-hidden="true" />
-          <div className="callout-body">{errorMessage(saveError)}</div>
-        </div>
+        <Callout variant="danger" role="alert">
+          {errorMessage(saveError)}
+        </Callout>
       ) : null}
       {isApiError(saveError) && saveError.status === 422 ? (
-        <div className="callout callout-danger" role="alert">
-          <AlertIcon size={16} aria-hidden="true" />
-          <div className="callout-body">
-            Not saved: {saveError.message}. Fix the problems below.
-          </div>
-        </div>
+        <Callout variant="danger" role="alert">
+          Not saved: {saveError.message}. Fix the problems below.
+        </Callout>
       ) : null}
 
       {conflict ? (
-        <div className="callout callout-attention" role="alert">
-          <AlertIcon size={16} aria-hidden="true" />
-          <div className="callout-body">
-            <strong>Someone else saved this pipeline first</strong>
-            <span>
-              You started from version {baseVersion}, but version {conflict.version} was saved
-              {conflict.updated_by ? ` by ${conflict.updated_by}` : ""} in the meantime. Nothing was
-              overwritten.
-            </span>
-            <div className="callout-actions">
-              <button type="button" className="btn" onClick={loadTheirs}>
-                Load version {conflict.version} and discard my changes
-              </button>
-              <button type="button" className="btn" onClick={keepMine}>
-                Keep my changes on top of version {conflict.version}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                aria-expanded={showTheirs}
-                onClick={() => {
-                  setShowTheirs((value) => !value);
-                }}
-              >
-                {showTheirs ? "Hide their version" : "Look at their version"}
-              </button>
-            </div>
-            {showTheirs ? (
-              <pre className="version-text" tabIndex={0} aria-label="Their Jenkinsfile">
-                {conflict.jenkinsfile}
-              </pre>
-            ) : null}
-          </div>
-        </div>
+        <>
+          <Callout
+            variant="warning"
+            role="alert"
+            title="Someone else saved this pipeline first"
+            actions={
+              <>
+                <Button onClick={loadTheirs}>
+                  Load version {conflict.version} and discard my changes
+                </Button>
+                <Button onClick={keepMine}>
+                  Keep my changes on top of version {conflict.version}
+                </Button>
+                <Button
+                  aria-expanded={showTheirs}
+                  onClick={() => {
+                    setShowTheirs((value) => !value);
+                  }}
+                >
+                  {showTheirs ? "Hide their version" : "Look at their version"}
+                </Button>
+              </>
+            }
+          >
+            You started from version {baseVersion}, but version {conflict.version} was saved
+            {conflict.updated_by ? ` by ${conflict.updated_by}` : ""} in the meantime. Nothing was
+            overwritten.
+          </Callout>
+          {showTheirs ? (
+            <pre className={styles.versionText} tabIndex={0} aria-label="Their Jenkinsfile">
+              {conflict.jenkinsfile}
+            </pre>
+          ) : null}
+        </>
       ) : null}
 
-      <div
-        id="panel-visual"
-        role="tabpanel"
-        aria-labelledby="tab-visual"
-        hidden={tab !== "visual"}
-        className="tabpanel"
+      <UnderlinePanels
+        aria-label="Editor mode"
+        value={tab}
+        onChange={({ value }) => {
+          switchTab(value === "text" ? "text" : "visual");
+        }}
       >
-        {tab === "visual" ? (
-          <>
-            {visual === "loading" || catalog.isPending || secrets.isPending ? (
-              <Loading label="Preparing the visual editor" />
-            ) : null}
-            {catalog.isError ? (
-              <ErrorCallout title="Could not load the step catalogue" error={catalog.error} />
-            ) : null}
-            {visual === "blocked" ? (
-              <div className="callout callout-danger" role="alert">
-                <AlertIcon size={16} aria-hidden="true" />
-                <div className="callout-body">
-                  <strong>The visual editor cannot open this pipeline yet</strong>
-                  <span>
-                    The text has errors, so it cannot be shown as stages. Fix them in the Text tab;
-                    the visual editor stays read-only until then.
-                  </span>
-                  <div className="callout-actions">
-                    <button
-                      type="button"
-                      className="btn"
+        <UnderlinePanels.Tab value="visual">Visual</UnderlinePanels.Tab>
+        <UnderlinePanels.Tab value="text">Text</UnderlinePanels.Tab>
+        <UnderlinePanels.Panel value="visual" className={styles.tabpanel}>
+          {tab === "visual" ? (
+            <>
+              {visual === "loading" || catalog.isPending || secrets.isPending ? (
+                <Loading label="Preparing the visual editor" />
+              ) : null}
+              {catalog.isError ? (
+                <ErrorCallout title="Could not load the step catalogue" error={catalog.error} />
+              ) : null}
+              {visual === "blocked" ? (
+                <Callout
+                  variant="danger"
+                  role="alert"
+                  title="The visual editor cannot open this pipeline yet"
+                  actions={
+                    <Button
                       onClick={() => {
                         switchTab("text");
                       }}
                     >
                       Open the Text tab
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {visual === "ready" && model && catalog.data && secrets.data ? (
-              <VisualEditor
-                model={model}
-                onChange={onVisualChange}
-                catalog={catalog.data}
-                secrets={secrets.data}
-                branch={branch}
-                environment={env}
-                readOnly={readOnly}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
-      <div
-        id="panel-text"
-        role="tabpanel"
-        aria-labelledby="tab-text"
-        hidden={tab !== "text"}
-        className="tabpanel"
-      >
-        {tab === "text" ? (
-          <CodeEditor
-            handle={editor}
-            label="Jenkinsfile"
-            value={text}
-            readOnly={textReadOnly}
-            diagnostics={diagnostics}
-            onChange={onTextChange}
-          />
-        ) : null}
-      </div>
+                    </Button>
+                  }
+                >
+                  The text has errors, so it cannot be shown as stages. Fix them in the Text tab;
+                  the visual editor stays read-only until then.
+                </Callout>
+              ) : null}
+              {visual === "ready" && model && catalog.data && secrets.data ? (
+                <VisualEditor
+                  model={model}
+                  onChange={onVisualChange}
+                  catalog={catalog.data}
+                  secrets={secrets.data}
+                  branch={branch}
+                  environment={env}
+                  readOnly={readOnly}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </UnderlinePanels.Panel>
+        <UnderlinePanels.Panel value="text" className={styles.tabpanel}>
+          {tab === "text" ? (
+            <CodeEditor
+              handle={editor}
+              label="Jenkinsfile"
+              value={text}
+              readOnly={textReadOnly}
+              diagnostics={diagnostics}
+              onChange={onTextChange}
+            />
+          ) : null}
+        </UnderlinePanels.Panel>
+      </UnderlinePanels>
 
       <DiagnosticsList
         diagnostics={diagnostics}
@@ -504,34 +452,18 @@ export function Workspace({
       <History slug={slug} env={env} canRestore={!readOnly} onRestore={restore} />
 
       {blocker.state === "blocked" ? (
-        <Dialog
+        <ConfirmationDialog
           title="Leave without saving?"
-          onClose={() => {
-            blocker.reset();
+          confirmButtonContent="Leave and discard changes"
+          cancelButtonContent="Stay and keep editing"
+          confirmButtonType="danger"
+          onClose={(gesture) => {
+            if (gesture === "confirm") blocker.proceed();
+            else blocker.reset();
           }}
         >
-          <p>You have unsaved changes to this pipeline. If you leave now they are lost.</p>
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                blocker.reset();
-              }}
-            >
-              Stay and keep editing
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger-solid"
-              onClick={() => {
-                blocker.proceed();
-              }}
-            >
-              Leave and discard changes
-            </button>
-          </div>
-        </Dialog>
+          You have unsaved changes to this pipeline. If you leave now they are lost.
+        </ConfirmationDialog>
       ) : null}
     </div>
   );

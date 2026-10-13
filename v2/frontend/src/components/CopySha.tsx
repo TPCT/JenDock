@@ -1,7 +1,8 @@
 import { CheckIcon, CopyIcon } from "@primer/octicons-react";
+import { IconButton, VisuallyHidden } from "@primer/react";
 import { useEffect, useState } from "react";
 import { shortSha } from "../lib/format";
-import "./CopySha.css";
+import styles from "./CopySha.module.css";
 
 /** Commit SHA, always left-to-right, with a copy button that confirms audibly and visibly. */
 export function CopySha({ sha }: { sha: string }) {
@@ -28,21 +29,19 @@ export function CopySha({ sha }: { sha: string }) {
   };
 
   return (
-    <span className="sha">
+    <span className={styles.sha}>
       <code className="ltr" title={sha}>
         {shortSha(sha)}
       </code>
-      <button
-        type="button"
-        className="btn btn-invisible btn-icon sha-copy"
+      <IconButton
+        size="small"
+        variant="invisible"
+        icon={copied ? CheckIcon : CopyIcon}
         onClick={copy}
         aria-label={`Copy full commit SHA ${sha}`}
-      >
-        {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-      </button>
-      <span role="status" className="sr-only">
-        {copied ? "Commit SHA copied" : ""}
-      </span>
+        tooltipDirection="s"
+      />
+      <VisuallyHidden role="status">{copied ? "Commit SHA copied" : ""}</VisuallyHidden>
     </span>
   );
 }

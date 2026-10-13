@@ -19,47 +19,79 @@ import {
 import { tags } from "@lezer/highlight";
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { Diagnostic } from "../api/types";
+import styles from "./pipeline.module.css";
 
 export interface CodeEditorHandle {
   /** Moves the cursor to a 1-based line/column, scrolls to it and focuses the editor. */
   jumpTo: (line: number, column: number) => void;
 }
 
+/**
+ * The text editor wears GitHub's code view: Primer's own syntax colours (the
+ * `--color-prettylights-syntax-*` variables GitHub uses for rendered code), code font, gutter and
+ * selection colours. Variables inherit through the shadow root, so both colour modes work.
+ */
 const highlight = HighlightStyle.define([
-  { tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword], color: "var(--syn-keyword)" },
-  { tag: [tags.string, tags.special(tags.string)], color: "var(--syn-string)" },
-  { tag: [tags.number, tags.bool, tags.atom], color: "var(--syn-number)" },
-  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: "var(--syn-comment)" },
-  { tag: [tags.variableName, tags.propertyName], color: "var(--syn-name)" },
-  { tag: tags.operator, color: "var(--fg-muted)" },
+  {
+    tag: [tags.keyword, tags.controlKeyword, tags.definitionKeyword, tags.operatorKeyword],
+    color: "var(--color-prettylights-syntax-keyword)",
+  },
+  {
+    tag: [tags.string, tags.special(tags.string)],
+    color: "var(--color-prettylights-syntax-string)",
+  },
+  {
+    tag: [tags.number, tags.bool, tags.atom],
+    color: "var(--color-prettylights-syntax-constant)",
+  },
+  {
+    tag: [tags.comment, tags.lineComment, tags.blockComment],
+    color: "var(--color-prettylights-syntax-comment)",
+  },
+  {
+    tag: [tags.variableName, tags.propertyName],
+    color: "var(--color-prettylights-syntax-variable)",
+  },
+  { tag: [tags.className, tags.typeName], color: "var(--color-prettylights-syntax-entity)" },
+  { tag: tags.operator, color: "var(--fgColor-muted)" },
 ]);
 
 const theme = EditorView.theme({
   "&": {
-    color: "var(--log-fg)",
-    backgroundColor: "var(--log-bg)",
-    border: "1px solid var(--border)",
-    borderRadius: "6px",
-    fontSize: "0.8125rem",
+    color: "var(--fgColor-default)",
+    backgroundColor: "var(--bgColor-default)",
+    border: "var(--borderWidth-thin) solid var(--borderColor-default)",
+    borderRadius: "var(--borderRadius-medium)",
+    fontSize: "var(--text-codeBlock-size)",
     height: "100%",
   },
-  "&.cm-focused": { outline: "2px solid var(--focus)", outlineOffset: "2px" },
-  ".cm-scroller": { fontFamily: "var(--font-mono)", overflow: "auto", lineHeight: "1.5" },
+  "&.cm-focused": {
+    outline: "2px solid var(--focus-outlineColor)",
+    outlineOffset: "-1px",
+  },
+  ".cm-scroller": {
+    fontFamily: "var(--fontStack-monospace)",
+    overflow: "auto",
+    lineHeight: "1.5",
+  },
   ".cm-gutters": {
-    backgroundColor: "var(--bg-subtle)",
-    color: "var(--fg-muted)",
-    borderRight: "1px solid var(--border)",
+    backgroundColor: "var(--bgColor-default)",
+    color: "var(--fgColor-muted)",
+    border: "none",
   },
-  ".cm-activeLine": { backgroundColor: "var(--bg-hover)" },
-  ".cm-activeLineGutter": { backgroundColor: "var(--bg-hover)" },
-  ".cm-cursor": { borderLeftColor: "var(--log-fg)" },
+  ".cm-activeLine": { backgroundColor: "var(--bgColor-muted)" },
+  ".cm-activeLineGutter": {
+    backgroundColor: "var(--bgColor-muted)",
+    color: "var(--fgColor-default)",
+  },
+  ".cm-cursor": { borderLeftColor: "var(--fgColor-default)" },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-    backgroundColor: "var(--accent-subtle)",
+    backgroundColor: "var(--bgColor-accent-muted)",
   },
-  ".cm-diagnostic-error": { borderLeft: "3px solid var(--danger)" },
-  ".cm-diagnostic-warning": { borderLeft: "3px solid var(--attention)" },
-  ".cm-lintRange-error": { textDecoration: "underline wavy var(--danger)" },
-  ".cm-lintRange-warning": { textDecoration: "underline wavy var(--attention)" },
+  ".cm-diagnostic-error": { borderLeft: "3px solid var(--borderColor-danger-emphasis)" },
+  ".cm-diagnostic-warning": { borderLeft: "3px solid var(--borderColor-attention-emphasis)" },
+  ".cm-lintRange-error": { textDecoration: "underline wavy var(--fgColor-danger)" },
+  ".cm-lintRange-warning": { textDecoration: "underline wavy var(--fgColor-attention)" },
 });
 
 /** Registry used by tests, which cannot reach into the shadow root. */
@@ -201,5 +233,5 @@ export function CodeEditor({
     },
   }));
 
-  return <div ref={host} className="code-editor" data-readonly={readOnly} />;
+  return <div ref={host} className={styles.codeEditor} data-readonly={readOnly} />;
 }

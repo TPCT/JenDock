@@ -15,5 +15,9 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     css: false,
     restoreMocks: true,
+    // Primer renders far more DOM than hand-written markup did; the editor tests are heavy.
+    testTimeout: 30_000,
+    // Primer ships ESM that imports its own .css files; they must go through Vite, not Node.
+    server: { deps: { inline: [/@primer\//] } },
   },
 });
