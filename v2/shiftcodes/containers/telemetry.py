@@ -132,7 +132,7 @@ class HostSampler:
         times = parse_cpu_times((self._proc / "stat").read_text())
         memory = parse_meminfo((self._proc / "meminfo").read_text())
         load = (self._proc / "loadavg").read_text().split()
-        usage = os.statvfs(self._disk_path)
+        usage = os.statvfs(_existing(self._disk_path))
         with self._lock:
             cpu = self._cpu_percent(times)
         return HostSample(
@@ -159,6 +159,13 @@ class HostSampler:
             return None
         busy = total - (times[0] - previous[0])
         return round(max(0.0, min(100.0, 100.0 * busy / total)), 1)
+
+
+def _existing(path: Path) -> Path:
+    """``path`` or its nearest existing ancestor (the data directory may not exist yet)."""
+    while not path.exists() and path.parent != path:
+        path = path.parent
+    return path
 
 
 ProjectLister = Callable[[], Iterable[str]]

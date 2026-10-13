@@ -8,10 +8,10 @@ Coexistence with other managed override files (for example the image override of
 engine): every writer keeps its own file name in the same directory and every compose
 invocation appends all of them after the repository's files, in a fixed order::
 
-    -f <repo files...> -f <image override> -f container-overrides.yml
+    -f <repo files...> -f container-overrides.yml -f <deploy image override>
 
-The files use disjoint keys (images vs environment/limits), so merge order does not change the
-result. ``ComposeOverrideStore.compose_file_args`` returns this file's ``-f`` arguments.
+The deploy engine's image override is always the last file so deployed images stay pinned.
+``ComposeOverrideStore.compose_file_args`` returns this file's ``-f`` arguments.
 
 The file is JSON, which is valid YAML and which Compose reads natively; that keeps escaping
 exact. Values can be secrets: the directory is 0700 and the file 0600. A literal ``$`` in a value

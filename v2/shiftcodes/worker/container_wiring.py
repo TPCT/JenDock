@@ -53,15 +53,16 @@ def build_container_parts(
 ) -> ContainerWorkerParts:
     """Wire the docker engines, services, telemetry collector and terminal server.
 
-    ``other_override_files`` lets the deploy engine contribute its own override files (for
-    example the image override) to the compose invocations of container operations, so a
-    recreate here keeps what the last deployment set (see ``compose_overrides`` module docs).
+    ``other_override_files`` lets the deploy engine contribute its own override files (the
+    image override) to the compose invocations of container operations. They come AFTER this
+    module's environment/limits override, so the deployed images stay pinned (the deploy
+    engine's file must be the last ``-f``).
     """
     client = DockerClient(settings.docker_binary, settings.docker_host)
     engine = DockerContainerEngine(client)
     config = ContainerConfig.from_settings(settings)
     store = ComposeOverrideStore(settings.data_dir / OVERRIDES_DIR_NAME)
-    files = CombinedOverrideFiles(*other_override_files, StoreOverrideFiles(store))
+    files = CombinedOverrideFiles(StoreOverrideFiles(store), *other_override_files)
     resolver = TargetResolver(session_factory)
     membership = Membership(engine)
     auditor = ContainerAuditor(session_factory)

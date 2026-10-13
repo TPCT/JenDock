@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from shiftcodes.adapters.docker_client import DockerClient
 from shiftcodes.adapters.docker_inspect import parse_container
 from shiftcodes.containers.base import ContainerAuditor, Membership, TargetResolver
@@ -10,6 +12,15 @@ from shiftcodes.terminal.server import OpenRequest
 from shiftcodes.terminal.session import OpenSpec, TerminalSession
 
 SHELL = "/bin/sh"
+MARKER_VARIABLE = "SHIFTCODES_TERMINAL"
+# Ends every process of the container whose environment carries the marker given as $1. The
+# marker is passed as an argument, never interpolated into this script.
+KILL_SCRIPT = (
+    'for d in /proc/[0-9]*; do pid="${d#/proc/}"; '
+    'if tr "\\0" "\\n" < "$d/environ" 2>/dev/null | grep -qx "'
+    + MARKER_VARIABLE
+    + '=$1"; then kill -HUP "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null; fi; done'
+)
 TERM_VALUE = "xterm-256color"
 
 
@@ -29,6 +40,7 @@ class DockerExecOpener:
         info = parse_container(self._membership.require(target, request.container_id))
         if not info.running:
             raise ConflictError("start the container to open a terminal")
+        marker = secrets.token_urlsafe(12)
         argv = [
             self._client.binary,
             "exec",
@@ -36,6 +48,8 @@ class DockerExecOpener:
             "--tty",
             "--env",
             f"TERM={TERM_VALUE}",
+            "--env",
+            f"{MARKER_VARIABLE}={marker}",
             info.id,
             SHELL,
         ]
@@ -49,6 +63,13 @@ class DockerExecOpener:
             container_id=info.id,
             container_name=info.name,
             service=info.service,
+            cleanup=lambda: self._kill_shell(info.id, marker),
+        )
+
+    def _kill_shell(self, container_id: str, marker: str) -> None:
+        """Stop the shell the dead ``docker exec`` client left behind in the container."""
+        self._client.run(
+            ["exec", container_id, "/bin/sh", "-c", KILL_SCRIPT, "sh", marker], timeout=15.0
         )
 
 

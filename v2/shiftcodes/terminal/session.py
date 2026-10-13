@@ -77,6 +77,9 @@ class OpenSpec:
     container_id: str
     container_name: str
     service: str | None
+    # Runs once when the terminal ended (best effort): ``docker exec`` leaves its shell running
+    # in the container when the client dies, so the opener uses this to end it.
+    cleanup: Callable[[], None] | None = None
 
 
 class InputLimiter:
@@ -221,12 +224,21 @@ class TerminalSession:
             reason = self._reason or "exited"
             self._reason = reason
             sink, self._sink = self._sink, None
+        self._cleanup()
         self._finished.set()
         if sink is not None:
             sink.send_exit(code, reason)
             sink.close()
         if self._on_finished is not None:
             self._on_finished(self, reason, code)
+
+    def _cleanup(self) -> None:
+        if self.spec.cleanup is None:
+            return
+        try:
+            self.spec.cleanup()
+        except Exception:
+            logger.warning("terminal cleanup failed", extra={"terminal_id": self.id})
 
     @property
     def age(self) -> float:

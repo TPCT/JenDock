@@ -1,7 +1,8 @@
+# ruff: noqa: S108, S607, E501
 """Container management and terminal against a real Docker daemon (``make test-docker``).
 
 A throwaway compose project is created per test. Everything carries the labels
-``shiftcodes.test=1`` and ``shiftcodes.test.owner=<unique id>``; teardown removes only what
+``shiftcodes.test=task8`` (not ``=1``, which other suites sweep globally) and ``shiftcodes.test.owner=<unique id>``; teardown removes only what
 carries this run's owner label (other test runs may be active on the same daemon) and verifies
 that nothing of ours is left.
 """
@@ -51,7 +52,7 @@ def docker(*args: str, timeout: float = 120) -> subprocess.CompletedProcess[str]
         capture_output=True,
         text=True,
         timeout=timeout,
-        check=False,  # noqa: S607
+        check=False,
     )
 
 
@@ -90,8 +91,10 @@ class Live:
         if service is None:
             return records
         return [
-            r for r in records if r["Config"]["Labels"]["com.docker.compose.service"] == service
-        ]  # type: ignore[index]
+            r
+            for r in records
+            if r["Config"]["Labels"]["com.docker.compose.service"] == service  # type: ignore[index]
+        ]
 
     def one(self, service: str) -> dict[str, object]:
         """The single container of ``service``."""
@@ -121,20 +124,24 @@ class Live:
 COMPOSE = """services:
   web:
     image: {image}
+    init: true
+    network_mode: bridge
     command: ["sh", "-c", "echo starting-with-{secret}; test \\"$$MODE\\" != bad || exit 3; sleep 100000"]
     environment:
       MODE: ok
       DB_PASSWORD: {secret}
     ports: ["127.0.0.1::8080"]
     volumes: [data:/data]
-    labels: {{shiftcodes.test: "1", shiftcodes.test.owner: "{owner}"}}
+    labels: {{shiftcodes.test: "task8", shiftcodes.test.owner: "{owner}"}}
   idle:
     image: {image}
+    init: true
+    network_mode: bridge
     command: ["sleep", "100000"]
-    labels: {{shiftcodes.test: "1", shiftcodes.test.owner: "{owner}"}}
+    labels: {{shiftcodes.test: "task8", shiftcodes.test.owner: "{owner}"}}
 volumes:
   data:
-    labels: {{shiftcodes.test: "1", shiftcodes.test.owner: "{owner}"}}
+    labels: {{shiftcodes.test: "task8", shiftcodes.test.owner: "{owner}"}}
 """
 
 
@@ -195,7 +202,7 @@ def live(tmp_path: Path, socket_dir: Path, engine: Engine, project: str) -> Iter
 
 def test_inventory_of_a_real_compose_project(live: Live) -> None:
     stranger = docker(
-        "run", "-d", "--label", "shiftcodes.test=1", "--label", f"shiftcodes.test.owner={live.owner}",
+        "run", "-d", "--label", "shiftcodes.test=task8", "--label", f"shiftcodes.test.owner={live.owner}",
         base_image(), "sleep", "100000",
     )  # fmt: skip
     assert stranger.returncode == 0
@@ -292,7 +299,7 @@ def test_failed_env_edit_restores_file_and_state(live: Live) -> None:
     assert path.read_bytes() == previous
     web = live.one("web")
     assert web["State"]["Running"] is True and live.env_of("web")["MODE"] == "good"  # type: ignore[index]
-    assert [e["outcome"] for e in live.audit("container.env.update")][0] == "restored"
+    assert next(e["outcome"] for e in live.audit("container.env.update")) == "restored"
     del key
 
 
@@ -498,7 +505,7 @@ def test_terminal_resize_reaches_the_container(live: Live) -> None:
 
 def test_terminal_refuses_other_projects_and_stopped_containers(live: Live) -> None:
     stranger = docker(
-        "run", "-d", "--label", "shiftcodes.test=1", "--label", f"shiftcodes.test.owner={live.owner}",
+        "run", "-d", "--label", "shiftcodes.test=task8", "--label", f"shiftcodes.test.owner={live.owner}",
         base_image(), "sleep", "100000",
     )  # fmt: skip
     stranger_id = stranger.stdout.strip()
