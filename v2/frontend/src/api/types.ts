@@ -51,6 +51,8 @@ export interface Project {
   repository: string;
   created_at: string;
   environments: EnvironmentSummary[];
+  /** How the worker clones: `ssh` = deploy key, `https` = public repositories. */
+  git_transport: "ssh" | "https";
 }
 
 export interface Page<T> {

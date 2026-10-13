@@ -1,27 +1,8 @@
-import { DatabaseIcon, GearIcon, GlobeIcon, PackageIcon, SearchIcon } from "@primer/octicons-react";
+import { DatabaseIcon, PackageIcon, SearchIcon } from "@primer/octicons-react";
 import { Button } from "@primer/react";
 import { Link, useLocation } from "react-router-dom";
 import { EmptyState } from "../components/Feedback";
-import { PageHead, useDocumentTitle } from "../components/PageHead";
-
-export function SettingsPlaceholderPage() {
-  return (
-    <>
-      <PageHead title="Settings" />
-      <EmptyState
-        icon={<GearIcon size={32} aria-hidden="true" />}
-        title="Settings are coming soon"
-        action={
-          <Button as={Link} to="/projects">
-            Go to projects
-          </Button>
-        }
-      >
-        GitHub connection, secrets, API tokens and users will be managed here in a later release.
-      </EmptyState>
-    </>
-  );
-}
+import { useDocumentTitle } from "../components/PageHead";
 
 const TAB_TEXT = {
   containers: {
@@ -33,16 +14,6 @@ const TAB_TEXT = {
     icon: DatabaseIcon,
     title: "Database is coming soon",
     text: "Provisioned databases and backups for this project will be managed here.",
-  },
-  domains: {
-    icon: GlobeIcon,
-    title: "Domains are coming soon",
-    text: "Custom domains and certificates for each environment will be managed here.",
-  },
-  settings: {
-    icon: GearIcon,
-    title: "Project settings are coming soon",
-    text: "Branches, auto-deploy, secrets and access for this project will be managed here.",
   },
 } as const;
 

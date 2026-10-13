@@ -3,7 +3,8 @@ import { Button, ConfirmationDialog, NavList, PageLayout, VisuallyHidden } from 
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isApiError } from "../api/client";
-import { useCancelRun, useProject, useRun, useStartRun } from "../api/hooks";
+import { useRetryRun } from "../api/adminHooks";
+import { useCancelRun, useProject, useRun } from "../api/hooks";
 import type { RunDetail } from "../api/types";
 import { useRunStream } from "../api/useRunStream";
 import { CopySha } from "../components/CopySha";
@@ -109,7 +110,7 @@ export function RunDetailPage() {
   const query = useRun(valid ? runId : 0);
   const run = query.data;
   const project = useProject(run?.project ?? "");
-  const rerun = useStartRun(run?.project ?? "", run?.environment ?? "development");
+  const rerun = useRetryRun(runId);
   const projectName = project.data?.name ?? run?.project ?? "Project";
   const { store, connection, reconnect } = useRunStream(runId, run?.status);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
@@ -220,14 +221,11 @@ export function RunDetailPage() {
                 leadingVisual={SyncIcon}
                 disabled={rerun.isPending}
                 onClick={() => {
-                  rerun.mutate(
-                    { branch: data.branch, commit_sha: data.commit_sha },
-                    {
-                      onSuccess: (created) => {
-                        void navigate(`/runs/${created.id}`);
-                      },
+                  rerun.mutate(undefined, {
+                    onSuccess: (created) => {
+                      void navigate(`/runs/${created.id}`);
                     },
-                  );
+                  });
                 }}
               >
                 {rerun.isPending ? "Starting…" : "Re-run"}
