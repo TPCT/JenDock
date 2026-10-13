@@ -4,7 +4,7 @@ simulated docker (the real daemon is exercised by ``test_deploy_docker.py``)."""
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -50,13 +50,16 @@ class Sim:
     lines: list[str]
     old_web: str
     old_worker: str
+    files: tuple[str, ...]
+    env_files: tuple[str, ...]
 
     def request(self, *services: tuple[str, str], http: HttpCheck | None = None) -> DeployRequest:
         return DeployRequest(
             project="demo",
             environment="development",
             compose_project="demo-dev",
-            compose_files=FILES,
+            compose_files=self.files,
+            compose_env_files=self.env_files,
             services=tuple(ServiceImage(s, i) for s, i in services),
             run_id=7,
             commit_sha="a" * 40,
@@ -91,7 +94,22 @@ def build_sim(tmp_path: Path, *, keep: int = 5) -> Sim:
         config=DeployConfig(health=POLICY, keep_images=keep),
         clock=ManualClock(),
     )
-    return Sim(deployer, docker, ledger, tmp_path / "deployments", probe, [], old_web, old_worker)
+    compose = tmp_path / "compose.yml"
+    env = tmp_path / "ports.env"
+    compose.write_text("services: {}\n")
+    env.write_text("WEB_PORT=8080\n")
+    return Sim(
+        deployer,
+        docker,
+        ledger,
+        tmp_path / "deployments",
+        probe,
+        [],
+        old_web,
+        old_worker,
+        (str(compose),),
+        (str(env),),
+    )
 
 
 @pytest.fixture
@@ -127,7 +145,7 @@ def test_up_never_pulls_builds_or_follows_dependencies(sim: Sim) -> None:
     up = next(c for c in sim.docker.calls if "up" in c)
     assert {"--no-deps", "--no-build", "--detach"} <= set(up)
     assert up[up.index("--pull") + 1] == "never"
-    assert up[:3] == ["compose", "-p", "demo-dev"]
+    assert up[:5] == ["compose", "--env-file", sim.env_files[0], "-p", "demo-dev"]
     assert up.count("-f") == 2
     assert up[up.index("-f", up.index("-f") + 1) + 1].endswith("override.yml")
 
@@ -192,7 +210,7 @@ def test_cancel_before_the_change_leaves_everything_alone(sim: Sim) -> None:
 
 def test_a_journal_that_was_not_recovered_blocks_the_environment(sim: Sim) -> None:
     sim.deploy(sim.request(("web", sim.new_image())))
-    entry = JournalEntry(1, 7, "demo", "development", "demo-dev", FILES, {}, ())
+    entry = JournalEntry(1, 7, "demo", "development", "demo-dev", sim.files, {}, ())
     DeployJournal(sim.root).write(entry)
     with pytest.raises(DeployError, match="not been recovered"):
         sim.deploy(sim.request(("web", sim.new_image("sc/demo-development-web:ccc-r4"))))
@@ -291,7 +309,9 @@ def test_recovery_rolls_back_an_interrupted_deployment(sim: Sim) -> None:
     deployment_id = sim.ledger.begin("demo", "development", 7, "a" * 40)
     changes = (ServiceChange("web", new, sim.docker.image_id(new), "app-web:1", sim.old_web),)
     sim.ledger.record_services(deployment_id, changes)
-    entry = JournalEntry(deployment_id, 7, "demo", "development", "demo-dev", FILES, {}, changes)
+    entry = JournalEntry(
+        deployment_id, 7, "demo", "development", "demo-dev", sim.files, {}, changes, sim.env_files
+    )
     DeployJournal(sim.root).write(entry)
     sim.overrides.write("demo-dev", {"web": new})
     sim.docker.start("web", new, "healthy")  # the worker died after compose up
@@ -378,7 +398,9 @@ def test_unreadable_override_is_an_error(tmp_path: Path) -> None:
 def test_journal_round_trip_and_corrupt_files_are_set_aside(tmp_path: Path) -> None:
     journal = DeployJournal(tmp_path)
     change = ServiceChange("web", "n:2", "sha256:n", "n:1", "sha256:o")
-    entry = JournalEntry(3, 9, "demo", "production", "demo-prod", FILES, {"web": "n:1"}, (change,))
+    entry = JournalEntry(
+        3, 9, "demo", "production", "demo-prod", FILES, {"web": "n:1"}, (change,), ("/e/a.env",)
+    )
     journal.write(entry)
     assert journal.exists("demo-prod")
     assert list(journal.pending()) == [entry]
@@ -484,3 +506,77 @@ def test_wait_for_status_retries_then_fails() -> None:
         wait_for_status(
             FakeProbe([503]), HttpCheck("http://x/", 200, 3), 1.0, lines.append, ManualClock()
         )
+
+
+# --- compose env files and readable paths ----------------------------------------------------
+
+
+def test_every_compose_invocation_gets_the_env_files(sim: Sim) -> None:
+    new = sim.new_image()
+    sim.docker.behaviour[new] = "unhealthy"
+    with pytest.raises(DeployError, match="rolled back"):
+        sim.deploy(sim.request(("web", new)))
+    compose_calls = [c for c in sim.docker.calls if c[0] == "compose"]
+    assert {"config", "ps", "up"} <= {w for c in compose_calls for w in c}
+    for call in compose_calls:
+        assert call[1:3] == ["--env-file", sim.env_files[0]], call
+        assert call[3:5] == ["-p", "demo-dev"]
+
+
+def test_recovery_uses_the_env_files_of_the_journal(sim: Sim) -> None:
+    new = sim.new_image()
+    deployment_id = sim.ledger.begin("demo", "development", 7, "a" * 40)
+    changes = (ServiceChange("web", new, sim.docker.image_id(new), "app-web:1", sim.old_web),)
+    entry = JournalEntry(
+        deployment_id, 7, "demo", "development", "demo-dev", sim.files, {}, changes, sim.env_files
+    )
+    DeployJournal(sim.root).write(entry)
+    sim.docker.calls.clear()
+    sim.deployer.recover()
+    compose_calls = [c for c in sim.docker.calls if c[0] == "compose"]
+    assert compose_calls
+    assert all(c[1:3] == ["--env-file", sim.env_files[0]] for c in compose_calls)
+
+
+def test_compose_project_base_command_is_the_single_argv_builder(tmp_path: Path) -> None:
+    docker = ScriptedDocker({})
+    override = tmp_path / "override.yml"
+    project = ComposeProject(docker, "p", ("/a.yml", "/b.yml"), override, ("/x.env", "/y.env"))
+    assert project.base_command() == [
+        "compose",
+        "--env-file",
+        "/x.env",
+        "--env-file",
+        "/y.env",
+        "-p",
+        "p",
+        "-f",
+        "/a.yml",
+        "-f",
+        "/b.yml",
+        "-f",
+        str(override),
+    ]
+    assert project.base_command(with_override=False)[-2:] == ["-f", "/b.yml"]
+    assert ComposeProject(docker, "p", ("/a.yml",)).base_command() == [
+        "compose",
+        "-p",
+        "p",
+        "-f",
+        "/a.yml",
+    ]
+
+
+@pytest.mark.parametrize("which", ["compose", "env"])
+def test_unreadable_compose_or_env_files_are_refused_before_anything_happens(
+    sim: Sim, which: str
+) -> None:
+    request = sim.request(("web", sim.new_image()))
+    if which == "compose":
+        request = replace(request, compose_files=("/nonexistent/compose.yml",))
+    else:
+        request = replace(request, compose_env_files=("/nonexistent/ports.env",))
+    with pytest.raises(DeployError, match="not readable by the worker"):
+        sim.deploy(request)
+    assert sim.docker.up_services == []
+    assert not sim.ledger.rows

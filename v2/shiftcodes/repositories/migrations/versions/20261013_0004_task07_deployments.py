@@ -19,6 +19,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    with op.batch_alter_table("environments", schema=None) as batch_op:
+        batch_op.add_column(
+            sa.Column("compose_env_files", sa.JSON(), nullable=False, server_default="[]")
+        )
     op.create_table(
         "deployments",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -81,3 +85,5 @@ def downgrade() -> None:
     op.drop_index("ix_deployments_run_id", table_name="deployments")
     op.drop_index("ix_deployments_environment_id_created_at", table_name="deployments")
     op.drop_table("deployments")
+    with op.batch_alter_table("environments", schema=None) as batch_op:
+        batch_op.drop_column("compose_env_files")

@@ -114,6 +114,7 @@ class RunExecutor:
                 repository=project.repository,
                 compose_project=environment.compose_project,
                 compose_files=tuple(environment.compose_files),
+                compose_env_files=tuple(environment.compose_env_files),
                 services=tuple(environment.services),
                 pipeline_text=run.pipeline_text,
                 redeploy_images=self._redeploy_images(uow, run),

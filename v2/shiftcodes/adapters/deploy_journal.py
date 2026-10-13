@@ -32,6 +32,7 @@ class JournalEntry:
     compose_files: tuple[str, ...]
     previous_override: dict[str, str]
     changes: tuple[ServiceChange, ...]
+    compose_env_files: tuple[str, ...] = ()
 
     def to_json(self) -> str:
         """Serialize for the journal file."""
@@ -43,6 +44,7 @@ class JournalEntry:
                 "environment": self.environment,
                 "compose_project": self.compose_project,
                 "compose_files": list(self.compose_files),
+                "compose_env_files": list(self.compose_env_files),
                 "previous_override": self.previous_override,
                 "changes": [change.to_json() for change in self.changes],
             },
@@ -60,6 +62,7 @@ class JournalEntry:
             environment=str(data["environment"]),
             compose_project=str(data["compose_project"]),
             compose_files=tuple(str(item) for item in data["compose_files"]),
+            compose_env_files=tuple(str(item) for item in data.get("compose_env_files", [])),
             previous_override={str(k): str(v) for k, v in data["previous_override"].items()},
             changes=tuple(ServiceChange.from_json(item) for item in data["changes"]),
         )

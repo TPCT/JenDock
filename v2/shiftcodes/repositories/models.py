@@ -164,6 +164,8 @@ class Environment(Base):
     auto_deploy: Mapped[bool] = mapped_column(default=False)
     compose_project: Mapped[str | None] = mapped_column(String(63), default=None)
     compose_files: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Interpolation env files for every compose invocation (absolute host paths).
+    compose_env_files: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     services: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)

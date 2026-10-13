@@ -47,6 +47,7 @@ class DeployStep(Step):
             environment=job.environment,
             compose_project=job.compose_project,
             compose_files=job.compose_files,
+            compose_env_files=job.compose_env_files,
             services=tuple(images),
             run_id=job.run_id,
             commit_sha=job.commit_sha,

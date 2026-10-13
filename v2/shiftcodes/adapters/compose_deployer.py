@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from shiftcodes.adapters.compose_project import ComposeProject
+from shiftcodes.adapters.compose_project import ComposeProject, ensure_readable
 from shiftcodes.adapters.container_runtime import CancelSignal, LineSink
 from shiftcodes.adapters.container_state import ContainerInspector
 from shiftcodes.adapters.deploy_health import Clock, HealthPolicy, HealthVerifier
@@ -81,6 +81,7 @@ class ComposeDeployer:
         """Roll the requested services to their new images; raise ``DeployError`` on failure
         (also when the failure was rolled back)."""
         key, files = self._target(request)
+        ensure_readable(files, request.compose_env_files)
         with self._lock_for(key):
             if self._journal.exists(key):
                 raise DeployError(
@@ -122,7 +123,7 @@ class ComposeDeployer:
         cancel: CancelSignal,
     ) -> JournalEntry:
         """Validate, record what runs now and journal it; nothing is changed yet."""
-        project = ComposeProject(self._docker, key, files)
+        project = ComposeProject(self._docker, key, files, env_files=request.compose_env_files)
         wanted = [item.service for item in request.services]
         missing = sorted(set(wanted) - project.defined_services())
         if missing:
@@ -140,6 +141,7 @@ class ComposeDeployer:
             environment=request.environment,
             compose_project=key,
             compose_files=files,
+            compose_env_files=request.compose_env_files,
             previous_override=self._overrides.current(key),
             changes=changes,
         )
@@ -174,7 +176,13 @@ class ComposeDeployer:
         images = dict(entry.previous_override)
         images.update({c.service: c.new_image for c in entry.changes})
         self._overrides.write(key, images)
-        project = ComposeProject(self._docker, key, entry.compose_files, self._overrides.path(key))
+        project = ComposeProject(
+            self._docker,
+            key,
+            entry.compose_files,
+            self._overrides.path(key),
+            entry.compose_env_files,
+        )
         services = [c.service for c in entry.changes]
         for change in entry.changes:
             before = change.previous_image or "(none)"

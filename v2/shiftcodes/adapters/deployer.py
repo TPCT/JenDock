@@ -38,6 +38,7 @@ class DeployRequest:
     run_id: int
     commit_sha: str
     http_check: HttpCheck | None = None
+    compose_env_files: tuple[str, ...] = ()
 
 
 class Deployer(Protocol):

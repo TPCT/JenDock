@@ -38,6 +38,7 @@ class RunJob:
     repository: str
     compose_project: str | None
     compose_files: tuple[str, ...]
+    compose_env_files: tuple[str, ...]
     services: tuple[str, ...]
     pipeline_text: str
     # Logical image name and tag of the images a redeploy reuses (empty for ordinary runs).

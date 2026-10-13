@@ -105,11 +105,15 @@ class Stack:
     def run(self, *args: str, timeout: float = 180) -> subprocess.CompletedProcess[str]:
         return self.docker.capture(list(args), timeout)
 
+    @property
+    def env_file(self) -> Path:
+        return self.directory / "ports.env"
+
     def compose(self, *args: str, override: bool = False) -> subprocess.CompletedProcess[str]:
-        files = ["-f", str(self.compose_file)]
+        files = ["--env-file", str(self.env_file), "-p", self.name, "-f", str(self.compose_file)]
         if override:
             files += ["-f", str(self.override_path)]
-        return self.run("compose", "-p", self.name, *files, *args)
+        return self.run("compose", *files, *args)
 
     # --- images -------------------------------------------------------------------
 
@@ -149,11 +153,15 @@ class Stack:
 
     def write_compose(self, web: str, worker: str) -> None:
         labels = f'{{"shiftcodes.test": "1", "shiftcodes.stack": "{self.name}"}}'
+        # Interpolation without the env file fails: the deployer must pass --env-file.
+        self.env_file.write_text("WEB_PORT=8080\n")
         self.compose_file.write_text(
             f"""services:
   web:
     image: {web}
     labels: {labels}
+    environment:
+      PORT: "${{WEB_PORT:?WEB_PORT is required}}"
     stop_signal: SIGKILL
     healthcheck:
       test: ["CMD", "test", "-f", "/ok"]
@@ -198,6 +206,7 @@ class Stack:
             services=(ServiceImage(service, image),),
             run_id=self.runs,
             commit_sha="b" * 40,
+            compose_env_files=(str(self.env_file),),
         )
 
     def deploy(self, service: str, image: str, deployer: ComposeDeployer | None = None) -> None:
@@ -280,6 +289,7 @@ def test_deploys_a_new_image_to_one_service_only(running: Stack) -> None:
     )
     assert recreate.returncode == 0, recreate.stderr
     assert stack.image_of("web") == stack.image_id(web_v2)
+    assert "PORT=8080" in stack.inspect("web", "{{.Config.Env}}")
 
 
 def test_failing_healthcheck_rolls_back_to_the_previous_image(running: Stack) -> None:

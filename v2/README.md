@@ -51,6 +51,12 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   `SHIFTCODES_DOCKER_HOST` points to.
 - `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
   see `stat -c %g <socket>`). Added to the worker via `group_add`.
+- `COMPOSE_PROJECTS_DIR` - host directory with the compose files and `--env-file` files of the
+  deployed projects (default `/opt/docker-engine/projects`). It is mounted read-only into the
+  worker at the **identical absolute path**: the compose CLI runs in the worker but the host
+  daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
+  file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
+  below it; the deployer refuses to start a deployment when one is not readable.
 
 ## Reproducible builds
 
@@ -209,6 +215,11 @@ the exit code.
 `ComposeDeployer` (`shiftcodes/adapters/compose_deployer.py`) deploys the requested services of
 an environment and nothing else:
 
+0. Every compose invocation (config, ps, up, rm; deploy, rollback and recovery) starts with
+   `docker compose --env-file <f>... -p <project> -f <file>... [-f <override>]`, built only by
+   `ComposeProject.base_command` (Task 8 reuses it). `compose_env_files` of the environment
+   supply the variable interpolation of the compose files; every compose and env file must be
+   readable by the worker, otherwise the deployment is refused with a clear error.
 1. It checks that every service exists in `docker compose config` of the environment's own files
    and that the new image exists locally (it never pulls or builds).
 2. It records, per service, the running image tag and id in a `deployments` row, and writes a

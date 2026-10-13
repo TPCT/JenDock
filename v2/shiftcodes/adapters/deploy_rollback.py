@@ -53,7 +53,13 @@ class Rollback:
         key = entry.compose_project
         sink("rolling back to the previous images")
         self._overrides.write(key, self._restored_override(entry))
-        project = ComposeProject(self._docker, key, entry.compose_files, self._overrides.path(key))
+        project = ComposeProject(
+            self._docker,
+            key,
+            entry.compose_files,
+            self._overrides.path(key),
+            entry.compose_env_files,
+        )
         for change in entry.changes:
             if change.previous_image_id is None:
                 project.remove(change.service, sink, self._timeout)
