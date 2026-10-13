@@ -27,6 +27,7 @@ MAX_SESSIONS_PER_ACTOR = 3
 INPUT_RATE_BYTES = 64 * 1024
 INPUT_BURST_BYTES = 256 * 1024
 EXIT_WAIT_SECONDS = 2.0
+DRAIN_WAIT_SECONDS = 2.0
 
 
 class OutputSink(Protocol):
@@ -184,6 +185,11 @@ class TerminalSession:
             self._detached_at = None
         if previous is not None and previous is not sink:
             previous.close()
+            # Input the replaced connection had already received must reach the shell before
+            # anything the new connection sends, or the user's keystrokes arrive reordered.
+            wait_drained = getattr(previous, "wait_drained", None)
+            if wait_drained is not None:
+                wait_drained(DRAIN_WAIT_SECONDS)
 
     def detach(self, sink: OutputSink) -> None:
         """The connection ended: start the grace period (only if ``sink`` is still current)."""

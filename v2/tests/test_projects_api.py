@@ -341,6 +341,10 @@ def test_patch_environment_branch_and_auto_deploy(
         "name": "development",
         "branch": "develop",
         "auto_deploy": True,
+        "compose_project": None,
+        "compose_files": [],
+        "compose_env_files": [],
+        "services": [],
         "last_run": None,
     }
     only = client.patch(f"{ENV_URL}/development", json={"auto_deploy": False}, headers=headers)
@@ -350,6 +354,40 @@ def test_patch_environment_branch_and_auto_deploy(
     events = AuditService(wired.uow()).list(action="environment.update")
     assert len(events) == 2
     assert events[1].details["branch"] == {"from": "development", "to": "develop"}
+
+
+def test_patch_environment_compose_settings_round_trip_and_clear(
+    wired: AppContainer, api: tuple[TestClient, str]
+) -> None:
+    client, csrf = api
+    headers = mutation_headers(client, csrf)
+    body = {
+        "compose_project": "demo-dev",
+        "compose_files": ["/srv/demo/compose.yml", "/srv/demo/extra.yml"],
+        "compose_env_files": ["/srv/demo/ports.env"],
+        "services": ["web", "worker"],
+    }
+    response = client.patch(f"{ENV_URL}/development", json=body, headers=headers)
+    assert response.status_code == 200, response.text
+    assert {k: response.json()[k] for k in body} == body
+    shown = client.get("/api/projects/demo").json()["environments"][0]
+    assert shown["compose_project"] == "demo-dev"
+    assert shown["compose_env_files"] == ["/srv/demo/ports.env"]
+    untouched = client.patch(f"{ENV_URL}/development", json={"auto_deploy": True}, headers=headers)
+    assert untouched.json()["compose_project"] == "demo-dev"  # not named: unchanged
+    cleared = client.patch(
+        f"{ENV_URL}/development", json={"compose_project": None}, headers=headers
+    )
+    assert cleared.json()["compose_project"] is None
+    assert cleared.json()["services"] == ["web", "worker"]
+    event = AuditService(wired.uow()).list(action="environment.update")[0]
+    assert event.details["compose"] == {
+        "project": None,
+        "files": ["/srv/demo/compose.yml", "/srv/demo/extra.yml"],
+        "env_files": ["/srv/demo/ports.env"],
+        "services": ["web", "worker"],
+    }
+    assert client.get("/api/projects/demo").json()["environments"][1]["compose_project"] is None
 
 
 def test_patch_environment_includes_the_last_run(
@@ -371,7 +409,12 @@ def test_patch_environment_includes_the_last_run(
         ("development", {"branch": "production"}, 422),  # the other environment's branch
         ("development", {"branch": ""}, 422),
         ("development", {"auto_deploy": "yes please"}, 422),
-        ("development", {"compose_project": "x"}, 422),
+        ("development", {"compose_project": "Not Valid"}, 422),
+        ("development", {"compose_files": ["relative.yml"]}, 422),
+        ("development", {"compose_env_files": ["/a/../b.env"]}, 422),
+        ("development", {"services": ["ok", "bad name"]}, 422),
+        ("development", {"services": None}, 422),
+        ("development", {"unknown": 1}, 422),
         ("staging", {"auto_deploy": True}, 422),
     ],
 )

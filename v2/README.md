@@ -45,6 +45,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make lock` - regenerate `requirements.lock` (needs Docker)
 - `make test-py313` - run tests on Python 3.13 in Docker (installs git in the throwaway container)
 - `make check` - lint, typecheck, test
+- `make test-e2e` - the whole platform with real containers, driven only through its public
+  interfaces (builds the images from the tree; see `docs/e2e.md`)
 - `make preflight` - read-only host check before the production installation (`PREFLIGHT_ARGS`
   passes flags, e.g. `--env-file .env`); see `docs/deployment.md`
 - `make lint-jenkins` - compare the Jenkinsfile engine with a real Jenkins linter in a throwaway
@@ -331,7 +333,7 @@ Every `sh` runs in a container started with `--rm`, labels `jendock.run_id` and
 win under contention) and `--entrypoint sh -c <script>`.
 
 - **Logical image** (built by `dockerBuild`, tagged `jendock/<project>-<env>-<image>:<sha12>-r<run
-  number>` with labels `jendock.project|environment|run_id|commit`): runs with the image's own
+  number>` with labels `jendock.project|environment|build_run|commit`): runs with the image's own
   `WORKDIR`, user and no workspace mount. `dir()` becomes a `cd` at the start of the script.
 - **External image** (`node:22`): pulled when not present locally (once per run), the workspace is
   mounted at `/workspace`, which is the working directory (`dir()` is relative to it), and the

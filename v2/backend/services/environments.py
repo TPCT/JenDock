@@ -90,6 +90,12 @@ class EnvironmentService:
             "environment": environment.name.value,
             "branch": {"from": before[0], "to": environment.branch},
             "auto_deploy": {"from": before[1], "to": environment.auto_deploy},
+            "compose": {
+                "project": environment.compose_project,
+                "files": list(environment.compose_files),
+                "env_files": list(environment.compose_env_files),
+                "services": list(environment.services),
+            },
         }
         target = AuditTarget("environment", str(environment.id))
         add_audit_event(

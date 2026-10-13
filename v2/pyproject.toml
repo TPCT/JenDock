@@ -71,7 +71,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers -m 'not docker'"
+addopts = "-ra --strict-markers -m 'not docker and not e2e'"
 markers = [
     "docker: needs a local Docker daemon; run with `make test-docker` (skipped when unavailable)",
+    "e2e: builds and starts the real compose stack; run with `make test-e2e` (slow, needs Docker)",
 ]

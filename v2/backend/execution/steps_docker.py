@@ -7,7 +7,7 @@ from pathlib import Path
 from backend.adapters.container_runtime import BuildSpec
 from backend.execution.context import StepContext
 from backend.execution.docker_agent import (
-    RUN_ID_LABEL,
+    BUILD_RUN_LABEL,
     ContainerPlanner,
     limited_memory,
     raise_unless_ok,
@@ -83,7 +83,7 @@ class DockerBuildStep(Step):
             labels={
                 "jendock.project": job.project,
                 "jendock.environment": job.environment,
-                RUN_ID_LABEL: str(job.run_id),
+                BUILD_RUN_LABEL: str(job.run_id),
                 "jendock.commit": job.commit_sha,
             },
             memory=limited_memory(None, ctx.run.config.build_memory),

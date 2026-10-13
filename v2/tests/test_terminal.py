@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
+import pytest
+
+from backend.terminal import server as terminal_server_module
+from backend.terminal.protocol import Frame
 from backend.terminal.session import TerminalLimits
 from tests.terminal_support import Client, terminal_server, wait_for
 
@@ -69,13 +74,13 @@ def test_reattach_within_the_grace_period(socket_dir: Path) -> None:
     with terminal_server(socket_dir, limits) as server:
         first = Client(server.path)
         first.open()
-        first.pump(timeout=0.3)
+        first.wait_ready()
         terminal_id = first.terminal_id
         first.send("MARK=kept\n")
         first.drop()
         second = Client(server.path)
         second.open(attach=terminal_id)
-        second.pump(timeout=0.3)
+        second.wait_ready()
         assert second.terminal_id == terminal_id
         second.send("echo $MARK\n")
         second.pump(until=b"\r\nkept\r\n")
@@ -85,11 +90,50 @@ def test_reattach_within_the_grace_period(socket_dir: Path) -> None:
         assert wait_for(lambda: server.recorder.events[-1] == ("close", "closed"))
 
 
+def test_input_sent_before_a_reattach_is_not_lost(
+    socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reattach closes the old connection; keystrokes already queued on it must still arrive.
+
+    The old connection's reader is held back until the new one has attached, which is exactly
+    what a loaded machine does by chance.
+    """
+    released = threading.Event()
+    first_connection: list[object] = []
+    original_open = terminal_server_module._Connection._open
+    original_read = terminal_server_module._Connection._read_frames
+
+    def tracking_open(self: terminal_server_module._Connection) -> None:
+        original_open(self)
+        if not first_connection:
+            first_connection.append(self)
+
+    def gated_read(self: terminal_server_module._Connection) -> list[Frame] | None:
+        if first_connection and self is first_connection[0]:
+            assert released.wait(10), "the reattach never happened"
+        return original_read(self)
+
+    monkeypatch.setattr(terminal_server_module._Connection, "_open", tracking_open)
+    monkeypatch.setattr(terminal_server_module._Connection, "_read_frames", gated_read)
+    with terminal_server(socket_dir) as server:
+        first = Client(server.path)
+        first.open()
+        first.wait_ready()
+        first.send("MARK=kept\n")
+        second = Client(server.path)
+        second.open(attach=first.terminal_id)
+        second.wait_ready()
+        released.set()
+        second.send("echo $MARK\n")
+        second.pump(until=b"\r\nkept\r\n")
+        assert b"\r\nkept\r\n" in second.output
+
+
 def test_reattach_by_someone_else_is_refused(socket_dir: Path) -> None:
     with terminal_server(socket_dir) as server:
         first = Client(server.path)
         first.open()
-        first.pump(timeout=0.3)
+        first.wait_ready()
         intruder = Client(server.path)
         intruder.open(attach=first.terminal_id, actor={"type": "user", "id": "99"})
         intruder.pump()

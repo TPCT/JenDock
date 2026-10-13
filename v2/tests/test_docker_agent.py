@@ -38,9 +38,13 @@ def test_docker_build_tags_labels_and_limits(harness: Harness) -> None:
     assert spec.labels == {
         "jendock.project": "demo",
         "jendock.environment": "development",
-        "jendock.run_id": str(run.id),
+        "jendock.build_run": str(run.id),
         "jendock.commit": "0123456789abcdef0123456789abcdef01234567",
     }
+    # A container started from the image inherits its labels: the deployed service must never
+    # carry the labels the worker kills a run's containers by (it once killed every deployment).
+    assert "jendock.run_id" not in spec.labels
+    assert "jendock.step_id" not in spec.labels
     workspace = harness.env.workspaces.path(run.id)
     assert spec.dockerfile == workspace.resolve() / "Dockerfile"
     assert spec.context == workspace.resolve()
