@@ -18,6 +18,7 @@ from shiftcodes.repositories.database import (
     create_session_factory,
 )
 from shiftcodes.services.auth import AuthService
+from shiftcodes.services.deployments import DeploymentService
 from shiftcodes.services.passwords import PasswordHasher
 from shiftcodes.services.rate_limit import LoginRateLimiter
 from shiftcodes.services.run_lifecycle import RunLifecycleService
@@ -91,6 +92,10 @@ class AppContainer:
     def run_lifecycle(self) -> RunLifecycleService:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
+
+    def deployment_service(self) -> DeploymentService:
+        """Return a deployment history service with its own unit of work."""
+        return DeploymentService(self.uow(), self.clock)
 
     def log_store(self) -> LogStore:
         """Step logs written by the worker (shared data volume, read-only use here)."""

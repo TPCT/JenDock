@@ -40,6 +40,8 @@ class RunJob:
     compose_files: tuple[str, ...]
     services: tuple[str, ...]
     pipeline_text: str
+    # Logical image name and tag of the images a redeploy reuses (empty for ordinary runs).
+    redeploy_images: tuple[tuple[str, str], ...] = ()
 
 
 class ImageBook:

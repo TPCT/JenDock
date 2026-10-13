@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     build_memory: str = "2g"
     # Default wall-clock limit of one container step when no ``timeout`` applies.
     step_timeout_seconds: int = Field(default=3600, gt=0)
+    # Deployment: how long a new container may take to become healthy, how long it must stay
+    # up and unrestarted, and how many images per logical image an environment keeps.
+    deploy_health_timeout: int = Field(default=120, gt=0)
+    deploy_settle_seconds: float = Field(default=3.0, ge=0)
+    image_retention: int = Field(default=5, ge=1)
     queue_poll_interval: float = Field(default=1.0, gt=0)
     cancel_poll_interval: float = Field(default=1.0, gt=0)
     sse_poll_interval: float = Field(default=0.5, gt=0)

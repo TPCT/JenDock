@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from shiftcodes.adapters.deployer import DeployRequest, ServiceImage
+from shiftcodes.adapters.deployer import DeployRequest, HttpCheck, ServiceImage
 from shiftcodes.adapters.errors import AdapterError
 from shiftcodes.execution.context import StepContext
 from shiftcodes.execution.errors import DeadlineExceeded, RunCancelled, StepFailed
@@ -50,8 +50,18 @@ class DeployStep(Step):
             services=tuple(images),
             run_id=job.run_id,
             commit_sha=job.commit_sha,
+            http_check=self._http_check(ctx),
         )
         ctx.run.deployer.deploy(request, ctx.line, ctx.cancel_signal)
+
+    def _http_check(self, ctx: StepContext) -> HttpCheck | None:
+        """The optional ``healthUrl``: the deployer rolls back when it does not answer."""
+        url = self.string("healthUrl")
+        if url is None:
+            return None
+        return HttpCheck(
+            ctx.text(url), self.integer("healthStatus", 200), self.integer("healthTimeout", 60)
+        )
 
 
 class HealthCheckStep(Step):

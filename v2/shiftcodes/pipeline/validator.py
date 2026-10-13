@@ -54,6 +54,8 @@ class ValidationContext:
     """Facts about the target project that the text itself cannot tell."""
 
     secret_names: frozenset[str] = frozenset()
+    # Logical images that exist before the pipeline runs (a redeploy reuses built images).
+    built_images: frozenset[str] = frozenset()
 
 
 def validate(pipeline: Pipeline, context: ValidationContext) -> list[Diagnostic]:
@@ -72,7 +74,7 @@ class _Validator:
     def __init__(self, context: ValidationContext) -> None:
         self._secrets = context.secret_names
         self._found: list[Diagnostic] = []
-        self._built: set[str] = set()
+        self._built: set[str] = set(context.built_images)
 
     def run(self, pipeline: Pipeline) -> list[Diagnostic]:
         params = self._parameters(pipeline.parameters)

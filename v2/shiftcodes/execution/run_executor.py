@@ -6,7 +6,7 @@ import logging
 import threading
 from collections.abc import Mapping, Sequence
 
-from shiftcodes.domain.enums import RunStatus
+from shiftcodes.domain.enums import RunStatus, RunTrigger
 from shiftcodes.domain.errors import NotFoundError
 from shiftcodes.execution.cancel import CancelReason, CancelToken
 from shiftcodes.execution.context import ImageBook, RunContext, RunJob
@@ -18,6 +18,9 @@ from shiftcodes.execution.runner import PipelineRunner, RunOutcome
 from shiftcodes.pipeline import PipelineSyntaxError, ValidationContext, parse, validate
 from shiftcodes.pipeline.ast import Pipeline
 from shiftcodes.pipeline.errors import Severity
+from shiftcodes.repositories.database import UnitOfWork
+from shiftcodes.repositories.models import Run
+from shiftcodes.services.deployments import redeploy_images
 
 logger = logging.getLogger(__name__)
 MAX_SYNTAX_MESSAGE = 300
@@ -113,8 +116,15 @@ class RunExecutor:
                 compose_files=tuple(environment.compose_files),
                 services=tuple(environment.services),
                 pipeline_text=run.pipeline_text,
+                redeploy_images=self._redeploy_images(uow, run),
             )
             return job, names
+
+    @staticmethod
+    def _redeploy_images(uow: UnitOfWork, run: Run) -> tuple[tuple[str, str], ...]:
+        if run.trigger is not RunTrigger.REDEPLOY:
+            return ()
+        return tuple(redeploy_images(uow, run.id).items())
 
     @staticmethod
     def _parse(job: RunJob, secret_names: frozenset[str]) -> Pipeline | RunOutcome:
@@ -123,11 +133,10 @@ class RunExecutor:
             pipeline = parse(job.pipeline_text)
         except PipelineSyntaxError as error:
             return RunOutcome(RunStatus.FAILED, f"pipeline syntax error: {error}")
-        errors = [
-            d
-            for d in validate(pipeline, ValidationContext(secret_names))
-            if d.severity is Severity.ERROR
-        ]
+        context = ValidationContext(
+            secret_names, frozenset(name for name, _ in job.redeploy_images)
+        )
+        errors = [d for d in validate(pipeline, context) if d.severity is Severity.ERROR]
         if errors:
             first = errors[0]
             where = f"line {first.span.line}"
@@ -157,5 +166,7 @@ class RunExecutor:
             resolve_secrets=resolve,
             images=ImageBook(),
         )
+        for logical, tag in job.redeploy_images:
+            context.images.built(logical, tag)
         history = LifecycleHistory(lifecycle, job.run_id)
         return PipelineRunner(context, env.logs, history).run(pipeline)
