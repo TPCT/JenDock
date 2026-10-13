@@ -104,7 +104,11 @@ class HelperServer(socketserver.UnixStreamServer):
     def _apply_permissions(self) -> None:
         path = self.config.socket_path
         if self.config.socket_group is not None:
-            os.chown(path, -1, grp.getgrnam(self.config.socket_group).gr_gid)
+            gid = grp.getgrnam(self.config.socket_group).gr_gid
+            # The directory (systemd's RuntimeDirectory is created root:root) must let the group
+            # reach the socket too; its mode stays as created (0750: no access for others).
+            os.chown(path.parent, -1, gid)
+            os.chown(path, -1, gid)
         path.chmod(self.config.socket_mode)
 
     def server_close(self) -> None:
