@@ -226,9 +226,13 @@ def _unknown(data: Mapping[str, object], known: frozenset[str], where: str) -> l
 
 
 def load_registry(path: Path) -> V1Registry:
-    """Read the v1 SQLite registry and saved settings, read-only (the file is never modified)."""
+    """Read the v1 SQLite registry and saved settings, read-only (the file is never modified).
+
+    ``immutable=1``: the input is a snapshot, often in WAL mode on a read-only mount, where
+    SQLite could not create the ``-shm`` file that a plain read-only open needs.
+    """
     try:
-        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        db = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
     except sqlite3.Error as error:
         raise ValidationError(f"cannot open v1 database {path}: {error}") from error
     try:

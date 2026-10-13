@@ -638,3 +638,21 @@ def test_the_summary_says_so_when_nothing_needs_a_decision(tmp_path: Path) -> No
     args = parse_args("--projects-json", str(path), "--v1-db", str(database), "--dry-run")
     run_import(args, forbidden, out)
     assert "nothing: every value came from v1 data" in out.getvalue()
+
+
+def test_a_wal_snapshot_on_a_read_only_directory_can_be_read(tmp_path: Path) -> None:
+    """A v1 snapshot in WAL mode on a read-only mount opens without creating ``-shm``."""
+    database = tmp_path / "v1.sqlite"
+    connection = sqlite3.connect(database)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("CREATE TABLE unrelated (x)")
+    connection.commit()
+    connection.close()
+    for leftover in tmp_path.glob("v1.sqlite-*"):
+        leftover.unlink()
+    tmp_path.chmod(0o500)
+    try:
+        load_registry(database)
+    finally:
+        tmp_path.chmod(0o700)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["v1.sqlite"]
