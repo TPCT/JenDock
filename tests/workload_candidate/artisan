@@ -1,7 +1,0 @@
-#!/usr/bin/env php
-<?php
-// Real candidate bootstrap; all commands are provided by the installed Laravel framework/package.
-define('LARAVEL_START', microtime(true));
-require __DIR__.'/vendor/autoload.php';
-$app=require __DIR__.'/bootstrap/app.php';
-exit($app->handleCommand(new Symfony\Component\Console\Input\ArgvInput));

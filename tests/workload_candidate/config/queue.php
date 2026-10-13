@@ -1,1 +1,0 @@
-<?php return ['default'=>'database','connections'=>['database'=>['driver'=>'database','connection'=>'pgsql','table'=>'jobs','queue'=>'default','retry_after'=>90]],'failed'=>['driver'=>'database-uuids','database'=>'pgsql','table'=>'failed_jobs']];

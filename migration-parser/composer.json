@@ -1,1 +1,0 @@
-{"name":"shiftcodes/migration-source-parser","description":"Trusted syntax parser for migration planning; project code is never executed","type":"library","require":{"php":">=8.2","nikic/php-parser":"5.8.0"},"config":{"vendor-dir":"../.runtime/migration-parser-vendor","allow-plugins":false,"sort-packages":true}}

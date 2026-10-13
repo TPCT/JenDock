@@ -1,49 +1,220 @@
-"""Terminal identity, session ownership and bounded transport behavior."""
-import base64
-import tempfile
-import unittest
-from unittest.mock import patch
-from pathlib import Path
-import terminal_control as terminal
-import control
+"""The terminal bridge on a local shell: open, input, resize, limits, detach and reattach."""
 
-class TerminalTests(unittest.TestCase):
-    def setUp(self):
-        self.temp=tempfile.TemporaryDirectory()
-        self.db=patch.object(control,'DATABASE',str(Path(self.temp.name)/'state.sqlite'));self.db.start()
-        self.body={'action':'terminal-open','project':'test','container':'test-app-1','container_id':'a'*64,'actor':'admin','terminal_owner':'b'*64,'request_id':'terminal-request-123456','cols':80,'rows':24}
-        self.container={'Id':'a'*64,'State':{'Running':True}}
-        terminal.SESSIONS.clear()
-    def tearDown(self):
-        terminal.SESSIONS.clear();self.db.stop();self.temp.cleanup()
-    def test_no_session_identity_cannot_open(self):
-        with self.assertRaises(control.ControlError):terminal.execute(dict(self.body,terminal_owner=''))
-    def test_stopped_and_replaced_containers_rejected_before_shell(self):
-        for c in ({'Id':'c'*64,'State':{'Running':True}},{'Id':'a'*64,'State':{'Running':False}}):
-            with patch.object(control,'inspect_target',return_value=(c,None,None,None)),patch.object(terminal,'TerminalSession') as shell:
-                with self.assertRaises(control.ControlError):terminal.execute(self.body)
-                shell.assert_not_called()
-    def test_session_open_idempotency_and_owner_isolation(self):
-        class Fake:
-            closed=False
-            def __init__(self,body,c,docker):
-                self.owner=body['terminal_owner'];self.project=body['project'];self.name=body['container'];self.request_id=body['request_id'];self.container_id=c['Id']
-            def close(self):self.closed=True
-        with patch.object(control,'inspect_target',return_value=(self.container,None,None,None)),patch.object(terminal,'TerminalSession',Fake):
-            first=terminal.execute(self.body);second=terminal.execute(self.body)
-            self.assertEqual(first,second);self.assertEqual(len(terminal.SESSIONS),1)
-            poll=dict(self.body,action='terminal-close',terminal_id=first['terminal_id'])
-            with self.assertRaises(control.ControlError):terminal.execute(dict(poll,terminal_owner='c'*64))
-            self.assertTrue(terminal.execute(poll)['closed'])
-    def test_sequence_deduplicates_input_and_output_cursor_replays(self):
-        import threading,time
-        session=object.__new__(terminal.TerminalSession)
-        session.lock=threading.RLock();session.closed=False;session.sequence=0;session.offset=0;session.buffer=bytearray(b'synthetic output');session.fd=10
-        session.resize=lambda cols,rows:None
-        with patch('terminal_control.os.write',return_value=3) as write:
-            a=session.exchange({'input':'pwd','sequence':1,'cursor':0})
-            b=session.exchange({'input':'pwd','sequence':1,'cursor':0})
-            self.assertEqual(a,b);write.assert_called_once_with(10,b'pwd')
-            self.assertEqual(base64.b64decode(a['output']),b'synthetic output')
-            with self.assertRaises(ValueError):session.exchange({'input':'pwd','sequence':3,'cursor':0})
-            self.assertEqual(session.exchange({'cursor':a['cursor']})['output'],'')
+from __future__ import annotations
+
+import threading
+from pathlib import Path
+
+import pytest
+
+from backend.terminal import server as terminal_server_module
+from backend.terminal.protocol import Frame
+from backend.terminal.session import TerminalLimits
+from tests.terminal_support import Client, terminal_server, wait_for
+
+
+def test_echo_hi_and_exit(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        client = Client(server.path)
+        client.open()
+        client.pump(until=None, timeout=0.3)
+        assert client.terminal_id is not None
+        client.send("echo hi\n")
+        client.pump(until=b"\r\nhi\r\n")
+        assert b"\r\nhi\r\n" in client.output
+        client.send("exit\n")
+        client.pump()
+        assert client.exit == {"code": 0, "reason": "exited"}
+        assert wait_for(lambda: server.manager.count() == 0)
+        assert wait_for(lambda: server.recorder.events[-1:] == [("close", "exited")])
+        assert [kind for kind, _ in server.recorder.events] == ["open", "close"]
+
+
+def test_resize_reaches_the_terminal(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        client = Client(server.path)
+        client.open(rows=24, cols=80)
+        client.pump(timeout=0.3)
+        client.resize(30, 100)
+        client.send("stty size\n")
+        client.pump(until=b"30 100")
+        assert b"30 100" in client.output
+        client.close_terminal()
+        client.pump()
+        assert client.exit is not None and client.exit["reason"] == "closed"
+
+
+def test_input_out_of_sequence_ends_the_connection_and_detaches(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        client = Client(server.path)
+        client.open()
+        client.pump(timeout=0.3)
+        client.send_raw_sequence(7, b"x")
+        client.pump()
+        assert client.error is not None and "sequence" in client.error
+        # the terminal itself lives on for the detach grace period, then is cleaned up
+        assert server.manager.count() == 1
+        server.manager.shutdown()
+        assert server.manager.count() == 0
+
+
+def test_idle_timeout_after_disconnect(socket_dir: Path) -> None:
+    limits = TerminalLimits(idle_seconds=0.6, max_seconds=60)
+    with terminal_server(socket_dir, limits) as server:
+        client = Client(server.path)
+        client.open()
+        client.pump(timeout=0.3)
+        client.drop()
+        assert wait_for(lambda: server.manager.count() == 0, timeout=5)
+        assert server.recorder.events[-1] == ("close", "idle_timeout")
+
+
+def test_reattach_within_the_grace_period(socket_dir: Path) -> None:
+    limits = TerminalLimits(idle_seconds=5, max_seconds=60)
+    with terminal_server(socket_dir, limits) as server:
+        first = Client(server.path)
+        first.open()
+        first.wait_ready()
+        terminal_id = first.terminal_id
+        first.send("MARK=kept\n")
+        first.drop()
+        second = Client(server.path)
+        second.open(attach=terminal_id)
+        second.wait_ready()
+        assert second.terminal_id == terminal_id
+        second.send("echo $MARK\n")
+        second.pump(until=b"\r\nkept\r\n")
+        assert b"\r\nkept\r\n" in second.output
+        second.close_terminal()
+        second.pump()
+        assert wait_for(lambda: server.recorder.events[-1] == ("close", "closed"))
+
+
+def test_input_sent_before_a_reattach_is_not_lost(
+    socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reattach closes the old connection; keystrokes already queued on it must still arrive.
+
+    The old connection's reader is held back until the new one has attached, which is exactly
+    what a loaded machine does by chance.
+    """
+    released = threading.Event()
+    first_connection: list[object] = []
+    original_open = terminal_server_module._Connection._open
+    original_read = terminal_server_module._Connection._read_frames
+
+    def tracking_open(self: terminal_server_module._Connection) -> None:
+        original_open(self)
+        if not first_connection:
+            first_connection.append(self)
+
+    def gated_read(self: terminal_server_module._Connection) -> list[Frame] | None:
+        if first_connection and self is first_connection[0]:
+            assert released.wait(10), "the reattach never happened"
+        return original_read(self)
+
+    monkeypatch.setattr(terminal_server_module._Connection, "_open", tracking_open)
+    monkeypatch.setattr(terminal_server_module._Connection, "_read_frames", gated_read)
+    with terminal_server(socket_dir) as server:
+        first = Client(server.path)
+        first.open()
+        first.wait_ready()
+        first.send("MARK=kept\n")
+        second = Client(server.path)
+        second.open(attach=first.terminal_id)
+        second.wait_ready()
+        released.set()
+        second.send("echo $MARK\n")
+        second.pump(until=b"\r\nkept\r\n")
+        assert b"\r\nkept\r\n" in second.output
+
+
+def test_reattach_by_someone_else_is_refused(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        first = Client(server.path)
+        first.open()
+        first.wait_ready()
+        intruder = Client(server.path)
+        intruder.open(attach=first.terminal_id, actor={"type": "user", "id": "99"})
+        intruder.pump()
+        assert intruder.error is not None and "belongs to someone else" in intruder.error
+        first.send("echo still-mine\n")
+        first.pump(until=b"still-mine\r\n")
+        assert b"still-mine" in first.output
+
+
+def test_reattach_replaces_the_previous_connection(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        first = Client(server.path)
+        first.open()
+        first.pump(timeout=0.3)
+        second = Client(server.path)
+        second.open(attach=first.terminal_id)
+        second.pump(timeout=0.3)
+        first.pump(timeout=1)  # its socket was closed by the worker
+        second.send("echo second\n")
+        second.pump(until=b"\r\nsecond\r\n")
+        assert b"\r\nsecond\r\n" in second.output
+
+
+def test_absolute_timeout_ends_an_attached_terminal(socket_dir: Path) -> None:
+    limits = TerminalLimits(idle_seconds=60, max_seconds=0.8)
+    with terminal_server(socket_dir, limits) as server:
+        client = Client(server.path)
+        client.open()
+        client.pump(timeout=5)
+        assert client.exit is not None and client.exit["reason"] == "absolute_timeout"
+        assert wait_for(lambda: server.manager.count() == 0)
+
+
+def test_session_limits(socket_dir: Path) -> None:
+    limits = TerminalLimits(max_sessions=2, max_per_actor=1)
+    with terminal_server(socket_dir, limits) as server:
+        first = Client(server.path)
+        first.open()
+        first.pump(timeout=0.3)
+        second = Client(server.path)
+        second.open()
+        second.pump()
+        assert second.error is not None and "too many" in second.error
+        other_actor = Client(server.path)
+        other_actor.open(actor={"type": "user", "id": "2"})
+        other_actor.pump(timeout=0.3)
+        assert other_actor.terminal_id is not None
+
+
+def test_unknown_container_is_reported_and_nothing_starts(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        server.opener.missing = True
+        client = Client(server.path)
+        client.open()
+        client.pump()
+        assert client.error == "container not found"
+        assert server.manager.count() == 0 and server.recorder.events == []
+
+
+def test_garbage_and_invalid_open_are_rejected(socket_dir: Path) -> None:
+    with terminal_server(socket_dir) as server:
+        garbage = Client(server.path)
+        garbage.socket.sendall(b"\xff\xff\xff\xff\xff")
+        garbage.pump()
+        assert garbage.error is not None
+        bad = Client(server.path)
+        bad.open(container_id="short")
+        bad.pump()
+        assert bad.error == "invalid request"
+        assert server.manager.count() == 0
+
+
+def test_the_worker_never_keeps_input_or_output(socket_dir: Path) -> None:
+    """Metadata events carry no terminal content."""
+    with terminal_server(socket_dir) as server:
+        client = Client(server.path)
+        client.open()
+        client.pump(timeout=0.3)
+        client.send("echo super-private-command\n")
+        client.pump(until=b"\r\nsuper-private-command\r\n")
+        client.send("exit\n")
+        client.pump()
+        wait_for(lambda: server.manager.count() == 0)
+        assert "super-private-command" not in repr(server.recorder.events)

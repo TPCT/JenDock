@@ -1,240 +1,833 @@
-# Shiftcodes deployment management
+# Jendock v2
 
-English operator dashboard at **https://monitoring.shiftcodes.net/** with a real
-login page, GitHub branch selection, test-only builds, automatic and manual deployments,
-retry, pending-job cancellation, event history and an administration audit log.
-It uses neither GitHub Actions nor Jenkins.
+Clean rewrite of the self-hosted, Jenkins-like CI/CD platform. See `PLAN.md` for decisions
+and the task list. v1 (the parent directory) keeps running until v2 reaches parity.
 
-## Architecture
+## Layout
 
-The receiver has no Docker socket. It authenticates administrators with a salted
-PBKDF2 password hash and issues a random, hashed-at-rest session token. Production
-cookies use the `__Host-` prefix, Secure, HttpOnly and SameSite=Strict. Mutations
-require an exact configured Origin plus the session CSRF token. Login attempts
-are rate limited. Sessions expire after one hour without an authenticated user
-request and at twelve hours absolute; background event streaming does not extend
-an idle session. A reload or management action does.
+- `backend/domain` - pure enums, validated value objects, errors, audit rules; no I/O
+- `backend/services` - use cases (project, environment, pipeline, run, secret, audit);
+  each receives a `UnitOfWork`, no globals
+- `backend/repositories` - SQLAlchemy models, `database.py` (engine, `UnitOfWork`), one
+  query-only repository per aggregate, Alembic migrations in `migrations/`
+- `backend/adapters` - external systems: `ContainerRuntime` port with the docker CLI
+  implementation, git source, workspaces, deployer port, HTTP probe (GitHub, Cloudflare later)
+- `backend/execution` - worker-side pipeline execution (runner, steps, docker agent rules,
+  logs, run queue, crash recovery)
+- `backend/api` - FastAPI HTTP layer (`create_app`, `AppContainer`, routers, schemas, error
+  mapping, security headers)
+- `backend/worker` - worker process (`python -m backend.worker`): RPC server, the run
+  queue and the only holder of the secret key
+- `backend/pipeline` - Jenkinsfile engine (lexer, parser, typed AST, step catalogue, validator,
+  serializer); pure code, never executes anything
+- `backend/cli.py` - admin CLI (`python -m backend.cli users ...`)
+- `backend/mcp` - MCP server for AI agents
+- `backend/config.py`, `backend/logging.py` - settings (`JENDOCK_*`) and JSON logging
+- `backend/hosthelper` - the host helper (stdlib + cryptography): Apache vhosts, certificates;
+  ingress design in `docs/ingress.md`, install in `docs/ingress-host-helper.md`
+- `docker/` - `api.Dockerfile`, `worker.Dockerfile`; `compose.yml` wires them together
 
-The worker has Docker authority and no public listener. It serializes builds,
-fetches branch heads with the existing approved SSH identity, tests images
-without production secrets or networking, changes only the configured Compose
-services, and verifies runtime image identities and availability. Its recovery
-journal is isolated from the receiver database and survives restarts.
+## Make targets
 
-## Operator workflow
+- `make install` - editable install with dev extras into `.venv`
+- `make lint` - ruff check and ruff format --check
+- `make format` - apply ruff fixes and formatting
+- `make typecheck` - mypy (strict) on `jendock` and `tests`
+- `make test` - pytest (tests marked `docker` are deselected)
+- `make test-docker` - the real-Docker integration tests (`pytest -m docker`); they are skipped
+  when no Docker daemon or git is available. They build and run containers in the local daemon,
+  label everything `jendock.test=1` plus a per-session `jendock.test.session=<uuid>`
+  (`tests/docker_support.py`: `session_labels()`), and the teardown removes and checks only that
+  session's containers, images, networks and volumes, so parallel suites on one daemon do not
+  interfere
+- `make migrate` - `python -m backend.repositories.migrate` (upgrade head on
+  `JENDOCK_DATABASE_URL`); the same command works inside the api/worker images
+- `make lock` - regenerate `requirements.lock` (needs Docker)
+- `make test-py313` - run tests on Python 3.13 in Docker (installs git in the throwaway container)
+- `make check` - lint, typecheck, test
+- `make test-e2e` - the whole platform with real containers, driven only through its public
+  interfaces (builds the images from the tree; see `docs/e2e.md`)
+- `make preflight` - read-only host check before the production installation (`PREFLIGHT_ARGS`
+  passes flags, e.g. `--env-file .env`); see `docs/deployment.md`
+- `make lint-jenkins` - compare the Jenkinsfile engine with a real Jenkins linter in a throwaway
+  container (needs Docker and network); rewrites `docs/jenkins-compatibility.md`
 
-1. Log in, open a project, and refresh its real GitHub branches if needed.
-2. Choose a branch and start a build. The confirmation shows its full commit.
-3. Choose **build and test only**, or **build, test and deploy** when the project has a complete recipe. A build choice does not change the automatic branch.
-4. Follow the job's recorded stages. Failed or cancelled jobs offer a new build
-   of the selected branch's latest commit, explicitly shown before confirmation.
-5. To change automatic deployment, save the branch and automatic switch in the
-   separate GitHub settings section. Saving settings never launches deployment.
+## Deployment variables (compose)
 
-Manual requests are durably idempotent, and concurrent manual requests for a
-project cannot enqueue duplicate active work. Pending jobs can be cancelled;
-an in-progress deployment is allowed to complete or recover safely.
+- `DOCKER_SOCKET_PATH` - host path of the Docker socket mounted into the worker
+  (default `/var/run/docker.sock`; e.g. `/run/docker-isolation.sock` on the production VPS).
+  It is always mounted at `/var/run/docker.sock` inside the container, which is what
+  `JENDOCK_DOCKER_HOST` points to.
+- `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
+  see `stat -c %g <socket>`). Added to the worker via `group_add`.
+- `COMPOSE_PROJECTS_DIR` - host directory with the compose files and `--env-file` files of the
+  deployed projects (default `/opt/docker-engine/projects`). It is mounted read-only into the
+  worker at the **identical absolute path**: the compose CLI runs in the worker but the host
+  daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
+  file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
+  below it; the deployer refuses to start a deployment when one is not readable.
 
-## Container operations
+## Importing v1 projects (Task 15.1)
 
-Open a project's Services tab, then **Manage container**. Details expose the
-actual image tag and ID, OCI commit when recorded, runtime health, restart count
-and persistent mounts. Start, stop and restart require an explicit confirmation.
-Operations serialize against deployments and have durable request IDs and
-secret-free audit history. Unmapped shared infrastructure is observational only.
-
-The Environment tab masks values until individually revealed. Editing or adding
-variables stores per-service Compose overrides, preserving shared env files and
-unedited services. Save previews changed key names, verifies the container and
-configuration revision, checks that the configured image matches the current
-image, and recreates only the service without pulling or building. A stopped
-service remains stopped. Runtime environment and image identity are checked;
-failed activation restores the original configuration and prior runtime state.
-A private temporary journal supports crash recovery and is removed after success.
-An unresolved recovery blocks further mutations and deployments.
-
-Database password environment changes do not rotate an existing database account.
-Operators must coordinate real database account changes and dependent services.
-The editor does not claim to implement database administration, a host terminal,
-or full Webmin feature parity. Secrets never enter job/audit records or URLs.
-
-The Terminal tab opens an interactive `/bin/sh` inside the selected running
-container, with its configured user. Sessions are bound to the authenticated
-operator session and exact container identity. Input is sequenced, output is
-bounded, and sessions close after two disconnected minutes or thirty minutes
-absolute. Commands and terminal output are not stored in the audit database.
-Mobile shortcut keys expose Tab, Escape, interrupt, EOF, arrows and Enter.
-This does not expose a host shell. Terminal connection tests are separate from
-application deployment acceptance.
-
-The receiver forwards authenticated and CSRF-protected operations to the worker
-through a group-restricted Unix socket on their shared volume. It still has no
-Docker socket and the worker exposes no public control port.
-
-Service details and environment editing use dedicated pages, keeping runtime actions
-above technical metadata. Mobile tables become labeled, stacked rows.
-
-The English navigation uses a desktop sidebar and a mobile off-canvas sidebar
-with breadcrumbs. Searchable keyboard/touch listboxes replace visible native
-selects. SSE supplies project, operation and runtime updates; editing is preserved
-while observations update, and lost connections are visibly marked stale.
-
-## Pipeline rollout boundary
-
-This dashboard does not certify every application's test suite. The policy file
-is authoritative: a complete recipe is required for deployment. Automatic deployment defaults on; saved owner opt-outs remain off. Projects with recipes can
-run test-only validation; missing recipes are explicitly unavailable. At the
-start of this dashboard expansion, captcha had a successful real GitHub-push
-build/test/deployment, DSL01 had validated without cutover, and DSL02/CRM tests
-had failed before any production change. Other project pipelines remain under
-validation. The existing twenty repository hooks are distinct from this gate.
-
-## Production layout
-
-Compose project: `deploy-monitor`. Receiver binds only `127.0.0.1:19190`.
-Apache terminates TLS on `monitoring.shiftcodes.net` and overwrites `X-Real-IP`.
-Configuration lives in `/opt/docker-engine/projects/deploy-monitor`.
-`policy/projects.json` is a directory-mounted, administrator-owned allowlist;
-API requests cannot supply Docker commands, paths, repositories or recipes.
-SQLite stores selected branches, sessions, jobs and sanitized evidence.
-
-The host-generated `credentials.json` contains a webhook secret and password
-hash; it is never committed. The bootstrap plaintext `admin-password` file was removed after login verification.
-Only the salted password hash remains. Never publish credentials or log their contents. Existing project environment files, S3 settings and
-database volumes are preserved.
-
-Certificate issuance uses the existing pinned Certbot Docker image and shared
-HTTP-01 webroot. The monitoring certificate is in the existing Docker renewal
-configuration, not a new native Certbot installation.
-
-## Deployment and cleanup guarantees
-
-- Signed GitHub raw payloads must match repository ID, full name and saved branch.
-  Recent delivery IDs deduplicate; newer pushes supersede only pending webhook jobs.
-- Builds bind an immutable commit and verify the chosen branch head again before
-  cutover. Managed deployments with a configured environment migration binding
-  run supported PostgreSQL migrations automatically through the pinned helper.
-  The immutable plan and ledger are verified before application cutover; ambiguous
-  results enter recovery without replaying writes. Unconfigured or unsupported
-  migration changes fail with a diagnostic, not an approval gate. See
-  [migration runtime setup](docs/operations/migration-runtime-setup.md) for the
-  required Compose override and current support boundaries. Complete combined
-  database/application runtime acceptance is still in progress.
-- Each job uses unique image tags; retrying the same commit cannot overwrite a
-  running tag. Source is cloned inside a temporary worker volume directory and
-  erased afterwards. No host application source mounts, release folders, worktrees
-  or checkout switches are introduced.
-- The prior image environment is journaled before mutation. A failed cutover
-  restores it and checks service availability. Failed recovery stops deployment.
-- Old image references are removed only after successful health checks, without
-  force. Job images not referenced by containers and unused build cache are cleaned.
-  Volumes are never pruned. Rollback images survive until the health gate passes.
-- The UI exposes sanitized stage events. Bounded raw failure diagnostics remain
-  private to the worker for seven days. They may contain sensitive application
-  output and are deliberately not an unaudited browser log endpoint.
-- Per-container CPU/memory and resources carry observation timestamps. Failed
-  polling or failed collection marks retained evidence stale without clearing
-  active forms or changing the chosen branch.
-
-A healthy process or HTTP response proves availability, not a complete business
-workflow. External uptime monitoring and outbound alerts are not configured.
-Docker isolation does not prove integrity of the previously compromised host.
-
-## Verification
-
-### Optional authenticated MCP endpoint
-
-`compose.mcp.yml` extends the receiver/worker deployment with the official SDK
-sidecar. Set `DEPLOY_INTEGRATION_KEY_FILE` to the existing private encryption-key
-file used by the receiver; preserve this key when encrypted integrations exist.
-Both receiver and MCP must be able to read the same key as UID 65534. The overlay
-refuses to create missing host bind files. It is packaging, not proof of an
-activated production endpoint.
-
-Compose validation (does not start services):
-
-```sh
-docker compose -f compose.yml -f compose.mcp.yml config --quiet
+```
+python -m backend.cli import-v1 --projects-json <v1>/projects.json [--v1-db <v1 sqlite>] \
+    [--compose-root <copy of /opt/docker-engine/projects>] [--dry-run]
 ```
 
-The sidecar uses the shared registry database and current console owner file,
-has no Docker socket, and publishes only `127.0.0.1:19192`. It waits for the
-worker healthcheck at startup. Its own unauthenticated probe requires the
-listener to reject requests with 401; that proves listener/auth-boundary
-availability, not database or provisioning health.
+Reads v1 read-only and creates v2 projects, environments (branch, auto deploy, compose project,
+compose files, services) and one canonical Jenkinsfile per recipe (`dockerBuild` per image, a
+`Test` stage per v1 test with its environment as stage `environment`, `deploy services: [...]`,
+`healthCheck`), each validated by the Jenkinsfile engine. `--dry-run` prints the whole plan and
+never opens the database. Re-running is safe: missing things are created, blank compose settings
+are filled, anything that exists and differs is only reported. Secrets are never imported; the
+report lists what the operator must provide (the compose env file is only referenced, never read).
+v1 has one branch per project: it is assigned to development or production (from the v1
+registry binding when `--v1-db` is given, else from the branch name) and every guess is a warning.
+The service -> image mapping is exact when `--compose-root` makes the compose files readable and
+a flagged name-based guess otherwise. The field mapping is the table `ENVIRONMENT_FIELDS` in
+`backend/importer/plan.py` (v1 `env_file` -> `compose_env_files`). Projects default to
+`git_transport = ssh` like v1 (each repository needs its own deploy key, see "GitHub integration" Setup); `--https` overrides. The dry run starts with a "needs operator
+decision" summary (ambiguous guesses, misspelled-looking branches, missing environment data,
+dropped tmpfs).
 
-Include `deployment/apache-mcp.conf` inside the existing monitoring TLS vhost
-before the catch-all `ProxyPass /`, then validate Apache and verify actual TLS
-requests before declaring deployment complete. The route preserves the exact
-public Host and removes forwarding headers rejected by MCP. Keep the existing
-certificate and dashboard routing. See Apache's [ProxyPass ordering and
-ProxyAddHeaders documentation](https://httpd.apache.org/docs/2.4/mod/mod_proxy.html).
+## Production installation next to v1
 
-Create scoped, expiring bearer credentials in Integrations → MCP access.
-The one-time token is not recoverable; revocation is immediate. OAuth is not
-implemented. Run one sidecar process because rate limiting is process-local.
-`operation_status` supports `after_event` and `limit` for sanitized progress;
-recovery currently directs an authorized operator to the console.
+`docs/deployment.md` is the step-by-step plan (users, directories, Docker socket, Apache vhost,
+secrets, first admin, per-project cutover, rollback); `deployment/compose.production.yml`,
+`deployment/env.production.example` and `deployment/apache-deploy.example.com.conf` are its
+files, and `make preflight` (`scripts/preflight.py`, read-only, flags via `PREFLIGHT_ARGS`)
+checks a host against every prerequisite and prints a report.
 
-MCP tests require `requirements-mcp.txt` in the test Python environment.
-`tests/live_mcp_creation.py` exercises SDK → real local Docker worker → console
-HTTP on temporary synthetic data and cleans only its fixture resources.
-`tests/live_mcp_proxy.py` checks the Apache route against the running local MCP
-preview without tokens. Neither test is production acceptance.
+## Backup and restore
 
-```sh
-python3 -m unittest discover -s tests -v
-npm --prefix frontend ci
-npm --prefix frontend test
-npm --prefix frontend run build
+```
+python -m backend.cli backup create --to /backups [--include-logs] [--keep 7]
+python -m backend.cli backup restore --from /backups/jendock-backup-<UTC>.tar.gz
+python -m backend.cli backup prune --dir /backups --keep 7
 ```
 
-Tests cover HMAC and repository/ref boundaries, real HTTP login/cookie/CSRF/Origin
-behavior, idle expiry, persistence, settings routing, immutable job metadata,
-retry/cancel/audit, concurrent deduplication, image environment updates and
-restart recovery. `tests/live_recovery.py` is a separately controlled Docker
-fixture, never an automatic production-application failure test.
+- `create` writes `jendock-backup-<UTC timestamp>.tar.gz` (0600, built under a temporary name
+  and renamed when complete). It holds a snapshot of the SQLite database taken with SQLite's
+  **online backup API** (consistent while the API and worker keep writing), the managed compose
+  overrides (`<data_dir>/deployments/*/override.yml[.prev]`; journals are transient and
+  skipped), with `--include-logs` the per-run logs, and `manifest.json` (format version, UTC
+  time, **Alembic revision**, SHA-256 and size of every file).
+- The **secret key is never in the archive.** `--include-key` additionally writes it to a
+  separate `<archive>.secret.key` (0600) and prints a loud warning: whoever has the key and an
+  archive can decrypt every stored secret, so keep the two apart. Without the key a restored
+  database cannot decrypt its secrets.
+- `restore` verifies every member against the manifest (and rejects unexpected, duplicate,
+  absolute or `..` paths) and requires the Alembic revision to be one this code knows (a backup
+  from a newer version is refused). It writes only into an **empty** data directory and refuses
+  when the data directory or the database file already has content; on any failure it removes
+  what it wrote. `--key-file` puts a saved key in place (never overwriting one). Afterwards run
+  `make migrate` (`python -m backend.repositories.migrate`) to bring an older backup to head.
+- Scheduled backups run in the worker and are **off by default**:
+  `JENDOCK_BACKUP_ENABLED=true`, `JENDOCK_BACKUP_DIR` (a mounted directory the worker
+  can write), `JENDOCK_BACKUP_KEEP` (default 7, newest kept), `JENDOCK_BACKUP_HOUR_UTC`
+  (default 3), `JENDOCK_BACKUP_INCLUDE_LOGS`. They never include the key. Only files named
+  like our archives are pruned. Only SQLite databases are supported.
 
-Build committed source with `build_service.py`; install committed policy and
-images with `deploy_service.py` only while the worker is idle. New public routing
-is managed narrowly by `configure_domain.py` with a trusted Apache syntax check
-and graceful reload. The GitHub hook helper reuses existing matching hooks.
+## Reproducible builds
 
-GitHub SSH uses ssh.github.com:443 with HostKeyAlias=github.com, strict host-key checking and the existing pinned known_hosts. The VPS connection to GitHub port 22 timed out during production acceptance; port 443 passed authenticated repository access.
+`requirements.lock` pins runtime dependencies and is used as pip constraints in both
+Dockerfiles. `make lock` regenerates it inside `python:3.13.9-slim`.
+`make test-py313` runs the test suite in that image.
 
-## Design preview boundary
-The current redesign uses an English project catalog and shared service workspace.
-A local preview can use explicitly labeled captured service metadata and proposed
-deployment settings; it is not evidence that those settings are active on production.
-Preview operations are disconnected. Environment values are not copied.
-The design review covers rendered desktop/mobile workflows; production terminal
-and deployment acceptance require separate live checks after rollout.
+## Authentication and security
 
-## Host monitoring
-The worker reads the verified host CPU, memory, uptime, load and eth0 counters
-through five read-only proc file mounts. Disk usage is the filesystem containing
-`/opt/docker-engine/projects`. Host collection is independent of Docker observation.
-Current samples refresh every five seconds; SQLite retains one sample per fifteen
-seconds for twenty-four hours. Charts offer 15m, 1h and 24h windows with bounded
-sampling; missing history and counter warm-up are never presented as zero.
-Disconnected or expired readings are marked historical and live KPIs are masked.
-The dashboard shows current resource threshold warnings, not external alert delivery.
+### Components and trust boundaries
 
-## React interface
+- The **API** is internet-facing. It has no Docker socket and **no secret encryption key**
+  (building the app never reads a key file). All secret encryption/decryption happens in the
+  **worker**, reached over a Unix socket (`JENDOCK_WORKER_SOCKET_PATH`).
+- The worker owns `SecretCipher`. The key file (`JENDOCK_SECRET_KEY_FILE`, mode 0600) lives in
+  the `keys` volume, mounted **only** in the worker (`/run/jendock-keys/secret.key`). The API
+  container mounts only `data` and `worker-socket`. Upgrading from Task 2: copy `secret.key`
+  from the data volume into the `keys` volume, then delete it from the data volume.
+- Worker RPC (`backend/worker/rpc.py`, client `backend/adapters/worker_client.py`):
+  JSON lines, method allowlist (`ping`, `secrets.set|list|delete|reveal`, `github.verify_webhook`,
+  `github.branch_head`), 2 MiB request limit (a 1 MiB webhook body travels base64-encoded),
+  per-request id, 5 s client timeout, structured errors mapped back to domain errors. Each secret
+  call carries the acting principal (user or token) which the worker writes to the audit log; the
+  worker takes that identity at face value (see below). The socket is created with mode 0660
+  inside the `worker-socket` volume, a setgid 2770 directory owned by group gid 10001 in both
+  images; only members of that group can connect.
+- Users: the API runs as uid 10002, the worker as uid 10001, both in group gid 10001. The data
+  volume (SQLite DB, WAL/SHM) and the socket directory are setgid 2770 and every entrypoint sets
+  umask 0007, so both processes can write while others cannot. The `keys` volume is 0700 owned
+  by uid 10001: the API user cannot read it even if it were mounted.
+- **Trust model of the actor identity.** The worker records the `actor` sent by the API in the
+  audit log without being able to verify it. The socket is the trust boundary: only processes in
+  the shared group can reach it, and the API is the only such process. This is acceptable
+  because a compromised API could already do everything its principals can do (it holds the
+  database and decides whom to serve), and the worker exposes only a fixed allowlist of secret
+  operations, never Docker or key access. If the API is compromised, audit actor attribution
+  for that period is unreliable, which is a known limit rather than an isolation failure.
 
-The active frontend source is `frontend/src`, using React, Material UI and xterm.
-The receiver image serves Vite's `dist` at its existing authenticated API origin.
-`web/` is retained as legacy source and is not copied into the production image.
-No Node process runs in the receiver. The local product runtime must mount
-`frontend/dist` at `/app/web` after building; use the product's `deploy-monitor`
-Compose project. Never mistake captured local observations for production health.
+### Browser auth (sessions)
 
-The project workspace owns its services, deployment history and persisted branch
-settings. SSE observations do not reset drafts or focus. Ambiguous build responses
-retain the submitted request identity for explicit retry; do not change its branch
-or commit while its outcome is unknown. Historical deployment SHAs are labeled
-separately from currently observed container images. Host graphs expose timestamped
-samples with pointer and keyboard inspection, including missing/stale states.
+- Admin users use argon2id hashes (`argon2-cffi`), rehashed on login when parameters are weaker
+  than the current policy. Minimum password length 12.
+- Login creates a server-side session: a 32-byte random token in the cookie, only its SHA-256
+  is stored. Idle expiry 1 hour, absolute 12 hours (`SESSION_IDLE_TIMEOUT`,
+  `SESSION_ABSOLUTE_TIMEOUT` in `config.py`). Expired sessions are rejected and deleted lazily.
+  Background endpoints (the run event stream) use `require_scope(..., background=True)` /
+  `get_background_principal`, which authenticate without extending the idle timer.
+- Cookie: `__Host-session`, Secure, HttpOnly, SameSite=Strict, Path=/, no Domain. Only a
+  development setup with an `http://` `JENDOCK_PUBLIC_ORIGIN` uses the plain name
+  `jendock_session` without Secure.
+- CSRF: every POST/PUT/PATCH/DELETE authenticated by cookie (and the login request) needs
+  `Origin` exactly equal to `JENDOCK_PUBLIC_ORIGIN` and header `X-CSRF-Token` equal to the
+  session's CSRF token (`GET /api/auth/session` or the login response returns it). The token is
+  an HMAC of the cookie value, so nothing CSRF-related is stored; it is compared with
+  `hmac.compare_digest`.
+- Login rate limit: 5 failed attempts per username and 20 per client IP per 15 minutes, then
+  HTTP 429 with `Retry-After`. State is in process memory (single API process); a restart
+  resets it and multiple replicas would not share it. The client IP is the peer address; behind
+  Apache/Cloudflare set `JENDOCK_TRUSTED_PROXIES` (IPs/CIDRs, default empty = trust nobody;
+  compose var `TRUSTED_PROXIES`, e.g. the docker bridge gateway). `python -m backend.api`
+  (the image CMD) then starts uvicorn with proxy headers trusted only from those addresses.
+  Without it every client appears as the proxy and the per-IP limit becomes a global lockout.
+  Unknown users and wrong passwords return the same 401 and both run one argon2 verification.
+- Security headers on every response: CSP (`default-src 'self'; frame-ancestors 'none';
+  base-uri 'none'`), nosniff, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`,
+  `Cache-Control: no-store`, and HSTS in production. Swagger UI is disabled (its CDN assets
+  conflict with the CSP); `/openapi.json` exists in development only.
 
-The sign-in page uses external labels without asterisks. Required input semantics,
-inline validation, first-invalid-field focus and server authentication remain active.
+### Creating the first admin
+
+Passwords are read from a hidden prompt or, with `--password-stdin`, from stdin. There is
+deliberately no argv or environment option.
+
+```
+make migrate
+.venv/bin/python -m backend.cli users create admin            # prompts twice
+printf '%s\n' "$PW" | python -m backend.cli users reset-password admin --password-stdin
+# inside the deployment:
+docker compose run --rm -T api python -m backend.cli users create admin --password-stdin
+```
+
+`reset-password` also ends all sessions of that user. Both commands are audited
+(`user.create`, `user.reset_password`, actor `system:cli`).
+
+### API tokens (agents / MCP)
+
+- `Authorization: Bearer jdt_...`; no cookie, no CSRF. A request with an `Authorization` header
+  never falls back to a session cookie.
+- Created only by a logged-in browser session (`POST /api/tokens`, also `GET /api/tokens`,
+  `DELETE /api/tokens/{id}`); a token can never manage tokens. The value is returned exactly
+  once; only its SHA-256 and an 8-character display prefix are stored.
+- Scopes: `read`, `run`, `deploy`, `containers`, `terminal`, `pipelines`, `admin` (`admin`
+  implies every other scope except token management, which is session-only). Secrets: list needs
+  `read`; set, delete and reveal need `admin`. Sessions hold all scopes.
+- Revoked or expired tokens are rejected; `last_used_at` is updated at most once per minute;
+  token actions are audited with actor type `token`. Runs can record `triggered_by_token_id`.
+
+### Secret endpoints
+
+`GET|PUT|DELETE /api/projects/{slug}/environments/{env}/secrets[/{name}]` and
+`POST .../{name}/reveal` all call the worker. Values are never returned except by `reveal`,
+which is audited (name only, never the value).
+
+## Execution (Task 5)
+
+### Model
+
+A run is created `queued` by a webhook push, a manual run or a retry (see "GitHub integration").
+The worker polls the queue (`JENDOCK_QUEUE_POLL_INTERVAL`), claims the **oldest** queued run
+with an atomic conditional update (`queued -> running`) while fewer than
+`JENDOCK_MAX_CONCURRENT_RUNS` (default 1, a global limit of this worker) are executing, and
+runs it on its own thread. `RunExecutor` loads the run, parses and validates its pipeline
+snapshot again (a secret may have been deleted since), creates the workspace, executes, then
+always cleans up (kills leftover containers by label, deletes the workspace) and only then
+records the final status (`succeeded`, `failed`, `cancelled` or `interrupted`) and a short
+`message`.
+
+`PipelineRunner` creates every stage row up front (so the whole shape is visible at once):
+`Checkout` (clone at the pinned commit), the pipeline's stages (nested stages are shown as
+`Parent / Child`) and `Post Actions` when the pipeline has a `post`. Statuses are `queued`,
+`running`, `succeeded`, `failed`, `cancelled`, `interrupted`, `skipped`. Every executed step
+(including block steps such as `retry` and `timeout`) gets a step row, a log file and, for scripts,
+the exit code.
+
+- Stages run in order; a failing step fails its stage and the run; later stages are `skipped`;
+  `post` still runs. `parallel` branches run concurrently on a pool of
+  `JENDOCK_PARALLEL_WORKERS` threads (default 2); a failing branch does not stop its siblings
+  but the following stages are skipped. Nested sequential `stages` skip the rest of their
+  group after a failure.
+- `when` is evaluated against the run context: `branch` uses Ant-style globs (`*` stays inside
+  a path segment, `**` crosses `/`), `environment name:, value:` compares a variable of the
+  stage's parent scope (built-ins such as `ENVIRONMENT` included), plus `not`, `allOf`, `anyOf`.
+  A stage's own `environment` is not visible to its own `when`.
+- `post` follows Jenkins: blocks run in the order always, changed, aborted, failure, success,
+  unstable, cleanup (cleanup last) whatever order they are written in. `changed` compares the
+  outcome with the previous finished run of the same environment (for stages: the same-named
+  stage); with no previous run it does not fire. `aborted` means cancelled. `unstable` never
+  fires because no step can make a run unstable. A failing post step fails the run but the
+  remaining blocks (and `cleanup`) still run. Post steps are not interrupted by a cancel.
+- `options`: `timeout` bounds the pipeline or stage (it fails; Jenkins would call it aborted),
+  `retry(n)` re-runs the stage (or the whole pipeline, whose stage rows are reset). The
+  `retry`/`timeout` steps do the same for a block; a cancel is never retried. A container step
+  without an enclosing timeout is still bounded by `JENDOCK_STEP_TIMEOUT_SECONDS` (3600).
+  `skipDefaultCheckout` and `disableConcurrentBuilds` are accepted and have no effect (the workspace
+  always holds the commit; only the global concurrency limit applies).
+- Steps are classes registered by name (`backend/execution/step_registry.py`, one per catalogue
+  step). Strings are rendered from the AST parts and the resolved environment, never evaluated.
+  `credentials('X')` is resolved by the worker through `SecretService.resolve_for_run` (audited as
+  `secret.resolve`) and registered with the run's redactor.
+- `deploy` calls a `Deployer` (`ComposeDeployer`, see Deployment below); optional
+  `healthUrl`/`healthStatus`/`healthTimeout` arguments add an HTTP check that must pass before
+  the deployment counts as good. `healthCheck` does an HTTP GET (redirects are not followed)
+  every 2 s until the expected status or its timeout.
+
+### Deployment (Task 7)
+
+`ComposeDeployer` (`backend/adapters/compose_deployer.py`) deploys the requested services of
+an environment and nothing else:
+
+0. Every compose invocation (config, ps, up, rm; deploy, rollback and recovery) starts with
+   `docker compose --env-file <f>... -p <project> -f <file>... [-f <override>]`, built only by
+   `ComposeProject.base_command` (Task 8 reuses it). `compose_env_files` of the environment
+   supply the variable interpolation of the compose files; every compose and env file must be
+   readable by the worker, otherwise the deployment is refused with a clear error.
+1. It checks that every service exists in `docker compose config` of the environment's own files
+   and that the new image exists locally (it never pulls or builds).
+2. It records, per service, the running image tag and id in a `deployments` row, and writes a
+   journal `<data_dir>/deployments/<compose project>/journal.json` (fsynced) with everything
+   needed to undo the change.
+3. It writes the managed override `<data_dir>/deployments/<compose project>/override.yml`
+   (atomic; the replaced version stays as `override.yml.prev`) that pins `image:` of each
+   deployed service, and runs `docker compose -p <project> -f <files...> -f <override> up -d
+   --no-deps --no-build --pull never <services>`. The override is always the last compose file, so
+   later restarts or recreations of the service keep the deployed image (Task 8 must append
+   `OverrideStore.path()` too).
+4. It waits (`JENDOCK_DEPLOY_HEALTH_TIMEOUT`, default 120 s) until every container is
+   `running` and, when it has a healthcheck, `healthy`, and stays so for
+   `JENDOCK_DEPLOY_SETTLE_SECONDS` (default 3) without its restart count increasing; then the
+   optional HTTP check runs.
+5. On any failure it restores the previous override, recreates the services from their previous
+   image (pinned by id when the tag moved; a service that did not exist before is removed) and
+   verifies them again: the deployment becomes `rolled_back`, or `rollback_failed` (the run fails
+   with a message starting `ROLLBACK FAILED`). Either way the step fails.
+6. After success it removes old images (`JENDOCK_IMAGE_RETENTION`, default 5): per logical
+   image (repository) of this project and environment (labels `jendock.project` and
+   `jendock.environment` are required, so foreign images are never touched) only the newest N
+   remain, plus any image used by a container and the images of the latest deployment
+   (previous and new).
+
+At worker start `recover_interrupted_deployments` (before runs are marked `interrupted`) rolls
+back every deployment whose journal is still on disk and marks deployments left `deploying`
+without a journal as `failed`. Recovery always rolls back rather than finishing, because the run
+that owned the deployment ends `interrupted`. One deployment per environment runs at a time.
+
+`GET .../deployments` lists the history and `POST .../deployments/{id}/redeploy` queues a run
+(trigger `redeploy`) that deploys the images of a successful deployment again without checkout
+or build; see `docs/api-contract.md`.
+
+### Docker agents
+
+Every `sh` runs in a container started with `--rm`, labels `jendock.run_id` and
+`jendock.step_id`, `--security-opt no-new-privileges`, `--cpu-shares 512` (so production services
+win under contention) and `--entrypoint sh -c <script>`.
+
+- **Logical image** (built by `dockerBuild`, tagged `jendock/<project>-<env>-<image>:<sha12>-r<run
+  number>` with labels `jendock.project|environment|build_run|commit`): runs with the image's own
+  `WORKDIR`, user and no workspace mount. `dir()` becomes a `cd` at the start of the script.
+- **External image** (`node:22`): pulled when not present locally (once per run), the workspace is
+  mounted at `/workspace`, which is the working directory (`dir()` is relative to it), and the
+  container runs as the worker's uid:gid with `HOME=/tmp` unless set, so the files it creates can
+  be deleted afterwards.
+- **Network**: the environment's `<compose_project>_default` network when the environment has a
+  compose project and that network exists (otherwise a log line and the default bridge), the default
+  bridge without a compose project, `--network none` when the agent args say so.
+- **Limits**: `-e NAME=value`, `--memory` and `--cpus` from the allowlisted args. The defaults
+  and the maxima are `JENDOCK_CONTAINER_MEMORY` (2g) and `JENDOCK_CONTAINER_CPUS` (2); a
+  pipeline may lower them but a larger value fails the step ("exceeds the configured maximum").
+  Builds use `--memory JENDOCK_BUILD_MEMORY` (2g).
+
+### Secrets and the Docker client
+
+- The container environment (secrets included) is written to a temporary `--env-file` created
+  0600 in `<data_dir>/worker-private` (0700) and deleted as soon as the daemon has created the
+  container (or at the first output line / exit, whichever is first). It is never in argv. A value
+  with a line break cannot be represented and is refused.
+- In a `sh` script, a variable bound to a credential is written as `${NAME}` instead of its value
+  (so even `sh "curl ${TOKEN}"` keeps the secret out of the command line; the shell expands it
+  from the environment). Inside single quotes in the script this is not expanded, which differs
+  from Groovy interpolation.
+- `dockerBuild` `args` values are passed with `--build-arg NAME` and the value in the docker client's
+  environment (not argv); names that change the client's behaviour (`PATH`, `HOME`, `LD_*`, `DOCKER_*`,
+  `BUILDKIT_*`, proxies ...) are refused.
+- The docker client is `JENDOCK_DOCKER_BINARY` (default `docker`; set a non-default path in
+  production) with `DOCKER_HOST` from `JENDOCK_DOCKER_HOST`. It always gets an explicit argv list.
+
+### Workspaces and source
+
+`<data_dir>/workspaces/<run_id>` is created 0750 and removed after the run, also on failure,
+cancel and shutdown. `LocalGitSource` runs `git clone --no-checkout`, refuses a commit that
+tracks `.env`, `id_rsa`, `id_ed25519`, `id_ecdsa` or `id_dsa` (before writing the tree), then
+`git checkout --detach <sha>` and verifies `HEAD == sha`. The clone URL is
+`JENDOCK_GIT_URL_TEMPLATE` (default `https://github.com/{repository}.git`, public repositories
+only) for projects on the `https` transport; `ssh` projects use the deploy key (see "GitHub
+integration"). A workspace
+larger than `JENDOCK_WORKSPACE_MAX_BYTES` (2 GiB) fails the run; it is measured after checkout and
+after each `sh` step (a single step can still exceed it until it ends). When the worker itself runs
+in a container, `JENDOCK_WORKSPACE_HOST_DIR` must name the host directory mounted at
+`<data_dir>/workspaces` because the host daemon resolves bind mounts (compose does this with
+`WORKSPACES_HOST_DIR`, default `/var/lib/jendock-workspaces`, which must exist and be owned by
+uid 10001). The worker image contains git and a pinned docker CLI.
+
+### Logs
+
+Output of each step goes to `<data_dir>/logs/<run_id>/<step_id>.log` (files 0640, directories 0750)
+after secrets were masked **line by line** (a multi-line secret is also masked per line); a step
+log stops at `JENDOCK_STEP_LOG_MAX_BYTES` (5 MiB) with one truncation marker. Known limits:
+a secret split over two lines, or transformed (base64, URL-encoded), is not recognised; a line
+longer than 64 KiB is delivered in pieces.
+
+API (scope `read`; sessions hold every scope):
+
+- `GET /api/runs/{id}` - run, stages and steps (statuses, exit codes, timestamps, `message`,
+  `cancel_requested_at`).
+- `GET /api/runs/{id}/steps/{step_id}/log?offset=N` - at most 64 KiB starting at byte `N`, cut at
+  a line boundary: `{offset, next_offset, size, text, complete}`; continue with
+  `offset=next_offset` (`complete` is true when the step ended and nothing is left).
+- `GET /api/runs/{id}/events` - Server-Sent Events: `status` (full run JSON, sent when it changes),
+  `log` (`{step_id, offset, text}` for new lines; the history is replayed first), `: heartbeat`
+  comments every `JENDOCK_SSE_HEARTBEAT_INTERVAL` (15 s) and `end` when the run finished. It uses
+  the background principal, so it never extends the session's idle timer; the session is
+  re-checked (also without touching it) at each heartbeat and the stream closes when it expired.
+  A stream lasts at most one hour (clients reconnect).
+
+### Cancel, shutdown and crash recovery
+
+`POST /api/runs/{id}/cancel` (scope `run`, CSRF and exact Origin for sessions, audited as
+`run.cancel`): a queued run becomes `cancelled` immediately; a running run gets
+`cancel_requested_at`. The worker watches that column every `JENDOCK_CANCEL_POLL_INTERVAL`
+(1 s): it stops between steps, kills containers labelled `jendock.run_id=<id>` on every poll
+(and terminates a running build), the run ends `cancelled`, `post` `aborted`/`always`/`cleanup` still
+run. A finished run answers 409. On SIGTERM the worker interrupts its runs (`interrupted`, post
+skipped) and waits up to 30 s.
+
+At start the worker runs crash recovery: runs left `running` have their containers killed by
+label and every workspace directory removed, then are marked `interrupted` with a message
+(running stages/steps `interrupted`, queued stages `skipped`). It is idempotent.
+
+### Settings
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `JENDOCK_DOCKER_BINARY` | `docker` | docker CLI path |
+| `JENDOCK_DOCKER_HOST` | `unix:///var/run/docker.sock` | daemon address |
+| `JENDOCK_MAX_CONCURRENT_RUNS` | `1` | runs executing at once |
+| `JENDOCK_PARALLEL_WORKERS` | `2` | threads per `parallel` group |
+| `JENDOCK_CONTAINER_MEMORY` / `_CPUS` | `2g` / `2` | step container default and maximum |
+| `JENDOCK_BUILD_MEMORY` | `2g` | `docker build --memory` |
+| `JENDOCK_STEP_TIMEOUT_SECONDS` | `3600` | default limit of a container step |
+| `JENDOCK_WORKSPACE_MAX_BYTES` | 2 GiB | workspace bound |
+| `JENDOCK_STEP_LOG_MAX_BYTES` | 5 MiB | log bound per step |
+| `JENDOCK_WORKSPACE_HOST_DIR` | unset | host path of the workspaces (worker in a container) |
+| `JENDOCK_GIT_URL_TEMPLATE` / `_GIT_BINARY` | GitHub https / `git` | source clone |
+| `JENDOCK_GIT_SSH_KEY_DIR` | `/run/jendock-keys/deploy_keys` | per-repository deploy keys `<owner>__<name>` (ssh transport); worker-only keys volume |
+| `JENDOCK_GIT_SSH_KEY_FILE` | unset | optional single deploy key, used for repositories without their own key |
+| `JENDOCK_GIT_SSH_KNOWN_HOSTS_FILE` | `/etc/jendock/github_known_hosts` | pinned GitHub host key |
+| `JENDOCK_GITHUB_WEBHOOK_SECRET_FILE` | unset | webhook secret; worker-only keys volume |
+| `JENDOCK_GITHUB_STATUS_ENABLED` / `_GITHUB_STATUS_TOKEN_SECRET` | `false` / `GITHUB_STATUS_TOKEN` | commit statuses |
+| `JENDOCK_QUEUE_POLL_INTERVAL`, `_CANCEL_POLL_INTERVAL` | 1 s | worker polling |
+| `JENDOCK_SSE_POLL_INTERVAL`, `_SSE_HEARTBEAT_INTERVAL` | 0.5 s / 15 s | event stream |
+| `JENDOCK_FRONTEND_DIST` | unset | built web UI served by the API (the API image sets it) |
+
+## Notifications (Jira 16.5)
+
+Jendock tells you when something needs attention: **run failed**, **run succeeded after a failure**
+(`run.fixed`), **deployment succeeded**, **deployment rolled back / rollback failed** (critical),
+**run interrupted**, **certificate expires within 14 days / renewal failed**, **webhook signature
+failure spike** and **disk usage above a threshold**.
+
+- **Channels** (Settings, Notifications, admin): a Slack incoming webhook, a generic webhook (JSON,
+  Microsoft Teams and Discord compatible through the `text`/`content` fields, with an optional HMAC
+  signature header `X-Jendock-Signature: sha256=...`) and email over SMTP (host, port, `STARTTLS`,
+  `TLS` or none, username and password). Every channel has **Send test**.
+- **Rules**: a *default* rule in Settings, Notifications; each project (Project settings,
+  Notifications) can follow it or choose its own channels and events, and so can each environment.
+  The most specific scope with rules decides; an empty customized rule mutes a channel there.
+  `webhook.signature_spike` and `disk.usage_high` only exist in the default rule.
+- **Delivery history** with status, attempts and errors, in Settings and per project.
+- **Quiet duplicates**: the same event for the same resource within `JENDOCK_NOTIFY_DEDUPE_MINUTES`
+  (30) collapses into one message per channel.
+
+### How it works
+
+Emission points write rows into a small **outbox** table (`notification_deliveries`) in the same
+database: the run executor (finished runs, and interrupted runs found at worker start), the
+deployment ledger (every final deployment status, including crash recovery), the certificate renewal
+loop, the webhook signature check and a disk monitor thread. A dispatcher thread in the **worker**
+sends them, so notifications never block a run. A failed attempt is retried with exponential backoff
+(30 s, 1 min, 2 min... capped at 1 h) up to `JENDOCK_NOTIFY_MAX_ATTEMPTS` (7) times; a row claimed by
+a worker that died is picked up again after 5 minutes. Finished rows are pruned after
+`JENDOCK_NOTIFY_HISTORY_DAYS` (30).
+
+Messages contain a link to the run or domain page (built from `JENDOCK_PUBLIC_ORIGIN`), the commit's
+short SHA, who or what triggered the run, the failing stage and step, and nothing else from the logs
+than the failing step's **last 20 lines**, already masked when the run wrote them and masked again
+here.
+
+### Secrets
+
+Webhook URLs, signing secrets and SMTP credentials are encrypted with the worker's key
+(`secret.key`) in the `notification_channels` table. They are **write-only**: the API forwards them
+to the worker (`notify.channel.*` RPC) and never returns, logs or audits them; the UI only shows
+that a channel is configured and the last 4 characters of a webhook URL. Delivery errors are short
+reasons (`the endpoint answered HTTP 404`, `SMTP authentication failed`), never a URL. Redirects of
+webhook endpoints are not followed.
+
+### Settings
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `JENDOCK_NOTIFY_ENABLED` | `true` | `false` stops queueing and sending (channels can still be configured) |
+| `JENDOCK_NOTIFY_DEDUPE_MINUTES` | `30` | quiet period of duplicates (certificate alerts use at least 24 h, disk and renewal failures 6 h) |
+| `JENDOCK_NOTIFY_MAX_ATTEMPTS` | `7` | delivery attempts before a message is marked failed |
+| `JENDOCK_NOTIFY_RETRY_BASE_SECONDS` | `30` | first retry delay, doubling up to 1 h |
+| `JENDOCK_NOTIFY_SEND_TIMEOUT_SECONDS` | `10` | timeout of one HTTP or SMTP delivery |
+| `JENDOCK_NOTIFY_HISTORY_DAYS` | `30` | how long finished deliveries are kept |
+| `JENDOCK_NOTIFY_DISK_THRESHOLD_PERCENT` / `_DISK_CHECK_SECONDS` | `90` / `300` | disk alert threshold and check interval |
+| `JENDOCK_NOTIFY_WEBHOOK_FAILURE_THRESHOLD` / `_WINDOW_MINUTES` | `20` / `10` | invalid signatures that make a spike |
+
+Endpoints and payloads: `docs/api-contract.md`, "Notifications". Per-user email subscriptions can
+build on the same model later: a user is just another channel kind (`email` to that user's
+address) and a rule is already "scope x channel x events".
+
+## GitHub integration (Task 6)
+
+### Trust split
+
+GitHub secrets never reach the API. The **worker** holds the webhook secret
+(`JENDOCK_GITHUB_WEBHOOK_SECRET_FILE`) and the deploy keys (`JENDOCK_GIT_SSH_KEY_DIR`), both
+in the `keys` volume, and runs every `git` command (`ls-remote`, fetch, clone). The API
+forwards the raw webhook body and the `X-Hub-Signature-256` header over the worker socket
+(`github.verify_webhook`) and gets back a boolean; it also asks `github.branch_head` for branch
+heads. Chosen over giving the API its own HMAC key because the API is the process that parses
+internet input: with this split a compromised API cannot read the secret or the key, and the
+worker's constant-time comparison (`hmac.compare_digest`) is the only place the secret is used.
+Trade-off: while the worker is down the webhook answers 503 (GitHub shows a failed delivery; the
+runs could not execute then anyway) and a body goes over the socket base64-encoded, which is why
+the RPC limit is 2 MiB.
+
+### Webhook `POST /api/github/webhook`
+
+No session, token or CSRF: the HMAC signature is the authentication.
+
+- Order of checks: signature header format (401), `Content-Type: application/json` (415), body
+  at most 1 MiB, also when chunked (413), signature verified by the worker (401), delivery id
+  `X-GitHub-Delivery` (422), JSON object (422). Requests that fail signature verification
+  (missing, malformed or wrong) are counted per client IP; 30 per minute answers 429 with
+  `Retry-After` before the worker is called (the same in-memory limiter as logins, so a restart
+  resets it). Valid deliveries are never counted. Nothing is stored or audited for a rejected
+  request (a warning is logged).
+- Events: `ping` answers 200 `{"outcome": "pong"}`. `push` is routed; any other signed event is
+  acknowledged with 202 `ignored`.
+- Allowlist: the repository (`repository.full_name`, case-insensitive) must belong to a
+  non-archived project. A project's environments follow the branch they track (`branch` of the
+  environment). A push to that branch with `auto_deploy` on queues a run (trigger `push`, branch,
+  the pushed `after` sha pinned); with `auto_deploy` off the delivery is recorded (`recorded`, no
+  run). Branch deletes (`deleted` or an all-zero `after`), tags, other branches and unknown
+  repositories are `ignored` (202 with a `reason`). Several projects on one repository all run.
+- Idempotency: every handled delivery id is stored in `webhook_deliveries` in the same transaction
+  as its runs, so a replay (GitHub redelivery, a retry) answers 200 `duplicate` and changes
+  nothing. A delivery that failed with a 5xx stored nothing and may be retried. Rows older than 30
+  days are removed on the next delivery.
+- Audit: `github.webhook` (delivery id, event, repository, branch, outcome, run ids) by the
+  `system:github` actor and `run.create` for each run. A malformed push payload is 422 and is not
+  remembered. Repositories are matched by name, not by GitHub's numeric id (v1 also checked the id):
+  a renamed or transferred repository stops matching until the project is updated.
+
+Responses: `{"outcome": "pong|queued|recorded|ignored|duplicate", "runs": [ids], "reason": ...}`.
+
+### Setup
+
+1. Webhook secret: `openssl rand -hex 32 > github_webhook_secret` into the `keys` volume (mode
+   0600, owner uid 10001, e.g. `docker compose run --rm -T worker sh -c 'cat > /run/jendock-keys/github_webhook_secret'`),
+   the same value in the GitHub webhook (content type `application/json`, events: push; URL
+   `https://<host>/api/github/webhook`). Surrounding whitespace in the file is ignored; the file is
+   read at each delivery, so rotating it needs no restart.
+2. Deploy keys, one per repository (GitHub allows a deploy key on a single repository only):
+   `$DC exec worker python -m backend.cli deploy-key create <owner>/<name>` generates an ed25519
+   key at `/run/jendock-keys/deploy_keys/<owner>__<name>` (mode 0600, directory 0700) and prints
+   only the **public** key. Add that line as a **read-only** deploy key under the repository's
+   *Settings -> Deploy keys* (leave "Allow write access" off). The command refuses to replace an
+   existing key; `--rotate` generates a new one (replace it on GitHub too). `deploy-key show
+   <owner>/<name>` prints the public key again and `deploy-key list` names the repositories that
+   have a key; creating and rotating are audited (`deploy_key.create`, `deploy_key.rotate`, no
+   key material). A repository without its own key falls back to the optional shared
+   `JENDOCK_GIT_SSH_KEY_FILE`, which is only for installations that already have one. Projects
+   with `git_transport: "ssh"` (the default for new projects) then clone as
+   `ssh://git@github.com/<owner>/<repo>.git`. Public repositories can use `"https"` per project
+   (`PATCH /api/projects/{slug}`); existing projects were migrated to `https`.
+3. Commit statuses (optional, off by default): set `GITHUB_STATUS_ENABLED=true` and store a token
+   with the `repo:status` permission as the environment secret `GITHUB_STATUS_TOKEN`. The worker
+   posts `pending` when a run starts and `success`, `failure` or `error` (cancelled or interrupted)
+   when it ends, context `jendock/<environment>`, linking to `/runs/<id>`. A missing secret, a
+   GitHub error or a timeout is logged (type only, never the token) and never affects the run.
+   Reading the token is audited as `secret.resolve`.
+
+### SSH details
+
+`GitSshSource` runs `git` with an argv list (never a shell) and `GIT_SSH_COMMAND` set to
+`ssh -F /dev/null -i <key of the repository> -p 443 -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes
+-o PasswordAuthentication=no -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<pinned>
+-o GlobalKnownHostsFile=/dev/null -o HostKeyAlgorithms=ssh-ed25519 -o HostKeyAlias=github.com
+-o Hostname=ssh.github.com ...` (git itself passes the string to `sh -c`, so every token is
+shell-quoted by `shlex.join`; a test checks that paths with shell metacharacters round-trip). It
+connects to `ssh.github.com:443` (port 22 is blocked on the production VPS) and verifies the host
+key against `docker/github_known_hosts`, which the worker image installs at
+`/etc/jendock/github_known_hosts`. Only the ed25519 host key is pinned (fingerprint
+`SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`); to refresh it after a GitHub key
+rotation run `scripts/refresh_github_known_hosts.py`, compare the fingerprint with GitHub's
+documentation and commit the file. The worker image includes `openssh-client` (which provides `ssh-keygen` for the
+`deploy-key` commands).
+
+### Which pipeline a run executes (6.5)
+
+The run row is created with the environment's latest stored pipeline as a provisional snapshot.
+When the worker starts the run it reads `Jenkinsfile` at the repository root of the **pinned
+commit** (a depth-1 fetch of that commit, no clone): if present it is the pipeline (source
+`repository`), otherwise the latest stored platform pipeline (source `platform`; the snapshot taken
+at queue time is the fallback when nothing is stored), and with neither the run fails with a
+clear message. The pipeline editor's repository detection (`pipeline.repository_file`) uses the same code path
+(branch head via `git ls-remote`, then the file at that commit through the project's transport).
+A repository that cannot be read fails the run; it never silently falls back to
+the stored pipeline. The chosen source and the exact text are written back to the run, then the
+text is validated like any save. A missing pipeline or any diagnostic of an invalid one is written
+to the step log of a failed `Pipeline` stage (the run's other stages are not created); a valid run
+shows `pipeline source: repository|platform` in the Checkout log. A symlink, a directory or a file
+larger than 256 KiB named `Jenkinsfile` is an error.
+
+### Endpoints
+
+See `docs/api-contract.md` (Projects, Runs): project list, create and settings, environment
+runs, branch heads (`git ls-remote` in the worker), manual runs and retries.
+
+## MCP server for AI agents (Task 12)
+
+The API process serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at
+`POST /mcp` (official `mcp` SDK 2.3.0, streamable HTTP, stateless JSON responses). It is mounted in
+the API instead of being a separate service: one process and one database, and the tools call
+the **same services as the REST routers** (the response shapes are the REST schemas), so no logic
+is duplicated and nothing is reachable that the API itself could not do. `JENDOCK_MCP_ENABLED=false`
+removes the route.
+
+### Authentication and scopes
+
+- Only `Authorization: Bearer jdt_...` (the API tokens above) is accepted; cookies are never read,
+  so a browser session cannot reach `/mcp`. A missing or invalid token answers 401 with
+  `WWW-Authenticate: Bearer`.
+- A request with an `Origin` header must carry exactly `JENDOCK_PUBLIC_ORIGIN` (403 otherwise);
+  agents normally send none. The SDK also checks the `Host` header against the public origin's host
+  plus `JENDOCK_MCP_ALLOWED_HOSTS` (comma separated; set it when a reverse proxy changes the
+  Host header, e.g. `127.0.0.1:8000`).
+- `tools/list` shows only the tools whose scope the token holds, and `tools/call` re-checks the
+  scope (an unknown tool and a missing scope give the same `forbidden` answer). `admin` implies
+  every scope.
+
+### Tools
+
+| Scope | Tools |
+| --- | --- |
+| `read` | `list_projects`, `get_project`, `list_secret_names` (names only), `list_runs`, `get_run`, `read_step_log`, `preview_commit`, `get_pipeline`, `list_pipeline_versions`, `get_pipeline_version`, `validate_pipeline`, `dry_run_pipeline`, `get_pipeline_catalog`, `get_pipeline_templates` |
+| `pipelines` | `save_pipeline` (needs the `base_version` you read; validated first) |
+| `run` | `trigger_run`, `retry_run`, `cancel_run` |
+| `read` (domains) | `list_domains` (status, certificate state and expiry, latest check), `get_domain`, `list_certificates` |
+| `admin` (domains) | `check_domain`, `preview_domain_change` (DNS and vhost plan with its `plan_hash`; nothing changes), `apply_domain` / `remove_domain` (only with the previewed `plan_hash`), `issue_certificate`; scopes mirror the REST routes |
+| `read` (deployments) | `list_deployments` |
+| `read` (containers) | `list_containers`, `get_container`, `container_stats`, `host_telemetry`, `list_container_env_names` (names and flags only, never a value) |
+| `read` (databases) | `list_database_connections`, `get_database_connection` (never a password), `list_database_schemas`, `list_database_tables`, `get_database_table`, and `read_table_rows` (opaque `next_cursor`) / `run_readonly_query`, which need `read` on development but `admin` on production exactly as in REST. Connection create, change, delete and test are operator-only and not available over MCP |
+| `containers` | `tail_container_logs` (bounded tail, masked; reading logs needs this scope in REST too), `preview_container_action` then `confirm_container_action` (start/stop/restart with the worker's single-use confirmation), `update_container_limits`. Deliberately not available over MCP: terminal, live log follow, env reveal, env edit and the container file browser (agents must not read or change secrets or open a shell) |
+| `deploy` | `preview_redeploy` (images that would be deployed, images running now, whether a deployment is in progress), `redeploy` (same `deployment_id`; refused while a deployment of the environment is in progress). There is no rollback tool because the REST API has no rollback endpoint (failed deployments roll back automatically) |
+
+A manual run is two steps: `preview_commit` shows the branch head (sha, message, author, date) and
+`trigger_run` must be given exactly that `commit_sha`; it fails with `conflict` when the branch
+moved in between. There is no tool to reveal, set or delete a secret, and step logs are the
+already-masked ones. Failed calls return `isError` results `{"error": {"code", "message",
+"diagnostics"?}}` using the REST error codes.
+
+Adding an area is one module in `backend/mcp/tools/` that defines `TOOLS` (a tuple of `Tool`
+with scope, JSON Schema and a handler that uses `ToolContext.container`), registered in
+`tools/__init__.py`; containers, database and domain tools join there when those tasks merge.
+
+### Audit
+
+Every `tools/call` writes an audit event `mcp.tool_call` with the **token** as actor
+(`ActorType.TOKEN`, the token id), target `mcp_tool/<name>`, and details `{tool, outcome, arguments}`
+where outcome is `ok`, `denied`, `invalid` or `error`. Arguments are recorded clipped to 200
+characters; a Jenkinsfile is recorded only as its length. Mutations are additionally audited by the
+services themselves (`run.create`, `run.cancel`, pipeline saves) with the same token identity.
+
+### Using it
+
+1. In the UI (session only; a token can never manage tokens) create a token under API tokens,
+   with the smallest set of scopes the agent needs (for example `read` + `run`), and copy the
+   `jdt_...` value, which is shown once. Revoke it there when the agent is done.
+2. Point the client at `https://<host>/mcp` with the header `Authorization: Bearer <token>`:
+
+   ```
+   claude mcp add --transport http jendock https://<host>/mcp \
+     --header "Authorization: Bearer jdt_..."
+   ```
+
+   Other clients take the same two values in their server configuration, for example
+   `{"mcpServers": {"jendock": {"type": "http", "url": "https://<host>/mcp",
+   "headers": {"Authorization": "Bearer jdt_..."}}}}`.
+3. Check with `tools/list`: the tools shown are exactly those the token's scopes allow.
+
+## Pipelines (Jenkinsfile)
+
+Pipelines are a **subset of Jenkins Declarative Pipeline**. Everything the engine accepts is
+meant to be parseable by real Jenkins too (platform steps look like shared-library steps); what
+it does not support is rejected with a positioned error, never ignored. The engine is pure
+code (`backend.pipeline`): `parse(text) -> Pipeline`, `validate(pipeline, context) ->
+list[Diagnostic]`, `serialize(pipeline) -> str`, `PipelineSyntaxError`. Nothing evaluates Groovy
+or runs a process. `PipelineService.save` validates with `JenkinsfileValidator` (secret names
+come from the environment's secrets) and raises `ValidationError` whose `diagnostics` are
+returned by the API as `error.diagnostics` (`severity`, `message`, `line`, `column`).
+
+### Supported
+
+- Exactly one `pipeline { ... }`. Sections in any order, each at most once: `agent` (required),
+  `environment`, `options`, `parameters`, `stages` (at least one stage), `post`; none of them
+  may be empty. A newline is allowed before a section's `{`.
+- `agent any`, `agent none`, `agent { docker 'img' }`, `agent { docker { image 'img'; args '...' } }`
+  at pipeline and stage level. `image` is either an image built by an earlier `dockerBuild`
+  (logical name) or an external reference that pins a tag or digest (`node:22`,
+  `registry.example.com:5000/x:1`). `args` allowlist: `--network none`, `-e NAME=value`,
+  `--memory N`, `--cpus N`; anything else is an error naming the flag.
+- `environment { NAME = 'value'; NAME = "value ${OTHER}"; NAME = credentials('SECRET') }`,
+  names `[A-Z_][A-Z0-9_]*`; a variable can use earlier ones and outer scopes.
+- `options { timeout(time: N, unit: 'SECONDS'|'MINUTES'|'HOURS'); retry(N);
+  disableConcurrentBuilds(); skipDefaultCheckout() }` (pipeline and stage level; `retry`
+  1..10; the same option twice is an error).
+- `parameters { string(name:, defaultValue:, description:); booleanParam(...);
+  choice(name:, choices: [...], description:) }`.
+- `stage('Name') { agent / environment / options / when / one of steps | parallel | stages / post }`.
+  `parallel` contains only stages (a branch may hold sequential `stages`); sequential `stages`
+  nest to any depth (limit 32 levels of braces) but `parallel` cannot appear inside `parallel`. Stage names are unique per level.
+- `when { branch 'glob'; environment name: 'X', value: 'y'; not { ... }; allOf { ... };
+  anyOf { ... } }` (several top-level conditions mean all of them).
+- `post { always | changed | aborted | failure | success | unstable | cleanup { steps } }`
+  (pipeline and stage level).
+- Steps (command or parenthesis syntax, `;` or newline separated, trailing commas allowed):
+  - `sh 'cmd'` / `sh(script:, label:)` - needs a docker agent; `returnStatus` and
+    `returnStdout` are rejected because there is no Groovy to consume them.
+  - `echo 'msg'`, `error 'msg'`.
+  - `timeout(time: N, unit: 'MINUTES') { }` (also `timeout(N) { }`), `retry(N) { }`, `dir('relative/path') { }`,
+    `withEnv(['NAME=value']) { }` (names defined by `withEnv` are visible inside its block).
+  - `dockerBuild(image: 'logical-name', dockerfile: 'Dockerfile', context: '.',
+    target: 'stage', args: [KEY: 'value'])` - image `[a-z0-9][a-z0-9_.-]*`, paths relative
+    without `..`.
+  - `deploy(service: 'web', image: 'logical-name')` or `deploy(services: [web: 'image', ...])`
+    - the image must be built by a `dockerBuild` in an earlier step or stage (parallel branches
+    cannot depend on each other; later stages see everything the group built).
+  - `healthCheck(url: 'https://...', expectStatus: 200, timeout: 60)`.
+- Values: strings, integers (up to 9 digits), `true`/`false`, lists `[...]`, maps `[k: v]`
+  (`[:]` is the empty map).
+- Strings: `'...'` and `'''...'''` (no interpolation), `"..."` and `"""..."""` with `${NAME}`,
+  `$NAME`, `${env.NAME}`, `${params.NAME}`; escapes `\n \t \r \\ \' \" \$`. Known names: the
+  pipeline/stage `environment`, `withEnv` names and the built-ins `BRANCH_NAME`, `GIT_COMMIT`,
+  `BUILD_NUMBER`, `ENVIRONMENT`, `PROJECT`; `params.X` only for declared parameters. A secret
+  interpolated into a double-quoted string is a warning (use single quotes). Interpolations are
+  kept as variable parts in the AST and never evaluated.
+- Comments `//` and `/* */`. Limits: 256 KiB input, nesting depth 32.
+
+### Rejected (with a message)
+
+`script { }`, `def`, `if`/`for`/`try` and other Groovy statements, assignments, method
+definitions, `@Library`, imports and any code outside `pipeline { }`; `when { expression { } }`
+and `when` conditions other than the ones above; `triggers` in any form (triggers are configured
+in the platform); `tools`, `input`, `libraries`, `agent { label/dockerfile/node }`, other
+post conditions; `null`, negative or non-integer numbers; unknown steps (the error lists the
+supported ones); any `${...}` that is not a plain name (method calls, arithmetic, `a.b.c`);
+unknown variables, parameters and credentials; docker args outside the allowlist; external
+images without a tag or digest; `sh` without a docker agent; `deploy` of an image no earlier
+`dockerBuild` produced; empty `steps`, `stages` or `parallel`; duplicate sections, stage names,
+environment names or parameters.
+
+### Compatibility with real Jenkins
+
+Every valid fixture, the example below and the serializer output of each are accepted by the
+Declarative linter of a real Jenkins, and nothing Jenkins rejects is accepted here. The
+comparison (with the reason for every deliberate difference) is in
+`docs/jenkins-compatibility.md`; rerun it with `make lint-jenkins` (needs Docker).
+
+### Round trip
+
+`serialize` writes the canonical form (4-space indent, single quotes unless a string has
+variables, sections in Jenkins' conventional order, post blocks sorted, positional arguments
+written in the canonical call style). For every accepted text,
+`parse(serialize(parse(x))) == parse(x)` (spans are excluded from equality). Comments are not
+part of the AST and are not preserved: the visual editor rewrites the canonical form, while
+text-mode edits keep the user's own text.
+
+### Editors, templates and dry run
+
+The browser never parses Jenkinsfile text. `backend/pipeline/model*.py` define the JSON
+editing model (pydantic) and its two converters (`to_model` / `to_ast`, round trip tested on every
+valid fixture); `catalog.py` generates the step catalogue (titles, help texts, enums, bounds and
+image roles come from `steps.py`, so forms and validator cannot disagree);
+`pipeline/templates/` holds the starter Jenkinsfiles (also compared with real Jenkins);
+`execution/dry_run.py` plans a pipeline for a branch without executing it. The endpoints are in
+`docs/api-contract.md`, "Pipelines". The repository's `Jenkinsfile` is detected by the worker
+(`pipeline.repository_file` RPC, a depth-1 filtered fetch of the environment branch).
+
+The API image builds `frontend/` (node stage) and serves it, with a fallback to `index.html`
+for client routes (`backend/api/frontend.py`).
+
+### Example
+
+```groovy
+pipeline {
+    agent none
+    environment {
+        DB_PASSWORD = credentials('DB_PASSWORD')
+    }
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+    }
+    stages {
+        stage('Build image') {
+            steps {
+                dockerBuild(image: 'laravel-app', dockerfile: 'docker/Dockerfile')
+            }
+        }
+        stage('Test') {
+            agent {
+                docker {
+                    image 'laravel-app'
+                    args '--network none --memory 1g'
+                }
+            }
+            steps {
+                sh 'php artisan test'
+            }
+        }
+        stage('Migrate') {
+            when { branch 'production' }
+            agent { docker 'laravel-app' }
+            steps {
+                sh 'php artisan migrate --force'
+            }
+        }
+        stage('Deploy') {
+            steps {
+                deploy service: 'app', image: 'laravel-app'
+                healthCheck url: 'https://example.test/up', timeout: 90
+            }
+        }
+    }
+    post {
+        failure {
+            echo "Build ${BUILD_NUMBER} failed on ${BRANCH_NAME}"
+        }
+    }
+}
+```

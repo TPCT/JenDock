@@ -1,76 +1,99 @@
-name: deploy-monitor
+name: jendock-v2
+
 services:
-  receiver:
-    image: deploy-monitor-receiver:${DEPLOY_MONITOR_VERSION:?Set version}
-    restart: unless-stopped
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    mem_limit: 192m
-    cpus: 0.5
-    pids_limit: 64
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
     environment:
-      PUBLIC_ORIGIN: https://monitoring.shiftcodes.net
-      WORKLOAD_WORKER_UID: "0"
-      PROJECTS_FILE: /policy/projects.json
-      CREDENTIALS_FILE: /config/credentials.json
+      JENDOCK_ENVIRONMENT: production
+      JENDOCK_DATA_DIR: /var/lib/jendock
+      JENDOCK_WORKER_SOCKET_PATH: /run/jendock/worker.sock
+      # Reverse proxies whose X-Forwarded-For is trusted for login rate limiting (IPs/CIDRs,
+      # comma separated). Empty trusts nobody, so every client looks like the proxy and the
+      # per-IP limit becomes a global one. Apache on the host reaches the published port via
+      # the compose network gateway, e.g. TRUSTED_PROXIES=172.18.0.1 (docker network inspect).
+      JENDOCK_TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
+      # Extra Host header values accepted at /mcp (DNS rebinding protection), comma separated.
+      JENDOCK_MCP_ALLOWED_HOSTS: "${MCP_ALLOWED_HOSTS:-}"
+    # api = uid 10002, worker = uid 10001, shared group 10001 (see the Dockerfiles): the socket
+    # is 0660 in a setgid 2770 directory, so a compromised API cannot act as the worker user.
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     volumes:
-      - ./policy:/policy:ro
-      - ./credentials.json:/config/credentials.json:ro
-      - state:/state
-    tmpfs: ["/tmp:size=16m,noexec,nosuid"]
-    ports: ["127.0.0.1:19190:8080"]
-    networks: [dashboard]
-    logging: {driver: local, options: {max-size: 5m, max-file: "2"}}
-  worker:
-    image: deploy-monitor-worker:${DEPLOY_MONITOR_VERSION:?Set version}
-    restart: unless-stopped
-    read_only: true
-    user: "0:65534"
-    cap_drop: [ALL]
-    cap_add: [SYS_PTRACE]
-    security_opt: [no-new-privileges:true]
-    mem_limit: 384m
-    cpus: 0.5
-    pids_limit: 128
+      - data:/var/lib/jendock
+      - worker-socket:/run/jendock
     healthcheck:
-      test: [CMD, python, -c, "import sqlite3,time; c=sqlite3.connect('/state/state.sqlite'); r=c.execute(\"SELECT updated FROM snapshots WHERE name='worker'\").fetchone(); assert r and time.time()-r[0]<60"]
-      interval: 20s
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"
+      interval: 30s
       timeout: 5s
-      start_period: 30s
+      start_period: 10s
       retries: 3
+    restart: unless-stopped
+    # Deliberately no Docker socket: the API reaches Docker only through the worker socket.
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
     environment:
-      DOCKER_HOST: unix:///run/docker-isolation.sock
-      WORKLOAD_RECEIVER_UID: ${WORKLOAD_RECEIVER_UID:-}
-      WORKLOAD_POSTGRES_IMAGE: ${WORKLOAD_POSTGRES_IMAGE:-}
-      PROJECTS_FILE: /policy/projects.json
-      CREDENTIALS_FILE: /config/credentials.json
-      GIT_SSH_COMMAND: ssh -i /credentials/id_rsa -o Hostname=ssh.github.com -p 443 -o HostKeyAlias=github.com -o ConnectTimeout=10 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/credentials/known_hosts
-      CONTAINER_FILES_PROC_ROOT: /host/proc
+      JENDOCK_ENVIRONMENT: production
+      JENDOCK_DATA_DIR: /var/lib/jendock
+      JENDOCK_WORKER_SOCKET_PATH: /run/jendock/worker.sock
+      JENDOCK_DOCKER_HOST: unix:///var/run/docker.sock  # in-container path, see volumes
+      JENDOCK_DOCKER_BINARY: /usr/local/bin/docker
+      # Containers started for `sh` steps mount the run workspace, and the host daemon resolves
+      # bind mount paths on the host: that host directory is mounted below and named here.
+      JENDOCK_WORKSPACE_HOST_DIR: "${WORKSPACES_HOST_DIR:-/var/lib/jendock-workspaces}"
+      # Resource ceilings for step containers and builds (a pipeline may only lower them),
+      # concurrent runs and the per-step log bound. See README "Execution".
+      JENDOCK_CONTAINER_MEMORY: "${CONTAINER_MEMORY:-2g}"
+      JENDOCK_CONTAINER_CPUS: "${CONTAINER_CPUS:-2}"
+      JENDOCK_MAX_CONCURRENT_RUNS: "${MAX_CONCURRENT_RUNS:-1}"
+      # The key lives in the worker-only `keys` volume; the API never sees it.
+      JENDOCK_SECRET_KEY_FILE: /run/jendock-keys/secret.key
+      # GitHub (README "GitHub integration"): deploy keys for the ssh transport (one per repository in
+      # /run/jendock-keys/deploy_keys, the default JENDOCK_GIT_SSH_KEY_DIR) and the webhook
+      # secret, both files in the worker-only keys volume. Unset until you create them.
+      JENDOCK_GITHUB_WEBHOOK_SECRET_FILE: /run/jendock-keys/github_webhook_secret
+      JENDOCK_GITHUB_STATUS_ENABLED: "${GITHUB_STATUS_ENABLED:-false}"
+    # Set DOCKER_GID to the host's docker group id (getent group docker).
+    group_add:
+      - "${DOCKER_GID:-999}"
     volumes:
-      - ./policy:/policy:ro
-      - ./git-credentials:/credentials:ro
-      - ./credentials.json:/config/credentials.json:ro
-      - /opt/docker-engine/29.8.2/docker/docker:/usr/local/bin/docker:ro
-      - /opt/docker-engine/tools/docker-compose:/usr/local/bin/docker-compose:ro
-      - /run/docker-isolation.sock:/run/docker-isolation.sock
-      - /opt/docker-engine/projects:/opt/docker-engine/projects
-      - state:/state
-      - /proc/stat:/host/proc-stat:ro
-      - /proc:/host/proc:ro
-      - /proc/meminfo:/host/proc-meminfo:ro
-      - /proc/uptime:/host/proc-uptime:ro
-      - /proc/loadavg:/host/proc-loadavg:ro
-      - /proc/1/net/dev:/host/proc-net-dev:ro
-      - worker-state:/worker-state
-      - work:/work
-    tmpfs: ["/tmp:size=32m,noexec,nosuid"]
-    networks: [egress]
-    logging: {driver: local, options: {max-size: 5m, max-file: "2"}}
+      - data:/var/lib/jendock
+      - worker-socket:/run/jendock
+      - keys:/run/jendock-keys
+      # Host directory (owned by uid 10001, mode 0750) that holds the run workspaces; the host
+      # daemon mounts subdirectories of it into step containers. Set WORKSPACES_HOST_DIR to move it.
+      - ${WORKSPACES_HOST_DIR:-/var/lib/jendock-workspaces}:/var/lib/jendock/workspaces
+      # Host socket (set DOCKER_SOCKET_PATH if non-default) at a fixed in-container path.
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      # The compose CLI runs in this container but bind-mount sources are resolved by the host
+      # daemon, and relative paths in compose files resolve against the compose file's own
+      # directory: the host projects directory (compose files and --env-file files of deployed
+      # environments) is mounted read-only at the IDENTICAL absolute path. The managed override
+      # lives in the data volume, so nothing is written here. Set COMPOSE_PROJECTS_DIR to move it.
+      - ${COMPOSE_PROJECTS_DIR:-/opt/docker-engine/projects}:${COMPOSE_PROJECTS_DIR:-/opt/docker-engine/projects}:ro
+    restart: unless-stopped
+
+  # Never started by `up`: the worker runs short-lived containers from this image to inspect an
+  # environment's databases on that environment's own network. Build it once (and after
+  # upgrades):  docker compose --profile tools build inspector
+  inspector:
+    # Built as jendock-v2-inspector:latest (compose project name + service), which is the
+    # worker's JENDOCK_INSPECTOR_IMAGE default.
+    build:
+      context: .
+      dockerfile: docker/inspector.Dockerfile
+    profiles:
+      - tools
+
 volumes:
-  state: {external: true, name: deploy-monitor_state}
-  worker-state: {external: true, name: deploy-monitor_worker-state}
-  work: {external: true, name: deploy-monitor_work}
-networks:
-  dashboard: {}
-  egress: {}
+  data:
+  worker-socket:
+  keys:  # mounted in the worker only
