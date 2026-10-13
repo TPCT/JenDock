@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -101,6 +103,7 @@ class LocalGitSource:
         head = git.run(["rev-parse", "HEAD"], destination).strip()
         if head != sha:
             raise SourceError(f"checked out {head[:12]} instead of the pinned {sha[:12]}")
+        make_world_readable(destination)
 
     def read_file(self, request: CheckoutRequest, path: str) -> str | None:
         """Fetch only the pinned commit (depth 1, no checkout) and read one file from it."""
@@ -130,3 +133,32 @@ class LocalGitSource:
         if size > MAX_REPOSITORY_FILE_BYTES:
             raise SourceError(f"{path} is larger than {MAX_REPOSITORY_FILE_BYTES // 1024} KiB")
         return git.run(["cat-file", "blob", object_id], repo)
+
+
+def make_world_readable(root: Path) -> None:
+    """Give the checked-out tree the modes of a normal clone (umask 022).
+
+    The worker runs with umask 0007 for its shared data volume, which git inherits; ``COPY``
+    in a Dockerfile keeps those modes, so an image whose process runs as an unprivileged user
+    could not read its own files. Directories become 0755-style, files gain read for everyone
+    and keep execute only where the owner had it. ``.git`` is left alone; symlinks are skipped.
+    """
+    for directory, subdirs, files in os.walk(root):
+        if ".git" in subdirs:
+            subdirs.remove(".git")
+        _add_bits(Path(directory), stat.S_IRGRP | stat.S_IROTH | stat.S_IXGRP | stat.S_IXOTH)
+        for name in files:
+            path = Path(directory, name)
+            if path.is_symlink():
+                continue
+            mode = path.stat().st_mode
+            extra = stat.S_IRGRP | stat.S_IROTH
+            if mode & stat.S_IXUSR:
+                extra |= stat.S_IXGRP | stat.S_IXOTH
+            _add_bits(path, extra)
+
+
+def _add_bits(path: Path, bits: int) -> None:
+    mode = stat.S_IMODE(path.stat().st_mode)
+    if mode & bits != bits:
+        path.chmod(mode | bits)

@@ -13,6 +13,7 @@ from backend.adapters.sources import (
     LocalGitSource,
     UnavailableSource,
     forbidden_tracked,
+    make_world_readable,
 )
 from backend.adapters.workspace import WorkspaceManager
 from tests.git_support import commit, git, requires_git
@@ -143,3 +144,20 @@ def test_unavailable_source_and_forbidden_names() -> None:
     with pytest.raises(SourceError):
         UnavailableSource().checkout(CheckoutRequest("o/r", "a" * 40), Path("/nonexistent"))
     assert forbidden_tracked(["a/b.txt", "x/.env", ".env.local", "id_rsa.pub"]) == ["x/.env"]
+
+
+def test_checked_out_files_are_world_readable_despite_a_strict_umask(tmp_path: Path) -> None:
+    """A strict worker umask must not leak into the build context (``COPY`` keeps modes)."""
+    tree = tmp_path / "tree"
+    (tree / "docker").mkdir(parents=True)
+    script = tree / "docker" / "entrypoint.sh"
+    script.write_text("#!/bin/sh\n")
+    script.chmod(0o700)
+    data = tree / "app.php"
+    data.write_text("<?php\n")
+    data.chmod(0o600)
+    (tree / "docker").chmod(0o700)
+    make_world_readable(tree)
+    assert stat.S_IMODE(data.stat().st_mode) == 0o644
+    assert stat.S_IMODE(script.stat().st_mode) == 0o755
+    assert stat.S_IMODE((tree / "docker").stat().st_mode) == 0o755
