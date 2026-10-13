@@ -108,23 +108,42 @@ class LocalGitSource:
         make_world_readable(destination)
 
     def read_file(self, request: CheckoutRequest, path: str) -> str | None:
-        """Fetch only the pinned commit (depth 1, no checkout) and read one file from it."""
+        """Read one file at the pinned commit without downloading the rest of it.
+
+        A partial fetch (``--filter=blob:none``, depth 1) brings only the commit and its trees;
+        the one file's content is then fetched on demand from the same remote, which is marked as
+        a promisor. Reading a Jenkinsfile of a large repository over a slow link costs a few
+        hundred KiB instead of the whole snapshot. A server without filter support simply sends
+        everything, so the result is the same.
+        """
         url = self._resolve(request.repository)
         sha = request.commit_sha
         git = self._runner(request.repository)
         with tempfile.TemporaryDirectory(prefix="jd-read-") as scratch:
             repo = Path(scratch)
             git.run(["init", "--bare", "--quiet", str(repo)])
-            self._fetch_commit(git, repo, url, sha)
+            git.run(["remote", "add", "origin", url], repo)
+            git.run(["config", "remote.origin.promisor", "true"], repo)
+            git.run(["config", "remote.origin.partialclonefilter", "blob:none"], repo)
+            self._fetch_commit(git, repo, sha)
             return self._read_blob(git, repo, sha, path)
 
     @staticmethod
-    def _fetch_commit(git: GitRunner, repo: Path, url: str, sha: str) -> None:
-        """Fetch one commit (depth 1), trying again once when the fetch only timed out."""
+    def _fetch_commit(git: GitRunner, repo: Path, sha: str) -> None:
+        """Fetch one commit without file contents, trying again once when it only timed out."""
         for attempt in range(1, READ_FETCH_ATTEMPTS + 1):
             try:
                 git.run(
-                    ["fetch", "--quiet", "--depth", "1", "--no-tags", "--", url, sha],
+                    [
+                        "fetch",
+                        "--quiet",
+                        "--depth",
+                        "1",
+                        "--no-tags",
+                        "--filter=blob:none",
+                        "origin",
+                        sha,
+                    ],
                     repo,
                     timeout=READ_FETCH_TIMEOUT,
                 )

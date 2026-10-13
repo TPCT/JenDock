@@ -17,6 +17,6 @@
 }
 .badge {
   display: inline-flex;
-  gap: var(--base-size-4);
+  gap: var(--base-size-6, 6px);
   align-items: center;
 }
