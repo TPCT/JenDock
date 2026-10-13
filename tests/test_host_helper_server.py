@@ -1,3 +1,5 @@
+import dataclasses
+import grp
 import json
 import os
 import socket
@@ -68,6 +70,24 @@ def test_the_socket_is_not_accessible_to_others(
 ) -> None:
     mode = stat.S_IMODE((socket_dir / "h.sock").stat().st_mode)
     assert mode == 0o660
+
+
+def test_the_socket_group_also_owns_the_socket_directory(socket_dir: Path, tmp_path: Path) -> None:
+    """systemd creates the runtime directory root:root; the group must reach the socket."""
+    current = socket_dir.stat().st_gid
+    other = next((gid for gid in os.getgroups() if gid != current), None)
+    if other is None:
+        pytest.skip("the test user belongs to a single group")
+    config = dataclasses.replace(
+        make_config(tmp_path, socket_path=socket_dir / "h.sock"),
+        socket_group=grp.getgrgid(other).gr_name,
+    )
+    srv = HelperServer(config, HelperService(config, ScriptedApache()))
+    try:
+        assert socket_dir.stat().st_gid == other
+        assert (socket_dir / "h.sock").stat().st_gid == other
+    finally:
+        srv.server_close()
 
 
 def test_a_peer_with_a_foreign_uid_is_refused(socket_dir: Path, tmp_path: Path) -> None:
