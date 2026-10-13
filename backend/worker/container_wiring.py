@@ -12,6 +12,7 @@ from backend.adapters.container_admin import DockerContainerEngine
 from backend.adapters.docker_client import DockerClient
 from backend.adapters.docker_commands import DockerCommands
 from backend.adapters.override_store import OverrideStore
+from backend.adapters.resource_overrides import ResourceOverrideStore
 from backend.config import Settings
 from backend.containers.base import ContainerAuditor, Membership, TargetResolver
 from backend.containers.config import ContainerConfig
@@ -27,6 +28,12 @@ from backend.containers.recreate import (
     DeployOverrideFiles,
     ServiceRecreator,
     StoreOverrideFiles,
+)
+from backend.containers.resource_store import ResourceLimitStore
+from backend.containers.resources import (
+    HostCapacityReader,
+    ResourceOverrideFiles,
+    ResourceService,
 )
 from backend.containers.telemetry import HostSampler, TelemetryCollector, TelemetryService
 from backend.repositories.database import SessionFactory, UnitOfWork
@@ -62,9 +69,12 @@ def build_container_parts(
     engine = DockerContainerEngine(client)
     config = ContainerConfig.from_settings(settings)
     store = ComposeOverrideStore(settings.data_dir / OVERRIDES_DIR_NAME)
+    limit_store = ResourceLimitStore(session_factory)
+    limit_files = ResourceOverrideStore(settings.data_dir / OVERRIDES_DIR_NAME)
     # Order matters: the deployer's image override is the LAST compose file (images stay pinned).
     files = CombinedOverrideFiles(
         StoreOverrideFiles(store),
+        ResourceOverrideFiles(limit_store, limit_files),
         DeployOverrideFiles(OverrideStore(settings.data_dir / DEPLOYMENTS_DIR_NAME)),
     )
     resolver = TargetResolver(session_factory)
@@ -93,6 +103,17 @@ def build_container_parts(
         logs=LogService(resolver, engine, membership),
         env=EnvironmentEditor(resolver, membership, store, recreator, locks, auditor, config),
         limits=LimitsService(resolver, engine, membership, store, locks, auditor, config),
+        resources=ResourceService(
+            resolver,
+            engine,
+            limit_store,
+            limit_files,
+            store,
+            locks,
+            auditor,
+            config,
+            HostCapacityReader(engine),
+        ),
         files=FileBrowser(resolver, engine, membership, auditor),
         telemetry=telemetry,
     )

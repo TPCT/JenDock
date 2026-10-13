@@ -10,10 +10,11 @@ from pathlib import Path
 
 from backend.adapters.compose_cli import ComposeTarget
 from backend.adapters.compose_overrides import FILE_NAME
-from backend.adapters.container_admin import FileRead, Record
+from backend.adapters.container_admin import FileRead, LiveUpdate, Record
 from backend.adapters.docker_stats import ContainerStats
 from backend.adapters.errors import ContainerNotFoundError, ContainerRuntimeError
 from backend.domain.containers import COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL
+from backend.domain.resources import HostCapacity
 
 STARTED = "2026-10-13T12:00:00.123456789Z"
 
@@ -75,6 +76,7 @@ class FakeEngine:
         self.files: dict[str, FileRead] = {}
         self.fail: dict[str, str] = {}
         self.sample_stats: list[ContainerStats] = []
+        self.capacity = HostCapacity(cpus=4, memory_bytes=8 * 1024**3)
 
     def add(self, record: dict[str, object]) -> str:
         """Register a container; returns its id."""
@@ -143,6 +145,50 @@ class FakeEngine:
             host["NanoCpus"] = int(cpus * 1_000_000_000)
         if memory_bytes is not None:
             host["Memory"] = memory_bytes
+
+    def update_resources(self, container_id: str, update: LiveUpdate) -> None:
+        """Store the values in HostConfig; refuses what the daemon refuses (a memory limit above
+        the container's swap limit without a new swap limit)."""
+        self.calls.append(
+            (
+                "update_resources",
+                container_id,
+                str(update.cpus),
+                str(update.memory_bytes),
+                str(update.memory_swap_bytes),
+                str(update.memory_reservation_bytes),
+                str(update.cpu_shares),
+            )
+        )
+        self._check("update_resources")
+        if container_id not in self.records:
+            raise ContainerNotFoundError("No such container")
+        host = self.records[container_id]["HostConfig"]
+        assert isinstance(host, dict)
+        swap = int(host.get("MemorySwap", 0))
+        if (
+            update.memory_bytes
+            and update.memory_swap_bytes is None
+            and 0 < swap < update.memory_bytes
+        ):
+            raise ContainerRuntimeError(
+                "Memory limit should be smaller than already set memoryswap limit"
+            )
+        if update.cpus is not None:
+            host["NanoCpus"] = int(update.cpus * 1_000_000_000)
+        if update.memory_bytes is not None:
+            host["Memory"] = update.memory_bytes
+        if update.memory_swap_bytes is not None:
+            host["MemorySwap"] = update.memory_swap_bytes
+        if update.memory_reservation_bytes is not None:
+            host["MemoryReservation"] = update.memory_reservation_bytes
+        if update.cpu_shares is not None:
+            host["CpuShares"] = update.cpu_shares
+
+    def host_capacity(self) -> HostCapacity:
+        """The configured host."""
+        self._check("host_capacity")
+        return self.capacity
 
     def logs(self, container_id: str, *, tail: int, since: str | None) -> list[str]:
         """Configured lines, filtered like docker (``since`` inclusive)."""

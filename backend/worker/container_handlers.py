@@ -13,6 +13,7 @@ from backend.containers.files import DEFAULT_READ_BYTES, FileBrowser
 from backend.containers.lifecycle import ContainerInventory, LifecycleService
 from backend.containers.limits import LimitsService
 from backend.containers.logs import DEFAULT_TAIL, LogCursor, LogService
+from backend.containers.resources import ResourceService
 from backend.containers.telemetry import TelemetryService
 from backend.containers.wire import (
     ActionPlanView,
@@ -28,9 +29,13 @@ from backend.containers.wire import (
     HostSampleView,
     HostTelemetryView,
     LogPageView,
+    ResourceChangeView,
+    ResourceOverviewView,
+    ResourceUsageView,
 )
 from backend.domain.containers import EnvChange, LifecycleAction, LimitChange
 from backend.domain.enums import EnvironmentName
+from backend.domain.resources import ResourceLimits
 from backend.worker.rpc import BadRequestError, Handler, RpcCall
 
 CONTAINER_ID = r"^[a-f0-9]{64}$"
@@ -46,6 +51,7 @@ class ContainerServices:
     logs: LogService
     env: EnvironmentEditor
     limits: LimitsService
+    resources: ResourceService
     files: FileBrowser
     telemetry: TelemetryService
 
@@ -89,6 +95,22 @@ class _EnvUpdateParams(_ContainerParams):
 class _LimitParams(_ContainerParams):
     cpus: float | None = None
     memory: str | None = Field(default=None, max_length=32)
+
+
+class _ServiceParams(_EnvParams):
+    service: str = Field(min_length=1, max_length=64)
+
+
+class _ResourceSaveParams(_ServiceParams):
+    cpus: float | None = None
+    memory_bytes: int | None = None
+    memory_reservation_bytes: int | None = None
+    cpu_shares: int | None = None
+    apply_now: bool = False
+
+
+class _ResourceRemoveParams(_ServiceParams):
+    apply_now: bool = False
 
 
 class _PathParams(_ContainerParams):
@@ -194,6 +216,57 @@ class ContainerHandlers:
         )
         return _dump(ContainerView.of(info))
 
+    def resources_list(self, call: RpcCall) -> object:
+        """``resources.list``: host capacity and the saved limits of the services."""
+        params = _parse(_EnvParams, call)
+        call.require_actor()
+        return _dump(ResourceOverviewView.of(self._s.resources.overview(params.slug, params.env)))
+
+    def resources_usage(self, call: RpcCall) -> object:
+        """``resources.usage``: ``docker stats --no-stream`` of the running containers."""
+        params = _parse(_EnvParams, call)
+        call.require_actor()
+        return _dump(ResourceUsageView.of(self._s.resources.usage(params.slug, params.env)))
+
+    def resources_save(self, call: RpcCall) -> object:
+        """``resources.save``: validate, persist and optionally apply limits of a service."""
+        params = _parse(_ResourceSaveParams, call)
+        limits = ResourceLimits(
+            cpus=params.cpus,
+            memory_bytes=params.memory_bytes,
+            memory_reservation_bytes=params.memory_reservation_bytes,
+            cpu_shares=params.cpu_shares,
+        )
+        change = self._s.resources.save(
+            params.slug,
+            params.env,
+            params.service,
+            limits,
+            call.require_actor(),
+            apply_now=params.apply_now,
+        )
+        return _dump(ResourceChangeView.of(change))
+
+    def resources_remove(self, call: RpcCall) -> object:
+        """``resources.remove``: delete the saved limits of a service."""
+        params = _parse(_ResourceRemoveParams, call)
+        change = self._s.resources.remove(
+            params.slug,
+            params.env,
+            params.service,
+            call.require_actor(),
+            apply_now=params.apply_now,
+        )
+        return _dump(ResourceChangeView.of(change))
+
+    def resources_apply(self, call: RpcCall) -> object:
+        """``resources.apply``: copy the saved limits onto the running containers."""
+        params = _parse(_ServiceParams, call)
+        change = self._s.resources.apply(
+            params.slug, params.env, params.service, call.require_actor()
+        )
+        return _dump(ResourceChangeView.of(change))
+
     def files_list(self, call: RpcCall) -> object:
         """``containers.files.list``."""
         params = _parse(_PathParams, call)
@@ -251,6 +324,11 @@ def build_container_handlers(services: ContainerServices) -> Mapping[str, Handle
         "containers.env.reveal": handlers.env_reveal,
         "containers.env.update": handlers.env_update,
         "containers.limits.update": handlers.limits,
+        "resources.list": handlers.resources_list,
+        "resources.usage": handlers.resources_usage,
+        "resources.save": handlers.resources_save,
+        "resources.remove": handlers.resources_remove,
+        "resources.apply": handlers.resources_apply,
         "containers.files.list": handlers.files_list,
         "containers.files.read": handlers.files_read,
         "containers.stats": handlers.stats,

@@ -15,8 +15,17 @@ from backend.containers.environment import EnvUpdateResult
 from backend.containers.files import DirectoryListing, FileContent
 from backend.containers.lifecycle import ActionPlan, ActionResult
 from backend.containers.logs import LogCursor, LogPage
+from backend.containers.resources import (
+    AppliedContainer,
+    ContainerUsage,
+    ResourceChange,
+    ResourceOverview,
+    ResourceUsage,
+    ServiceResources,
+)
 from backend.containers.telemetry import ContainerSample, HostSample
 from backend.domain.containers import ContainerInfo, EnvVarInfo, MountInfo, PortBinding
+from backend.domain.resources import HostCapacity, ResourceLimits
 
 
 class View(BaseModel):
@@ -344,3 +353,142 @@ class ContainerStatsView(View):
 
     latest: ContainerSampleView
     history: tuple[ContainerSampleView, ...]
+
+
+class HostCapacityView(View):
+    """What the Docker host offers: the ceiling of every limit."""
+
+    cpus: int
+    memory_bytes: int
+
+    @classmethod
+    def of(cls, host: HostCapacity) -> HostCapacityView:
+        """From the domain value."""
+        return cls(cpus=host.cpus, memory_bytes=host.memory_bytes)
+
+
+class ResourceLimitsView(View):
+    """The limits of one service; ``null`` means that limit is not set."""
+
+    cpus: float | None
+    memory_bytes: int | None
+    memory_reservation_bytes: int | None
+    cpu_shares: int | None
+
+    @classmethod
+    def of(cls, limits: ResourceLimits) -> ResourceLimitsView:
+        """From the domain value."""
+        return cls(
+            cpus=limits.cpus,
+            memory_bytes=limits.memory_bytes,
+            memory_reservation_bytes=limits.memory_reservation_bytes,
+            cpu_shares=limits.cpu_shares,
+        )
+
+
+class ServiceResourcesView(View):
+    """A service and its saved limits (``limits`` is ``null`` when none are saved)."""
+
+    service: str
+    limits: ResourceLimitsView | None
+    updated_at: datetime | None
+
+    @classmethod
+    def of(cls, item: ServiceResources) -> ServiceResourcesView:
+        """From the domain value."""
+        return cls(
+            service=item.service,
+            limits=ResourceLimitsView.of(item.limits) if item.saved else None,
+            updated_at=item.updated_at,
+        )
+
+
+class ResourceOverviewView(View):
+    """The host's capacity and the saved limits of every service."""
+
+    host: HostCapacityView
+    services: tuple[ServiceResourcesView, ...]
+
+    @classmethod
+    def of(cls, overview: ResourceOverview) -> ResourceOverviewView:
+        """From the domain value."""
+        return cls(
+            host=HostCapacityView.of(overview.host),
+            services=tuple(ServiceResourcesView.of(item) for item in overview.services),
+        )
+
+
+class AppliedContainerView(View):
+    """The outcome of ``docker update`` on one running container."""
+
+    id: str
+    name: str
+    ok: bool
+    error: str | None
+
+    @classmethod
+    def of(cls, item: AppliedContainer) -> AppliedContainerView:
+        """From the domain value."""
+        return cls(id=item.id, name=item.name, ok=item.ok, error=item.error)
+
+
+class ResourceChangeView(View):
+    """What a save, removal or apply did: the saved limits and the live outcome per container."""
+
+    service: str
+    limits: ResourceLimitsView | None
+    applied: tuple[AppliedContainerView, ...]
+    notes: tuple[str, ...]
+
+    @classmethod
+    def of(cls, change: ResourceChange) -> ResourceChangeView:
+        """From the domain value."""
+        return cls(
+            service=change.service,
+            limits=ResourceLimitsView.of(change.limits) if change.saved else None,
+            applied=tuple(AppliedContainerView.of(item) for item in change.applied),
+            notes=change.notes,
+        )
+
+
+class ContainerUsageView(View):
+    """Live usage of one running container. ``cpu_percent`` is of one core (200 = two cores);
+    ``cpu_limit`` and ``memory_limit`` are the limits applied now (``null``: unlimited)."""
+
+    id: str
+    name: str
+    service: str | None
+    cpu_percent: float
+    memory_used: int
+    memory_percent: float
+    cpu_limit: float | None
+    memory_limit: int | None
+
+    @classmethod
+    def of(cls, item: ContainerUsage) -> ContainerUsageView:
+        """From the domain value."""
+        return cls(
+            id=item.id,
+            name=item.name,
+            service=item.service,
+            cpu_percent=item.cpu_percent,
+            memory_used=item.memory_used,
+            memory_percent=item.memory_percent,
+            cpu_limit=item.cpu_limit,
+            memory_limit=item.memory_limit,
+        )
+
+
+class ResourceUsageView(View):
+    """The host's capacity and the usage of every running container of an environment."""
+
+    host: HostCapacityView
+    containers: tuple[ContainerUsageView, ...]
+
+    @classmethod
+    def of(cls, usage: ResourceUsage) -> ResourceUsageView:
+        """From the domain value."""
+        return cls(
+            host=HostCapacityView.of(usage.host),
+            containers=tuple(ContainerUsageView.of(item) for item in usage.containers),
+        )

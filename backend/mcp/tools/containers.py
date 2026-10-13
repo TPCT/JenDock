@@ -1,5 +1,10 @@
 """Containers: inventory, stats, host telemetry, bounded logs, lifecycle actions and limits.
 
+Resource limits per compose service (``get_resource_limits``, ``get_resource_usage``,
+``set_resource_limits``, ``remove_resource_limits``) mirror ``api/routers/resources.py``: reading
+needs ``read``, changing needs ``containers`` and a maintainer on the environment (the role a
+deploy needs, production included).
+
 Scopes mirror ``api/routers/containers.py`` and ``telemetry.py``: inventory, detail, stats, env
 variable names and host telemetry need ``read``; logs, lifecycle and limits need ``containers``
 (as in REST, where reading logs is a ``containers`` operation). Start, stop and restart are two
@@ -18,6 +23,7 @@ from backend.api.schemas.containers import ActionRequest, ConfirmRequest, Limits
 from backend.containers.logs import DEFAULT_TAIL, MAX_TAIL, LogCursor
 from backend.domain.containers import LifecycleAction, validate_container_id
 from backend.domain.enums import TokenScope
+from backend.domain.resources import ResourceLimits, parse_memory
 from backend.mcp import schema
 from backend.mcp.registry import Args, JsonSchema, Tool, ToolContext
 
@@ -134,6 +140,78 @@ def update_limits(ctx: ToolContext, args: Args) -> object:
     return view.model_dump(mode="json")
 
 
+def _service(args: Args) -> str:
+    return args.text("service")
+
+
+def get_resource_limits(ctx: ToolContext, args: Args) -> object:
+    """The saved CPU/memory limits of the environment's services and the host's capacity."""
+    slug, env = args.text("slug"), args.environment()
+    overview = ctx.container.container_gateway().resources_list(slug, env, ctx.actor)
+    allowed = set(
+        authz.visible_services(
+            ctx.principal, slug, env, [item.service for item in overview.services]
+        )
+    )
+    services = [item for item in overview.services if item.service in allowed]
+    return overview.model_copy(update={"services": tuple(services)}).model_dump(mode="json")
+
+
+def get_resource_usage(ctx: ToolContext, args: Args) -> object:
+    """Live CPU and memory use of the running containers (``docker stats --no-stream``)."""
+    slug, env = args.text("slug"), args.environment()
+    usage = ctx.container.container_gateway().resources_usage(slug, env, ctx.actor)
+    names = [item.service or "" for item in usage.containers]
+    allowed = set(authz.visible_services(ctx.principal, slug, env, names))
+    containers = [item for item in usage.containers if (item.service or "") in allowed]
+    return usage.model_copy(update={"containers": tuple(containers)}).model_dump(mode="json")
+
+
+def _number(args: Args, name: str) -> float | None:
+    value = args.values.get(name)
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
+def _memory(args: Args, name: str) -> int | None:
+    text = args.optional_text(name)
+    return parse_memory(text) if text is not None else None
+
+
+def set_resource_limits(ctx: ToolContext, args: Args) -> object:
+    """Save the complete set of limits of a service; optionally apply them live."""
+    shares = _number(args, "cpu_shares")
+    limits = ResourceLimits(
+        cpus=_number(args, "cpus"),
+        memory_bytes=_memory(args, "memory"),
+        memory_reservation_bytes=_memory(args, "memory_reservation"),
+        cpu_shares=int(shares) if shares is not None else None,
+    )
+    apply_now = args.values.get("apply_now") is True
+    change = ctx.container.container_gateway().resources_save(
+        args.text("slug"), args.environment(), _service(args), limits, apply_now, ctx.actor
+    )
+    return change.model_dump(mode="json")
+
+
+def remove_resource_limits(ctx: ToolContext, args: Args) -> object:
+    """Remove the saved limits of a service; optionally lift them on the running containers."""
+    apply_now = args.values.get("apply_now") is True
+    change = ctx.container.container_gateway().resources_remove(
+        args.text("slug"), args.environment(), _service(args), apply_now, ctx.actor
+    )
+    return change.model_dump(mode="json")
+
+
+_SERVICE: JsonSchema = {
+    "type": "string",
+    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$",
+    "description": "the compose service name",
+}
+_APPLY_NOW: JsonSchema = {
+    "type": "boolean",
+    "description": "also update the running containers now with docker update (no restart)",
+}
+
 TOOLS = (
     Tool(
         "list_containers",
@@ -228,6 +306,61 @@ TOOLS = (
             _REQUIRED_TARGET,
         ),
         update_limits,
+        read_only=False,
+    ),
+    Tool(
+        "get_resource_limits",
+        "The saved CPU and memory limits of every service of an environment (cpus, memory, "
+        "memory reservation and cpu shares; null when a service has none) with the host's CPUs "
+        "and memory. Limits are saved for future deploys; set_resource_limits can also apply "
+        "them to the running containers.",
+        TokenScope.READ,
+        schema.obj(_ENV, _REQUIRED_ENV),
+        get_resource_limits,
+    ),
+    Tool(
+        "get_resource_usage",
+        "Live CPU and memory use of the running containers of an environment against their "
+        "applied limits, with the host's CPUs and memory (a docker stats --no-stream).",
+        TokenScope.READ,
+        schema.obj(_ENV, _REQUIRED_ENV),
+        get_resource_usage,
+    ),
+    Tool(
+        "set_resource_limits",
+        "Save the complete set of resource limits of a compose service; a limit left out is "
+        "removed. cpus is in cores (0.5, 2) and at most the host's CPUs; memory and "
+        "memory_reservation are sizes such as 512m or 2g (at least 6m, at most the host's "
+        "memory); cpu_shares is a relative weight (default 1024). The limits survive every "
+        "deploy. With apply_now the running containers are updated immediately, without a "
+        "restart; the result lists the outcome per container.",
+        TokenScope.CONTAINERS,
+        schema.obj(
+            {
+                **_ENV,
+                "service": _SERVICE,
+                "cpus": {"type": "number", "exclusiveMinimum": 0, "maximum": 4096},
+                "memory": {"type": "string", "minLength": 1, "maxLength": 32},
+                "memory_reservation": {"type": "string", "minLength": 1, "maxLength": 32},
+                "cpu_shares": {"type": "integer", "minimum": 2, "maximum": 262144},
+                "apply_now": _APPLY_NOW,
+            },
+            [*_REQUIRED_ENV, "service"],
+        ),
+        set_resource_limits,
+        read_only=False,
+    ),
+    Tool(
+        "remove_resource_limits",
+        "Remove the saved resource limits of a compose service. Future deploys run it without "
+        "them. With apply_now the running containers are raised to the host's capacity (Docker "
+        "cannot take a limit off a running container; the next deploy removes it fully).",
+        TokenScope.CONTAINERS,
+        schema.obj(
+            {**_ENV, "service": _SERVICE, "apply_now": _APPLY_NOW},
+            [*_REQUIRED_ENV, "service"],
+        ),
+        remove_resource_limits,
         read_only=False,
     ),
 )

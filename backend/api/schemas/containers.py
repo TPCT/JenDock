@@ -51,6 +51,22 @@ class LimitsRequest(BaseModel):
     memory: str | None = Field(default=None, min_length=1, max_length=32)
 
 
+class ResourceLimitsRequest(BaseModel):
+    """Body of ``PUT .../resources/{service}``: the complete set of limits of the service.
+
+    A limit left out (or ``null``) is not set. The values are checked against the host's
+    capacity by the worker (``422`` with the reason). Memory is in bytes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cpus: float | None = Field(default=None, gt=0, le=4096)
+    memory_bytes: int | None = Field(default=None, gt=0, le=2**50)
+    memory_reservation_bytes: int | None = Field(default=None, gt=0, le=2**50)
+    cpu_shares: int | None = Field(default=None, ge=1, le=10_000_000)
+    apply_now: bool = False
+
+
 class TerminalTicketRequest(BaseModel):
     """Body of ``POST .../terminal/tickets``; ``terminal_id`` reattaches a detached terminal."""
 

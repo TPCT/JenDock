@@ -28,6 +28,7 @@ from backend.repositories.grants import AccessGrantRepository
 from backend.repositories.pipelines import PipelineRepository
 from backend.repositories.platform import PlatformRepository
 from backend.repositories.projects import ProjectRepository
+from backend.repositories.resource_limits import ResourceLimitRepository
 from backend.repositories.runs import RunRepository
 from backend.repositories.secrets import SecretRepository
 from backend.repositories.sessions import SessionRepository
@@ -202,3 +203,8 @@ class UnitOfWork:
     def platform(self) -> PlatformRepository:
         """Platform secret and setting repository bound to the active session."""
         return PlatformRepository(self.session)
+
+    @property
+    def resource_limits(self) -> ResourceLimitRepository:
+        """Resource limit repository bound to the active session."""
+        return ResourceLimitRepository(self.session)

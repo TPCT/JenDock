@@ -15,9 +15,7 @@ from backend.domain.actor import Actor
 from backend.domain.containers import ContainerInfo, LimitChange
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import ConflictError, ValidationError
-from backend.domain.resources import parse_cpus, parse_memory
-
-MIN_MEMORY_BYTES = 6 * 1024 * 1024  # Docker refuses anything below 6 MiB
+from backend.domain.resources import MIN_MEMORY_BYTES, parse_cpus, parse_memory
 
 
 def check_limits(change: LimitChange, config: ContainerConfig) -> tuple[float | None, int | None]:

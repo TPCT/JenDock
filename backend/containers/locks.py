@@ -110,12 +110,16 @@ class LockedDeployer:
         return inner.recover() if isinstance(inner, Recoverable) else []
 
 
-def managed_files(root: Path) -> ExtraFiles:
-    """Provider of the container-management override file of the deployed environment."""
+def managed_files(
+    root: Path, more: Callable[[EnvironmentKey], Sequence[str]] | None = None
+) -> ExtraFiles:
+    """Provider of the managed override files of the deployed environment: the container
+    management file (environment variables) and, through ``more``, the resource limits file."""
     store = ComposeOverrideStore(root)
 
     def files(request: DeployRequest) -> list[str]:
         key = EnvironmentKey(request.project, EnvironmentName(request.environment))
-        return store.compose_file_args(key)[1::2]
+        found = store.compose_file_args(key)[1::2]
+        return [*found, *(more(key) if more is not None else ())]
 
     return files

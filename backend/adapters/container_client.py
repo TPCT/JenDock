@@ -22,11 +22,15 @@ from backend.containers.wire import (
     FileView,
     HostTelemetryView,
     LogPageView,
+    ResourceChangeView,
+    ResourceOverviewView,
+    ResourceUsageView,
 )
 from backend.domain.actor import Actor
 from backend.domain.containers import LifecycleAction
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import WorkerError
+from backend.domain.resources import ResourceLimits
 
 QUICK_TIMEOUT = 20.0
 STATS_TIMEOUT = 90.0
@@ -106,6 +110,33 @@ class ContainersGateway(Protocol):
         actor: Actor,
     ) -> ContainerView:
         """Set CPU/memory limits."""
+
+    def resources_list(self, slug: str, env: EnvironmentName, actor: Actor) -> ResourceOverviewView:
+        """Host capacity and the saved limits of the environment's services."""
+
+    def resources_usage(self, slug: str, env: EnvironmentName, actor: Actor) -> ResourceUsageView:
+        """Live CPU and memory usage of the running containers and the host's capacity."""
+
+    def resources_save(  # noqa: PLR0913, PLR0917 - one command
+        self,
+        slug: str,
+        env: EnvironmentName,
+        service: str,
+        limits: ResourceLimits,
+        apply_now: bool,
+        actor: Actor,
+    ) -> ResourceChangeView:
+        """Validate and save the limits of a service; optionally apply them live."""
+
+    def resources_remove(
+        self, slug: str, env: EnvironmentName, service: str, apply_now: bool, actor: Actor
+    ) -> ResourceChangeView:
+        """Remove the saved limits of a service."""
+
+    def resources_apply(
+        self, slug: str, env: EnvironmentName, service: str, actor: Actor
+    ) -> ResourceChangeView:
+        """Apply the saved limits of a service to its running containers (no restart)."""
 
     def list_files(
         self, slug: str, env: EnvironmentName, container_id: str, path: str, actor: Actor
@@ -257,6 +288,54 @@ class ContainerClient:
             "containers.limits.update", actor, params, timeout=ACTION_TIMEOUT
         )
         return _view(ContainerView, result)
+
+    def resources_list(self, slug: str, env: EnvironmentName, actor: Actor) -> ResourceOverviewView:
+        """``resources.list``."""
+        result = self._worker.call("resources.list", actor, _env(slug, env), timeout=QUICK_TIMEOUT)
+        return _view(ResourceOverviewView, result)
+
+    def resources_usage(self, slug: str, env: EnvironmentName, actor: Actor) -> ResourceUsageView:
+        """``resources.usage``."""
+        result = self._worker.call("resources.usage", actor, _env(slug, env), timeout=STATS_TIMEOUT)
+        return _view(ResourceUsageView, result)
+
+    def resources_save(  # noqa: PLR0913, PLR0917 - one command
+        self,
+        slug: str,
+        env: EnvironmentName,
+        service: str,
+        limits: ResourceLimits,
+        apply_now: bool,
+        actor: Actor,
+    ) -> ResourceChangeView:
+        """``resources.save``."""
+        params = {
+            **_env(slug, env),
+            "service": service,
+            "cpus": limits.cpus,
+            "memory_bytes": limits.memory_bytes,
+            "memory_reservation_bytes": limits.memory_reservation_bytes,
+            "cpu_shares": limits.cpu_shares,
+            "apply_now": apply_now,
+        }
+        result = self._worker.call("resources.save", actor, params, timeout=ACTION_TIMEOUT)
+        return _view(ResourceChangeView, result)
+
+    def resources_remove(
+        self, slug: str, env: EnvironmentName, service: str, apply_now: bool, actor: Actor
+    ) -> ResourceChangeView:
+        """``resources.remove``."""
+        params = {**_env(slug, env), "service": service, "apply_now": apply_now}
+        result = self._worker.call("resources.remove", actor, params, timeout=ACTION_TIMEOUT)
+        return _view(ResourceChangeView, result)
+
+    def resources_apply(
+        self, slug: str, env: EnvironmentName, service: str, actor: Actor
+    ) -> ResourceChangeView:
+        """``resources.apply``."""
+        params = {**_env(slug, env), "service": service}
+        result = self._worker.call("resources.apply", actor, params, timeout=ACTION_TIMEOUT)
+        return _view(ResourceChangeView, result)
 
     def list_files(
         self, slug: str, env: EnvironmentName, container_id: str, path: str, actor: Actor

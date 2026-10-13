@@ -198,3 +198,19 @@ def dashboard_scope(principal: Principal) -> DashboardScope:
         domains=None if privileged else allowing(Action.DOMAIN_READ),
         host=policy.is_allowed(principal, Action.TELEMETRY_READ),
     )
+
+
+def visible_services(
+    principal: Principal, slug: str, environment: EnvironmentName, services: Sequence[str]
+) -> list[str]:
+    """The services of an environment the principal may know of (container grants are per
+    service, like for ``visible_containers``)."""
+    if principal.role.is_privileged:
+        return list(services)
+    return [
+        service
+        for service in services
+        if policy.is_allowed(
+            principal, Action.CONTAINER_READ, Resource(slug, environment, service or NO_SERVICE)
+        )
+    ]
