@@ -115,7 +115,7 @@ def _wait_until(check, what: str, timeout: float = 60) -> None:  # type: ignore[
 @pytest.fixture
 def pebble(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PebbleEnv]:
     suffix = uuid.uuid4().hex[:8]
-    network, srv, ca = f"sc-pebble-net-{suffix}", f"sc-challtestsrv-{suffix}", f"sc-pebble-{suffix}"
+    network, srv, ca = f"jd-pebble-net-{suffix}", f"jd-challtestsrv-{suffix}", f"jd-pebble-{suffix}"
     created = _docker("network", "create", "--label", TEST_LABEL, "--label", OWN, network)
     assert created.returncode == 0, created.stderr
     try:

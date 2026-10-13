@@ -18,7 +18,7 @@ from tests.conftest import DEV
 from tests.execution_support import Harness, make_harness
 from tests.test_pipeline_runner import AGENT, pipeline, stage
 
-TAG = "sc/demo-development-app:0123456789ab-r1"
+TAG = "jendock/demo-development-app:0123456789ab-r1"
 BUILD = "dockerBuild(image: 'app', dockerfile: 'Dockerfile', target: 'prod', args: [MODE: 'fast'])"
 
 
@@ -117,7 +117,7 @@ def test_every_container_has_labels_name_and_cpu_shares(harness: Harness) -> Non
     }
     assert second.labels["jendock.step_id"] == str(step_ids[1])
     assert first.name != second.name
-    assert first.name.startswith(f"sc-r{run.id}-s{step_ids[0]}-")
+    assert first.name.startswith(f"jd-r{run.id}-s{step_ids[0]}-")
     assert first.cpu_shares == 512
 
 

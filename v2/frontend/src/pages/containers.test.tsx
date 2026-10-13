@@ -26,7 +26,9 @@ describe("containers inventory", () => {
     renderApp(LIST);
     const table = await screen.findByRole("table", { name: "Development containers" });
     const web = within(table).getByRole("row", { name: /web/ });
-    expect(within(web).getByText("sc/shop-development-web:3f9c2ab41d0e-r12")).toBeInTheDocument();
+    expect(
+      within(web).getByText("jendock/shop-development-web:3f9c2ab41d0e-r12"),
+    ).toBeInTheDocument();
     expect(within(web).getByText("3f9c2ab")).toBeInTheDocument();
     expect(within(web).getByText("running")).toBeInTheDocument();
     expect(within(web).getByText("healthy")).toBeInTheDocument();

@@ -31,7 +31,7 @@ from tests.test_mcp import _real_principal, _run, _session, _text, _token
 
 REGISTRY = default_registry()
 TARGET = {"slug": "demo", "environment": "development"}
-OLD, NEW = "app-web:old", "sc/demo-development-web:0123456789ab-r1"
+OLD, NEW = "app-web:old", "jendock/demo-development-web:0123456789ab-r1"
 
 
 @pytest.fixture

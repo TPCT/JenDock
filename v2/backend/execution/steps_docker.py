@@ -49,8 +49,8 @@ class ShStep(Step):
 
 
 def image_tag(project: str, environment: str, image: str, sha: str, number: int) -> str:
-    """The tag of a logical image: ``sc/<project>-<env>-<image>:<sha12>-r<run number>``."""
-    return f"sc/{project}-{environment}-{image}:{sha[:SHA_LENGTH]}-r{number}"
+    """The tag of a logical image: ``jendock/<project>-<env>-<image>:<sha12>-r<run number>``."""
+    return f"jendock/{project}-{environment}-{image}:{sha[:SHA_LENGTH]}-r{number}"
 
 
 class DockerBuildStep(Step):

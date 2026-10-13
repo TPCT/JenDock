@@ -144,7 +144,7 @@ class ContainerPlanner:
         run_id = self._run.job.run_id
         return RunSpec(
             image=image,
-            name=f"sc-r{run_id}-s{step_id}-{uuid.uuid4().hex[:6]}",
+            name=f"jd-r{run_id}-s{step_id}-{uuid.uuid4().hex[:6]}",
             command=("-c", script),
             entrypoint="sh",
             env=env,

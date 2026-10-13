@@ -43,7 +43,7 @@ def test_client_and_server_round_trip(
     assert proposal.current is None and "ServerName app.example.com" in proposal.proposed
     assert client.put_vhost(HOST, 20001, tls=False) is True
     assert client.put_vhost(HOST, 20001, tls=False) is False
-    assert client.get_vhost(HOST) == (vhosts / f"sc-{HOST}.conf").read_text()
+    assert client.get_vhost(HOST) == (vhosts / f"jendock-{HOST}.conf").read_text()
     assert apache.events == ["configtest", "reload"]
     assert client.remove_vhost(HOST) is True
     assert client.get_vhost(HOST) is None
@@ -160,8 +160,8 @@ VALID = {
     "socket_path": "/run/x/h.sock",
     "allowed_uids": [10001],
     "vhost_dir": "/etc/apache2/sc",
-    "cert_dir": "/etc/sc/certs",
-    "webroot_dir": "/var/lib/sc/webroot",
+    "cert_dir": "/etc/jendock/certs",
+    "webroot_dir": "/var/lib/jendock/webroot",
     "apachectl": ["/usr/sbin/apachectl"],
     "allowed_hostname_suffixes": ["example.com"],
     "allowed_upstream_ports": [[20000, 29999]],

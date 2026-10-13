@@ -60,7 +60,7 @@ def fake(tmp_path: Path) -> Fixture:
 def _spec(**kwargs: object) -> RunSpec:
     base: dict[str, object] = {
         "image": "alpine:3.20",
-        "name": "sc-test",
+        "name": "jd-test",
         "command": ("-c", "echo hi"),
     }
     base.update(kwargs)
@@ -85,7 +85,7 @@ def test_run_builds_the_expected_argv_and_streams_lines(fake: Fixture, tmp_path:
     assert not result.ok
     assert lines == ["one", "two", "to stderr"]  # stdout and stderr merged, in order
     args = fake.run_args()
-    assert args[:6] == ["run", "--rm", "--name", "sc-test", "--security-opt", "no-new-privileges"]
+    assert args[:6] == ["run", "--rm", "--name", "jd-test", "--security-opt", "no-new-privileges"]
     assert args[-4:] == ["alpine:3.20", "-c", "echo hi"] or args[-3:] == [
         "alpine:3.20",
         "-c",
@@ -147,7 +147,7 @@ def test_timeout_kills_the_named_container(fake: Fixture) -> None:
     assert time.monotonic() - started < 15
     assert result.timed_out
     assert not result.ok
-    assert (fake.state / "killed").read_text() == "sc-test"
+    assert (fake.state / "killed").read_text() == "jd-test"
 
 
 def test_cancel_signal_kills_the_container(fake: Fixture) -> None:
@@ -158,7 +158,7 @@ def test_cancel_signal_kills_the_container(fake: Fixture) -> None:
     result = fake.runtime.run_container(_spec(), lambda _line: None, cancel=cancel)
     assert time.monotonic() - started < 15
     assert result.cancelled
-    assert (fake.state / "killed").read_text() == "sc-test"
+    assert (fake.state / "killed").read_text() == "jd-test"
 
 
 def test_kill_by_label_lists_then_kills(fake: Fixture) -> None:
@@ -178,7 +178,7 @@ def test_build_passes_argument_values_by_environment_only(fake: Fixture, tmp_pat
     spec = BuildSpec(
         context=tmp_path,
         dockerfile=tmp_path / "Dockerfile",
-        tag="sc/x:1",
+        tag="jendock/x:1",
         target="prod",
         build_args={"MODE": "fast", "SECRET_ARG": SECRET},
         labels={"jendock.run_id": "1"},
@@ -207,7 +207,7 @@ def test_build_passes_argument_values_by_environment_only(fake: Fixture, tmp_pat
 def test_dangerous_build_argument_names_are_refused(
     fake: Fixture, tmp_path: Path, name: str
 ) -> None:
-    spec = BuildSpec(tmp_path, tmp_path / "Dockerfile", "sc/x:1", build_args={name: "v"})
+    spec = BuildSpec(tmp_path, tmp_path / "Dockerfile", "jendock/x:1", build_args={name: "v"})
     with pytest.raises(ContainerRuntimeError):
         fake.runtime.build_image(spec, lambda _line: None)
     assert not (fake.state / "calls.jsonl").exists()  # nothing was started

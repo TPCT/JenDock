@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,7 +46,29 @@ def test_no_conflict_markers_in_the_tree() -> None:
 
 # The product is called Jendock; its former working name must not reappear anywhere (built from
 # parts so that this file does not contain it either).
+
 FORMER_NAME = "shift" + "codes"
+# Nor may its two-letter abbreviation followed by a dash or slash start a name (an image or
+# container prefix); a letter, digit or underscore before it makes it part of another word.
+FORMER_PREFIX = re.compile(r"(?<![A-Za-z0-9_])" + "s" + "c" + r"[-/]")
+
+
+def test_the_former_abbreviation_is_not_used_as_a_name_prefix() -> None:
+    offenders = []
+    for path in _text_files():
+        relative = path.relative_to(ROOT)
+        if relative.parts[0] not in {"backend", "tests"} or "fixtures" in relative.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        offenders += [
+            f"{relative}:{number}"
+            for number, line in enumerate(text.splitlines(), start=1)
+            if FORMER_PREFIX.search(line)
+        ]
+    assert offenders == []
 
 
 def test_the_former_product_name_appears_nowhere() -> None:

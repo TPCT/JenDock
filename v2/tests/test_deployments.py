@@ -23,7 +23,7 @@ from tests.execution_support import Harness
 from tests.test_pipeline_runner import pipeline, stage
 
 HISTORY = "/api/projects/demo/environments/development/deployments"
-WEB_TAG = "sc/demo-development-web:0123456789ab-r1"
+WEB_TAG = "jendock/demo-development-web:0123456789ab-r1"
 OLD_TAG = "app-web:old"
 
 

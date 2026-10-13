@@ -85,7 +85,7 @@ def test_03_manual_run_deploys_only_the_selected_service(
     change = deployment["services"][0]
     assert change["service"] == "web"
     assert change["previous_image"].endswith("-seed:v0")
-    assert change["new_image"].startswith("sc/shop-development-web:")
+    assert change["new_image"].startswith("jendock/shop-development-web:")
     after = container_ids(sample)
     assert after["worker"] == before["worker"]
     assert after["db"] == before["db"]

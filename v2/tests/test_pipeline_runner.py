@@ -504,7 +504,7 @@ def test_deploy_receives_the_built_image_tags(harness: Harness) -> None:
     assert request.compose_project == "demo-dev"
     assert request.compose_files == ("/srv/demo/compose.yml",)
     assert [(s.service, s.image) for s in request.services] == [
-        ("web", "sc/demo-development-web:0123456789ab-r1")
+        ("web", "jendock/demo-development-web:0123456789ab-r1")
     ]
     assert request.run_id == run.id
 

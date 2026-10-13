@@ -68,7 +68,7 @@ def test_05_push_to_the_tracked_branch_deploys_the_new_commit(
     assert latest["commit_sha"] == sha
     assert latest["services"][0]["previous_image"] == scenario.data["image_v1"]
     new_image = latest["services"][0]["new_image"]
-    assert new_image.startswith(f"sc/shop-development-web:{sha[:12]}")
+    assert new_image.startswith(f"jendock/shop-development-web:{sha[:12]}")
     after = container_ids(sample)
     assert image_of(stack, after["web"]) == new_image
     assert after["worker"] == before["worker"]

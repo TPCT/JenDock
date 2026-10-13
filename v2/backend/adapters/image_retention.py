@@ -37,7 +37,7 @@ class ImageInfo:
 
 
 def repository_of(tag: str) -> str:
-    """The logical image of a tag: everything before the tag part (``sc/p-e-web:abc-r3``)."""
+    """The logical image of a tag: everything before the tag part (``jendock/p-e-web:abc-r3``)."""
     name, _, last = tag.rpartition(":")
     return name if name and "/" not in last else tag
 

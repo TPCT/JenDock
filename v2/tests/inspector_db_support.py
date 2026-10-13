@@ -74,7 +74,7 @@ class RunningDb:
 def start_server(engine: Engine) -> RunningDb:
     """Start a labelled container for ``engine`` and wait until it accepts connections."""
     image, port = IMAGES[engine]
-    name = f"sc-test-{engine.value}-{secrets.token_hex(4)}"
+    name = f"jd-test-{engine.value}-{secrets.token_hex(4)}"
     env = _server_env(engine)
     args = ["run", "-d", "--name", name, *label_args()]
     args += ["-p", f"127.0.0.1::{port}"]

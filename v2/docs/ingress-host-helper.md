@@ -9,7 +9,7 @@ socket, a root-owned configuration file, an allowlist and nothing free-form.
 
 ## What it may touch (and nothing else)
 
-- one **managed vhost directory** (files `sc-<hostname>.conf`, each starting with the marker
+- one **managed vhost directory** (files `jendock-<hostname>.conf`, each starting with the marker
   `# jendock-managed:`; files without it are never modified),
 - one **certificate directory** (`<dir>/<hostname>/fullchain.pem` 0644, `privkey.pem` 0600),
 - one **ACME webroot** (`<dir>/.well-known/acme-challenge/<token>`),
@@ -27,7 +27,7 @@ It runs `apachectl` with an empty environment (`PATH` only, `LANG=C`); it never 
   install -d -m 0755 /etc/apache2/jendock-managed /etc/jendock/certs /var/lib/jendock/acme-webroot
   ```
 - Include the managed directory **from the main configuration, outside any `<VirtualHost>`**,
-  e.g. a file `conf-available/jendock.conf`: `IncludeOptional /etc/apache2/jendock-managed/sc-*.conf`
+  e.g. a file `conf-available/jendock.conf`: `IncludeOptional /etc/apache2/jendock-managed/jendock-*.conf`
   and `a2enconf jendock`. The helper cannot add the include and never edits foreign files.
   Make sure Apache listens on 80 and 443 (`Listen`).
 - `apachectl configtest` must pass **before** the helper starts. Debian's `apache2ctl` sources
@@ -108,5 +108,5 @@ Let's Encrypt **staging** directory first). Then, per environment:
   is a regular file.
 - Certificates: renewals are installed with the same atomic replace, tested and reloaded; the
   previous files are restored when the test fails.
-- Uninstall: remove the include, then `rm` the `sc-*.conf` files and the certificate directory.
+- Uninstall: remove the include, then `rm` the `jendock-*.conf` files and the certificate directory.
   DNS records tagged `managed-by=jendock` can be removed by the platform (`remove`).

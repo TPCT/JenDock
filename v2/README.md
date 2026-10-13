@@ -332,7 +332,7 @@ Every `sh` runs in a container started with `--rm`, labels `jendock.run_id` and
 `jendock.step_id`, `--security-opt no-new-privileges`, `--cpu-shares 512` (so production services
 win under contention) and `--entrypoint sh -c <script>`.
 
-- **Logical image** (built by `dockerBuild`, tagged `sc/<project>-<env>-<image>:<sha12>-r<run
+- **Logical image** (built by `dockerBuild`, tagged `jendock/<project>-<env>-<image>:<sha12>-r<run
   number>` with labels `jendock.project|environment|build_run|commit`): runs with the image's own
   `WORKDIR`, user and no workspace mount. `dir()` becomes a `cd` at the start of the script.
 - **External image** (`node:22`): pulled when not present locally (once per run), the workspace is
