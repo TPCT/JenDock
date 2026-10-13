@@ -13,10 +13,11 @@ from shiftcodes.domain.enums import EnvironmentName
 from shiftcodes.execution.dry_run import DryPostBlock, DryRun, DryStage, DryStep, StageMode
 from shiftcodes.pipeline import catalog as catalog_module
 from shiftcodes.pipeline.ast import PostCondition
+from shiftcodes.pipeline.errors import Severity
 from shiftcodes.pipeline.model import Model
 from shiftcodes.pipeline.steps import ImageRole
 from shiftcodes.pipeline.templates import Template
-from shiftcodes.services.pipeline_editor import DocumentSource, PipelineDocument
+from shiftcodes.services.pipeline_editor import DocumentSource, DryRunOutcome, PipelineDocument
 from shiftcodes.services.pipelines import MAX_JENKINSFILE_BYTES, StoredPipeline
 
 # Characters, not bytes: the service enforces the byte limit precisely.
@@ -363,3 +364,10 @@ class DryRunResponse(BaseModel):
     valid: bool
     diagnostics: list[DiagnosticResponse]
     plan: DryRunPlanResponse | None
+
+    @classmethod
+    def from_outcome(cls, outcome: DryRunOutcome) -> DryRunResponse:
+        """Build from the dry-run service outcome."""
+        valid = not any(item.severity is Severity.ERROR for item in outcome.diagnostics)
+        plan = None if outcome.plan is None else DryRunPlanResponse.from_plan(outcome.plan)
+        return cls(valid=valid, diagnostics=diagnostics_of(outcome.diagnostics), plan=plan)

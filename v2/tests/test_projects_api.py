@@ -60,7 +60,7 @@ def _bearer(client: TestClient, csrf: str, *scopes: str) -> dict[str, str]:
 
 
 def _anonymous(client: TestClient) -> TestClient:
-    return TestClient(client.app, base_url=client.base_url)
+    return TestClient(client.app, base_url=str(client.base_url))
 
 
 def _queue(

@@ -11,7 +11,6 @@ from shiftcodes.api.deps import Container, require_scope
 from shiftcodes.api.principal import Principal
 from shiftcodes.api.schemas.pipelines import (
     CatalogResponse,
-    DryRunPlanResponse,
     DryRunRequest,
     DryRunResponse,
     ParseRequest,
@@ -29,7 +28,6 @@ from shiftcodes.api.schemas.pipelines import (
 )
 from shiftcodes.domain.enums import EnvironmentName, TokenScope
 from shiftcodes.pipeline.catalog import build_catalog
-from shiftcodes.pipeline.errors import Severity
 from shiftcodes.pipeline.templates import load_templates
 
 environment_router = APIRouter(
@@ -109,9 +107,7 @@ def dry_run(
     outcome = container.pipeline_documents().dry_run(
         path.slug, path.env, body.jenkinsfile, body.branch, principal.actor
     )
-    valid = not any(item.severity is Severity.ERROR for item in outcome.diagnostics)
-    plan = None if outcome.plan is None else DryRunPlanResponse.from_plan(outcome.plan)
-    return DryRunResponse(valid=valid, diagnostics=diagnostics_of(outcome.diagnostics), plan=plan)
+    return DryRunResponse.from_outcome(outcome)
 
 
 @editor_router.get("/catalog")

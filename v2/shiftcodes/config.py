@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # Webhook secret shared with GitHub (file in the keys volume, read by the worker only).
     github_webhook_secret_file: Path | None = None
     # Report run status to GitHub; the token is the environment secret named below.
+    # MCP server for AI agents, mounted at /mcp (bearer API tokens only). Host header values
+    # accepted besides the public origin's own (DNS rebinding protection), e.g. a proxy's name.
+    mcp_enabled: bool = True
+    mcp_allowed_hosts: Annotated[list[str], NoDecode] = []
     github_status_enabled: bool = False
     github_status_token_secret: str = "GITHUB_STATUS_TOKEN"  # noqa: S105 - a secret *name*
     # Host-side path of ``<data_dir>/workspaces`` when the worker itself runs in a container
@@ -94,6 +98,15 @@ class Settings(BaseSettings):
         except ValidationError as error:
             raise ValueError(str(error)) from error
         return value
+
+    @field_validator("mcp_allowed_hosts", mode="before")
+    @classmethod
+    def _parse_mcp_hosts(cls, value: object) -> object:
+        """Accept a comma separated string of host names (``host`` or ``host:port``)."""
+        items = value.split(",") if isinstance(value, str) else value
+        if not isinstance(items, list | tuple):
+            return items
+        return [str(item).strip() for item in items if str(item).strip()]
 
     @field_validator("trusted_proxies", mode="before")
     @classmethod

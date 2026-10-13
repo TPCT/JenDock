@@ -16,6 +16,8 @@ dependencies = [
     "alembic>=1.14",
     "cryptography>=43",
     "argon2-cffi>=23.1",
+    "mcp==2.3.0",  # official MCP SDK (streamable HTTP server for agents, mounted at /mcp)
+    "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]

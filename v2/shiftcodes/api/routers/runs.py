@@ -18,7 +18,6 @@ from shiftcodes.api.schemas.runs import (
     RunSummary,
 )
 from shiftcodes.domain.enums import TokenScope
-from shiftcodes.execution.logs import CHUNK_BYTES
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 Reader = Annotated[Principal, Depends(require_scope(TokenScope.READ))]
@@ -53,9 +52,7 @@ def get_step_log(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> LogChunkResponse:
     """A bounded chunk of a step's log starting at byte ``offset`` (already masked)."""
-    step = container.run_queries().require_step(run_id, step_id)
-    chunk = container.log_store().read_chunk(run_id, step_id, offset, CHUNK_BYTES)
-    return LogChunkResponse.from_chunk(chunk, step_finished=step.status.is_finished)
+    return container.step_log(run_id, step_id, offset)
 
 
 @router.get("/{run_id}/events")

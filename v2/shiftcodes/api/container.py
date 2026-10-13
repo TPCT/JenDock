@@ -14,9 +14,10 @@ from shiftcodes.adapters.worker_client import (
     WorkerClient,
 )
 from shiftcodes.api.cookies import CookiePolicy
+from shiftcodes.api.schemas.runs import LogChunkResponse
 from shiftcodes.config import Settings
 from shiftcodes.domain.clock import Clock, utcnow
-from shiftcodes.execution.logs import LogStore
+from shiftcodes.execution.logs import CHUNK_BYTES, LogStore
 from shiftcodes.repositories.database import (
     SessionFactory,
     UnitOfWork,
@@ -151,3 +152,9 @@ class AppContainer:
     def environment_service(self) -> EnvironmentService:
         """Return the environment use cases with their own unit of work."""
         return EnvironmentService(self.uow(), self.clock)
+
+    def step_log(self, run_id: int, step_id: int, offset: int) -> LogChunkResponse:
+        """A bounded chunk of a step's log starting at byte ``offset`` (already masked)."""
+        step = self.run_queries().require_step(run_id, step_id)
+        chunk = self.log_store().read_chunk(run_id, step_id, offset, CHUNK_BYTES)
+        return LogChunkResponse.from_chunk(chunk, step_finished=step.status.is_finished)

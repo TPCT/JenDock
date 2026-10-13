@@ -99,7 +99,7 @@ def test_requires_authentication_and_read_scope(
     session: tuple[TestClient, str], finished: Run
 ) -> None:
     client, csrf = session
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     assert bare.get(f"/api/runs/{finished.id}").status_code == 401
     assert bare.get(f"/api/runs/{finished.id}/events").status_code == 401
     only_run = _bearer(client, csrf, ["run"])
@@ -283,7 +283,7 @@ def test_cancel_needs_csrf_origin_and_the_run_scope(
         client.post(url, headers={"Origin": "https://evil.test", "X-CSRF-Token": csrf}).status_code
         == 403
     )
-    bare = TestClient(client.app, base_url=client.base_url)
+    bare = TestClient(client.app, base_url=str(client.base_url))
     reader = _bearer(client, csrf, ["read"])
     assert bare.post(url, headers=reader).status_code == 403  # read scope is not enough
     assert harness.detail(run).run.status is RunStatus.QUEUED
