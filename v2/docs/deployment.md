@@ -64,9 +64,9 @@ the deployer refuses a deployment when one of them is not readable.
 - `DOCKER_GID` is that socket's group id: `stat -c %g /run/docker-isolation.sock`. The worker
   gets it through `group_add`; the API has no Docker access at all.
 - The worker deploys with `docker compose`. The overlay mounts **v1's pinned docker CLI** over
-  `/usr/local/bin/docker` and **v1's standalone `docker-compose` binary** into
-  `/usr/local/lib/docker/cli-plugins/docker-compose`, where the CLI finds it as a plugin.
-  `DOCKER_BINARY_HOST_PATH` / `DOCKER_COMPOSE_HOST_PATH` change the host paths.
+  `/usr/local/bin/docker` (`DOCKER_BINARY_HOST_PATH`); `docker compose` is the plugin shipped in
+  the worker image (v1's standalone `docker-compose` is root-only on the host).
+- `API_HOST_PORT` is the loopback port Apache proxies to (default 8000; pick a free one).
 
 ## 4. Settings (`.env`)
 

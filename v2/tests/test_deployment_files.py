@@ -25,7 +25,7 @@ def test_overlay_is_valid_yaml_for_the_two_services() -> None:
     worker = document["services"]["worker"]
     mounts = " ".join(worker["volumes"])
     assert "/usr/local/bin/docker:ro" in mounts
-    assert "cli-plugins/docker-compose:ro" in mounts
+    assert "cli-plugins/docker-compose" not in mounts  # the image ships the plugin
     assert ":/backups" in mounts
 
 
@@ -64,7 +64,7 @@ def test_worker_socket_path_lies_in_the_shared_volume_and_matches_the_default() 
 def test_vhost_proxies_to_the_loopback_port_of_the_compose_file() -> None:
     compose = yaml.safe_load((ROOT / "compose.yml").read_text())
     ports = compose["services"]["api"]["ports"]
-    assert ports == ["127.0.0.1:8000:8000"]
+    assert ports == ["127.0.0.1:${API_HOST_PORT:-8000}:8000"]  # default port matches the vhost
     vhost = VHOST.read_text()
     assert "http://127.0.0.1:8000/" in vhost
     assert "ServerName deploy.example.com" in vhost

@@ -19,7 +19,7 @@ services:
     # api = uid 10002, worker = uid 10001, shared group 10001 (see the Dockerfiles): the socket
     # is 0660 in a setgid 2770 directory, so a compromised API cannot act as the worker user.
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     volumes:
       - data:/var/lib/jendock
       - worker-socket:/run/jendock

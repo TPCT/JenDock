@@ -53,8 +53,8 @@ services:
     volumes:
       # The CLI v1 uses (29.8.2 at the time of writing); read-only, replaces the one in the image.
       - ${DOCKER_BINARY_HOST_PATH:-/opt/docker-engine/29.8.2/docker/docker}:/usr/local/bin/docker:ro
-      # v1's standalone docker-compose, found by `docker compose` as a CLI plugin.
-      - ${DOCKER_COMPOSE_HOST_PATH:-/opt/docker-engine/tools/docker-compose}:/usr/local/lib/docker/cli-plugins/docker-compose:ro
+      # `docker compose` is the plugin shipped in the worker image (v1's standalone binary is
+      # root-only on the host, mode 0700, so the worker user could not execute it).
       # Host directory for scheduled backups, owned by uid 10001 (mode 0750).
       - ${BACKUP_HOST_DIR:-/var/backups/jendock}:/backups
     cap_drop: [ALL]
