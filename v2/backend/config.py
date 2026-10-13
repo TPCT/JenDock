@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     container_memory: str = "2g"
     container_cpus: str = "2"
     build_memory: str = "2g"
+    # Docker network for image builds (RUN steps). Unset uses the daemon default; set it
+    # when that network has no egress or DNS (an isolated daemon with a build network).
+    build_network: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
     # Default wall-clock limit of one container step when no ``timeout`` applies.
     step_timeout_seconds: int = Field(default=3600, gt=0)
     # Container management (Tasks 8 and 9): the maxima a per-container CPU/RAM limit may reach,
@@ -108,6 +111,12 @@ class Settings(BaseSettings):
     # Directory of the built web UI (Vite ``dist``) served by the API; ``None`` = API only
     # (development uses the Vite dev server). The container image sets it.
     frontend_dist: Path | None = None
+
+    @field_validator("build_network", mode="before")
+    @classmethod
+    def _empty_build_network(cls, value: object) -> object:
+        """An empty value (an unset compose variable) means the daemon default."""
+        return None if value == "" else value
 
     @field_validator("container_memory", "build_memory")
     @classmethod

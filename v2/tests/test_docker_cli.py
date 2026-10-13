@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from backend.adapters.container_runtime import BuildSpec, Mount, RunSpec
+from backend.adapters.docker_args import build_argv
 from backend.adapters.docker_cli import DockerCliRuntime
 from backend.adapters.errors import ContainerRuntimeError
 from tests.docker_support import session_labels
@@ -223,3 +224,12 @@ def test_pull_image_exists_network_exists_and_remove(fake: Fixture) -> None:
     fake.runtime.remove_image("x:1")
     fake.behave(rmi_missing=True)
     fake.runtime.remove_image("gone:1")  # a missing image is not an error
+
+
+def test_build_uses_the_configured_build_network() -> None:
+    """An isolated daemon builds on a dedicated network that has DNS and egress."""
+    spec = BuildSpec(Path("/w"), Path("/w/Dockerfile"), "jendock/p-e-app:abc-r1", network="builds")
+    argv = build_argv("docker", spec, {})
+    assert argv[argv.index("--network") + 1] == "builds"
+    assert argv[-2:] == ["--", "/w"]
+    assert "--network" not in build_argv("docker", BuildSpec(Path("/w"), Path("/w/D"), "t"), {})

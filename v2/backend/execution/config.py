@@ -22,6 +22,7 @@ class ExecutionConfig:
     container_memory: str = "2g"
     container_cpus: float = 2.0
     build_memory: str = "2g"
+    build_network: str | None = None
     step_timeout_seconds: float = 3600.0
     queue_poll_interval: float = 1.0
     cancel_poll_interval: float = 1.0
@@ -45,6 +46,7 @@ class ExecutionConfig:
             container_memory=settings.container_memory,
             container_cpus=parse_cpus(settings.container_cpus),
             build_memory=settings.build_memory,
+            build_network=settings.build_network,
             step_timeout_seconds=float(settings.step_timeout_seconds),
             queue_poll_interval=settings.queue_poll_interval,
             cancel_poll_interval=settings.cancel_poll_interval,

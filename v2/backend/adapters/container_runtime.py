@@ -38,6 +38,7 @@ class BuildSpec:
     build_args: Mapping[str, str] = field(default_factory=dict)
     labels: Mapping[str, str] = field(default_factory=dict)
     memory: str | None = None
+    network: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

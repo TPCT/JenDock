@@ -79,6 +79,8 @@ def build_argv(binary: str, spec: BuildSpec, labels: Mapping[str, str]) -> list[
         argv += ["--target", spec.target]
     if spec.memory:
         argv += ["--memory", spec.memory]
+    if spec.network:
+        argv += ["--network", spec.network]
     for name in spec.build_args:
         check_build_arg_name(name)
         argv += ["--build-arg", name]

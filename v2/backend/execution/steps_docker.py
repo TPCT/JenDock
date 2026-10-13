@@ -87,6 +87,7 @@ class DockerBuildStep(Step):
                 "jendock.commit": job.commit_sha,
             },
             memory=limited_memory(None, ctx.run.config.build_memory),
+            network=ctx.run.config.build_network,
         )
         ctx.line(f"building {tag}")
         result = ctx.run.runtime.build_image(

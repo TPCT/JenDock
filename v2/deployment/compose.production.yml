@@ -48,6 +48,7 @@ services:
       JENDOCK_INSPECTOR_IMAGE: "${INSPECTOR_IMAGE:-jendock-v2-inspector:latest}"
       JENDOCK_BACKUP_ENABLED: "${BACKUP_ENABLED:-false}"
       JENDOCK_BACKUP_DIR: /backups
+      JENDOCK_BUILD_NETWORK: "${BUILD_NETWORK:-}"
       JENDOCK_BACKUP_KEEP: "${BACKUP_KEEP:-7}"
       JENDOCK_BACKUP_HOUR_UTC: "${BACKUP_HOUR_UTC:-3}"
     volumes:
