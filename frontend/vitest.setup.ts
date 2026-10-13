@@ -8,6 +8,7 @@ import { resetContainersMock } from "./src/mocks/containers";
 import { resetDatabasesMock } from "./src/mocks/databases";
 import { resetDeploymentsMock } from "./src/mocks/deployments";
 import { resetNotificationsMock } from "./src/mocks/notifications";
+import { resetResourcesMock } from "./src/mocks/resources";
 import { resetMockData } from "./src/mocks/data";
 import { resetIntegrationsMock } from "./src/mocks/integrations";
 import { server } from "./src/mocks/server";
@@ -60,6 +61,7 @@ afterEach(() => {
   resetAccessMock();
   resetAccountMock();
   resetContainersMock();
+  resetResourcesMock();
   resetDatabasesMock();
   resetDeploymentsMock();
   resetNotificationsMock();

@@ -414,14 +414,15 @@ describe("the UI hides what the user cannot do", () => {
     expect(screen.queryByRole("button", { name: "Restart" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Terminal" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Logs" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Limits" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Resources" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit limits" })).not.toBeInTheDocument();
     first.unmount();
     setMockPersona("maintainer");
     renderApp(WEB);
     expect(await screen.findByRole("button", { name: "Restart" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Terminal" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Logs" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Limits" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Edit limits" })).toBeInTheDocument();
   });
 
   it("gives a container-level grant exactly its permission", async () => {
