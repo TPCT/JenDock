@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from shiftcodes.adapters.compose_cli import DockerComposeEngine
+from shiftcodes.adapters.compose_deployer import DEPLOYMENTS_DIR_NAME
 from shiftcodes.adapters.compose_overrides import ComposeOverrideStore
 from shiftcodes.adapters.container_admin import DockerContainerEngine
 from shiftcodes.adapters.docker_client import DockerClient
+from shiftcodes.adapters.docker_commands import DockerCommands
+from shiftcodes.adapters.override_store import OverrideStore
 from shiftcodes.config import Settings
 from shiftcodes.containers.base import ContainerAuditor, Membership, TargetResolver
 from shiftcodes.containers.config import ContainerConfig
@@ -21,7 +24,7 @@ from shiftcodes.containers.locks import EnvironmentLocks
 from shiftcodes.containers.logs import LogService
 from shiftcodes.containers.recreate import (
     CombinedOverrideFiles,
-    OverrideFiles,
+    DeployOverrideFiles,
     ServiceRecreator,
     StoreOverrideFiles,
 )
@@ -49,24 +52,25 @@ def build_container_parts(
     settings: Settings,
     session_factory: SessionFactory,
     locks: EnvironmentLocks,
-    other_override_files: Sequence[OverrideFiles] = (),
 ) -> ContainerWorkerParts:
     """Wire the docker engines, services, telemetry collector and terminal server.
 
-    ``other_override_files`` lets the deploy engine contribute its own override files (the
-    image override) to the compose invocations of container operations. They come AFTER this
-    module's environment/limits override, so the deployed images stay pinned (the deploy
-    engine's file must be the last ``-f``).
+    The deployer's image override file is appended after this module's override file.
     """
     client = DockerClient(settings.docker_binary, settings.docker_host)
+    commands = DockerCommands(settings.docker_binary, settings.docker_host)
     engine = DockerContainerEngine(client)
     config = ContainerConfig.from_settings(settings)
     store = ComposeOverrideStore(settings.data_dir / OVERRIDES_DIR_NAME)
-    files = CombinedOverrideFiles(StoreOverrideFiles(store), *other_override_files)
+    # Order matters: the deployer's image override is the LAST compose file (images stay pinned).
+    files = CombinedOverrideFiles(
+        StoreOverrideFiles(store),
+        DeployOverrideFiles(OverrideStore(settings.data_dir / DEPLOYMENTS_DIR_NAME)),
+    )
     resolver = TargetResolver(session_factory)
     membership = Membership(engine)
     auditor = ContainerAuditor(session_factory)
-    recreator = ServiceRecreator(engine, DockerComposeEngine(client), files, config)
+    recreator = ServiceRecreator(engine, DockerComposeEngine(commands), files, config)
 
     def projects() -> Iterable[str]:
         uow = UnitOfWork(session_factory)

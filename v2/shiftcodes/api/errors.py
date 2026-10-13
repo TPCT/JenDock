@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -19,6 +20,7 @@ from shiftcodes.domain.errors import (
     PermissionDeniedError,
     RateLimitedError,
     SourceUnavailableError,
+    UpstreamError,
     ValidationError,
     WorkerError,
     WorkerUnavailableError,
@@ -35,6 +37,7 @@ _STATUS: tuple[tuple[type[DomainError], int, str], ...] = (
     (SourceUnavailableError, 502, "source_error"),
     (WorkerUnavailableError, 503, "worker_unavailable"),
     (WorkerError, 502, "worker_error"),
+    (UpstreamError, 502, "upstream_error"),
     (ConfigurationError, 500, "configuration_error"),
 )
 # Messages of these categories can mention internals, so clients only get a fixed text.
@@ -68,16 +71,41 @@ def _diagnostic_body(item: Diagnostic) -> dict[str, object]:
     }
 
 
-def _domain_error_handler(_request: Request, error: Exception) -> JSONResponse:
+@dataclass(frozen=True, slots=True)
+class ErrorDescription:
+    """How a domain error is presented to a client (HTTP status, code, safe message)."""
+
+    status: int
+    code: str
+    message: str
+    diagnostics: tuple[Diagnostic, ...] = ()
+    retry_after: int | None = None
+
+
+def describe_domain_error(error: Exception) -> ErrorDescription:
+    """The one mapping from domain errors to client-facing errors (REST and MCP share it)."""
     for error_type, status, code in _STATUS:
         if isinstance(error, error_type):
             message = _GENERIC_MESSAGES.get(code, str(error))
-            headers = None
-            if isinstance(error, RateLimitedError):
-                headers = {"Retry-After": str(error.retry_after)}
+            retry = error.retry_after if isinstance(error, RateLimitedError) else None
             diagnostics = error.diagnostics if isinstance(error, ValidationError) else ()
-            return error_response(status, code, message, headers, diagnostics)
-    return error_response(500, "internal_error", "internal server error")
+            return ErrorDescription(status, code, message, tuple(diagnostics), retry)
+    return ErrorDescription(500, "internal_error", "internal server error")
+
+
+def diagnostic_body(item: Diagnostic) -> dict[str, object]:
+    """JSON form of one positioned diagnostic."""
+    return _diagnostic_body(item)
+
+
+def _domain_error_handler(_request: Request, error: Exception) -> JSONResponse:
+    described = describe_domain_error(error)
+    headers = None
+    if described.retry_after is not None:
+        headers = {"Retry-After": str(described.retry_after)}
+    return error_response(
+        described.status, described.code, described.message, headers, described.diagnostics
+    )
 
 
 def _request_validation_handler(_request: Request, error: Exception) -> JSONResponse:

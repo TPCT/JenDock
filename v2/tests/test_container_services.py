@@ -3,23 +3,30 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine
 
+from shiftcodes.adapters.compose_cli import ComposeTarget, DockerComposeEngine
 from shiftcodes.adapters.container_admin import FileRead
 from shiftcodes.adapters.container_runtime import CancelSignal, LineSink
-from shiftcodes.adapters.deployer import DeployRequest
+from shiftcodes.adapters.deployer import DeployRequest, Recoverable, UnavailableDeployer
 from shiftcodes.containers.locks import EnvironmentBusyError, EnvironmentLocks, LockedDeployer
 from shiftcodes.containers.logs import LogCursor
 from shiftcodes.domain.actor import Actor
 from shiftcodes.domain.containers import EnvChange, EnvironmentKey, LifecycleAction, LimitChange
 from shiftcodes.domain.enums import ActorType, EnvironmentName
 from shiftcodes.domain.errors import ConflictError, NotFoundError, ValidationError
+from shiftcodes.logging import SecretRedactor
 from shiftcodes.repositories.database import UnitOfWork, create_session_factory
 from shiftcodes.services.audit import AuditService
+from shiftcodes.services.secret_cipher import SecretCipher
+from shiftcodes.worker.wiring import build_execution_env
+from tests.api_support import make_settings
 from tests.container_harness import DEV, Stack, build_stack
 from tests.container_support import make_record, new_id
 
@@ -500,3 +507,67 @@ def test_deployments_hold_the_environment_lock_and_honour_cancellation() -> None
     with locks.hold("demo/development", timeout=None), pytest.raises(EnvironmentBusyError):
         LockedDeployer(Inner(), locks).deploy(request, print, cancelled)
     assert seen == [True]
+
+
+class _RecoverableInner:
+    def __init__(self) -> None:
+        self.recovered = 0
+        self.requests: list[DeployRequest] = []
+
+    def deploy(self, request: DeployRequest, sink: LineSink, cancel: CancelSignal) -> None:
+        self.requests.append(request)
+
+    def recover(self) -> list[int]:
+        self.recovered += 1
+        return [7]
+
+
+def test_locked_deployer_forwards_recovery_and_satisfies_recoverable() -> None:
+    inner = _RecoverableInner()
+    wrapper = LockedDeployer(inner, EnvironmentLocks())
+    assert isinstance(wrapper, Recoverable)
+    assert wrapper.recover() == [7] and inner.recovered == 1
+    assert LockedDeployer(UnavailableDeployer(), EnvironmentLocks()).recover() == []
+
+
+def test_locked_deployer_adds_managed_files_before_the_deployers_own_override() -> None:
+    inner = _RecoverableInner()
+    request = DeployRequest("demo", "development", "demo-dev", ("/r/compose.yml",), (), 1, "a" * 40)
+    LockedDeployer(inner, EnvironmentLocks(), lambda _r: ["/m/container-overrides.yml"]).deploy(
+        request, print, threading.Event()
+    )
+    assert inner.requests[0].compose_files == ("/r/compose.yml", "/m/container-overrides.yml")
+
+
+class _RecordingRunner:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def capture(
+        self, args: Sequence[str], timeout: float = 30.0
+    ) -> subprocess.CompletedProcess[str]:
+        self.calls.append(list(args))
+        return subprocess.CompletedProcess(list(args), 0, "", "")
+
+
+def test_recreate_uses_the_shared_compose_prefix_with_env_files_and_override_order() -> None:
+    runner = _RecordingRunner()
+    engine = DockerComposeEngine(runner)  # type: ignore[arg-type]
+    files = ("/r/compose.yml", "/o/container-overrides.yml", "/d/override.yml")
+    engine.recreate(ComposeTarget("demo-dev", files, ("/r/.env.platform",)), "web", start=True)
+    engine.recreate(ComposeTarget("demo-dev", files), "web", start=False)
+    assert runner.calls[0] == [
+        "compose", "--env-file", "/r/.env.platform", "-p", "demo-dev",
+        "-f", "/r/compose.yml", "-f", "/o/container-overrides.yml", "-f", "/d/override.yml",
+        "up", "--no-deps", "--no-build", "--pull", "never", "--detach", "web",
+    ]  # fmt: skip
+    assert runner.calls[1][-2:] == ["--no-start", "web"]
+
+
+def test_the_real_deployer_is_wrapped_recoverable_and_locked(
+    tmp_path: Path, engine: Engine
+) -> None:
+    settings = make_settings(tmp_path)
+    cipher = SecretCipher(tmp_path / "k" / "secret.key")
+    env = build_execution_env(settings, create_session_factory(engine), cipher, SecretRedactor())
+    assert isinstance(env.deployer, LockedDeployer) and isinstance(env.deployer, Recoverable)

@@ -23,6 +23,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `shiftcodes/cli.py` - admin CLI (`python -m shiftcodes.cli users ...`)
 - `shiftcodes/mcp` - MCP server for AI agents
 - `shiftcodes/config.py`, `shiftcodes/logging.py` - settings (`SHIFTCODES_*`) and JSON logging
+- `shiftcodes/hosthelper` - the host helper (stdlib + cryptography): Apache vhosts, certificates;
+  ingress design in `docs/ingress.md`, install in `docs/ingress-host-helper.md`
 - `docker/` - `api.Dockerfile`, `worker.Dockerfile`; `compose.yml` wires them together
 
 ## Make targets
@@ -34,7 +36,10 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make test` - pytest (tests marked `docker` are deselected)
 - `make test-docker` - the real-Docker integration tests (`pytest -m docker`); they are skipped
   when no Docker daemon or git is available. They build and run containers in the local daemon,
-  label everything `shiftcodes.test=1`, and the teardown removes it and fails if anything is left
+  label everything `shiftcodes.test=1` plus a per-session `shiftcodes.test.session=<uuid>`
+  (`tests/docker_support.py`: `session_labels()`), and the teardown removes and checks only that
+  session's containers, images, networks and volumes, so parallel suites on one daemon do not
+  interfere
 - `make migrate` - `python -m shiftcodes.repositories.migrate` (upgrade head on
   `SHIFTCODES_DATABASE_URL`); the same command works inside the api/worker images
 - `make lock` - regenerate `requirements.lock` (needs Docker)
@@ -51,6 +56,12 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   `SHIFTCODES_DOCKER_HOST` points to.
 - `DOCKER_GID` - numeric group id owning that socket on the host (default `999`;
   see `stat -c %g <socket>`). Added to the worker via `group_add`.
+- `COMPOSE_PROJECTS_DIR` - host directory with the compose files and `--env-file` files of the
+  deployed projects (default `/opt/docker-engine/projects`). It is mounted read-only into the
+  worker at the **identical absolute path**: the compose CLI runs in the worker but the host
+  daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
+  file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
+  below it; the deployer refuses to start a deployment when one is not readable.
 
 ## Reproducible builds
 
@@ -200,9 +211,54 @@ the exit code.
   step). Strings are rendered from the AST parts and the resolved environment, never evaluated.
   `credentials('X')` is resolved by the worker through `SecretService.resolve_for_run` (audited as
   `secret.resolve`) and registered with the run's redactor.
-- `deploy` calls a `Deployer`; until Task 7 the worker wires `UnavailableDeployer`, which fails
-  the step with "deploy is not available yet (Task 7)". `healthCheck` does an HTTP GET (redirects
-  are not followed) every 2 s until the expected status or its timeout.
+- `deploy` calls a `Deployer` (`ComposeDeployer`, see Deployment below); optional
+  `healthUrl`/`healthStatus`/`healthTimeout` arguments add an HTTP check that must pass before
+  the deployment counts as good. `healthCheck` does an HTTP GET (redirects are not followed)
+  every 2 s until the expected status or its timeout.
+
+### Deployment (Task 7)
+
+`ComposeDeployer` (`shiftcodes/adapters/compose_deployer.py`) deploys the requested services of
+an environment and nothing else:
+
+0. Every compose invocation (config, ps, up, rm; deploy, rollback and recovery) starts with
+   `docker compose --env-file <f>... -p <project> -f <file>... [-f <override>]`, built only by
+   `ComposeProject.base_command` (Task 8 reuses it). `compose_env_files` of the environment
+   supply the variable interpolation of the compose files; every compose and env file must be
+   readable by the worker, otherwise the deployment is refused with a clear error.
+1. It checks that every service exists in `docker compose config` of the environment's own files
+   and that the new image exists locally (it never pulls or builds).
+2. It records, per service, the running image tag and id in a `deployments` row, and writes a
+   journal `<data_dir>/deployments/<compose project>/journal.json` (fsynced) with everything
+   needed to undo the change.
+3. It writes the managed override `<data_dir>/deployments/<compose project>/override.yml`
+   (atomic; the replaced version stays as `override.yml.prev`) that pins `image:` of each
+   deployed service, and runs `docker compose -p <project> -f <files...> -f <override> up -d
+   --no-deps --no-build --pull never <services>`. The override is always the last compose file, so
+   later restarts or recreations of the service keep the deployed image (Task 8 must append
+   `OverrideStore.path()` too).
+4. It waits (`SHIFTCODES_DEPLOY_HEALTH_TIMEOUT`, default 120 s) until every container is
+   `running` and, when it has a healthcheck, `healthy`, and stays so for
+   `SHIFTCODES_DEPLOY_SETTLE_SECONDS` (default 3) without its restart count increasing; then the
+   optional HTTP check runs.
+5. On any failure it restores the previous override, recreates the services from their previous
+   image (pinned by id when the tag moved; a service that did not exist before is removed) and
+   verifies them again: the deployment becomes `rolled_back`, or `rollback_failed` (the run fails
+   with a message starting `ROLLBACK FAILED`). Either way the step fails.
+6. After success it removes old images (`SHIFTCODES_IMAGE_RETENTION`, default 5): per logical
+   image (repository) of this project and environment (labels `shiftcodes.project` and
+   `shiftcodes.environment` are required, so foreign images are never touched) only the newest N
+   remain, plus any image used by a container and the images of the latest deployment
+   (previous and new).
+
+At worker start `recover_interrupted_deployments` (before runs are marked `interrupted`) rolls
+back every deployment whose journal is still on disk and marks deployments left `deploying`
+without a journal as `failed`. Recovery always rolls back rather than finishing, because the run
+that owned the deployment ends `interrupted`. One deployment per environment runs at a time.
+
+`GET .../deployments` lists the history and `POST .../deployments/{id}/redeploy` queues a run
+(trigger `redeploy`) that deploys the images of a successful deployment again without checkout
+or build; see `docs/api-contract.md`.
 
 ### Docker agents
 
@@ -416,6 +472,72 @@ larger than 256 KiB named `Jenkinsfile` is an error.
 
 See `docs/api-contract.md` (Projects, Runs): project list, create and settings, environment
 runs, branch heads (`git ls-remote` in the worker), manual runs and retries.
+
+## MCP server for AI agents (Task 12)
+
+The API process serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at
+`POST /mcp` (official `mcp` SDK 2.3.0, streamable HTTP, stateless JSON responses). It is mounted in
+the API instead of being a separate service: one process and one database, and the tools call
+the **same services as the REST routers** (the response shapes are the REST schemas), so no logic
+is duplicated and nothing is reachable that the API itself could not do. `SHIFTCODES_MCP_ENABLED=false`
+removes the route.
+
+### Authentication and scopes
+
+- Only `Authorization: Bearer sct_...` (the API tokens above) is accepted; cookies are never read,
+  so a browser session cannot reach `/mcp`. A missing or invalid token answers 401 with
+  `WWW-Authenticate: Bearer`.
+- A request with an `Origin` header must carry exactly `SHIFTCODES_PUBLIC_ORIGIN` (403 otherwise);
+  agents normally send none. The SDK also checks the `Host` header against the public origin's host
+  plus `SHIFTCODES_MCP_ALLOWED_HOSTS` (comma separated; set it when a reverse proxy changes the
+  Host header, e.g. `127.0.0.1:8000`).
+- `tools/list` shows only the tools whose scope the token holds, and `tools/call` re-checks the
+  scope (an unknown tool and a missing scope give the same `forbidden` answer). `admin` implies
+  every scope.
+
+### Tools
+
+| Scope | Tools |
+| --- | --- |
+| `read` | `list_projects`, `get_project`, `list_secret_names` (names only), `list_runs`, `get_run`, `read_step_log`, `preview_commit`, `get_pipeline`, `list_pipeline_versions`, `get_pipeline_version`, `validate_pipeline`, `dry_run_pipeline`, `get_pipeline_catalog`, `get_pipeline_templates` |
+| `pipelines` | `save_pipeline` (needs the `base_version` you read; validated first) |
+| `run` | `trigger_run`, `retry_run`, `cancel_run` |
+| `deploy` | none yet: `mcp/tools/deploy.py` is a marked stub (planned `list_deployments`, `redeploy`, `rollback`) until Task 7 is merged |
+
+A manual run is two steps: `preview_commit` shows the branch head (sha, message, author, date) and
+`trigger_run` must be given exactly that `commit_sha`; it fails with `conflict` when the branch
+moved in between. There is no tool to reveal, set or delete a secret, and step logs are the
+already-masked ones. Failed calls return `isError` results `{"error": {"code", "message",
+"diagnostics"?}}` using the REST error codes.
+
+Adding an area is one module in `shiftcodes/mcp/tools/` that defines `TOOLS` (a tuple of `Tool`
+with scope, JSON Schema and a handler that uses `ToolContext.container`), registered in
+`tools/__init__.py`; containers, database and domain tools join there when those tasks merge.
+
+### Audit
+
+Every `tools/call` writes an audit event `mcp.tool_call` with the **token** as actor
+(`ActorType.TOKEN`, the token id), target `mcp_tool/<name>`, and details `{tool, outcome, arguments}`
+where outcome is `ok`, `denied`, `invalid` or `error`. Arguments are recorded clipped to 200
+characters; a Jenkinsfile is recorded only as its length. Mutations are additionally audited by the
+services themselves (`run.create`, `run.cancel`, pipeline saves) with the same token identity.
+
+### Using it
+
+1. In the UI (session only; a token can never manage tokens) create a token under API tokens,
+   with the smallest set of scopes the agent needs (for example `read` + `run`), and copy the
+   `sct_...` value, which is shown once. Revoke it there when the agent is done.
+2. Point the client at `https://<host>/mcp` with the header `Authorization: Bearer <token>`:
+
+   ```
+   claude mcp add --transport http shiftcodes https://<host>/mcp \
+     --header "Authorization: Bearer sct_..."
+   ```
+
+   Other clients take the same two values in their server configuration, for example
+   `{"mcpServers": {"shiftcodes": {"type": "http", "url": "https://<host>/mcp",
+   "headers": {"Authorization": "Bearer sct_..."}}}}`.
+3. Check with `tools/list`: the tools shown are exactly those the token's scopes allow.
 
 ## Pipelines (Jenkinsfile)
 

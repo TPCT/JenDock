@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 from sqlalchemy import Engine
 
 from shiftcodes.adapters.container_client import ContainerClient, ContainersGateway
+from shiftcodes.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from shiftcodes.adapters.worker_client import (
     GithubGateway,
     RepositoryGateway,
@@ -15,10 +17,12 @@ from shiftcodes.adapters.worker_client import (
     WorkerClient,
 )
 from shiftcodes.api.cookies import CookiePolicy
+from shiftcodes.api.schemas.runs import LogChunkResponse
 from shiftcodes.api.terminal_tickets import TicketStore
 from shiftcodes.config import Settings
+from shiftcodes.config_ingress import IngressSettings, get_ingress_settings
 from shiftcodes.domain.clock import Clock, utcnow
-from shiftcodes.execution.logs import LogStore
+from shiftcodes.execution.logs import CHUNK_BYTES, LogStore
 from shiftcodes.repositories.database import (
     SessionFactory,
     UnitOfWork,
@@ -26,6 +30,10 @@ from shiftcodes.repositories.database import (
     create_session_factory,
 )
 from shiftcodes.services.auth import AuthService
+from shiftcodes.services.certificates import RenewalPolicy
+from shiftcodes.services.deployments import DeploymentService
+from shiftcodes.services.domain_status import DomainStatusService
+from shiftcodes.services.domains import DomainService
 from shiftcodes.services.environments import EnvironmentService
 from shiftcodes.services.passwords import PasswordHasher
 from shiftcodes.services.pipeline_editor import PipelineDocumentService, PipelineEditorService
@@ -59,6 +67,8 @@ class AppContainer:
     cookies: CookiePolicy
     # Webhook verification and branch lookups: both run in the worker (keys and git live there).
     github: GithubGateway
+    ingress: IngressGateway = field(default_factory=UnavailableIngress)
+    ingress_settings: IngressSettings = field(default_factory=IngressSettings)
     repository: RepositoryGateway = field(default_factory=UnavailableRepositoryGateway)
     # Failed webhook signatures per client IP (separate from the login limiter).
     webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
@@ -93,6 +103,8 @@ class AppContainer:
             cookies=CookiePolicy.for_settings(settings),
             containers=containers or ContainerClient(worker),
             terminal_tickets=TicketStore(clock),
+            ingress=IngressClient(settings.worker_socket_path),
+            ingress_settings=get_ingress_settings(),
             github=github or worker,
             repository=worker,
             webhook_limiter=webhook_failure_limiter(clock),
@@ -130,6 +142,24 @@ class AppContainer:
         """Return a run lifecycle service with its own unit of work."""
         return RunLifecycleService(self.uow(), self.clock)
 
+    def deployment_service(self) -> DeploymentService:
+        """Return a deployment history service with its own unit of work."""
+        return DeploymentService(self.uow(), self.clock)
+
+    def domain_service(self) -> DomainService:
+        """Return a domain service with its own unit of work."""
+        return DomainService(
+            self.uow(), self.clock, allow_wildcards=self.ingress_settings.allow_wildcards
+        )
+
+    def domain_status_service(self) -> DomainStatusService:
+        """Return the read-only domain status service."""
+        policy = RenewalPolicy(
+            renew_before=timedelta(days=self.ingress_settings.renew_before_days),
+            retry_after=timedelta(hours=self.ingress_settings.renew_retry_hours),
+        )
+        return DomainStatusService(self.uow(), self.domain_service(), policy, self.clock)
+
     def pipeline_editor(self) -> PipelineEditorService:
         """Return the parse/render/validate service with its own unit of work."""
         return PipelineEditorService(self.uow())
@@ -166,3 +196,9 @@ class AppContainer:
     def environment_service(self) -> EnvironmentService:
         """Return the environment use cases with their own unit of work."""
         return EnvironmentService(self.uow(), self.clock)
+
+    def step_log(self, run_id: int, step_id: int, offset: int) -> LogChunkResponse:
+        """A bounded chunk of a step's log starting at byte ``offset`` (already masked)."""
+        step = self.run_queries().require_step(run_id, step_id)
+        chunk = self.log_store().read_chunk(run_id, step_id, offset, CHUNK_BYTES)
+        return LogChunkResponse.from_chunk(chunk, step_finished=step.status.is_finished)

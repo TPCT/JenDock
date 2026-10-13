@@ -584,6 +584,26 @@ STEPS: Registry = {
                     ),
                     role=ImageRole.USES,
                 ),
+                _string(
+                    "healthUrl",
+                    "Optional address that must answer after the update; if it does not, the "
+                    "update is rolled back.",
+                    check=http_url,
+                ),
+                ArgSpec(
+                    "healthStatus",
+                    ValueKind.INT,
+                    default=200,
+                    check=int_range(100, 599),
+                    description="The HTTP status healthUrl must return.",
+                ),
+                ArgSpec(
+                    "healthTimeout",
+                    ValueKind.INT,
+                    default=60,
+                    check=int_range(1, 3600),
+                    description="Seconds to wait for healthUrl to answer.",
+                ),
             ),
             cross_check=_deploy_cross_check,
             image_uses=_deploy_uses,

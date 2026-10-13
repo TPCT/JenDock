@@ -7,14 +7,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from shiftcodes.adapters.compose_cli import ComposeEngine, ComposeTarget, compose_files
+from shiftcodes.adapters.compose_cli import ComposeEngine, ComposeTarget
 from shiftcodes.adapters.compose_overrides import ComposeOverrideStore
 from shiftcodes.adapters.container_admin import ContainerEngine
 from shiftcodes.adapters.docker_inspect import parse_container, service_of
 from shiftcodes.adapters.errors import AdapterError
+from shiftcodes.adapters.override_store import OverrideStore
 from shiftcodes.containers.base import EnvironmentTarget
 from shiftcodes.containers.config import ContainerConfig
-from shiftcodes.domain.containers import ContainerInfo, EnvironmentKey
+from shiftcodes.domain.containers import ContainerInfo
 from shiftcodes.domain.errors import ValidationError
 
 
@@ -25,7 +26,7 @@ class RecreateFailedError(Exception):
 class OverrideFiles(Protocol):
     """The managed override files of an environment, in the order compose must read them."""
 
-    def paths(self, key: EnvironmentKey) -> list[str]:
+    def paths(self, target: EnvironmentTarget) -> list[str]:
         """Existing override files (this module's and any other writer's)."""
 
 
@@ -35,9 +36,9 @@ class StoreOverrideFiles:
     def __init__(self, store: ComposeOverrideStore) -> None:
         self._store = store
 
-    def paths(self, key: EnvironmentKey) -> list[str]:
+    def paths(self, target: EnvironmentTarget) -> list[str]:
         """The file of ``ComposeOverrideStore`` when it exists."""
-        args = self._store.compose_file_args(key)
+        args = self._store.compose_file_args(target.key)
         return args[1::2]
 
 
@@ -47,9 +48,21 @@ class CombinedOverrideFiles:
     def __init__(self, *parts: OverrideFiles) -> None:
         self._parts = parts
 
-    def paths(self, key: EnvironmentKey) -> list[str]:
+    def paths(self, target: EnvironmentTarget) -> list[str]:
         """Every part's files, in order."""
-        return [path for part in self._parts for path in part.paths(key)]
+        return [path for part in self._parts for path in part.paths(target)]
+
+
+class DeployOverrideFiles:
+    """The deployer's managed image override (``OverrideStore``): it must be the last file."""
+
+    def __init__(self, store: OverrideStore) -> None:
+        self._store = store
+
+    def paths(self, target: EnvironmentTarget) -> list[str]:
+        """The image override of the environment's compose project, once something was deployed."""
+        path = self._store.file_for_compose(target.compose_project)
+        return [str(path)] if path is not None else []
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,10 +98,12 @@ class ServiceRecreator:
 
     def recreate(self, target: EnvironmentTarget, service: str, *, start: bool) -> RecreateOutcome:
         """Recreate ``service`` with the current files and verify the result."""
-        files = compose_files(target.compose_files, self._files.paths(target.key))
+        files = (*target.compose_files, *self._files.paths(target))
         try:
             self._compose.recreate(
-                ComposeTarget(target.compose_project, files), service, start=start
+                ComposeTarget(target.compose_project, files, target.compose_env_files),
+                service,
+                start=start,
             )
         except AdapterError as error:
             raise RecreateFailedError(str(error)) from error

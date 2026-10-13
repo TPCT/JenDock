@@ -234,6 +234,53 @@ Scope `run`, CSRF. 200 `{outcome: "cancelled" | "requested", run: RunResponse}`.
 (`cancel_requested_at` set, status still `running`). The UI offers cancel only while
 `queued|running`, behind a confirmation, and shows "Cancel requested" afterwards.
 
+## Deployments (exists)
+
+A deployment is one rollout of built images to the services of an environment. The worker
+records it (previous and new image per service) before it changes anything, verifies container
+health afterwards and rolls back automatically when the new containers do not become healthy.
+Deployment statuses: `pending` (a queued redeploy that has not started), `deploying`,
+`succeeded`, `failed` (refused before anything changed), `rolled_back` (the new images failed
+and the previous ones run again) and `rollback_failed` (both failed: needs manual attention; the
+run is failed with a message starting `ROLLBACK FAILED`). A `pending` row whose run ended
+without deploying is reported as `failed` with the run's message.
+
+### `GET /api/projects/{slug}/environments/{env}/deployments?limit=20&offset=0`
+
+Scope `read`. `env` is `development|production`; `limit` 1-100, `offset` >= 0. 200, newest first:
+
+```json
+{
+  "items": [{
+    "id": 12, "run_id": 41, "run_number": 9, "status": "succeeded",
+    "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+    "services": [{
+      "service": "web",
+      "previous_image": "sc/shop-production-web:aaaaaaaaaaaa-r8", "previous_image_id": "sha256:...",
+      "new_image": "sc/shop-production-web:bbbbbbbbbbbb-r9", "new_image_id": "sha256:..."
+    }],
+    "message": null, "redeploy_of": null,
+    "created_at": "2026-10-13T10:00:00Z", "started_at": "...", "finished_at": "..."
+  }],
+  "total": 1, "limit": 20, "offset": 0
+}
+```
+
+`previous_image` and `previous_image_id` are `null` for a service that was not running before.
+`message` explains `failed`, `rolled_back` and `rollback_failed`. `redeploy_of` is the id of the
+deployment whose images a redeploy reuses. 404 for an unknown project, 422 for a bad `env`.
+
+### `POST /api/projects/{slug}/environments/{env}/deployments/{id}/redeploy`
+
+Scope `deploy`, CSRF. Queues a run (trigger `redeploy`, pipeline source `platform`) whose
+pipeline is a synthetic `deploy` of the images of deployment `{id}`; nothing is rebuilt and the
+source is not checked out (the Checkout stage is `skipped`). Only a `succeeded` deployment of
+this environment can be redeployed, and its images must still exist on the host (image
+retention keeps the newest ones). Audited as `deployment.redeploy`.
+201 `{run: RunSummary, deployment_id}` where `deployment_id` is the new `pending` deployment;
+404 `not_found` (unknown deployment, or one of another environment), 409 `conflict` (the
+deployment did not succeed, or the run number was taken concurrently: retry).
+
 ## Pipelines (implemented)
 
 The browser never parses or serializes Jenkinsfile text. The server is the single source of
@@ -486,6 +533,8 @@ host_port}], mounts: [{type, source, destination, read_only}]}`. No env values.
   recreated with it and the call answers 409 "previous configuration was restored".
   200 `{service, restarted, containers: ContainerView[]}` (ids change: the container is new).
   Compose-file variables can be overridden, not deleted; `remove` drops the override.
+  The override file is also applied by every later deployment; the deployer's image override
+  stays the last compose file, so env edits never revert a deployed image.
 - `PUT "/{id}/limits"` body `{cpus?, memory?}` (`1.5`, `"512m"`; at least one; capped by
   `SHIFTCODES_MANAGED_MAX_CPUS` / `SHIFTCODES_MANAGED_MAX_MEMORY`, 422 above) -> `ContainerView`.
   Applied live with `docker update` and persisted in the override file so recreates keep them.
@@ -533,6 +582,137 @@ outcome applied|restored|restore_failed), `container.env.reveal`, `container.lim
    PTY in the worker. Input is rate limited (64 KiB/s); frames are sequenced and bounded. Commands
    and output are never stored or logged; the audit holds only open/close with who, container,
    reason, duration and exit code.
+
+## Domains (exists, Task 11)
+
+A **domain** routes a public hostname to one service port of an environment: Cloudflare DNS
+record, Apache vhost (reverse proxy to `127.0.0.1:<published_port>`) and a TLS certificate.
+Hostnames are unique across all projects and environments. Reads need scope `read`; every
+mutation needs scope `admin` (plus CSRF for sessions) and is audited. Design and operations:
+`docs/ingress.md`.
+
+New error code: `upstream_error` 502 (Cloudflare, the Apache host helper or the ACME CA refused
+or failed; unlike `worker_error` the `message` is meant to be shown, e.g. `Cloudflare rejected
+the API token (check its scope)` or `configtest failed, change reverted: <apache output>`).
+`conflict` 409 is also returned when a DNS record that Shiftcodes did not create is in the way,
+and when an apply/remove `plan_hash` is stale.
+
+```json
+Domain {
+  "id": 7, "hostname": "app.example.com", "service": "web",
+  "container_port": 8080, "published_port": 20001,
+  "dns_record_type": "A" | "AAAA" | "CNAME", "dns_target": "203.0.113.7" | null,
+  "dns_proxied": false, "tls_enabled": true,
+  "status": "draft" | "active" | "error", "status_message": string | null,
+  "applied_at": ts | null, "last_verified_at": ts | null, "last_verified_ok": bool | null,
+  "created_at": ts, "updated_at": ts
+}
+DomainDetail = Domain + { "certificate": Certificate | null, "check": Check | null }
+Certificate { "not_after": ts, "days_remaining": 87,
+              "state": "ok" | "renewal_due" | "warning" | "critical" | "expired",
+              "last_attempt_at": ts | null, "last_error": string | null }
+Check { "checked_at": ts, "ok": bool,
+        "results": { "dns":     {ok, detail, checked_at, addresses, expected?},
+                     "https":   {ok, detail, checked_at, status_code?, certificate_not_after?},
+                     "backend": {ok, detail, checked_at, port} } }
+```
+
+`dns_target: null` means "the server's public address" from the deployment settings (A/AAAA);
+a CNAME always needs an explicit target. `published_port` is the host loopback port the
+container publishes (1024-65535); it must also lie in the host helper's allowlisted range.
+`status`: `draft` = defined only, `active` = applied, `error` = the last apply failed.
+Certificate `state`: `renewal_due` = inside the 30 day window (renewal runs in the worker),
+`warning` < 14 days left, `critical` < 3 days, `expired`.
+
+### `GET /api/projects/{slug}/environments/{env}/domains`
+
+Scope `read`. 200 `DomainDetail[]` ordered by hostname.
+
+### `POST /api/projects/{slug}/environments/{env}/domains`
+
+Scope `admin`. Body (extra keys rejected):
+`{hostname, service, container_port, published_port, dns_record_type?="A", dns_target?,
+dns_proxied?=false, tls_enabled?=true}`. 201 `Domain` in status `draft`; **nothing is applied**.
+`hostname` is normalized (lowercase, IDNA `xn--` labels, trailing dot dropped). 422
+`validation_error` (invalid name, IP literal, wildcard unless enabled by the operator, port out
+of range, service not in the environment's service list, target not matching the record type),
+409 `conflict` when the hostname is taken anywhere.
+
+### `GET .../domains/{id}`
+
+Scope `read`. 200 `DomainDetail`; 404 for an id that belongs to another environment.
+
+### `PATCH .../domains/{id}`
+
+Scope `admin`. Body: any of `service, container_port, published_port, dns_record_type,
+dns_target (null resets to the server default), dns_proxied, tls_enabled`. 200 `Domain`. The
+hostname cannot change (delete and recreate). Changes reach DNS/Apache only through
+preview + apply.
+
+### `DELETE .../domains/{id}`
+
+Scope `admin`. 204 only for `draft` domains; otherwise 409 (remove it first, below).
+
+### `POST .../domains/{id}/preview`
+
+Scope `admin` (it uses the Cloudflare token). Body `{operation?: "apply" | "remove" = "apply"}`.
+Read-only toward Cloudflare/Apache (GET requests and a dry-run render). 200:
+
+```json
+Plan {
+  "domain_id": 7, "hostname": "app.example.com", "operation": "apply", "blocked": false,
+  "dns":   { "action": "create"|"update"|"delete"|"noop"|"conflict", "zone": "example.com",
+             "current": Record | null, "desired": Record | null, "removes": Record[],
+             "message": "" },
+  "vhost": { "action": "create"|"update"|"delete"|"noop", "current": string | null,
+             "proposed": string | null, "diff": "unified diff, current -> proposed" },
+  "tls":   { "action": "issue"|"keep"|"remove"|"none", "challenge": "dns-01"|"http-01"|null,
+             "not_after": ts | null },
+  "steps": ["DNS: create", "Apache: HTTP vhost, then reload", "TLS: issue certificate (dns-01)", ...],
+  "plan_hash": "<64 hex>"
+}
+Record { "record_type", "name", "content", "proxied" }
+```
+
+`blocked: true` (`dns.action: "conflict"`) means a record not created by Shiftcodes exists at
+that name; apply is refused and nothing is touched. Cloudflare errors (no token secret, token
+rejected, no zone) come back as 404 (missing `CLOUDFLARE_API_TOKEN` secret of the environment),
+500 `configuration_error` (no server address configured) or 502 `upstream_error`.
+
+### `POST .../domains/{id}/apply`
+
+Scope `admin`. Body `{plan_hash}` (exactly the value of the preview the user reviewed). The
+server recomputes the plan and returns 409 `conflict` if it differs, so the shown diff is the
+applied diff. 200 returns the applied `Plan`. Order: DNS record; HTTP vhost; certificate
+(ACME, only when needed); TLS vhost. On failure the domain becomes `error` with
+`status_message`, the response is 502 `upstream_error`, and Apache is back on its previous
+configuration (the helper reverts a change that fails `configtest` or reload). The call can
+take minutes (certificate issuance); the UI should show progress and not time out before
+about 5 minutes.
+
+### `POST .../domains/{id}/remove`
+
+Scope `admin`. Body `{plan_hash}` from a `preview` with `operation: "remove"`. Removes the
+vhost, certificate files/row and only the DNS records Shiftcodes created; the domain returns
+to `draft`. 200 the applied `Plan`.
+
+### `POST .../domains/{id}/check`
+
+Scope `admin` (it makes outbound requests and stores the result). 200 `Check`. DNS must
+resolve to the server (for proxied records: resolve at all), HTTPS must answer < 500 with a
+valid certificate for the hostname (plain HTTP when `tls_enabled` is false), and the backend
+port must accept connections on the host. The result and its time are stored and returned by
+`GET .../domains/{id}` as `check`, and `last_verified_*` on the domain are updated.
+
+### `POST .../domains/{id}/certificate`
+
+Scope `admin`. Issue or renew the certificate now (domain must be `active` with
+`tls_enabled`; otherwise 409). 200 `Certificate` (`last_*` fields are null). Renewal otherwise
+happens automatically 30 days before expiry.
+
+### `GET /api/ingress/certificates`
+
+Scope `read`. Expiry monitoring: 200 `[{domain_id, hostname} + Certificate]`, soonest expiry first.
 
 ## Serving the UI (status: exists)
 

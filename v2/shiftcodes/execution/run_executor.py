@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 
 from shiftcodes.domain.diagnostics import Diagnostic
-from shiftcodes.domain.enums import RunStatus
+from shiftcodes.domain.enums import PipelineSource, RunStatus, RunTrigger
 from shiftcodes.domain.errors import NotFoundError
 from shiftcodes.execution.cancel import CancelReason, CancelToken
 from shiftcodes.execution.context import ImageBook, RunContext, RunJob
@@ -25,6 +25,9 @@ from shiftcodes.execution.runner import PipelineRunner, RunOutcome
 from shiftcodes.pipeline import PipelineSyntaxError, ValidationContext, parse, validate
 from shiftcodes.pipeline.ast import Pipeline
 from shiftcodes.pipeline.errors import Severity
+from shiftcodes.repositories.database import UnitOfWork
+from shiftcodes.repositories.models import Run
+from shiftcodes.services.deployments import redeploy_images
 
 logger = logging.getLogger(__name__)
 MAX_SYNTAX_MESSAGE = 300
@@ -138,16 +141,28 @@ class RunExecutor:
                 repository=project.repository,
                 compose_project=environment.compose_project,
                 compose_files=tuple(environment.compose_files),
+                compose_env_files=tuple(environment.compose_env_files),
                 services=tuple(environment.services),
                 pipeline_text=run.pipeline_text,
                 git_transport=project.git_transport,
                 pipeline_source=run.pipeline_source,
+                redeploy_images=self._redeploy_images(uow, run),
             )
             return job, names
+
+    @staticmethod
+    def _redeploy_images(uow: UnitOfWork, run: Run) -> tuple[tuple[str, str], ...]:
+        if run.trigger is not RunTrigger.REDEPLOY:
+            return ()
+        return tuple(redeploy_images(uow, run.id).items())
 
     def _resolve(self, job: RunJob) -> ResolvedPipeline | RunOutcome:
         """Pick the pipeline: the repository's Jenkinsfile at the commit, else the stored one."""
         env = self._env
+        if job.redeploy_images:
+            # A redeploy runs its own synthetic pipeline; the repository is not consulted.
+            note = "redeploy of the images of an earlier deployment"
+            return ResolvedPipeline(PipelineSource.PLATFORM, job.pipeline_text, note)
 
         def stored(environment_id: int) -> str | None:
             with env.uow() as uow:
@@ -179,7 +194,8 @@ class RunExecutor:
         except PipelineSyntaxError as error:
             message = f"pipeline syntax error: {error}"
             return self._fail_with_log(job.run_id, [message], message)
-        diagnostics = validate(pipeline, ValidationContext(secret_names))
+        built = frozenset(name for name, _ in job.redeploy_images)
+        diagnostics = validate(pipeline, ValidationContext(secret_names, built))
         errors = [d for d in diagnostics if d.severity is Severity.ERROR]
         if errors:
             first = errors[0]
@@ -228,6 +244,8 @@ class RunExecutor:
             resolve_secrets=resolve,
             images=ImageBook(),
         )
+        for logical, tag in job.redeploy_images:
+            context.images.built(logical, tag)
         history = LifecycleHistory(lifecycle, job.run_id)
         return PipelineRunner(context, env.logs, history).run(pipeline)
 

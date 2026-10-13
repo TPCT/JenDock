@@ -86,7 +86,7 @@ class Wired:
 
     def bare(self) -> TestClient:
         """A client without cookies."""
-        return TestClient(self.client.app, base_url=self.client.base_url)
+        return TestClient(self.client.app, base_url=str(self.client.base_url))
 
     def audit(self, action: str) -> list[dict[str, object]]:
         """Audit details of ``action``."""

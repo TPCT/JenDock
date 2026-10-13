@@ -11,6 +11,7 @@ from shiftcodes.domain.enums import EnvironmentName
 from shiftcodes.domain.errors import ValidationError
 from shiftcodes.domain.values import (
     BranchName,
+    validate_compose_env_files,
     validate_compose_files,
     validate_compose_project,
     validate_service_names,
@@ -33,6 +34,7 @@ class EnvironmentUpdate:
     compose_project: str | None = None
     clear_compose_project: bool = False
     compose_files: list[str] | None = None
+    compose_env_files: list[str] | None = None
     services: list[str] | None = None
 
 
@@ -104,6 +106,9 @@ def _validate_update(change: EnvironmentUpdate) -> EnvironmentUpdate:
         compose_files=validate_compose_files(change.compose_files)
         if change.compose_files is not None
         else None,
+        compose_env_files=validate_compose_env_files(change.compose_env_files)
+        if change.compose_env_files is not None
+        else None,
         services=validate_service_names(change.services) if change.services is not None else None,
     )
 
@@ -119,5 +124,7 @@ def _apply_update(environment: Environment, change: EnvironmentUpdate) -> None:
         environment.compose_project = change.compose_project
     if change.compose_files is not None:
         environment.compose_files = change.compose_files
+    if change.compose_env_files is not None:
+        environment.compose_env_files = change.compose_env_files
     if change.services is not None:
         environment.services = change.services

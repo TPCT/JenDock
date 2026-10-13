@@ -1,12 +1,16 @@
-"""Recreating a single compose service with the ``docker compose`` plugin."""
+"""Recreating a single compose service with the ``docker compose`` plugin.
+
+The argument prefix (``compose --env-file ... -p ... -f ...``) comes from ``ComposeProject``,
+the one builder shared with the deployer.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from shiftcodes.adapters.docker_client import DockerClient
+from shiftcodes.adapters.compose_project import ComposeProject
+from shiftcodes.adapters.docker_commands import CommandRunner
 from shiftcodes.adapters.errors import ContainerRuntimeError
 
 COMPOSE_TIMEOUT = 180.0
@@ -17,11 +21,13 @@ MAX_ERROR_CHARS = 400
 class ComposeTarget:
     """A compose project and the files that define it, in merge order.
 
-    ``files`` are the repository's compose files followed by every managed override file.
+    ``files`` are the repository's compose files followed by every managed override file (the
+    deployer's image override last, so deployed images stay pinned).
     """
 
     project: str
     files: tuple[str, ...]
+    env_files: tuple[str, ...] = ()
 
 
 class ComposeEngine(Protocol):
@@ -32,31 +38,24 @@ class ComposeEngine(Protocol):
 
 
 class DockerComposeEngine:
-    """``docker compose up --no-deps --no-build`` for one service."""
+    """``docker compose up --no-deps --no-build --pull never`` for one service."""
 
-    def __init__(self, client: DockerClient, timeout: float = COMPOSE_TIMEOUT) -> None:
-        self._client = client
+    def __init__(self, docker: CommandRunner, timeout: float = COMPOSE_TIMEOUT) -> None:
+        self._docker = docker
         self._timeout = timeout
 
     def recreate(self, target: ComposeTarget, service: str, *, start: bool) -> None:
         """Recreate ``service`` when its configuration changed.
 
-        A running service is started again (``up -d``). A stopped service is only created
-        (``--no-start``) so that it stays stopped. Images are never built or pulled.
+        A running service is started again (``up --detach``). A stopped service is only
+        created (``--no-start``) so that it stays stopped. Images are never built or pulled.
         """
-        argv = ["compose", "--project-name", target.project]
-        for path in target.files:
-            argv += ["--file", path]
-        argv += ["up", "--no-deps", "--no-build", "--pull", "never"]
+        project = ComposeProject(self._docker, target.project, target.files, None, target.env_files)
+        argv = [*project.base_command(), "up", "--no-deps", "--no-build", "--pull", "never"]
         argv += ["--detach"] if start else ["--no-start"]
-        result = self._client.run([*argv, service], timeout=self._timeout)
+        result = self._docker.capture([*argv, service], self._timeout)
         if result.returncode != 0:
             raise ContainerRuntimeError(_summary(result.stderr))
-
-
-def compose_files(base: Sequence[str], overrides: Sequence[str]) -> tuple[str, ...]:
-    """Repository files first, managed override files after them."""
-    return (*base, *overrides)
 
 
 def _summary(stderr: str) -> str:

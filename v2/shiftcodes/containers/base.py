@@ -29,6 +29,7 @@ class EnvironmentTarget:
     environment_id: int
     compose_project: str
     compose_files: tuple[str, ...]
+    compose_env_files: tuple[str, ...] = ()
 
 
 class TargetResolver:
@@ -44,10 +45,13 @@ class TargetResolver:
             environment = require_environment(uow, slug, env)
             project = environment.compose_project
             files = tuple(environment.compose_files)
+            env_files = tuple(environment.compose_env_files)
             environment_id = environment.id
         if not project:
             raise ValidationError("this environment has no compose project configured")
-        return EnvironmentTarget(EnvironmentKey(slug, env), environment_id, project, files)
+        return EnvironmentTarget(
+            EnvironmentKey(slug, env), environment_id, project, files, env_files
+        )
 
 
 class Membership:

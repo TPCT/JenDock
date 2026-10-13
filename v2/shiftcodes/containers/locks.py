@@ -8,11 +8,16 @@ until the operation ends (or the run is cancelled).
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
 
+from shiftcodes.adapters.compose_overrides import ComposeOverrideStore
 from shiftcodes.adapters.container_runtime import CancelSignal, LineSink
-from shiftcodes.adapters.deployer import Deployer, DeployRequest
+from shiftcodes.adapters.deployer import Deployer, DeployRequest, Recoverable
+from shiftcodes.domain.containers import EnvironmentKey
+from shiftcodes.domain.enums import EnvironmentName
 from shiftcodes.domain.errors import ConflictError
 
 POLL_SECONDS = 0.2
@@ -70,15 +75,47 @@ def lock_key(project: str, environment: str) -> str:
     return f"{project}/{environment}"
 
 
-class LockedDeployer:
-    """Wraps a ``Deployer`` so a deployment excludes container operations on its environment."""
+ExtraFiles = Callable[[DeployRequest], Sequence[str]]
 
-    def __init__(self, inner: Deployer, locks: EnvironmentLocks) -> None:
+
+class LockedDeployer:
+    """Wraps a ``Deployer`` so a deployment excludes container operations on its environment.
+
+    ``extra_files`` names managed compose files (the env/limits override of container
+    management) that every deployment must apply too; they are appended to the request's compose
+    files, so the deployer's own image override stays the last ``-f``.
+    """
+
+    def __init__(
+        self, inner: Deployer, locks: EnvironmentLocks, extra_files: ExtraFiles | None = None
+    ) -> None:
         self._inner = inner
         self._locks = locks
+        self._extra_files = extra_files
 
     def deploy(self, request: DeployRequest, sink: LineSink, cancel: CancelSignal) -> None:
         """Wait for the environment lock (observing cancellation), then deploy."""
         key = lock_key(request.project, request.environment)
         with self._locks.hold(key, timeout=None, cancel=cancel):
+            if self._extra_files is not None:
+                extra = [
+                    path for path in self._extra_files(request) if path not in request.compose_files
+                ]
+                request = replace(request, compose_files=(*request.compose_files, *extra))
             self._inner.deploy(request, sink, cancel)
+
+    def recover(self) -> list[int]:
+        """Forward crash recovery to the wrapped deployer (``Recoverable``); none means nothing."""
+        inner = self._inner
+        return inner.recover() if isinstance(inner, Recoverable) else []
+
+
+def managed_files(root: Path) -> ExtraFiles:
+    """Provider of the container-management override file of the deployed environment."""
+    store = ComposeOverrideStore(root)
+
+    def files(request: DeployRequest) -> list[str]:
+        key = EnvironmentKey(request.project, EnvironmentName(request.environment))
+        return store.compose_file_args(key)[1::2]
+
+    return files
