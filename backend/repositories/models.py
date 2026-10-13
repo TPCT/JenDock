@@ -112,6 +112,25 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(254), default=None)
     must_change_password: Mapped[bool] = mapped_column(default=False, server_default="0")
 
+    # Two-factor authentication: the TOTP key encrypted by the worker (never plaintext at
+    # rest). It is pending until ``totp_enabled_at`` is set by a successful verification.
+    totp_secret: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    totp_last_step: Mapped[int | None] = mapped_column(default=None)
+
+
+class RecoveryCode(Base):
+    """A one-time two-factor recovery code; only its SHA-256 hash is stored."""
+
+    __tablename__ = "recovery_codes"
+    __table_args__ = (Index("ix_recovery_codes_user_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    code_hash: Mapped[str] = mapped_column(String(128), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    used_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+
 
 class AccessGrant(Base):
     """What a member may do on a project, one of its environments or one container service.
@@ -159,6 +178,9 @@ class Session(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UtcDateTime)
+    # Client address (from the trusted proxy) and a short user agent, for the sessions list.
+    ip_address: Mapped[str | None] = mapped_column(String(64), default=None)
+    user_agent: Mapped[str | None] = mapped_column(String(255), default=None)
 
 
 class ApiToken(Base):
@@ -466,6 +488,7 @@ class WebhookDelivery(Base):
     event: Mapped[str] = mapped_column(String(32))
     repository: Mapped[str | None] = mapped_column(String(160), default=None)
     outcome: Mapped[str] = mapped_column(String(32))
+    branch: Mapped[str | None] = mapped_column(String(200), default=None)
     received_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
 

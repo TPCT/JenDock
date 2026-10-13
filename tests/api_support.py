@@ -11,16 +11,23 @@ from argon2 import PasswordHasher as Argon2Hasher
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from backend.adapters.worker_client import GithubGateway, SecretsGateway, WorkerClient
+from backend.adapters.worker_client import (
+    GithubGateway,
+    SecretsGateway,
+    TotpEnrollment,
+    WorkerClient,
+)
 from backend.api.app import create_asgi_app
 from backend.api.container import AppContainer
 from backend.config import Settings
 from backend.domain.actor import Actor
 from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.mfa_challenges import MfaChallengeStore
 from backend.services.passwords import PasswordHasher
 from backend.services.rate_limit import webhook_failure_limiter
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
+from backend.services.totp import TotpVault
 from backend.services.users import UserService
 from backend.worker.handlers import build_handlers
 from backend.worker.rpc import RpcServer
@@ -43,6 +50,26 @@ class FakeClock:
     def advance(self, **kwargs: float) -> None:
         """Move time forward."""
         self.now += timedelta(**kwargs)
+
+    def timestamp(self) -> float:
+        """The current Unix time (for the TOTP vault)."""
+        return self.now.timestamp()
+
+
+class LocalTotp:
+    """The worker's two-factor key operations, run in process (real vault, real cipher)."""
+
+    def __init__(self, vault: TotpVault) -> None:
+        self.vault = vault
+
+    def totp_generate(self) -> TotpEnrollment:
+        """Create a key."""
+        secret, ciphertext = self.vault.generate()
+        return TotpEnrollment(secret, ciphertext)
+
+    def totp_check(self, ciphertext: bytes, code: str, after_step: int | None) -> int | None:
+        """The matching time step or ``None``."""
+        return self.vault.check(ciphertext, code, after_step)
 
 
 def fast_hasher() -> PasswordHasher:
@@ -95,6 +122,10 @@ def make_container(
         secrets=base.secrets,
         cookies=base.cookies,
         github=github or base.github,
+        totp=LocalTotp(
+            TotpVault(SecretCipher(settings.data_dir / "totp-test.key"), clock.timestamp)
+        ),
+        mfa_challenges=MfaChallengeStore(clock),
     )
 
 

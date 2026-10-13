@@ -8,14 +8,17 @@ no rules of its own.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from backend.api.container import AppContainer
 from backend.api.principal import Principal
 from backend.containers.wire import ContainerView
 from backend.domain.access import GLOBAL, NO_SERVICE, Action, Resource
+from backend.domain.audit import AuditFilter
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import DomainError, PermissionDeniedError
 from backend.services import policy
+from backend.services.dashboard import DashboardScope
 from backend.services.project_queries import EnvironmentPredicate, ProjectFilter
 
 
@@ -162,3 +165,36 @@ def visible_containers(
             Resource(slug, environment, view.service or NO_SERVICE),
         )
     ]
+
+
+def audit_filter(principal: Principal, criteria: AuditFilter) -> AuditFilter:
+    """``criteria`` narrowed to what the principal may read of the audit log.
+
+    Owners and admins read everything. A member reads only their own activity (what they did and
+    what happened to their account), and only about projects they can still see.
+    """
+    if principal.role.is_privileged:
+        return criteria
+    slugs = sorted({grant.project for grant in principal.grants})
+    visible = tuple(slug for slug in slugs if policy.sees(principal, slug))
+    return replace(criteria, restrict_user=principal.user_id, visible_projects=visible)
+
+
+def dashboard_scope(principal: Principal) -> DashboardScope:
+    """What the home dashboard may show the principal (every card is filtered by this)."""
+    privileged = principal.role.is_privileged
+
+    def allowing(action: Action) -> EnvironmentPredicate:
+        def check(slug: str, environment: EnvironmentName) -> bool:
+            return policy.is_allowed(principal, action, Resource.of_environment(slug, environment))
+
+        return check
+
+    return DashboardScope(
+        projects=None if privileged else frozenset(grant.project for grant in principal.grants),
+        sees=None if privileged else allowing(Action.PROJECT_READ),
+        deployments=None if privileged else allowing(Action.DEPLOYMENT_READ),
+        runs=None if privileged else allowing(Action.RUN_READ),
+        domains=None if privileged else allowing(Action.DOMAIN_READ),
+        host=policy.is_allowed(principal, Action.TELEMETRY_READ),
+    )

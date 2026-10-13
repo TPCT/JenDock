@@ -12,6 +12,7 @@ from backend.api.container import AppContainer
 # session endpoints that must stay reachable while a password change is pending.
 OPEN = {
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/login/two-factor"),
     ("POST", "/api/auth/logout"),
     ("GET", "/api/auth/session"),
     ("POST", "/api/auth/change-password"),

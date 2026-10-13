@@ -1,0 +1,31 @@
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--base-size-12) var(--base-size-16);
+  align-items: start;
+  padding: var(--base-size-16);
+  background: var(--bgColor-muted);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+  align-items: center;
+  grid-column: 1 / -1;
+}
+.more {
+  grid-column: 1 / -1;
+}
+.more summary {
+  cursor: pointer;
+  color: var(--fgColor-accent);
+}
+.moreGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--base-size-12) var(--base-size-16);
+  align-items: start;
+  margin-top: var(--base-size-12);
+}

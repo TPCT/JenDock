@@ -29,6 +29,22 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=1, max_length=1024, repr=False)
 
 
+class TwoFactorLoginRequest(BaseModel):
+    """Second login step: the challenge from ``/login`` and a code."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    challenge: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=1, max_length=32, repr=False)
+
+
+class MfaRequiredResponse(BaseModel):
+    """The password was right but a second factor is needed; no session exists yet."""
+
+    mfa_required: bool = True
+    challenge: str
+
+
 class UserResponse(BaseModel):
     """The logged-in user."""
 

@@ -103,6 +103,9 @@ class Action(StrEnum):
     NOTIFICATION_POLICY = "notification.policy"
     NOTIFICATION_MANAGE = "notification.manage"
     INGRESS_READINESS = "ingress.readiness"
+    ACCOUNT_MANAGE = "account.manage"
+    AUDIT_READ = "audit.read"
+    DASHBOARD_READ = "dashboard.read"
 
 
 class RuleKind(StrEnum):
@@ -209,6 +212,13 @@ RULES: dict[Action, Rule] = {
     Action.NOTIFICATION_POLICY: Rule(RuleKind.ANY_USER, _S.READ),
     Action.NOTIFICATION_MANAGE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
     Action.INGRESS_READINESS: Rule(RuleKind.ANY_USER, _S.READ),
+    # The caller's own account (profile, sessions, two-factor, security log): sessions only.
+    Action.ACCOUNT_MANAGE: Rule(RuleKind.ANY_USER, None),
+    # The audit log: sessions only. Owners and admins see everything, a member only their own
+    # activity on what they can still see (the scope is applied by ``authz.audit_scope``).
+    Action.AUDIT_READ: Rule(RuleKind.ANY_USER, None),
+    # The home dashboard: every card is filtered to what the caller may see.
+    Action.DASHBOARD_READ: Rule(RuleKind.ANY_USER, _S.READ),
 }
 
 

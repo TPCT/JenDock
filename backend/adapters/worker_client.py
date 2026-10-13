@@ -61,6 +61,24 @@ class SecretsGateway(Protocol):
         """Return the plaintext of a secret (audited by the worker)."""
 
 
+@dataclass(frozen=True, slots=True)
+class TotpEnrollment:
+    """A freshly generated two-factor key: ``secret`` (base32, shown once) and its ciphertext."""
+
+    secret: str
+    ciphertext: bytes
+
+
+class TotpGateway(Protocol):
+    """Two-factor key operations; the key that opens a ciphertext lives in the worker only."""
+
+    def totp_generate(self) -> TotpEnrollment:
+        """Create a key."""
+
+    def totp_check(self, ciphertext: bytes, code: str, after_step: int | None) -> int | None:
+        """The time step ``code`` matches (later than ``after_step``), or ``None``."""
+
+
 class GithubGateway(Protocol):
     """GitHub operations that only the worker may perform (it holds the keys and runs git)."""
 
@@ -155,6 +173,28 @@ class WorkerClient:
     ) -> object:
         """Call any worker method; ``timeout`` overrides the default for slow operations."""
         return self._call(method, actor, params, timeout=timeout)
+
+    def totp_generate(self) -> TotpEnrollment:
+        """Ask the worker for a new two-factor key."""
+        result = self._call("totp.generate", None, {})
+        secret = result.get("secret") if isinstance(result, dict) else None
+        encoded = result.get("ciphertext_b64") if isinstance(result, dict) else None
+        if not isinstance(secret, str) or not isinstance(encoded, str):
+            raise WorkerError("worker returned an unexpected response")
+        return TotpEnrollment(secret, base64.b64decode(encoded))
+
+    def totp_check(self, ciphertext: bytes, code: str, after_step: int | None) -> int | None:
+        """Ask the worker whether ``code`` is valid for the stored key; only the step returns."""
+        params = {
+            "ciphertext_b64": base64.b64encode(ciphertext).decode("ascii"),
+            "code": code,
+            "after_step": after_step,
+        }
+        result = self._call("totp.check", None, params)
+        step = result.get("step") if isinstance(result, dict) else None
+        if step is not None and (not isinstance(step, int) or isinstance(step, bool)):
+            raise WorkerError("worker returned an unexpected response")
+        return step
 
     def verify_webhook(self, signature: str, body: bytes) -> bool:
         """Ask the worker to check a webhook signature; the secret never leaves the worker."""

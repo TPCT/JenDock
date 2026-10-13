@@ -21,8 +21,29 @@ function firstProblem(current: string, next: string, repeat: string): string | n
 }
 
 /** Current password, new password twice. `onDone` runs once the server accepted the change. */
+/** Live hints under the new-password field: what is still missing, ticked as the user types. */
+function Hints({ next, repeat }: { next: string; repeat: string }) {
+  const rules = [
+    { ok: next.length >= MIN_LENGTH, text: `At least ${String(MIN_LENGTH)} characters` },
+    { ok: next.length >= 16, text: "Tip: 16 or more characters, or a few words, is stronger" },
+    { ok: next !== "" && next === repeat, text: "Both entries match" },
+  ];
+  return (
+    <ul className={styles.hints} aria-label="Password hints">
+      {rules.map((rule) => (
+        <li key={rule.text} className={rule.ok ? styles.hintOk : styles.hintTodo}>
+          <span aria-hidden="true">{rule.ok ? "✓" : "•"}</span> {rule.text}
+          <span className={styles.srOnly}>{rule.ok ? " (done)" : " (not yet)"}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
   const change = useChangePassword();
+  const [next, setNext] = useState("");
+  const [repeat, setRepeat] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -45,6 +66,8 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
       {
         onSuccess: () => {
           form.reset();
+          setNext("");
+          setRepeat("");
           setSaved(true);
           onDone?.();
         },
@@ -75,12 +98,28 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
       </FormControl>
       <FormControl>
         <FormControl.Label>New password</FormControl.Label>
-        <TextInput name="next" type="password" block autoComplete="new-password" />
-        <FormControl.Caption>At least {MIN_LENGTH} characters.</FormControl.Caption>
+        <TextInput
+          name="next"
+          type="password"
+          block
+          autoComplete="new-password"
+          onChange={(event) => {
+            setNext(event.target.value);
+          }}
+        />
+        <Hints next={next} repeat={repeat} />
       </FormControl>
       <FormControl>
         <FormControl.Label>Repeat the new password</FormControl.Label>
-        <TextInput name="repeat" type="password" block autoComplete="new-password" />
+        <TextInput
+          name="repeat"
+          type="password"
+          block
+          autoComplete="new-password"
+          onChange={(event) => {
+            setRepeat(event.target.value);
+          }}
+        />
       </FormControl>
       <Button type="submit" variant="primary" block disabled={change.isPending}>
         {change.isPending ? "Saving…" : "Change password"}

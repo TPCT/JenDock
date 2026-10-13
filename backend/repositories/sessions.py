@@ -31,6 +31,33 @@ class SessionRepository:
         """Return every session of a user."""
         return self._session.scalars(select(Session).where(Session.user_id == user_id)).all()
 
+    def list_live_for_user(
+        self, user_id: int, now: datetime, idle_cutoff: datetime
+    ) -> list[Session]:
+        """Return the live sessions of a user, most recently seen first."""
+        query = (
+            select(Session)
+            .where(
+                Session.user_id == user_id,
+                Session.expires_at > now,
+                Session.last_seen_at > idle_cutoff,
+            )
+            .order_by(Session.last_seen_at.desc(), Session.id.desc())
+        )
+        return list(self._session.scalars(query).all())
+
+    def get_for_user(self, user_id: int, session_id: int) -> Session | None:
+        """Return session ``session_id`` if it belongs to ``user_id``."""
+        query = select(Session).where(Session.id == session_id, Session.user_id == user_id)
+        return self._session.scalar(query)
+
+    def delete_others(self, user_id: int, keep_session_id: int) -> int:
+        """Delete every session of a user except ``keep_session_id``; return how many."""
+        result = self._session.execute(
+            delete(Session).where(Session.user_id == user_id, Session.id != keep_session_id)
+        )
+        return int(getattr(result, "rowcount", 0) or 0)
+
     def delete_for_user(self, user_id: int) -> int:
         """Delete every session of a user; return how many."""
         result = self._session.execute(delete(Session).where(Session.user_id == user_id))

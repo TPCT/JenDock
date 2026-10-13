@@ -29,8 +29,21 @@ interrupted | skipped`. Finished = not queued and not running.
 
 Body `{username: string (1-64), password: string (1-1024)}`, extra keys rejected.
 200 `Session` (below) + session cookie. A disabled user cannot sign in.
+For a user with two-factor authentication turned on the password step answers 200
+`{mfa_required: true, challenge: string}` instead and sets **no** cookie: complete it with
+`POST /api/auth/login/two-factor`. The session records the client address (from the trusted
+proxy, see README) and the `User-Agent` for the sessions list.
 401 `unauthenticated` (same body for unknown user and wrong password), 422 with `fields`,
 429 `rate_limited` with `Retry-After`.
+
+### `POST /api/auth/login/two-factor` (exists)
+
+Body `{challenge: string, code: string}`: `code` is the six-digit TOTP code or one recovery code
+(`xxxx-xxxx-xxxx-xxxx`, case, spaces and dashes ignored). 200 as the login of a user without
+two-factor (`{user, csrf_token, expires_at}` + cookie). 401 `unauthenticated` for a wrong code,
+an unknown, used or expired challenge (5 minutes, single use, dropped after 5 wrong codes).
+Wrong codes count against the same limiter as wrong passwords: 429 `rate_limited`. A TOTP time
+step is accepted once, so a code cannot be replayed within its 30 second window.
 
 ### `GET /api/auth/session` (exists)
 
@@ -1176,6 +1189,146 @@ Unknown scope names give 422; no scopes give an empty list. 200:
 {"endpoint": "https://<origin>/mcp", "enabled": true,
  "tools": [{"name": "list_projects", "description": "...", "scope": "read", "read_only": true}]}
 ```
+
+## Account: profile, sessions, tokens, two-factor, security log (exists)
+
+All routes under `/api/me` act on the signed-in user (taken from the session, never from the
+URL). They are authorized by the policy action `account.manage` (any user, **browser session
+only**: an API token gets 403). Wrong password or wrong code answers
+**422** with a plain message, never 401, so the page does not log the user out. Password and code
+checks share the login rate limiter (429 after 5 failures per user or 20 per client address in
+15 minutes).
+
+### `GET /api/me`, `PATCH /api/me`
+
+`{id, username, display_name: string, email: string | null, created_at,
+two_factor_enabled}`. `PATCH` body `{display_name?: string (<=120), email?: string (<=254)}`;
+both replace the stored value and an empty string clears it. 422 for a malformed email
+(only the shape is checked, nothing is sent). Audited as `user.profile_update` with the names of
+the changed fields.
+
+### Changing the password
+
+Not here: use `POST /api/auth/change-password` (above), which needs the current password, ends
+the other sessions and is rate limited; the Settings page links to the same screen.
+
+### Sessions
+
+`GET /api/me/sessions` -> `[{id, created_at, last_seen_at, expires_at, ip_address | null,
+user_agent | null, client, current}]`, live sessions only, most recently seen first. `client` is
+a short summary such as `"Firefox 130 on Linux"`. `DELETE /api/me/sessions/{id}` -> 204 (404 for
+someone else's session, 422 for the current one: sign out instead).
+`POST /api/me/sessions/revoke-others` -> `{sessions_ended: n}`.
+
+### Personal API tokens
+
+`GET /api/tokens` and `DELETE /api/tokens/{id}` already act on the caller's own tokens only; the
+Settings page uses them.
+
+### Two-factor authentication (TOTP, RFC 6238)
+
+- `GET /api/me/two-factor` -> `{enabled, enabled_at | null, recovery_codes_left}`.
+- `POST /api/me/two-factor/enroll` -> `{secret, uri}`: a pending key (base32, shown once) and the
+  `otpauth://totp/Jendock:<user>?secret=...&issuer=Jendock&algorithm=SHA1&digits=6&period=30` URI
+  that the UI renders as a QR code in the browser. Calling it again replaces a pending key. 409
+  when two-factor is already on.
+- `POST /api/me/two-factor/enable` `{code}` -> `{recovery_codes: string[10]}` (shown only here;
+  stored as SHA-256 hashes). 422 for a wrong code.
+- `POST /api/me/two-factor/recovery-codes` `{code}` -> a new set of ten; the old ones stop working.
+- `POST /api/me/two-factor/disable` `{password, code}` -> 204. `code` may be a recovery code.
+
+The key is generated and opened only by the worker (`totp.generate`, `totp.check` RPC methods);
+the API stores the ciphertext (`users.totp_secret`) and never holds the key that decrypts it.
+
+### `GET /api/me/security-log?limit=50&cursor=`
+
+The caller's own activity (events they caused or that were done to their account), same item and
+paging shape as the audit log below.
+
+## Audit log (exists)
+
+Policy action `audit.read`: any user, browser session only (a token gets 403). **Owners and
+admins** read every event. A **member** reads only their own activity (what they did and what was
+done to their account), and of that only what is not about a project, or is about a project they
+hold a grant on (`authz.audit_filter`); the request's own filters can only narrow this further.
+Details never contain secret values: keys that look sensitive
+are refused when an event is recorded.
+
+### `GET /api/audit`
+
+Query (all optional, combined with AND): `q` (<=100 chars; matches the action, target id, the
+details text and the username of user actors; `%` and `_` are literal), `actor_type`
+(`user | token | system`), `actor_id`, `action` (exact, or a prefix when it ends in `*`:
+`secret.*`), `target_type`, `target_id`, `project` (a project slug: matches the project and its
+environments, runs, deployments, domains and database connections), `since` (inclusive) and
+`until` (exclusive), both ISO-8601 **with** a time zone, `limit` (1-200, default 50),
+`cursor`. Newest first (by id). 200
+`{items: AuditEvent[], next_cursor: string | null}`; pass `next_cursor` back as `cursor`.
+Cursors are keyset-based, so events recorded while paging never shift a page. 422 for a bad
+cursor, an inverted range or a naive timestamp.
+
+```json
+{ "id": 812, "occurred_at": "2026-10-14T09:12:01Z", "actor_type": "user", "actor_id": "1",
+  "actor": "ada", "action": "secret.reveal",
+  "description": "Revealed the secret DATABASE_URL",
+  "target_type": "environment", "target_id": "3", "details": {"name": "DATABASE_URL"} }
+```
+
+`actor` is the display name or username (`token <name>` for tokens, `user <id> (deleted)` when
+the account is gone). `description` has one sentence per known action and falls back to the
+action name.
+
+### `GET /api/audit/actions`
+
+`{actions: string[]}`, the actions that have a description (for the filter drop-down).
+
+### `GET /api/audit/export.csv`
+
+Same filters (no paging). Streamed `text/csv; charset=utf-8` with a
+`Content-Disposition: attachment` header, the header row
+`id,time,actor_type,actor_id,actor,action,description,target_type,target_id,details` (details as
+JSON), at most the **10 000** newest matching events read in batches of 500 (header
+`X-Export-Max-Rows`). Cells starting with `= + - @` are prefixed with `'` so spreadsheets do not
+run them as formulas. Invalid filters answer 422 before streaming starts.
+
+## Dashboard (exists)
+
+### `GET /api/dashboard`
+
+Policy action `dashboard.read` (any user, scope `read`). One request, a fixed number of queries
+(no per-project lookups); every list holds at most 10 entries. **Owners and admins** see
+everything; for a **member** every card is filtered by the policy (`authz.dashboard_scope`):
+deployments need `deployment.read`, runs `run.read`, pushes waiting for a manual deploy
+`project.read`, certificates and `domain_count` `domain.read` on the environment, and
+`project_count` counts granted projects. The host card appears only for members holding any grant
+(`telemetry.read`); otherwise `host` is `null` and `host_error` is `null`.
+
+```json
+{
+  "project_count": 2, "domain_count": 2,
+  "deployments": [{"id", "project", "project_name", "environment", "status", "commit_sha",
+     "run_id", "run_number", "trigger", "triggered_by": "ada" | "token ci" | null,
+     "created_at", "started_at", "finished_at", "duration_seconds": number | null}],
+  "attention": [{"run_id", "project", "project_name", "environment", "number", "status", "branch",
+     "commit_sha", "trigger", "created_at", "started_at", "finished_at", "message"}],
+  "manual_deploys": [{"project", "project_name", "environment", "branch", "pushes", "last_push_at"}],
+  "certificates": [{"hostname", "project", "environment", "not_after", "expired"}],
+  "host": {"timestamp", "cpu_percent": number | null, "cpu_count", "load_1", "memory_used",
+     "memory_total", "memory_percent", "disk_used", "disk_total", "disk_percent"} | null,
+  "host_error": string | null
+}
+```
+
+- `deployments`: newest deployments of non-archived projects (`status` as in the Deployments
+  section).
+- `attention`: runs that are `running` or `queued`, plus environments whose **newest** run is
+  `failed` or `interrupted`.
+- `manual_deploys`: environments with auto-deploy **off** that a push to their branch reached in
+  the last 7 days (recorded webhook deliveries with outcome `recorded`).
+- `certificates`: certificates that expire within 30 days or already have (empty when no ingress
+  data exists; `domain_count` tells "no domains yet" from "nothing expires soon").
+- `host`: the latest host sample from the worker; `null` with `host_error` when the worker cannot
+  be reached (the rest of the page still loads).
 
 ## Serving the UI (status: exists)
 

@@ -1,11 +1,14 @@
 import {
   BellIcon,
   CommentDiscussionIcon,
+  DeviceDesktopIcon,
+  HistoryIcon,
   KeyIcon,
   PeopleIcon,
   PersonIcon,
   PlugIcon,
   PlusIcon,
+  ShieldLockIcon,
 } from "@primer/octicons-react";
 import {
   Button,
@@ -56,7 +59,10 @@ const EXPIRY = [
 export function GlobalSettingsLayout() {
   const can = useCan();
   const items: SettingsItem[] = [
-    { to: "/settings/account", label: "Account", icon: PersonIcon },
+    { to: "/settings/profile", label: "Public profile", icon: PersonIcon },
+    { to: "/settings/account", label: "Account", icon: ShieldLockIcon },
+    { to: "/settings/sessions", label: "Sessions", icon: DeviceDesktopIcon },
+    { to: "/settings/security-log", label: "Security log", icon: HistoryIcon },
     { to: "/settings/tokens", label: "API tokens", icon: KeyIcon },
     ...(can("notification.manage")
       ? [{ to: "/settings/notifications", label: "Notifications", icon: BellIcon }]
@@ -73,7 +79,7 @@ export function GlobalSettingsLayout() {
     <>
       <PageHead
         title="Settings"
-        description="Your access to Jendock from scripts and AI agents, and the services it connects to."
+        description="Your profile and security, your access to Jendock from scripts and AI agents, and the services it connects to."
       />
       <div className={box.section}>
         <SettingsLayout label="Settings" items={items} />

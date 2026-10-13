@@ -47,7 +47,13 @@ describe("every mock state renders without console errors", () => {
     ["/runs/106", /Run #9/],
     ["/runs/99999", "Run not found"],
     ["/runs/abc", "Run not found"],
-    ["/settings", "API tokens"],
+    ["/", "Home"],
+    ["/audit", "Audit log"],
+    ["/settings", "Public profile"],
+    ["/settings/account", "Account"],
+    ["/settings/sessions", "Sessions"],
+    ["/settings/security-log", "Security log"],
+    ["/settings/tokens", "API tokens"],
     ["/nowhere", "Page not found"],
   ];
   it.each(routes)("%s", async (route, heading) => {

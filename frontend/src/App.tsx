@@ -21,13 +21,16 @@ import { ContainersPage } from "./pages/Containers";
 import { DatabaseBrowserPage } from "./pages/DatabaseBrowser";
 import { DatabasesPage } from "./pages/Databases";
 import { DomainsPage } from "./pages/Domains";
-import { AccountPage, ChangePasswordPage } from "./pages/ChangePassword";
+import { ChangePasswordPage } from "./pages/ChangePassword";
 import { MembersPage } from "./pages/Members";
 import { AccessSettingsPage } from "./pages/ProjectAccess";
 import { AgentsPage } from "./pages/AgentsPage";
 import { GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
 import { IntegrationsPage } from "./pages/Integrations";
 import { NotificationsPage } from "./pages/Notifications";
+import { ProfilePage, SecurityLogPage, SecurityPage, SessionsPage } from "./pages/Account";
+import { AuditLogPage } from "./pages/AuditLog";
+import { HomePage } from "./pages/Home";
 import { NewProjectPage } from "./pages/NewProject";
 import { NotFoundPage } from "./pages/Placeholder";
 import {
@@ -160,7 +163,8 @@ export const appRoutes: RouteObject[] = [
           </RequireAuth>
         ),
         children: [
-          { index: true, element: <Navigate to="/projects" replace /> },
+          { index: true, element: <HomePage /> },
+          { path: "/audit", element: <AuditLogPage /> },
           { path: "/projects", element: <ProjectsPage /> },
           { path: "/projects/new", element: <NewProjectPage /> },
           {
@@ -209,11 +213,14 @@ export const appRoutes: RouteObject[] = [
             path: "/settings",
             element: <GlobalSettingsLayout />,
             children: [
-              { index: true, element: <Navigate to="/settings/tokens" replace /> },
+              { index: true, element: <Navigate to="/settings/profile" replace /> },
+              { path: "profile", element: <ProfilePage /> },
+              { path: "sessions", element: <SessionsPage /> },
+              { path: "security-log", element: <SecurityLogPage /> },
               { path: "tokens", element: <TokensPage /> },
               { path: "notifications", element: <NotificationsPage /> },
               { path: "agents", element: <AgentsPage /> },
-              { path: "account", element: <AccountPage /> },
+              { path: "account", element: <SecurityPage /> },
               { path: "members", element: <MembersPage /> },
               { path: "integrations", element: <IntegrationsPage /> },
             ],

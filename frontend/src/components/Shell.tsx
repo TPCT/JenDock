@@ -1,5 +1,10 @@
 import {
   GearIcon,
+  HistoryIcon,
+  HomeIcon,
+  KeyIcon,
+  PeopleIcon,
+  PersonIcon,
   PlayIcon,
   RepoIcon,
   SignOutIcon,
@@ -20,7 +25,9 @@ import { memo, useRef, useState, type ElementType, type ReactNode } from "react"
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useLogout, useSession } from "../api/hooks";
 import { THEME_CHOICES, useTheme } from "../lib/theme";
+import { useCan } from "../lib/permissions";
 import { MOBILE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
+import { Initials } from "./Initials";
 import styles from "./Shell.module.css";
 
 function NavItem({
@@ -53,6 +60,9 @@ function NavItem({
 const MainNav = memo(function MainNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <NavList aria-label="Main" onClick={onNavigate}>
+      <NavItem to="/" icon={HomeIcon} match={(path) => path === "/"}>
+        Home
+      </NavItem>
       <NavItem
         to="/projects"
         icon={RepoIcon}
@@ -66,6 +76,9 @@ const MainNav = memo(function MainNav({ onNavigate }: { onNavigate?: () => void 
         match={(path) => path === "/runs" || path.startsWith("/runs/")}
       >
         Runs
+      </NavItem>
+      <NavItem to="/audit" icon={HistoryIcon} match={(path) => path === "/audit"}>
+        Audit log
       </NavItem>
       <NavItem
         to="/settings"
@@ -84,6 +97,10 @@ function UserMenu() {
   const logout = useLogout();
   const { choice, setChoice } = useTheme();
   const username = session.data?.user.username ?? "...";
+  const can = useCan();
+  const role = session.data?.user.role;
+  const displayName = session.data?.user.display_name ?? "";
+  const shown = displayName === "" ? username : displayName;
 
   const signOut = () => {
     logout.mutate(undefined, {
@@ -97,14 +114,46 @@ function UserMenu() {
     <ActionMenu>
       <ActionMenu.Anchor>
         <Button variant="invisible" className={styles.headerButton} aria-label="User menu">
-          {username}
+          <span className={styles.account}>
+            <Initials displayName={displayName} username={username} />
+            <span className={styles.accountName}>{shown}</span>
+          </span>
         </Button>
       </ActionMenu.Anchor>
       <ActionMenu.Overlay width="medium">
         <ActionList>
           <ActionList.Group>
-            <ActionList.GroupHeading>Signed in as {username}</ActionList.GroupHeading>
+            <ActionList.GroupHeading>
+              Signed in as <strong>{username}</strong>
+              {role ? <span className={styles.role}> ({role})</span> : null}
+            </ActionList.GroupHeading>
           </ActionList.Group>
+          <ActionList.LinkItem as={Link} to="/settings/profile">
+            <ActionList.LeadingVisual>
+              <PersonIcon />
+            </ActionList.LeadingVisual>
+            Your profile
+          </ActionList.LinkItem>
+          <ActionList.LinkItem as={Link} to="/settings/account">
+            <ActionList.LeadingVisual>
+              <KeyIcon />
+            </ActionList.LeadingVisual>
+            Change password
+          </ActionList.LinkItem>
+          <ActionList.LinkItem as={Link} to="/settings">
+            <ActionList.LeadingVisual>
+              <GearIcon />
+            </ActionList.LeadingVisual>
+            Settings
+          </ActionList.LinkItem>
+          {can("user.manage") ? (
+            <ActionList.LinkItem as={Link} to="/settings/members">
+              <ActionList.LeadingVisual>
+                <PeopleIcon />
+              </ActionList.LeadingVisual>
+              Members
+            </ActionList.LinkItem>
+          ) : null}
           <ActionList.Divider />
           <ActionList.Group selectionVariant="single">
             <ActionList.GroupHeading>Theme</ActionList.GroupHeading>
@@ -164,7 +213,7 @@ export function Shell() {
           </Header.Item>
         ) : null}
         <Header.Item>
-          <Header.Link as={Link} to="/projects" className={styles.brand}>
+          <Header.Link as={Link} to="/" className={styles.brand}>
             <TerminalIcon size={24} aria-hidden="true" />
             <span>Jendock</span>
           </Header.Link>

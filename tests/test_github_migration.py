@@ -1,4 +1,5 @@
-"""Revision 0004_task06: the git transport column and the webhook delivery table."""
+"""Revision 0004_task06: the git transport column and the webhook delivery table
+(plus the branch column that revision 0005 added to it)."""
 
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ def test_upgrade_adds_the_column_and_the_table(url: str) -> None:
         "event",
         "repository",
         "outcome",
+        "branch",
         "received_at",
     }
     unique = [u["column_names"] for u in inspector.get_unique_constraints("webhook_deliveries")]

@@ -147,3 +147,32 @@ def test_main_uses_database_from_settings(
     assert main(["users", "create", "alice", "--password-stdin"]) == 0
     assert "created user alice" in capsys.readouterr().out
     get_settings.cache_clear()
+
+
+def test_disable_two_factor_clears_the_second_factor(
+    service: UserService, uow: UnitOfWork, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(["users", "create", "alice", "--password-stdin"], service, io.StringIO(PASSWORD))
+    with uow:
+        user = uow.users.get_by_username("alice")
+        assert user is not None
+        user.totp_secret = b"ciphertext"
+        user.totp_enabled_at = user.created_at
+        uow.users.replace_recovery_codes(user.id, ["a" * 64], user.created_at)
+        user_id = user.id
+    assert run(["users", "disable-two-factor", "alice"], service) == 0
+    assert "turned off for alice" in capsys.readouterr().out
+    with uow:
+        after = uow.users.get_by_username("alice")
+        assert after is not None
+        assert after.totp_secret is None
+        assert after.totp_enabled_at is None
+        assert uow.users.count_recovery_codes(user_id) == 0
+    assert AuditService(uow).list()[0].action == "two_factor.disable"
+
+
+def test_disable_two_factor_unknown_user_fails(
+    service: UserService, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run(["users", "disable-two-factor", "ghost"], service) == 1
+    assert "not found" in capsys.readouterr().err

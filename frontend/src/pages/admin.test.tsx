@@ -219,7 +219,7 @@ describe("secrets", () => {
 describe("API tokens", () => {
   it("lists tokens and shows a new token exactly once", async () => {
     const user = userEvent.setup();
-    renderApp("/settings");
+    renderApp("/settings/tokens");
     expect(await screen.findByRole("heading", { name: "API tokens" })).toBeInTheDocument();
     const list = await screen.findByRole("list", { name: "API tokens" });
     expect(within(list).getByText("CI deploy")).toBeInTheDocument();

@@ -15,14 +15,17 @@ from backend.api.frontend import mount_frontend
 from backend.api.middleware import SecurityHeadersMiddleware
 from backend.api.routers import (
     access,
+    audit,
     auth,
     containers,
+    dashboard,
     databases,
     deployments,
     domains,
     github,
     integrations,
     mcp_tools,
+    me,
     notifications,
     pipelines,
     projects,
@@ -69,6 +72,9 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.state.container = wired
     register_error_handlers(app)
     app.include_router(auth.router)
+    app.include_router(me.router)
+    app.include_router(audit.router)
+    app.include_router(dashboard.router)
     app.include_router(tokens.router)
     app.include_router(users.router)
     app.include_router(access.router)

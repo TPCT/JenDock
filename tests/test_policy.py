@@ -107,6 +107,9 @@ ANY_USER_ACTIONS = {
     Action.MCP_TOOLS,
     Action.NOTIFICATION_POLICY,
     Action.INGRESS_READINESS,
+    Action.ACCOUNT_MANAGE,
+    Action.AUDIT_READ,
+    Action.DASHBOARD_READ,
 }
 SERVICE_PERMISSION: dict[Action, ContainerPermission] = {
     Action.CONTAINER_LOGS: ContainerPermission.LOGS,
@@ -119,6 +122,8 @@ SESSION_ONLY = {
     Action.ACCESS_MANAGE,
     Action.INTEGRATION_MANAGE,
     Action.MCP_TOOLS,
+    Action.ACCOUNT_MANAGE,
+    Action.AUDIT_READ,
 }
 
 
