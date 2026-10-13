@@ -145,9 +145,6 @@ export function LoginPage() {
             {login.isPending ? "Signing in…" : "Sign in"}
           </Button>
         </form>
-        <p className={styles.note}>
-          No account yet? An administrator creates accounts; ask them for a username.
-        </p>
       </div>
     </div>
   );

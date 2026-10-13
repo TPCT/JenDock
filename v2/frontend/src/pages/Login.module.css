@@ -30,10 +30,3 @@
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
 }
-.note {
-  margin: 0;
-  padding: var(--base-size-16);
-  text-align: center;
-  border: var(--borderWidth-thin) solid var(--borderColor-default);
-  border-radius: var(--borderRadius-medium);
-}
