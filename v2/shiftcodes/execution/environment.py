@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from shiftcodes.adapters.container_runtime import ContainerRuntime
 from shiftcodes.adapters.deployer import Deployer
@@ -13,6 +13,7 @@ from shiftcodes.adapters.workspace import WorkspaceManager
 from shiftcodes.domain.clock import Clock, utcnow
 from shiftcodes.execution.config import ExecutionConfig
 from shiftcodes.execution.logs import LogStore
+from shiftcodes.execution.status_reporter import NoStatusReporter, StatusReporter
 from shiftcodes.repositories.database import SessionFactory, UnitOfWork
 from shiftcodes.services.run_lifecycle import RunLifecycleService
 from shiftcodes.services.run_progress import RunRecorder
@@ -34,6 +35,7 @@ class ExecutionEnv:
     session_factory: SessionFactory
     secret_service: Callable[[], SecretService]
     clock: Clock = utcnow
+    status: StatusReporter = field(default_factory=NoStatusReporter)
 
     def uow(self) -> UnitOfWork:
         """A fresh unit of work."""

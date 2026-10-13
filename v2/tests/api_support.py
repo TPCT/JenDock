@@ -11,7 +11,7 @@ from argon2 import PasswordHasher as Argon2Hasher
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from shiftcodes.adapters.worker_client import SecretsGateway, WorkerClient
+from shiftcodes.adapters.worker_client import GithubGateway, SecretsGateway, WorkerClient
 from shiftcodes.api.app import create_asgi_app
 from shiftcodes.api.container import AppContainer
 from shiftcodes.config import Settings
@@ -72,11 +72,13 @@ def make_container(
     clock: FakeClock,
     *,
     secrets: SecretsGateway | None = None,
+    github: GithubGateway | None = None,
 ) -> AppContainer:
     """Wire a container onto the test engine."""
     base = AppContainer.build(
         settings,
         secrets=secrets or WorkerClient(settings.worker_socket_path),
+        github=github,
         clock=clock,
         hasher=fast_hasher(),
     )
@@ -90,6 +92,7 @@ def make_container(
         limiter=base.limiter,
         secrets=base.secrets,
         cookies=base.cookies,
+        github=github or base.github,
     )
 
 

@@ -6,6 +6,7 @@ Opens one short-lived connection per call. All transport failures become
 
 from __future__ import annotations
 
+import base64
 import json
 import secrets
 import socket
@@ -27,9 +28,12 @@ from shiftcodes.adapters.rpc_protocol import (
 from shiftcodes.domain.actor import Actor
 from shiftcodes.domain.enums import EnvironmentName
 from shiftcodes.domain.errors import ValidationError, WorkerError, WorkerUnavailableError
+from shiftcodes.domain.git import BranchHead
 from shiftcodes.services.secrets import SecretInfo
 
 DEFAULT_TIMEOUT = 5.0
+# A branch lookup runs git against GitHub in the worker (ssh connect timeout 15 s).
+GIT_TIMEOUT = 45.0
 _CHUNK = 65536
 
 
@@ -52,6 +56,18 @@ class SecretsGateway(Protocol):
 
     def reveal_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> str:
         """Return the plaintext of a secret (audited by the worker)."""
+
+
+class GithubGateway(Protocol):
+    """GitHub operations that only the worker may perform (it holds the keys and runs git)."""
+
+    def verify_webhook(self, signature: str, body: bytes) -> bool:
+        """Whether ``signature`` (``sha256=<hex>``) is the HMAC of ``body`` under the secret."""
+
+    def branch_head(
+        self, slug: str, branch: str, actor: Actor, *, details: bool = False
+    ) -> BranchHead:
+        """The head of ``branch`` of the project's repository (``NotFoundError`` if missing)."""
 
 
 class WorkerClient:
@@ -92,7 +108,30 @@ class WorkerClient:
             raise WorkerError("worker returned an unexpected response")
         return value
 
-    def _call(self, method: str, actor: Actor | None, params: Mapping[str, object]) -> object:
+    def verify_webhook(self, signature: str, body: bytes) -> bool:
+        """Ask the worker to check a webhook signature; the secret never leaves the worker."""
+        params = {"signature": signature, "body_b64": base64.b64encode(body).decode("ascii")}
+        result = self._call("github.verify_webhook", None, params)
+        valid = result.get("valid") if isinstance(result, dict) else None
+        if not isinstance(valid, bool):
+            raise WorkerError("worker returned an unexpected response")
+        return valid
+
+    def branch_head(
+        self, slug: str, branch: str, actor: Actor, *, details: bool = False
+    ) -> BranchHead:
+        """Resolve a branch head with ``git ls-remote`` in the worker."""
+        params = {"slug": slug, "branch": branch, "details": details}
+        result = self._call("github.branch_head", actor, params, timeout=GIT_TIMEOUT)
+        return _branch_head(result)
+
+    def _call(
+        self,
+        method: str,
+        actor: Actor | None,
+        params: Mapping[str, object],
+        timeout: float | None = None,
+    ) -> object:
         request = RpcRequest(
             id=secrets.token_hex(8),
             method=method,
@@ -102,7 +141,7 @@ class WorkerClient:
         payload = request.model_dump_json().encode() + b"\n"
         if len(payload) > MAX_MESSAGE_BYTES:
             raise ValidationError("request too large")
-        response = self._decode(self._exchange(payload))
+        response = self._decode(self._exchange(payload, timeout or self._timeout))
         if response.id != request.id:
             raise WorkerError("worker answered a different request")
         if not response.ok or response.error is not None:
@@ -111,11 +150,11 @@ class WorkerClient:
             raise domain_error_for(response.error)
         return response.result
 
-    def _exchange(self, payload: bytes) -> bytes:
-        deadline = time.monotonic() + self._timeout
+    def _exchange(self, payload: bytes, timeout: float) -> bytes:
+        deadline = time.monotonic() + timeout
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-                connection.settimeout(self._timeout)
+                connection.settimeout(timeout)
                 connection.connect(str(self._path))
                 connection.sendall(payload)
                 return _read_line(connection, deadline)
@@ -154,6 +193,22 @@ def _secret_info(item: object) -> SecretInfo:
             name=str(item["name"]),
             created_at=datetime.fromisoformat(str(item["created_at"])),
             updated_at=datetime.fromisoformat(str(item["updated_at"])),
+        )
+    except (KeyError, ValueError) as error:
+        raise WorkerError("worker returned an unexpected response") from error
+
+
+def _branch_head(item: object) -> BranchHead:
+    if not isinstance(item, dict):
+        raise WorkerError("worker returned an unexpected response")
+    try:
+        committed = item.get("committed_at")
+        return BranchHead(
+            branch=str(item["branch"]),
+            commit_sha=str(item["commit_sha"]),
+            message=str(item.get("message", "")),
+            author=str(item.get("author", "")),
+            committed_at=datetime.fromisoformat(committed) if isinstance(committed, str) else None,
         )
     except (KeyError, ValueError) as error:
         raise WorkerError("worker returned an unexpected response") from error

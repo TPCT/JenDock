@@ -20,6 +20,8 @@ from shiftcodes.repositories.database import (
 )
 from shiftcodes.services.secret_cipher import SecretCipher
 from shiftcodes.services.secrets import SecretService
+from shiftcodes.worker.git_wiring import build_heads
+from shiftcodes.worker.github_handlers import github_handlers, project_source
 from shiftcodes.worker.handlers import build_handlers
 from shiftcodes.worker.rpc import RpcServer
 from shiftcodes.worker.wiring import build_execution_env
@@ -62,7 +64,12 @@ def build_rpc_server(
     def secret_service() -> SecretService:
         return SecretService(UnitOfWork(session_factory), cipher, redactor)
 
-    return RpcServer(settings.worker_socket_path, build_handlers(secret_service))
+    github = github_handlers(
+        settings.github_webhook_secret_file,
+        build_heads(settings),
+        project_source(lambda: UnitOfWork(session_factory)),
+    )
+    return RpcServer(settings.worker_socket_path, build_handlers(secret_service, github))
 
 
 def build_scheduler(
