@@ -350,7 +350,7 @@ export function DatabasesPage() {
       {connections.data?.length === 0 ? (
         <EmptyState icon={<DatabaseIcon size={32} aria-hidden="true" />} title="No connections yet">
           Add a connection to the environment&apos;s database to browse its tables and run read-only
-          queries. {READ_ONLY_ADVICE}
+          queries. {env === "production" ? "" : READ_ONLY_ADVICE}
         </EmptyState>
       ) : null}
       {tested ? (
@@ -446,7 +446,7 @@ export function DatabasesPage() {
                   "never tested"
                 )}
               </p>
-              {item.notice ? <p className="muted">{item.notice}</p> : null}
+              {item.notice && env !== "production" ? <p className="muted">{item.notice}</p> : null}
             </li>
           ))}
         </ul>
