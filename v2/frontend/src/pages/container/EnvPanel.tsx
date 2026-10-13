@@ -184,21 +184,19 @@ export function EnvPanel({
           setReviewing(false);
           setStaged({});
           setRemovals([]);
-          setDone(
-            result.restarted
-              ? `Applied. The ${result.service} service was recreated with the new values.`
-              : `Applied. The ${result.service} service stays stopped and will use the new values when it starts.`,
-          );
+          const message = result.restarted
+            ? `Applied. The ${result.service} service was recreated with the new values.`
+            : `Applied. The ${result.service} service stays stopped and will use the new values when it starts.`;
           const replacement = result.containers[0];
           if (replacement && replacement.id !== container.id) {
+            // The container id changed, so this page is replaced: the message travels with the
+            // navigation and is shown once, by the new page.
             void navigate(`${containersPath(slug, env)}/${replacement.id}?tab=environment`, {
               replace: true,
-              state: {
-                notice: result.restarted
-                  ? `Applied. The ${result.service} service was recreated with the new values.`
-                  : `Applied. The ${result.service} service stays stopped and will use the new values when it starts.`,
-              },
+              state: { notice: message },
             });
+          } else {
+            setDone(message);
           }
         },
       },

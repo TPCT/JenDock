@@ -1,11 +1,11 @@
 import { HistoryIcon, HomeIcon, StopIcon, SyncIcon } from "@primer/octicons-react";
 import { Button, ConfirmationDialog, NavList, PageLayout, VisuallyHidden } from "@primer/react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { useRetryRun } from "../api/adminHooks";
 import { useCancelRun, useProject, useRun } from "../api/hooks";
-import type { RunDetail } from "../api/types";
+import type { RunDetail, StageRun } from "../api/types";
 import { useRunStream } from "../api/useRunStream";
 import { CopySha } from "../components/CopySha";
 import { runsPath } from "../components/EnvironmentCard";
@@ -91,6 +91,65 @@ function activeStep(run: RunDetail): { stageId: number; stepId: number } | null 
     steps.find(({ step }) => step.status === "failed");
   return hit ? { stageId: hit.stage.id, stepId: hit.step.id } : null;
 }
+
+function sidebarSignature(stages: StageRun[]): string {
+  return stages
+    .map(
+      (s) =>
+        `${String(s.id)}|${s.name}|${s.status}|${String(s.started_at)}|${String(s.finished_at)}`,
+    )
+    .join(";");
+}
+
+/**
+ * Primer's NavList link items build their anchor wrapper inline, so the anchor is re-created on
+ * every re-render of the item. A re-render between mouse-down and mouse-up (a status event, a
+ * query refetch) would then swallow the click. The sidebar therefore re-renders only when what
+ * it shows changes.
+ */
+const RunSidebar = memo(
+  function RunSidebar({ stages, selectedId }: { stages: StageRun[]; selectedId: number | null }) {
+    return (
+      <NavList aria-label="Run">
+        <NavList.Item
+          as={Link}
+          to={{ search: "?stage=summary" }}
+          aria-current={selectedId === null ? "page" : undefined}
+        >
+          <NavList.LeadingVisual>
+            <HomeIcon />
+          </NavList.LeadingVisual>
+          Summary
+        </NavList.Item>
+        <NavList.Divider />
+        <NavList.Group title="Stages">
+          {stages.map((stage) => (
+            <NavList.Item
+              key={stage.id}
+              as={Link}
+              to={{ search: `?stage=${String(stage.id)}` }}
+              aria-current={selectedId === stage.id ? "page" : undefined}
+            >
+              <NavList.LeadingVisual>
+                <StatusIcon status={stage.status} />
+              </NavList.LeadingVisual>
+              {stage.name}
+              <VisuallyHidden>, {STATUS_LABEL[stage.status]}</VisuallyHidden>
+              <NavList.TrailingVisual>
+                <span className="muted">
+                  <Duration startedAt={stage.started_at} finishedAt={stage.finished_at} />
+                </span>
+              </NavList.TrailingVisual>
+            </NavList.Item>
+          ))}
+        </NavList.Group>
+      </NavList>
+    );
+  },
+  (previous, next) =>
+    previous.selectedId === next.selectedId &&
+    sidebarSignature(previous.stages) === sidebarSignature(next.stages),
+);
 
 function InfoQueued() {
   return (
@@ -271,40 +330,7 @@ export function RunDetailPage() {
 
         <PageLayout containerWidth="full" padding="none" columnGap="normal" rowGap="normal">
           <PageLayout.Pane position="start" width="small" padding="none" divider="none">
-            <NavList aria-label="Run">
-              <NavList.Item
-                as={Link}
-                to={{ search: "?stage=summary" }}
-                aria-current={selected === null ? "page" : undefined}
-              >
-                <NavList.LeadingVisual>
-                  <HomeIcon />
-                </NavList.LeadingVisual>
-                Summary
-              </NavList.Item>
-              <NavList.Divider />
-              <NavList.Group title="Stages">
-                {stages.map((stage) => (
-                  <NavList.Item
-                    key={stage.id}
-                    as={Link}
-                    to={{ search: `?stage=${stage.id}` }}
-                    aria-current={selected?.id === stage.id ? "page" : undefined}
-                  >
-                    <NavList.LeadingVisual>
-                      <StatusIcon status={stage.status} />
-                    </NavList.LeadingVisual>
-                    {stage.name}
-                    <VisuallyHidden>, {STATUS_LABEL[stage.status]}</VisuallyHidden>
-                    <NavList.TrailingVisual>
-                      <span className="muted">
-                        <Duration startedAt={stage.started_at} finishedAt={stage.finished_at} />
-                      </span>
-                    </NavList.TrailingVisual>
-                  </NavList.Item>
-                ))}
-              </NavList.Group>
-            </NavList>
+            <RunSidebar stages={stages} selectedId={selected?.id ?? null} />
           </PageLayout.Pane>
           <PageLayout.Content as="div" padding="none">
             {selected ? (
