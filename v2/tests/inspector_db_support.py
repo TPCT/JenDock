@@ -18,10 +18,10 @@ import psycopg
 import pymysql
 
 from shiftcodes.inspector.model import ConnectionSpec, Engine, TlsMode
-from tests.docker_support import TEST_LABEL
 
-# Every resource also carries a label unique to this test run, so cleanup removes only what
-# this run created (other test suites share the daemon and the generic ``shiftcodes.test=1``).
+# Resources carry a label unique to this test run instead of the generic ``shiftcodes.test=1``:
+# other suites run ``rm -f`` on every ``shiftcodes.test=1`` container of the shared daemon, which
+# would kill these servers mid-test, and this run must not remove theirs either.
 OWNER = secrets.token_hex(4)
 OWNER_KEY = "shiftcodes.test.inspector"
 OWNER_LABEL = f"{OWNER_KEY}={OWNER}"
@@ -81,7 +81,7 @@ def start_server(engine: Engine) -> RunningDb:
     image, port = IMAGES[engine]
     name = f"sc-test-{engine.value}-{secrets.token_hex(4)}"
     env = _server_env(engine)
-    args = ["run", "-d", "--name", name, "--label", TEST_LABEL, "--label", OWNER_LABEL]
+    args = ["run", "-d", "--name", name, "--label", OWNER_LABEL]
     args += ["-p", f"127.0.0.1::{port}"]
     for key, value in env.items():
         args += ["-e", f"{key}={value}"]

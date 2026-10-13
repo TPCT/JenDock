@@ -389,7 +389,7 @@ def _connect(spec: ConnectionSpec, address: str, limits: Limits) -> Any:
             ssl_disabled=tls is None,
             program_name="shiftcodes-inspector",
         )
-    except pymysql.Error as error:
+    except (pymysql.Error, RuntimeError) as error:
         message = _clean(error.args[1] if len(error.args) > 1 else str(error), spec)
         raise InspectorError(
             ErrorCode.CONNECT_FAILED, message or "cannot connect to the database"

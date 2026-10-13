@@ -36,7 +36,7 @@ from tests.api_support import (
     make_settings,
     mutation_headers,
 )
-from tests.docker_support import TEST_LABEL, docker_available
+from tests.docker_support import docker_available
 from tests.inspector_db_support import (
     DATABASE,
     OWNER,
@@ -77,7 +77,7 @@ def _clean_module() -> Iterator[None]:
 @pytest.fixture(scope="module")
 def image() -> Iterator[str]:
     tag = f"shiftcodes-test-inspector:{secrets.token_hex(4)}"
-    labels = ["--label", TEST_LABEL, "--label", OWNER_LABEL]
+    labels = ["--label", OWNER_LABEL]
     built = docker_cli(
         "build", "--quiet", *labels, "-f", "docker/inspector.Dockerfile", "-t", tag, str(V2_DIR),
         timeout=900,
@@ -90,9 +90,7 @@ def image() -> Iterator[str]:
 @pytest.fixture(scope="module")
 def networks() -> Iterator[None]:
     for name in (NETWORK, OTHER_NETWORK):
-        created = docker_cli(
-            "network", "create", "--label", TEST_LABEL, "--label", OWNER_LABEL, name
-        )
+        created = docker_cli("network", "create", "--label", OWNER_LABEL, name)
         assert created.returncode == 0, created.stderr
     yield
     for name in (NETWORK, OTHER_NETWORK):
@@ -115,7 +113,7 @@ def db(request: pytest.FixtureRequest, networks: None) -> Iterator[RunningDb]:
 def runner(image: str) -> InspectorRunner:
     runtime = DockerCliRuntime(
         private_dir=Path("/tmp") / f"{PROJECT}-private",  # noqa: S108 - throwaway test dir
-        extra_labels={"shiftcodes.test": "1", OWNER_KEY: OWNER},
+        extra_labels={OWNER_KEY: OWNER},
     )
     return InspectorRunner(runtime, image)
 
@@ -229,7 +227,7 @@ def test_wrong_password_is_a_connect_failure_that_does_not_contain_it(
 def test_tls_require_encrypts_when_the_server_supports_it(
     runner: InspectorRunner, db: RunningDb
 ) -> None:
-    if db.engine is Engine.MYSQL:
+    if db.engine is not Engine.POSTGRESQL:
         assert _run(runner, db, "test", tls=TlsMode.REQUIRE)["tls"] is True
     else:
         with pytest.raises(InspectorError) as raised:
@@ -249,7 +247,7 @@ def _create_special_user(db: RunningDb) -> None:
             cursor.execute(query)
         else:
             cursor.execute("CREATE USER 'sp'@'%%' IDENTIFIED BY %s", (SPECIAL_PASSWORD,))
-            cursor.execute("GRANT SELECT ON shop.* TO 'sp'@'%%'")
+            cursor.execute("GRANT SELECT ON *.* TO 'sp'@'%'")
     finally:
         connection.close()
 

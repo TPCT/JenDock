@@ -17,7 +17,8 @@ dependencies = [
     "cryptography>=43",
     "argon2-cffi>=23.1",
     "psycopg[binary]>=3.2",
-    "PyMySQL>=1.1",
+    # 1.2.x fails the first caching_sha2_password login of a non-root user (AttributeError).
+    "PyMySQL>=1.1,<1.2",
 ]
 
 [project.optional-dependencies]

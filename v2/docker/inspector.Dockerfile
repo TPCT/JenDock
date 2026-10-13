@@ -7,9 +7,10 @@ FROM python:3.13.9-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 WORKDIR /build
 COPY requirements.lock ./
-# Only the two drivers (and what they need), pinned by the same lock file as the platform.
+# Only the two drivers plus cryptography (PyMySQL needs it for MySQL 8 password auth), pinned
+# by the same lock file as the platform.
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install -c requirements.lock "psycopg[binary]" PyMySQL
+    && /opt/venv/bin/pip install -c requirements.lock "psycopg[binary]" PyMySQL cryptography
 
 FROM python:3.13.9-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app PATH=/opt/venv/bin:$PATH
