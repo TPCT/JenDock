@@ -13,6 +13,7 @@ from shiftcodes.adapters.deployer import Deployer
 from shiftcodes.adapters.http_probe import HttpProbe
 from shiftcodes.adapters.sources import SourceProvider
 from shiftcodes.adapters.workspace import WorkspaceManager
+from shiftcodes.domain.enums import GitTransport, PipelineSource
 from shiftcodes.execution.cancel import CancelToken, NeverCancelled
 from shiftcodes.execution.config import ExecutionConfig
 from shiftcodes.execution.errors import DeadlineExceeded, RunCancelled
@@ -38,11 +39,13 @@ class RunJob:
     repository: str
     compose_project: str | None
     compose_files: tuple[str, ...]
-    compose_env_files: tuple[str, ...]
     services: tuple[str, ...]
     pipeline_text: str
     # Logical image name and tag of the images a redeploy reuses (empty for ordinary runs).
     redeploy_images: tuple[tuple[str, str], ...] = ()
+    compose_env_files: tuple[str, ...] = ()
+    git_transport: GitTransport = GitTransport.HTTPS
+    pipeline_source: PipelineSource = PipelineSource.PLATFORM
 
 
 class ImageBook:

@@ -1,28 +1,22 @@
-import {
-  AlertIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  HistoryIcon,
-  StopIcon,
-  SyncIcon,
-} from "@primer/octicons-react";
+import { HistoryIcon, HomeIcon, StopIcon, SyncIcon } from "@primer/octicons-react";
+import { Button, ConfirmationDialog, NavList, PageLayout, VisuallyHidden } from "@primer/react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { isApiError } from "../api/client";
-import { useCancelRun, useProject, useRun } from "../api/hooks";
-import type { RunDetail, StageRun, StepRun } from "../api/types";
+import { useCancelRun, useProject, useRun, useStartRun } from "../api/hooks";
+import type { RunDetail } from "../api/types";
 import { useRunStream } from "../api/useRunStream";
-import { useCrumbs } from "../components/Breadcrumbs";
 import { CopySha } from "../components/CopySha";
-import { Dialog } from "../components/Dialog";
-import { EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
-import { LogViewer } from "../components/LogViewer";
 import { runsPath } from "../components/EnvironmentCard";
-import { StageGraph, groupColumns, stageAnchor } from "../components/StageGraph";
+import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
+import { PageHead } from "../components/PageHead";
+import { StageGraph, groupColumns } from "../components/StageGraph";
+import { StageView } from "../components/StageView";
 import { StatusBadge, StatusIcon } from "../components/Status";
 import { Duration, RelativeTime } from "../components/Time";
-import { capitalize, isCancellable, isTerminal } from "../lib/format";
-import "./RunDetail.css";
+import { STATUS_LABEL, capitalize, isCancellable, isTerminal } from "../lib/format";
+import box from "../styles/box.module.css";
+import styles from "./RunDetail.module.css";
 
 const TRIGGER_TEXT = {
   push: "A push to the branch",
@@ -30,35 +24,46 @@ const TRIGGER_TEXT = {
   redeploy: "A redeploy",
 } as const;
 
+/** "Cancel run" opens a confirmation; once requested the button says so and stays disabled. */
 function CancelControl({ run }: { run: RunDetail }) {
   const [confirming, setConfirming] = useState(false);
   const cancel = useCancelRun(run.id);
   if (!isCancellable(run.status)) return null;
   if (run.cancel_requested_at !== null) {
     return (
-      <button type="button" className="btn" disabled>
-        <StopIcon size={16} aria-hidden="true" />
+      <Button leadingVisual={StopIcon} disabled>
         Cancel requested
-      </button>
+      </Button>
     );
   }
   return (
     <>
-      <button
-        type="button"
-        className="btn btn-danger"
+      <Button
+        variant="danger"
+        leadingVisual={StopIcon}
         onClick={() => {
           setConfirming(true);
         }}
       >
-        <StopIcon size={16} aria-hidden="true" />
         Cancel run
-      </button>
+      </Button>
       {confirming ? (
-        <Dialog
+        <ConfirmationDialog
           title={`Cancel run #${run.number}?`}
-          onClose={() => {
-            setConfirming(false);
+          confirmButtonContent="Cancel run"
+          cancelButtonContent="Keep running"
+          confirmButtonType="danger"
+          confirmButtonLoading={cancel.isPending}
+          onClose={(gesture) => {
+            if (gesture !== "confirm") {
+              setConfirming(false);
+              return;
+            }
+            cancel.mutate(undefined, {
+              onSuccess: () => {
+                setConfirming(false);
+              },
+            });
           }}
         >
           <p>
@@ -68,191 +73,54 @@ function CancelControl({ run }: { run: RunDetail }) {
             This cannot be undone.
           </p>
           {cancel.isError ? (
-            <div className="callout callout-danger" role="alert">
-              <AlertIcon size={16} aria-hidden="true" />
-              <div className="callout-body">{errorMessage(cancel.error)}</div>
-            </div>
+            <Callout variant="danger" role="alert">
+              {errorMessage(cancel.error)}
+            </Callout>
           ) : null}
-          <div className="dialog-actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setConfirming(false);
-              }}
-            >
-              Keep running
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger-solid"
-              disabled={cancel.isPending}
-              onClick={() => {
-                cancel.mutate(undefined, {
-                  onSuccess: () => {
-                    setConfirming(false);
-                  },
-                });
-              }}
-            >
-              <StopIcon size={16} aria-hidden="true" />
-              {cancel.isPending ? "Cancelling…" : "Cancel run"}
-            </button>
-          </div>
-        </Dialog>
+        </ConfirmationDialog>
       ) : null}
     </>
   );
 }
 
-function StepRow({
-  step,
-  open,
-  onToggle,
-  run,
-  store,
-  stale,
-}: {
-  step: StepRun;
-  open: boolean;
-  onToggle: () => void;
-  run: RunDetail;
-  store: ReturnType<typeof useRunStream>["store"];
-  stale: boolean;
-}) {
-  const panelId = `step-log-${step.id}`;
-  const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
-  return (
-    <li className="step">
-      <button
-        type="button"
-        className="step-head"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={onToggle}
-      >
-        <Chevron size={16} aria-hidden="true" />
-        <StatusIcon status={step.status} />
-        <span className="step-label">
-          <span className="sr-only">{step.status}: </span>
-          {step.label}
-        </span>
-        <code className="step-type">{step.step_type}</code>
-        <span className="step-time muted">
-          <Duration startedAt={step.started_at} finishedAt={step.finished_at} />
-        </span>
-      </button>
-      {open ? (
-        <div id={panelId} className="step-body">
-          {step.exit_code !== null && step.exit_code !== 0 ? (
-            <p className="muted">Exited with code {step.exit_code}.</p>
-          ) : null}
-          <LogViewer
-            store={store}
-            runId={run.id}
-            stepId={step.id}
-            running={step.status === "running"}
-            stale={stale}
-          />
-        </div>
-      ) : null}
-    </li>
-  );
+function activeStep(run: RunDetail): { stageId: number; stepId: number } | null {
+  const steps = run.stages.flatMap((stage) => stage.steps.map((step) => ({ stage, step })));
+  const hit =
+    steps.find(({ step }) => step.status === "running") ??
+    steps.find(({ step }) => step.status === "failed");
+  return hit ? { stageId: hit.stage.id, stepId: hit.step.id } : null;
 }
 
-function StageSection({
-  stage,
-  openSteps,
-  toggle,
-  run,
-  store,
-  stale,
-}: {
-  stage: StageRun;
-  openSteps: ReadonlySet<number>;
-  toggle: (id: number) => void;
-  run: RunDetail;
-  store: ReturnType<typeof useRunStream>["store"];
-  stale: boolean;
-}) {
-  const headingId = `${stageAnchor(stage.id)}-title`;
+function InfoQueued() {
   return (
-    <section
-      id={stageAnchor(stage.id)}
-      className="stage box"
-      aria-labelledby={headingId}
-      tabIndex={-1}
-    >
-      <header className="box-header">
-        <h3 id={headingId} className="stage-title">
-          <StatusIcon status={stage.status} />
-          {stage.name}
-        </h3>
-        <span className="muted">
-          <Duration startedAt={stage.started_at} finishedAt={stage.finished_at} />
-        </span>
-      </header>
-      {stage.steps.length === 0 ? (
-        <p className="box-row muted">No steps have started in this stage.</p>
-      ) : (
-        <ul className="steps">
-          {stage.steps.map((step) => (
-            <StepRow
-              key={step.id}
-              step={step}
-              open={openSteps.has(step.id)}
-              onToggle={() => {
-                toggle(step.id);
-              }}
-              run={run}
-              store={store}
-              stale={stale}
-            />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function activeStepId(run: RunDetail): number | null {
-  const steps = run.stages.flatMap((stage) => stage.steps);
-  return (
-    (steps.find((s) => s.status === "running") ?? steps.find((s) => s.status === "failed"))?.id ??
-    null
+    <p className="muted">
+      This run is waiting in the queue. Only one build runs at a time; it will start as soon as the
+      one before it finishes.
+    </p>
   );
 }
 
 export function RunDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   const runId = Number(id);
   const valid = Number.isInteger(runId) && runId > 0;
   const query = useRun(valid ? runId : 0);
   const run = query.data;
   const project = useProject(run?.project ?? "");
+  const rerun = useStartRun(run?.project ?? "", run?.environment ?? "development");
   const projectName = project.data?.name ?? run?.project ?? "Project";
   const { store, connection, reconnect } = useRunStream(runId, run?.status);
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const touched = useRef(false);
 
-  useCrumbs([
-    { label: "Projects", to: "/projects" },
-    {
-      label: projectName,
-      to: run ? `/projects/${encodeURIComponent(run.project)}` : "/projects",
-    },
-    {
-      label: run ? `${capitalize(run.environment)} runs` : "Runs",
-      to: run ? runsPath(run.project, run.environment) : "/runs",
-    },
-    { label: run ? `Run #${run.number}` : "Run" },
-  ]);
-
-  const active = run ? activeStepId(run) : null;
+  const active = run ? activeStep(run) : null;
+  const activeStepId = active?.stepId ?? null;
   useEffect(() => {
-    if (active === null || touched.current) return;
-    setOpen(new Set([active]));
-  }, [active]);
+    if (activeStepId === null || touched.current) return;
+    setOpen(new Set([activeStepId]));
+  }, [activeStepId]);
 
   if (!valid) {
     return (
@@ -260,9 +128,9 @@ export function RunDetailPage() {
         icon={<HistoryIcon size={32} aria-hidden="true" />}
         title="Run not found"
         action={
-          <Link className="btn" to="/runs">
+          <Button as={Link} to="/runs">
             Go to runs
-          </Link>
+          </Button>
         }
       >
         The run number in the address is not valid.
@@ -277,9 +145,9 @@ export function RunDetailPage() {
           icon={<HistoryIcon size={32} aria-hidden="true" />}
           title="Run not found"
           action={
-            <Link className="btn" to="/runs">
+            <Button as={Link} to="/runs">
               Go to runs
-            </Link>
+            </Button>
           }
         >
           This run does not exist or was removed.
@@ -296,6 +164,18 @@ export function RunDetailPage() {
   }
   const data = query.data;
   const stale = connection === "stale";
+  const stages = groupColumns(data.stages).flat();
+
+  // Like Actions the page opens on the summary; a running or failed step is more useful, so
+  // the run opens on its stage instead. `?stage=summary` or `?stage=<id>` always wins.
+  const wanted = params.get("stage");
+  const requested = stages.find((stage) => String(stage.id) === wanted);
+  const selected =
+    wanted === "summary"
+      ? null
+      : (requested ??
+        (wanted === null ? stages.find((stage) => stage.id === active?.stageId) : undefined) ??
+        null);
 
   const toggle = (stepId: number) => {
     touched.current = true;
@@ -307,113 +187,192 @@ export function RunDetailPage() {
     });
   };
 
-  const orderedStages = groupColumns(data.stages).flat();
+  const select = (stageId: number) => {
+    void navigate({ search: `?stage=${stageId}` });
+  };
+
+  const finished = isTerminal(data.status);
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1 className="run-heading">
-            Run #{data.number} <StatusBadge status={data.status} />
-          </h1>
-          <p className="subtitle">
-            {projectName} · {capitalize(data.environment)}
-          </p>
-        </div>
-        <div className="row-actions">
-          <CancelControl run={data} />
-        </div>
-      </div>
-
-      {stale ? (
-        <div className="callout callout-attention stale-banner" role="status">
-          <SyncIcon size={16} aria-hidden="true" />
-          <div className="callout-body">
-            <strong>Live updates are disconnected</strong>
-            <span>
-              What you see is the last known state and may be out of date. Reconnecting
-              automatically.
-            </span>
-            <div className="callout-actions">
-              <button type="button" className="btn" onClick={reconnect}>
-                Reconnect now
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {data.cancel_requested_at !== null && !isTerminal(data.status) ? (
-        <div className="callout stale-banner" role="status">
-          <SyncIcon size={16} aria-hidden="true" className="spin" />
-          <div className="callout-body">
-            Cancel requested. The run stops as soon as the worker has cleaned up.
-          </div>
-        </div>
-      ) : null}
-      {data.message ? <p className="subtitle run-message">{data.message}</p> : null}
-
-      <div className="box run-summary">
-        <dl className="dl">
-          <dt>Branch</dt>
-          <dd>
-            <code>{data.branch}</code>
-          </dd>
-          <dt>Commit</dt>
-          <dd>
+      <PageHead
+        crumbs={[
+          { label: "Projects", to: "/projects" },
+          { label: projectName, to: `/projects/${encodeURIComponent(data.project)}` },
+          {
+            label: `${capitalize(data.environment)} runs`,
+            to: runsPath(data.project, data.environment),
+          },
+          { label: `Run #${data.number}` },
+        ]}
+        title={`Run #${data.number}`}
+        trailing={<StatusBadge status={data.status} />}
+        description={
+          <span className={styles.subtitle}>
+            {projectName} · {capitalize(data.environment)} · <code>{data.branch}</code> ·{" "}
             <CopySha sha={data.commit_sha} />
-          </dd>
-          <dt>Started by</dt>
-          <dd>{TRIGGER_TEXT[data.trigger]}</dd>
-          <dt>Pipeline</dt>
-          <dd>
-            {data.pipeline_source === "repository"
-              ? "Jenkinsfile from the repository"
-              : "Pipeline saved in this platform"}
-          </dd>
-          <dt>Created</dt>
-          <dd>
-            <RelativeTime iso={data.created_at} />
-          </dd>
-          <dt>Duration</dt>
-          <dd>
-            <Duration startedAt={data.started_at} finishedAt={data.finished_at} />
-          </dd>
-        </dl>
-      </div>
+          </span>
+        }
+        actions={
+          <div className={box.cluster}>
+            {finished ? (
+              <Button
+                leadingVisual={SyncIcon}
+                disabled={rerun.isPending}
+                onClick={() => {
+                  rerun.mutate(
+                    { branch: data.branch, commit_sha: data.commit_sha },
+                    {
+                      onSuccess: (created) => {
+                        void navigate(`/runs/${created.id}`);
+                      },
+                    },
+                  );
+                }}
+              >
+                {rerun.isPending ? "Starting…" : "Re-run"}
+              </Button>
+            ) : null}
+            <CancelControl run={data} />
+          </div>
+        }
+      />
 
-      <h2 className="section-title">Stages</h2>
-      <div className="box graph-box">
-        <StageGraph stages={data.stages} />
-      </div>
+      <div className={`${box.stack} ${box.section}`}>
+        {rerun.isError ? (
+          <Callout variant="danger" role="alert" title="Could not re-run">
+            {errorMessage(rerun.error)}
+          </Callout>
+        ) : null}
 
-      <h2 className="section-title">Steps and logs</h2>
-      {data.status === "queued" && data.stages.length === 0 ? (
-        <InfoQueued />
-      ) : (
-        <div className="stack">
-          {orderedStages.map((stage) => (
-            <StageSection
-              key={stage.id}
-              stage={stage}
-              openSteps={open}
-              toggle={toggle}
-              run={data}
-              store={store}
-              stale={stale}
-            />
-          ))}
-        </div>
-      )}
+        {stale ? (
+          <Callout
+            variant="warning"
+            role="status"
+            title="Live updates are disconnected"
+            actions={
+              <Button size="small" onClick={reconnect}>
+                Reconnect now
+              </Button>
+            }
+          >
+            What you see is the last known state and may be out of date. Reconnecting automatically.
+          </Callout>
+        ) : null}
+
+        {data.cancel_requested_at !== null && !finished ? (
+          <Callout role="status">
+            Cancel requested. The run stops as soon as the worker has cleaned up.
+          </Callout>
+        ) : null}
+        {data.message ? (
+          <Callout variant={data.status === "failed" ? "danger" : "default"}>
+            {data.message}
+          </Callout>
+        ) : null}
+
+        <PageLayout containerWidth="full" padding="none" columnGap="normal" rowGap="normal">
+          <PageLayout.Pane position="start" width="small" padding="none" divider="none">
+            <NavList aria-label="Run">
+              <NavList.Item
+                as={Link}
+                to={{ search: "?stage=summary" }}
+                aria-current={selected === null ? "page" : undefined}
+              >
+                <NavList.LeadingVisual>
+                  <HomeIcon />
+                </NavList.LeadingVisual>
+                Summary
+              </NavList.Item>
+              <NavList.Divider />
+              <NavList.Group title="Stages">
+                {stages.map((stage) => (
+                  <NavList.Item
+                    key={stage.id}
+                    as={Link}
+                    to={{ search: `?stage=${stage.id}` }}
+                    aria-current={selected?.id === stage.id ? "page" : undefined}
+                  >
+                    <NavList.LeadingVisual>
+                      <StatusIcon status={stage.status} />
+                    </NavList.LeadingVisual>
+                    {stage.name}
+                    <VisuallyHidden>, {STATUS_LABEL[stage.status]}</VisuallyHidden>
+                    <NavList.TrailingVisual>
+                      <span className="muted">
+                        <Duration startedAt={stage.started_at} finishedAt={stage.finished_at} />
+                      </span>
+                    </NavList.TrailingVisual>
+                  </NavList.Item>
+                ))}
+              </NavList.Group>
+            </NavList>
+          </PageLayout.Pane>
+          <PageLayout.Content as="div" padding="none">
+            {selected ? (
+              <StageView
+                key={selected.id}
+                stage={selected}
+                openSteps={open}
+                toggle={toggle}
+                run={data}
+                store={store}
+                stale={stale}
+              />
+            ) : (
+              <div className={box.stack}>
+                <div className={box.box}>
+                  <div className={box.header}>
+                    <span>Summary</span>
+                  </div>
+                  <div className={box.row}>
+                    <dl className={box.defs}>
+                      <dt>Status</dt>
+                      <dd>
+                        <StatusBadge status={data.status} />
+                      </dd>
+                      <dt>Branch</dt>
+                      <dd>
+                        <code>{data.branch}</code>
+                      </dd>
+                      <dt>Commit</dt>
+                      <dd>
+                        <CopySha sha={data.commit_sha} />
+                      </dd>
+                      <dt>Started by</dt>
+                      <dd>{TRIGGER_TEXT[data.trigger]}</dd>
+                      <dt>Pipeline</dt>
+                      <dd>
+                        {data.pipeline_source === "repository"
+                          ? "Jenkinsfile from the repository"
+                          : "Pipeline saved in this platform"}
+                      </dd>
+                      <dt>Created</dt>
+                      <dd>
+                        <RelativeTime iso={data.created_at} />
+                      </dd>
+                      <dt>Duration</dt>
+                      <dd>
+                        <Duration startedAt={data.started_at} finishedAt={data.finished_at} />
+                      </dd>
+                    </dl>
+                  </div>
+                </div>
+                {data.status === "queued" && data.stages.length === 0 ? (
+                  <InfoQueued />
+                ) : (
+                  <div className={box.box}>
+                    <div className={box.header}>
+                      <span>Stages</span>
+                    </div>
+                    <StageGraph stages={data.stages} onSelect={select} />
+                  </div>
+                )}
+              </div>
+            )}
+          </PageLayout.Content>
+        </PageLayout>
+      </div>
     </>
-  );
-}
-
-function InfoQueued() {
-  return (
-    <p className="muted">
-      This run is waiting in the queue. Only one build runs at a time; it will start as soon as the
-      one before it finishes.
-    </p>
   );
 }

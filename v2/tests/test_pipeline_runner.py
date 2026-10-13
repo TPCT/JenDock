@@ -457,7 +457,8 @@ def test_invalid_pipeline_text_fails_the_run(harness: Harness) -> None:
     assert outcome.status is FAIL
     assert outcome.message is not None
     assert "pipeline syntax error" in outcome.message
-    assert harness.detail(run).stages == ()
+    assert [d.stage.name for d in harness.detail(run).stages] == ["Pipeline"]
+    assert "pipeline syntax error" in harness.log_of(run, "Pipeline")
 
 
 # --- logs ----------------------------------------------------------------------------------

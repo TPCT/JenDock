@@ -1,11 +1,12 @@
-import { AlertIcon, GitCommitIcon, PlayIcon, SearchIcon } from "@primer/octicons-react";
+import { GitCommitIcon, SearchIcon } from "@primer/octicons-react";
+import { Button, Dialog, FormControl, TextInput } from "@primer/react";
 import { useState, type SyntheticEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBranchHead, useStartRun } from "../api/hooks";
 import type { EnvironmentName } from "../api/types";
 import { capitalize, shortSha } from "../lib/format";
-import { Dialog } from "./Dialog";
-import { errorMessage } from "./Feedback";
+import box from "../styles/box.module.css";
+import { Callout, errorMessage } from "./Feedback";
 import { RelativeTime } from "./Time";
 
 /** Two steps so nobody deploys a commit they have not seen: look up the branch head, then run it. */
@@ -47,69 +48,73 @@ export function StartRunDialog({
   };
 
   return (
-    <Dialog title={`Run pipeline on ${capitalize(env)}`} onClose={onClose}>
-      <p className="muted">Pick a branch. You will see the exact commit before anything starts.</p>
-      <form className="stack" onSubmit={onLookup} noValidate>
-        <div className="field">
-          <label htmlFor="run-branch">Branch</label>
-          <input
-            id="run-branch"
-            className="input mono"
-            value={branch}
-            onChange={(event) => {
-              setBranch(event.target.value);
-            }}
-            spellCheck={false}
-            autoCapitalize="none"
-          />
-          <p className="hint">
-            The default for {capitalize(env)} is {defaultBranch}.
-          </p>
-        </div>
-        <div>
-          <button type="submit" className="btn" disabled={branch.trim() === "" || head.isFetching}>
-            <SearchIcon size={16} aria-hidden="true" />
-            {head.isFetching ? "Looking up…" : "Look up latest commit"}
-          </button>
-        </div>
-      </form>
-      {lookup !== null && head.isError && lookup === branch.trim() ? (
-        <div className="callout callout-danger" role="alert">
-          <AlertIcon size={16} aria-hidden="true" />
-          <div className="callout-body">{errorMessage(head.error)}</div>
-        </div>
-      ) : null}
-      {preview ? (
-        <div className="callout" role="status">
-          <GitCommitIcon size={16} aria-hidden="true" />
-          <div className="callout-body">
-            <strong className="ltr">{shortSha(preview.commit_sha)}</strong>
-            <span>{preview.message}</span>
-            <span className="muted">
-              {preview.author} · <RelativeTime iso={preview.committed_at} />
-            </span>
+    <Dialog
+      title={`Run pipeline on ${capitalize(env)}`}
+      subtitle="Pick a branch. You will see the exact commit before anything starts."
+      width="large"
+      onClose={onClose}
+      footerButtons={[
+        { buttonType: "default", content: "Cancel", onClick: onClose },
+        {
+          buttonType: "primary",
+          content: start.isPending ? "Starting…" : "Run pipeline",
+          disabled: !preview || start.isPending,
+          onClick: onRun,
+        },
+      ]}
+    >
+      <div className={box.stack}>
+        <form className={box.stack} onSubmit={onLookup} noValidate>
+          <FormControl>
+            <FormControl.Label>Branch</FormControl.Label>
+            <TextInput
+              block
+              monospace
+              value={branch}
+              onChange={(event) => {
+                setBranch(event.target.value);
+              }}
+              spellCheck={false}
+              autoCapitalize="none"
+            />
+            <FormControl.Caption>
+              The default for {capitalize(env)} is {defaultBranch}.
+            </FormControl.Caption>
+          </FormControl>
+          <div>
+            <Button
+              type="submit"
+              leadingVisual={SearchIcon}
+              disabled={branch.trim() === "" || head.isFetching}
+            >
+              {head.isFetching ? "Looking up…" : "Look up latest commit"}
+            </Button>
           </div>
-        </div>
-      ) : null}
-      {start.isError ? (
-        <div className="callout callout-danger" role="alert">
-          <AlertIcon size={16} aria-hidden="true" />
-          <div className="callout-body">{errorMessage(start.error)}</div>
-        </div>
-      ) : null}
-      <div className="dialog-actions">
-        <button type="button" className="btn" onClick={onClose}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!preview || start.isPending}
-          onClick={onRun}
-        >
-          <PlayIcon size={16} aria-hidden="true" />
-          {start.isPending ? "Starting…" : "Run pipeline"}
-        </button>
+        </form>
+        {lookup !== null && head.isError && lookup === branch.trim() ? (
+          <Callout variant="danger" role="alert">
+            {errorMessage(head.error)}
+          </Callout>
+        ) : null}
+        {preview ? (
+          <div role="status" className={box.box}>
+            <div className={box.row}>
+              <div className={box.cluster}>
+                <GitCommitIcon size={16} aria-hidden="true" />
+                <strong className="ltr">{shortSha(preview.commit_sha)}</strong>
+                <span>{preview.message}</span>
+              </div>
+              <span className="muted">
+                {preview.author} · <RelativeTime iso={preview.committed_at} />
+              </span>
+            </div>
+          </div>
+        ) : null}
+        {start.isError ? (
+          <Callout variant="danger" role="alert">
+            {errorMessage(start.error)}
+          </Callout>
+        ) : null}
       </div>
     </Dialog>
   );

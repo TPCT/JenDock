@@ -1,0 +1,81 @@
+/* GitHub's "Box": bordered container, muted header, rows separated by hairlines.
+   Primer React no longer ships a Box component, so these classes use the same tokens. */
+.box {
+  background: var(--bgColor-default);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  min-width: 0;
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+  padding: var(--base-size-12) var(--base-size-16);
+  background: var(--bgColor-muted);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-top-left-radius: var(--borderRadius-medium);
+  border-top-right-radius: var(--borderRadius-medium);
+  font-weight: var(--base-text-weight-semibold);
+}
+.row {
+  padding: var(--base-size-16);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+.row:first-child {
+  border-top: 0;
+}
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+}
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.spread {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+}
+.section {
+  margin-top: var(--base-size-24);
+}
+.sectionTitle {
+  margin: 0 0 var(--base-size-8);
+  font-size: var(--text-title-size-small);
+  font-weight: var(--base-text-weight-semibold);
+}
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+  padding: var(--base-size-8) var(--base-size-16);
+  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
+}
+.defs {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--base-size-4) var(--base-size-16);
+  margin: 0;
+}
+.defs dt {
+  color: var(--fgColor-muted);
+}
+.defs dd {
+  margin: 0;
+  min-width: 0;
+}

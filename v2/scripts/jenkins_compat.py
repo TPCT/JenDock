@@ -64,6 +64,7 @@ def write_doc(rows: list[tuple[str, str, str, str]]) -> None:
 DOC_SECTIONS = [
     ("Valid fixtures", "valid/"),
     ("README example and serializer output", "readme/"),
+    ("Starter templates", "template/"),
     ("Serialized valid fixtures", "serialized/"),
     ("Invalid fixtures", "invalid/"),
     ("Syntax probes", "probe/"),

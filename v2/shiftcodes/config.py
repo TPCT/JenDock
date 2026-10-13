@@ -35,8 +35,18 @@ class Settings(BaseSettings):
     # Path or name of the docker CLI; production uses a non-default path.
     docker_binary: str = "docker"
     git_binary: str = "git"
-    # Where a project repository ("owner/name") is cloned from until Task 6 adds GitHub deploy keys.
+    # Where a project repository ("owner/name") is cloned from with the https transport
+    # (public repositories only; the ssh transport uses the deploy key below).
     git_url_template: str = "https://github.com/{repository}.git"
+    # Deploy key (private key file, mode 0600) in the worker-only keys volume. Unset means
+    # the ssh transport is unavailable. The pinned host keys ship with the image.
+    git_ssh_key_file: Path | None = None
+    git_ssh_known_hosts_file: Path = Path("/etc/shiftcodes/github_known_hosts")
+    # Webhook secret shared with GitHub (file in the keys volume, read by the worker only).
+    github_webhook_secret_file: Path | None = None
+    # Report run status to GitHub; the token is the environment secret named below.
+    github_status_enabled: bool = False
+    github_status_token_secret: str = "GITHUB_STATUS_TOKEN"  # noqa: S105 - a secret *name*
     # Host-side path of ``<data_dir>/workspaces`` when the worker itself runs in a container
     # (bind mounts are resolved by the host daemon). ``None`` means the same path.
     workspace_host_dir: Path | None = None
@@ -66,6 +76,9 @@ class Settings(BaseSettings):
     # environment). Empty means nobody is trusted and the peer address is the client address.
     trusted_proxies: Annotated[list[str], NoDecode] = []
     secret_key_file: Path
+    # Directory of the built web UI (Vite ``dist``) served by the API; ``None`` = API only
+    # (development uses the Vite dev server). The container image sets it.
+    frontend_dist: Path | None = None
 
     @field_validator("container_memory", "build_memory")
     @classmethod

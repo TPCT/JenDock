@@ -78,9 +78,19 @@ Checker = Callable[[Value], str | None]
 CallCheck = Callable[[StepCall], list[Problem]]
 
 
+class ImageRole(StrEnum):
+    """How an argument relates to the logical images of a pipeline."""
+
+    PRODUCES = "produces_image"
+    USES = "uses_image"
+
+
 @dataclass(frozen=True, slots=True)
 class ArgSpec:
-    """One allowed argument. ``rejected`` makes the argument a deliberate error."""
+    """One allowed argument. ``rejected`` makes the argument a deliberate error.
+
+    ``description``, ``multiline`` and ``role`` only feed the catalogue shown to editors.
+    """
 
     name: str
     kind: ValueKind
@@ -88,6 +98,9 @@ class ArgSpec:
     default: str | int | bool | None = None
     check: Checker | None = None
     rejected: str | None = None
+    description: str = ""
+    multiline: bool = False
+    role: ImageRole | None = None
 
 
 def _no_problems(_call: StepCall) -> list[Problem]:
@@ -117,6 +130,8 @@ class StepDefinition:
     command_syntax: bool = False
     named_canonical: bool = False
     needs_container: bool = False
+    title: str = ""
+    description: str = ""
     cross_check: CallCheck = field(default=_no_problems)
     produced_images: Callable[[StepCall], tuple[str, ...]] = field(default=_no_images)
     image_uses: Callable[[StepCall], tuple[ImageUse, ...]] = field(default=_no_uses)
@@ -150,30 +165,52 @@ def _literal_problem(what: str) -> str:
     return f"{what} must be a literal string without variables"
 
 
-def positive_int(value: Value) -> str | None:
-    """Integer greater than zero."""
-    ok = isinstance(value, IntValue) and value.value > 0
-    return None if ok else "must be greater than 0"
+@dataclass(frozen=True, slots=True)
+class IntRange:
+    """Integer between ``low`` and ``high`` inclusive; the bounds are readable by the catalogue.
+
+    ``high`` is ``None`` for "at least ``low``".
+    """
+
+    low: int
+    high: int | None = None
+
+    def __call__(self, value: Value) -> str | None:
+        """The problem with ``value``, or ``None`` when it is in range."""
+        if not isinstance(value, IntValue):
+            return self._message()
+        too_high = self.high is not None and value.value > self.high
+        return self._message() if value.value < self.low or too_high else None
+
+    def _message(self) -> str:
+        if self.high is None:
+            return f"must be at least {self.low}" if self.low != 1 else "must be greater than 0"
+        return f"must be between {self.low} and {self.high}"
+
+
+@dataclass(frozen=True, slots=True)
+class OneOf:
+    """Literal string equal to one of ``options``; the options are readable by the catalogue."""
+
+    options: tuple[str, ...]
+
+    def __call__(self, value: Value) -> str | None:
+        """The problem with ``value``, or ``None`` when it is one of the options."""
+        ok = _plain(value) in self.options
+        return None if ok else f"must be one of {', '.join(self.options)}"
+
+
+positive_int: Checker = IntRange(1)
 
 
 def int_range(low: int, high: int) -> Checker:
     """Integer between ``low`` and ``high`` inclusive."""
-
-    def check(value: Value) -> str | None:
-        ok = isinstance(value, IntValue) and low <= value.value <= high
-        return None if ok else f"must be between {low} and {high}"
-
-    return check
+    return IntRange(low, high)
 
 
 def one_of(options: tuple[str, ...]) -> Checker:
     """Literal string equal to one of ``options``."""
-
-    def check(value: Value) -> str | None:
-        ok = _plain(value) in options
-        return None if ok else f"must be one of {', '.join(options)}"
-
-    return check
+    return OneOf(options)
 
 
 def pattern(regex: re.Pattern[str], what: str) -> Checker:
@@ -336,94 +373,274 @@ def _with_env_names(call: StepCall) -> tuple[str, ...]:
     return tuple(name for name in names if name is not None)
 
 
-def _string(
+def _string(  # noqa: PLR0913 - declarative builder, every argument is data
     name: str,
+    description: str,
     *,
     required: bool = False,
     default: str | None = None,
     check: Checker | None = None,
+    multiline: bool = False,
+    role: ImageRole | None = None,
 ) -> ArgSpec:
-    return ArgSpec(name, ValueKind.STRING, required=required, default=default, check=check)
+    return ArgSpec(
+        name,
+        ValueKind.STRING,
+        required=required,
+        default=default,
+        check=check,
+        description=description,
+        multiline=multiline,
+        role=role,
+    )
 
 
 _NO_GROOVY = "there is no Groovy to consume the result"
+_TIME_HELP = "How long the steps inside may take before the run gives up on them."
+_UNIT_HELP = "Whether the time above is counted in seconds, minutes or hours."
+_COUNT_HELP = "How many times in total to try, including the first attempt (1 to 10)."
 _TIMEOUT_ARGS = (
-    ArgSpec("time", ValueKind.INT, required=True, check=positive_int),
-    ArgSpec("unit", ValueKind.STRING, check=one_of(_TIME_UNITS), default="MINUTES"),
+    ArgSpec("time", ValueKind.INT, required=True, check=positive_int, description=_TIME_HELP),
+    ArgSpec(
+        "unit",
+        ValueKind.STRING,
+        check=one_of(_TIME_UNITS),
+        default="MINUTES",
+        description=_UNIT_HELP,
+    ),
 )
-_RETRY_ARGS = (ArgSpec("count", ValueKind.INT, required=True, check=int_range(1, 10)),)
+_RETRY_ARGS = (
+    ArgSpec("count", ValueKind.INT, required=True, check=int_range(1, 10), description=_COUNT_HELP),
+)
 _LOGICAL = pattern(_LOGICAL_NAME, "image name")
 _SERVICES = string_map(_SERVICE_NAME, _LOGICAL)
 _SH = StepDefinition(
     "sh",
     (
-        _string("script", required=True),
-        _string("label"),
+        _string(
+            "script",
+            "The command to run, for example npm test. Several lines run one after another, "
+            "and the first failing line stops the step.",
+            required=True,
+            multiline=True,
+        ),
+        _string("label", "A short name shown in the run instead of the command (optional)."),
         ArgSpec("returnStatus", ValueKind.BOOL, rejected=_NO_GROOVY),
         ArgSpec("returnStdout", ValueKind.BOOL, rejected=_NO_GROOVY),
     ),
     positional=("script",),
     command_syntax=True,
     needs_container=True,
+    title="Run a shell command",
+    description=(
+        "Runs a command inside a container, for example to install, test or build your code. "
+        "The stage or pipeline must have a Docker agent so the platform knows which image to use."
+    ),
 )
-_TIMEOUT = StepDefinition("timeout", _TIMEOUT_ARGS, ("time",), Block.REQUIRED, named_canonical=True)
-_RETRY = StepDefinition("retry", _RETRY_ARGS, ("count",), Block.REQUIRED)
+_TIMEOUT = StepDefinition(
+    "timeout",
+    _TIMEOUT_ARGS,
+    ("time",),
+    Block.REQUIRED,
+    named_canonical=True,
+    title="Limit the time",
+    description="Stops the steps inside it if they take longer than the time you set.",
+)
+_RETRY = StepDefinition(
+    "retry",
+    _RETRY_ARGS,
+    ("count",),
+    Block.REQUIRED,
+    title="Retry on failure",
+    description="Runs the steps inside it again when they fail, up to the number of tries you set.",
+)
 
 STEPS: Registry = {
     definition.name: definition
     for definition in (
         _SH,
         StepDefinition(
-            "echo", (_string("message", required=True),), ("message",), command_syntax=True
+            "echo",
+            (_string("message", "The text to write to the run log.", required=True),),
+            ("message",),
+            command_syntax=True,
+            title="Print a message",
+            description="Writes a line of text to the run log. Handy for marking progress.",
         ),
         StepDefinition(
-            "error", (_string("message", required=True),), ("message",), command_syntax=True
+            "error",
+            (_string("message", "Why the run is being stopped.", required=True),),
+            ("message",),
+            command_syntax=True,
+            title="Fail the run",
+            description="Stops the run on purpose and marks it as failed, showing your message.",
         ),
         _TIMEOUT,
         _RETRY,
         StepDefinition(
             "dir",
-            (_string("path", required=True, check=relative_path),),
+            (
+                _string(
+                    "path",
+                    "Folder inside your repository, for example web or apps/api. "
+                    "It must be relative and cannot contain '..'.",
+                    required=True,
+                    check=relative_path,
+                ),
+            ),
             ("path",),
             Block.REQUIRED,
+            title="Work in a folder",
+            description="Runs the steps inside it from a sub-folder of your repository.",
         ),
         StepDefinition(
             "withEnv",
-            (ArgSpec("overrides", ValueKind.LIST, required=True, check=env_assignments),),
+            (
+                ArgSpec(
+                    "overrides",
+                    ValueKind.LIST,
+                    required=True,
+                    check=env_assignments,
+                    description=(
+                        "A list of settings written NAME=value, for example NODE_ENV=production. "
+                        "Names use capital letters, digits and underscores."
+                    ),
+                ),
+            ),
             ("overrides",),
             Block.REQUIRED,
             bound_env=_with_env_names,
+            title="Set variables",
+            description="Sets environment variables for the steps inside it only.",
         ),
         StepDefinition(
             "dockerBuild",
             (
-                _string("image", required=True, check=_LOGICAL),
-                _string("dockerfile", default="Dockerfile", check=relative_path),
-                _string("context", default=".", check=relative_path),
-                _string("target", check=pattern(_TARGET, "target")),
-                ArgSpec("args", ValueKind.MAP, check=string_map(_IDENTIFIER)),
+                _string(
+                    "image",
+                    "A short name for the image you are building, for example web. Later steps "
+                    "use this name. Lowercase letters, digits, '.', '_' and '-'.",
+                    required=True,
+                    check=_LOGICAL,
+                    role=ImageRole.PRODUCES,
+                ),
+                _string(
+                    "dockerfile",
+                    "Path of the Dockerfile in your repository.",
+                    default="Dockerfile",
+                    check=relative_path,
+                ),
+                _string(
+                    "context",
+                    "The folder Docker may read files from while building. Use . for the "
+                    "whole repository.",
+                    default=".",
+                    check=relative_path,
+                ),
+                _string(
+                    "target",
+                    "Name of the build stage to stop at, for multi-stage Dockerfiles (optional).",
+                    check=pattern(_TARGET, "target"),
+                ),
+                ArgSpec(
+                    "args",
+                    ValueKind.MAP,
+                    check=string_map(_IDENTIFIER),
+                    description=(
+                        "Build arguments passed to Docker, as name and value pairs "
+                        "(optional). They are visible in the image history, so never put "
+                        "secrets here."
+                    ),
+                ),
             ),
             produced_images=_build_produces,
+            title="Build an image",
+            description=(
+                "Builds a Docker image from a Dockerfile in your repository. Give the image a "
+                "name so the next steps can run tests in it or deploy it."
+            ),
         ),
         StepDefinition(
             "deploy",
             (
-                _string("service", check=pattern(_SERVICE_NAME, "service name")),
-                _string("image", check=_LOGICAL),
-                ArgSpec("services", ValueKind.MAP, check=_SERVICES),
-                _string("healthUrl", check=http_url),
-                ArgSpec("healthStatus", ValueKind.INT, default=200, check=int_range(100, 599)),
-                ArgSpec("healthTimeout", ValueKind.INT, default=60, check=int_range(1, 3600)),
+                _string(
+                    "service",
+                    "The service to update, exactly as named in the environment's compose file.",
+                    check=pattern(_SERVICE_NAME, "service name"),
+                ),
+                _string(
+                    "image",
+                    "The image to start the service from: pick one built earlier in this pipeline.",
+                    check=_LOGICAL,
+                    role=ImageRole.USES,
+                ),
+                ArgSpec(
+                    "services",
+                    ValueKind.MAP,
+                    check=_SERVICES,
+                    description=(
+                        "To update several services at once, list each service with the image it "
+                        "should run. Use this instead of service and image."
+                    ),
+                    role=ImageRole.USES,
+                ),
+                _string(
+                    "healthUrl",
+                    "Optional address that must answer after the update; if it does not, the "
+                    "update is rolled back.",
+                    check=http_url,
+                ),
+                ArgSpec(
+                    "healthStatus",
+                    ValueKind.INT,
+                    default=200,
+                    check=int_range(100, 599),
+                    description="The HTTP status healthUrl must return.",
+                ),
+                ArgSpec(
+                    "healthTimeout",
+                    ValueKind.INT,
+                    default=60,
+                    check=int_range(1, 3600),
+                    description="Seconds to wait for healthUrl to answer.",
+                ),
             ),
             cross_check=_deploy_cross_check,
             image_uses=_deploy_uses,
+            title="Deploy a service",
+            description=(
+                "Starts a service of this environment from an image built earlier in the "
+                "pipeline, and rolls back automatically if it does not become healthy."
+            ),
         ),
         StepDefinition(
             "healthCheck",
             (
-                _string("url", required=True, check=http_url),
-                ArgSpec("expectStatus", ValueKind.INT, default=200, check=int_range(100, 599)),
-                ArgSpec("timeout", ValueKind.INT, default=60, check=int_range(1, 3600)),
+                _string(
+                    "url",
+                    "The web address to request, starting with http:// or https://.",
+                    required=True,
+                    check=http_url,
+                ),
+                ArgSpec(
+                    "expectStatus",
+                    ValueKind.INT,
+                    default=200,
+                    check=int_range(100, 599),
+                    description="The HTTP status code that means the service is healthy.",
+                ),
+                ArgSpec(
+                    "timeout",
+                    ValueKind.INT,
+                    default=60,
+                    check=int_range(1, 3600),
+                    description="How many seconds to keep trying before the check fails.",
+                ),
+            ),
+            title="Check a web address",
+            description=(
+                "Requests a web address until it answers with the expected status, to confirm "
+                "that a deployed service is really up."
             ),
         ),
     )
@@ -432,30 +649,84 @@ STEPS: Registry = {
 OPTIONS: Registry = {
     definition.name: definition
     for definition in (
-        replace(_TIMEOUT, block=Block.NONE),
-        replace(_RETRY, block=Block.NONE),
-        StepDefinition("disableConcurrentBuilds"),
-        StepDefinition("skipDefaultCheckout"),
+        replace(
+            _TIMEOUT,
+            block=Block.NONE,
+            title="Time limit",
+            description="Stops this whole pipeline or stage if it takes longer than the time set.",
+        ),
+        replace(
+            _RETRY,
+            block=Block.NONE,
+            title="Retries",
+            description="Runs this whole pipeline or stage again when it fails.",
+        ),
+        StepDefinition(
+            "disableConcurrentBuilds",
+            title="One run at a time",
+            description="Does not start this pipeline again while an earlier run is still going.",
+        ),
+        StepDefinition(
+            "skipDefaultCheckout",
+            title="Skip the automatic checkout",
+            description=(
+                "Does not download your repository before the stages. Use it only when no step "
+                "needs your code."
+            ),
+        ),
     )
 }
 
-_PARAM_NAME = _string("name", required=True, check=pattern(_IDENTIFIER, "parameter name"))
-_DESCRIPTION = _string("description")
+_PARAM_NAME = _string(
+    "name",
+    "The variable name the value is available under, for example DEPLOY_TARGET. Letters, digits "
+    "and underscores, not starting with a digit.",
+    required=True,
+    check=pattern(_IDENTIFIER, "parameter name"),
+)
+_DESCRIPTION = _string("description", "A hint shown next to the field when starting a run.")
 PARAMETERS: Registry = {
     definition.name: definition
     for definition in (
-        StepDefinition("string", (_PARAM_NAME, _string("defaultValue"), _DESCRIPTION)),
+        StepDefinition(
+            "string",
+            (
+                _PARAM_NAME,
+                _string("defaultValue", "The text used when nobody enters anything."),
+                _DESCRIPTION,
+            ),
+            title="Text parameter",
+            description="Asks for a piece of text when a run is started.",
+        ),
         StepDefinition(
             "booleanParam",
-            (_PARAM_NAME, ArgSpec("defaultValue", ValueKind.BOOL), _DESCRIPTION),
+            (
+                _PARAM_NAME,
+                ArgSpec(
+                    "defaultValue",
+                    ValueKind.BOOL,
+                    description="Whether the box is ticked unless somebody changes it.",
+                ),
+                _DESCRIPTION,
+            ),
+            title="Yes/no parameter",
+            description="Asks a yes or no question when a run is started.",
         ),
         StepDefinition(
             "choice",
             (
                 _PARAM_NAME,
-                ArgSpec("choices", ValueKind.LIST, required=True, check=choice_list),
+                ArgSpec(
+                    "choices",
+                    ValueKind.LIST,
+                    required=True,
+                    check=choice_list,
+                    description="The values to pick from. The first one is the default.",
+                ),
                 _DESCRIPTION,
             ),
+            title="Choice parameter",
+            description="Asks to pick one value from a list when a run is started.",
         ),
     )
 }
