@@ -43,3 +43,11 @@ samp {
     animation: none;
   }
 }
+
+/* An icon inside a label (status, state, check results) keeps clear space from its text,
+   everywhere in the app, as in GitHub's labels. */
+[data-component="Label"]:has(> svg) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-6, 6px);
+}
