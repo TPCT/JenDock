@@ -1,0 +1,75 @@
+.graph {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--base-size-8);
+  margin: 0;
+  padding: var(--base-size-16);
+  list-style: none;
+  overflow-x: auto;
+}
+.column {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.arrow {
+  flex: none;
+  color: var(--fgColor-muted);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.parallel {
+  padding: var(--base-size-8);
+  border: var(--borderWidth-thin) dashed var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.tag {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+/* The Actions job card. */
+.node {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 12rem;
+  max-width: 18rem;
+  padding: var(--base-size-8) var(--base-size-12);
+  background: var(--bgColor-default);
+  color: var(--fgColor-default);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.node:hover {
+  background: var(--bgColor-muted);
+  border-color: var(--borderColor-accent-emphasis);
+}
+.node:focus-visible {
+  outline: var(--base-size-2) solid var(--focus-outlineColor);
+  outline-offset: var(--base-size-2);
+}
+.failed {
+  border-color: var(--borderColor-danger-emphasis);
+}
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--base-text-weight-medium);
+}
+.time {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+  white-space: nowrap;
+}

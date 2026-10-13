@@ -1,7 +1,7 @@
 # Shiftcodes frontend
 
 React 19 + Vite + TypeScript (strict, `noUncheckedIndexedAccess`), React Router, TanStack Query,
-Primer-like token CSS (light/dark), official Octicons. Tests: Vitest + Testing Library + MSW.
+GitHub's design system (`@primer/react` 38.40.1, `@primer/primitives` CSS variables for light, dark and dark dimmed, `@primer/octicons-react`). Tests: Vitest + Testing Library + MSW.
 Dependencies are pinned to exact versions; use `npm ci`.
 
 The API contract (what exists, what is proposed) is in `../docs/api-contract.md`.
@@ -65,7 +65,10 @@ repository pipeline (read-only), `billing-worker` has none (starter), `shop-api`
 - `src/api`: typed fetch client (credentials, `X-CSRF-Token`, error envelope, 401 redirect),
   TanStack Query hooks, `useRunStream` (SSE).
 - `src/lib`: formatting, ANSI colours, theme, `LogStore` (offset-safe log buffers).
-- `src/components`, `src/pages`, `src/styles` (`tokens.css` = design tokens for both themes).
+- `src/components`, `src/pages`, `src/styles` (`global.css` page glue, `box.module.css` = GitHub's Box look).
+  Primer CSS variables come from `@primer/primitives` (imported in `main.tsx`); the colour mode is the
+  three `data-color-mode` / `data-light-theme` / `data-dark-theme` attributes on `<html>`
+  (`public/theme-init.js` applies the saved choice before first paint, `src/lib/theme.ts` changes it).
 - `src/mocks`, `src/test`.
 
 ## Serving the production build (what the backend team must add)
@@ -83,3 +86,29 @@ repository pipeline (read-only), `billing-worker` has none (starter), `shop-api`
 3. The current `SecurityHeadersMiddleware` sends `Cache-Control: no-store` on everything; for
    `/assets/*` it should send `public, max-age=31536000, immutable` instead.
 4. Everything is same-origin, so no CORS is needed.
+
+## Content-Security-Policy
+
+Production sends `default-src 'self'` (no `unsafe-inline`). Primer React 38 is CSS Modules only (no
+styled-components, no runtime `<style>`); Vite emits all of it as `assets/*.css`. React's `style` prop
+and CodeMirror's `style.cssText` are CSSOM writes, which the policy allows.
+`src/test/csp.test.ts` builds the app and fails if `index.html` gets an inline style/script, or if a
+bundle gains a `<style>`-creating code path not on its documented list. Known, guarded paths:
+React hoistable `<style>` (unused), CodeMirror's `<style>` fallback (editor lives in a shadow root,
+which uses constructed stylesheets), `@oddbird/popover-polyfill` (only where the Popover API is
+missing; uses constructed stylesheets, `<style>` only in browsers with neither), and
+`@primer/live-region-element`, whose shadow template contains a `<style>`: it is created only by
+`announce()`, which nothing the app renders calls (`vitest.setup.ts` fails any test that creates a
+`<live-region>` or a document `<style>`). Do not use `Button loading`, `Textarea characterLimit`,
+`TextInput characterLimit`, `ToggleSwitch`, `SelectPanel`, `TreeView` or `Autocomplete` without
+re-checking that.
+
+## Log timestamps
+
+The log viewer shows timestamps on demand when lines start with an RFC 3339 timestamp (as
+`docker logs -t` writes). Logs without them leave the toggle disabled.
+
+## Run actions
+
+"Re-run" starts a new manual run of the same branch and commit (`POST .../runs`); the server may refuse
+with 409 if the commit left the branch.

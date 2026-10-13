@@ -1,0 +1,22 @@
+.succeeded {
+  color: var(--fgColor-success);
+}
+.failed {
+  color: var(--fgColor-danger);
+}
+.running,
+.queued {
+  color: var(--fgColor-attention);
+}
+.cancelled,
+.skipped {
+  color: var(--fgColor-muted);
+}
+.interrupted {
+  color: var(--fgColor-severe);
+}
+.badge {
+  display: inline-flex;
+  gap: var(--base-size-4);
+  align-items: center;
+}

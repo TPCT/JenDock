@@ -1,0 +1,10 @@
+.sha {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+.sha code {
+  padding: var(--base-size-2) var(--base-size-6);
+  background: var(--bgColor-neutral-muted);
+  border-radius: var(--borderRadius-medium);
+}

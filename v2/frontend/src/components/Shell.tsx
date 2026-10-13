@@ -1,49 +1,90 @@
 import {
   GearIcon,
-  MoonIcon,
   PlayIcon,
   RepoIcon,
   SignOutIcon,
-  SunIcon,
-  ThreeBarsIcon,
   TerminalIcon,
-  XIcon,
+  ThreeBarsIcon,
 } from "@primer/octicons-react";
-import { useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import {
+  ActionList,
+  ActionMenu,
+  Button,
+  Dialog,
+  Header,
+  IconButton,
+  Label,
+  NavList,
+  PageLayout,
+} from "@primer/react";
+import { useRef, useState, type ElementType, type ReactNode } from "react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useLogout, useSession } from "../api/hooks";
-import { useTheme } from "../lib/theme";
+import { THEME_CHOICES, useTheme } from "../lib/theme";
 import { MOBILE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
-import { Breadcrumbs, CrumbsProvider } from "./Breadcrumbs";
-import "../styles/shell.css";
+import styles from "./Shell.module.css";
 
-export function Shell() {
-  const mobile = useMediaQuery(MOBILE_QUERY);
-  const [openState, setOpen] = useState(false);
-  // The drawer only exists on mobile; leaving mobile mode closes it for good.
-  if (!mobile && openState) setOpen(false);
-  const open = mobile && openState;
+function NavItem({
+  to,
+  icon: Icon,
+  children,
+  trailing,
+  match,
+}: {
+  to: string;
+  icon: ElementType;
+  children: ReactNode;
+  trailing?: ReactNode;
+  match: (pathname: string) => boolean;
+}) {
+  const { pathname } = useLocation();
+  const current = match(pathname);
+  return (
+    <NavList.Item as={Link} to={to} aria-current={current ? "page" : undefined}>
+      <NavList.LeadingVisual>
+        <Icon />
+      </NavList.LeadingVisual>
+      {children}
+      {trailing ? <NavList.TrailingVisual>{trailing}</NavList.TrailingVisual> : null}
+    </NavList.Item>
+  );
+}
+
+function MainNav({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <NavList aria-label="Main" onClick={onNavigate}>
+      <NavItem
+        to="/projects"
+        icon={RepoIcon}
+        match={(path) => path === "/projects" || path.startsWith("/projects/")}
+      >
+        Projects
+      </NavItem>
+      <NavItem
+        to="/runs"
+        icon={PlayIcon}
+        match={(path) => path === "/runs" || path.startsWith("/runs/")}
+      >
+        Runs
+      </NavItem>
+      <NavItem
+        to="/settings"
+        icon={GearIcon}
+        match={(path) => path === "/settings"}
+        trailing={<Label variant="secondary">Soon</Label>}
+      >
+        Settings
+      </NavItem>
+    </NavList>
+  );
+}
+
+function UserMenu() {
   const navigate = useNavigate();
-  const { theme, toggle } = useTheme();
   const session = useSession();
   const logout = useLogout();
-  const menuButton = useRef<HTMLButtonElement>(null);
-  const closeButton = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    closeButton.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        menuButton.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { choice, setChoice } = useTheme();
+  const username = session.data?.user.username ?? "...";
 
   const signOut = () => {
     logout.mutate(undefined, {
@@ -53,115 +94,116 @@ export function Shell() {
     });
   };
 
-  const nextTheme = theme === "dark" ? "light" : "dark";
+  return (
+    <ActionMenu>
+      <ActionMenu.Anchor>
+        <Button variant="invisible" className={styles.headerButton} aria-label="User menu">
+          {username}
+        </Button>
+      </ActionMenu.Anchor>
+      <ActionMenu.Overlay width="medium">
+        <ActionList>
+          <ActionList.Group>
+            <ActionList.GroupHeading>Signed in as {username}</ActionList.GroupHeading>
+          </ActionList.Group>
+          <ActionList.Divider />
+          <ActionList.Group selectionVariant="single">
+            <ActionList.GroupHeading>Theme</ActionList.GroupHeading>
+            {THEME_CHOICES.map((item) => (
+              <ActionList.Item
+                key={item.value}
+                selected={choice === item.value}
+                onSelect={() => {
+                  setChoice(item.value);
+                }}
+              >
+                {item.label}
+              </ActionList.Item>
+            ))}
+          </ActionList.Group>
+          <ActionList.Divider />
+          <ActionList.Item onSelect={signOut} disabled={logout.isPending}>
+            <ActionList.LeadingVisual>
+              <SignOutIcon />
+            </ActionList.LeadingVisual>
+            Sign out
+          </ActionList.Item>
+        </ActionList>
+      </ActionMenu.Overlay>
+    </ActionMenu>
+  );
+}
+
+/** GitHub's frame: a dark header bar, a NavList in the left pane, the page on the right. */
+export function Shell() {
+  const mobile = useMediaQuery(MOBILE_QUERY);
+  const [openState, setOpen] = useState(false);
+  // The drawer only exists on mobile; leaving mobile mode closes it for good.
+  if (!mobile && openState) setOpen(false);
+  const open = mobile && openState;
+  const menuButton = useRef<HTMLButtonElement>(null);
 
   return (
-    <CrumbsProvider>
-      <a className="skip-link" href="#main">
+    <>
+      <a className={styles.skip} href="#main">
         Skip to content
       </a>
-      <div className="shell">
-        <aside className="sidebar" data-open={open} id="sidebar" aria-label="Sidebar">
-          <div className="sidebar-head">
-            <Link to="/projects" className="brand">
-              <span className="brand-mark" aria-hidden="true">
-                <TerminalIcon size={18} />
-              </span>
-              Shiftcodes
-            </Link>
-            {mobile ? (
-              <button
-                ref={closeButton}
-                type="button"
-                className="btn btn-invisible btn-icon menu-button"
-                onClick={() => {
-                  setOpen(false);
-                }}
-                aria-label="Close navigation"
-              >
-                <XIcon />
-              </button>
-            ) : null}
+      <Header className={styles.header}>
+        {mobile ? (
+          <Header.Item>
+            <IconButton
+              ref={menuButton}
+              variant="invisible"
+              className={styles.headerButton}
+              icon={ThreeBarsIcon}
+              aria-label="Open navigation"
+              aria-expanded={open}
+              onClick={() => {
+                setOpen(true);
+              }}
+            />
+          </Header.Item>
+        ) : null}
+        <Header.Item>
+          <Header.Link as={Link} to="/projects" className={styles.brand}>
+            <TerminalIcon size={24} aria-hidden="true" />
+            <span>Shiftcodes</span>
+          </Header.Link>
+        </Header.Item>
+        <Header.Item full />
+        <Header.Item>
+          <UserMenu />
+        </Header.Item>
+      </Header>
+      <PageLayout containerWidth="full" padding="none" rowGap="none" columnGap="none">
+        {mobile ? null : (
+          <PageLayout.Pane position="start" width="small" divider="line" padding="condensed">
+            <MainNav />
+          </PageLayout.Pane>
+        )}
+        <PageLayout.Content as="main" padding="normal">
+          <div id="main" tabIndex={-1} className={styles.main}>
+            <Outlet />
           </div>
-          <nav
-            aria-label="Main"
-            onClick={() => {
-              setOpen(false);
-            }}
-          >
-            <ul className="nav">
-              <li>
-                <NavLink to="/projects">
-                  <RepoIcon size={16} aria-hidden="true" />
-                  Projects
-                </NavLink>
-              </li>
-              <li>
-                <NavLink to="/runs">
-                  <PlayIcon size={16} aria-hidden="true" />
-                  Runs
-                </NavLink>
-              </li>
-              <li>
-                <NavLink to="/settings">
-                  <GearIcon size={16} aria-hidden="true" />
-                  Settings
-                  <span className="nav-soon">Soon</span>
-                </NavLink>
-              </li>
-            </ul>
-          </nav>
-          <div className="sidebar-footer">
-            <div className="sidebar-user">
-              <span>Signed in as</span>
-              <strong>{session.data?.user.username ?? "..."}</strong>
-            </div>
-            <button type="button" className="btn" onClick={toggle}>
-              {theme === "dark" ? (
-                <SunIcon size={16} aria-hidden="true" />
-              ) : (
-                <MoonIcon size={16} aria-hidden="true" />
-              )}
-              Switch to {nextTheme} theme
-            </button>
-            <button type="button" className="btn" onClick={signOut} disabled={logout.isPending}>
-              <SignOutIcon size={16} aria-hidden="true" />
-              Sign out
-            </button>
-          </div>
-        </aside>
-        <div
-          className="scrim"
-          data-open={open}
-          onClick={() => {
+        </PageLayout.Content>
+      </PageLayout>
+      {open ? (
+        <Dialog
+          title="Navigation"
+          position="left"
+          width="small"
+          returnFocusRef={menuButton}
+          onClose={() => {
             setOpen(false);
           }}
-          aria-hidden="true"
-        />
-        <div className="main-column">
-          <header className="topbar">
-            {mobile ? (
-              <button
-                ref={menuButton}
-                type="button"
-                className="btn btn-invisible btn-icon menu-button"
-                onClick={() => {
-                  setOpen(true);
-                }}
-                aria-label="Open navigation"
-                aria-controls="sidebar"
-                aria-expanded={open}
-              >
-                <ThreeBarsIcon />
-              </button>
-            ) : null}
-            <Breadcrumbs />
-          </header>
-          <main id="main" className="content" tabIndex={-1}>
-            <Outlet />
-          </main>
-        </div>
-      </div>
-    </CrumbsProvider>
+        >
+          <MainNav
+            onNavigate={() => {
+              setOpen(false);
+            }}
+          />
+        </Dialog>
+      ) : null}
+    </>
   );
 }

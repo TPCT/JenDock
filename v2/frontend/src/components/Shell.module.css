@@ -1,0 +1,37 @@
+.skip {
+  position: absolute;
+  left: var(--base-size-8);
+  top: calc(-1 * var(--base-size-64));
+  z-index: 100;
+  padding: var(--base-size-8) var(--base-size-12);
+  background: var(--bgColor-default);
+  color: var(--fgColor-accent);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.skip:focus {
+  top: var(--base-size-8);
+}
+.header {
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  font-weight: var(--base-text-weight-semibold);
+  font-size: var(--text-body-size-large);
+}
+/* Buttons on the dark header bar use the header's foreground, as on github.com. */
+.headerButton {
+  color: var(--header-fgColor-default);
+}
+.headerButton:hover:not(:disabled) {
+  background: var(--header-bgColor-hover, rgb(255 255 255 / 10%));
+  color: var(--header-fgColor-logo);
+}
+.main {
+  min-width: 0;
+  outline: none;
+}

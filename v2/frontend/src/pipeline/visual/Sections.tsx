@@ -1,4 +1,5 @@
-import { PlusIcon, TrashIcon } from "@primer/octicons-react";
+import { PlusIcon } from "@primer/octicons-react";
+import { Button, FormControl, Radio, RadioGroup, Select, TextInput } from "@primer/react";
 import { useId, useState } from "react";
 import type {
   Agent,
@@ -8,6 +9,8 @@ import type {
   PostBlock,
   PostCondition,
 } from "../../api/pipelineTypes";
+import styles from "../pipeline.module.css";
+import { AddButton, RemoveButton } from "../ui";
 import { CallList } from "./CallList";
 import { removeAt, replaceAt, useEditorEnv } from "./context";
 import { ImageField, StringField, textOf } from "./fields";
@@ -57,25 +60,24 @@ export function AgentPicker({
     else onChange({ type: next });
   };
   return (
-    <fieldset className="subfield">
-      <legend>{label}</legend>
-      {options.map((option) => (
-        <label key={option.value} className="check radio">
-          <input
-            type="radio"
-            name={`${id}-agent`}
-            checked={choice === option.value}
-            onChange={() => {
-              select(option.value);
-            }}
-          />
-          <span>
-            {option.label} <span className="hint">{option.help}</span>
-          </span>
-        </label>
-      ))}
+    <div className={styles.field}>
+      <RadioGroup
+        name={`${id}-agent`}
+        onChange={(selected) => {
+          if (selected !== null) select(selected as AgentChoice);
+        }}
+      >
+        <RadioGroup.Label>{label}</RadioGroup.Label>
+        {options.map((option) => (
+          <FormControl key={option.value}>
+            <Radio value={option.value} checked={choice === option.value} />
+            <FormControl.Label>{option.label}</FormControl.Label>
+            <FormControl.Caption>{option.help}</FormControl.Caption>
+          </FormControl>
+        ))}
+      </RadioGroup>
       {value?.type === "docker" ? (
-        <div className="nested">
+        <div className={styles.nested}>
           <ImageField
             label="Image"
             value={textOf(value.image)}
@@ -94,7 +96,7 @@ export function AgentPicker({
           />
         </div>
       ) : null}
-    </fieldset>
+    </div>
   );
 }
 
@@ -111,7 +113,7 @@ export function EnvEditor({
 }) {
   const { secrets } = useEditorEnv();
   return (
-    <div className="stack">
+    <div className={styles.stack} data-scope={scope}>
       {value.length === 0 ? <p className="muted">No variables.</p> : null}
       {value.map((variable, index) => {
         const isSecret = typeof variable.value === "object" && "credentials" in variable.value;
@@ -119,24 +121,23 @@ export function EnvEditor({
           onChange(replaceAt(value, index, next));
         };
         return (
-          <div key={index} className="env-row">
-            <div className="field">
-              <label htmlFor={`${scope}-name-${index}`}>Variable name</label>
-              <input
-                id={`${scope}-name-${index}`}
-                className="input mono"
+          <div key={index} className={styles.envRow}>
+            <FormControl>
+              <FormControl.Label>Variable name</FormControl.Label>
+              <TextInput
+                block
+                monospace
                 value={variable.name}
                 placeholder="NODE_ENV"
                 onChange={(event) => {
                   update({ ...variable, name: event.target.value });
                 }}
               />
-            </div>
-            <div className="field">
-              <label htmlFor={`${scope}-kind-${index}`}>Value comes from</label>
-              <select
-                id={`${scope}-kind-${index}`}
-                className="input"
+            </FormControl>
+            <FormControl>
+              <FormControl.Label>Value comes from</FormControl.Label>
+              <Select
+                block
                 value={isSecret ? "secret" : "text"}
                 onChange={(event) => {
                   update({
@@ -145,36 +146,39 @@ export function EnvEditor({
                   });
                 }}
               >
-                <option value="text">Plain text</option>
-                <option value="secret">A secret</option>
-              </select>
-            </div>
+                <Select.Option value="text">Plain text</Select.Option>
+                <Select.Option value="secret">A secret</Select.Option>
+              </Select>
+            </FormControl>
             {typeof variable.value === "object" && "credentials" in variable.value ? (
-              <div className="field">
-                <label htmlFor={`${scope}-secret-${index}`}>Secret</label>
-                <select
-                  id={`${scope}-secret-${index}`}
-                  className="input"
+              <FormControl>
+                <FormControl.Label>Secret</FormControl.Label>
+                <Select
+                  block
                   value={variable.value.credentials}
                   onChange={(event) => {
                     update({ ...variable, value: { credentials: event.target.value } });
                   }}
                 >
-                  {secrets.length === 0 ? <option value="">No secrets defined yet</option> : null}
+                  {secrets.length === 0 ? (
+                    <Select.Option value="">No secrets defined yet</Select.Option>
+                  ) : null}
                   {variable.value.credentials !== "" &&
                   !secrets.includes(variable.value.credentials) ? (
-                    <option value={variable.value.credentials}>
+                    <Select.Option value={variable.value.credentials}>
                       {variable.value.credentials} (missing)
-                    </option>
+                    </Select.Option>
                   ) : null}
                   {secrets.map((name) => (
-                    <option key={name} value={name}>
+                    <Select.Option key={name} value={name}>
                       {name}
-                    </option>
+                    </Select.Option>
                   ))}
-                </select>
-                <p className="hint">Only the name is shown. Secrets are managed in Settings.</p>
-              </div>
+                </Select>
+                <FormControl.Caption>
+                  Only the name is shown. Secrets are managed in Settings.
+                </FormControl.Caption>
+              </FormControl>
             ) : (
               <StringField
                 label="Value"
@@ -184,30 +188,23 @@ export function EnvEditor({
                 }}
               />
             )}
-            <button
-              type="button"
-              className="btn btn-icon btn-danger"
-              aria-label={`Remove variable ${variable.name || index + 1}`}
+            <RemoveButton
+              label={`Remove variable ${variable.name || index + 1}`}
               onClick={() => {
                 onChange(removeAt(value, index));
               }}
-            >
-              <TrashIcon size={16} />
-            </button>
+            />
           </div>
         );
       })}
       <div>
-        <button
-          type="button"
-          className="btn"
+        <AddButton
           onClick={() => {
             onChange([...value, { name: "", value: "" }]);
           }}
         >
-          <PlusIcon size={16} aria-hidden="true" />
           Add variable
-        </button>
+        </AddButton>
       </div>
     </div>
   );
@@ -238,7 +235,6 @@ export function WhenEditor({
   onChange: (value: Condition[] | null) => void;
 }) {
   const { branch } = useEditorEnv();
-  const id = useId();
   const preset = presetOf(value);
   const first = value?.[0];
   const pattern =
@@ -269,42 +265,47 @@ export function WhenEditor({
   };
 
   return (
-    <div className="field">
-      <label htmlFor={id}>When should this stage run?</label>
-      <select
-        id={id}
-        className="input"
-        value={preset}
-        onChange={(event) => {
-          apply(event.target.value as WhenPreset, pattern);
-        }}
-      >
-        <option value="always">Always</option>
-        <option value="branch">Only on a specific branch</option>
-        <option value="production">Only when deploying to Production</option>
-        <option value="development">Only when deploying to Development</option>
-        <option value="not-branch">On every branch except one</option>
-        {preset === "custom" ? <option value="custom">Custom condition (kept as is)</option> : null}
-      </select>
-      {preset === "custom" ? (
-        <p className="hint">
-          This condition is more complex than the presets. Edit it in the Text tab.
-        </p>
-      ) : null}
+    <div className={styles.field}>
+      <FormControl>
+        <FormControl.Label>When should this stage run?</FormControl.Label>
+        <Select
+          block
+          value={preset}
+          onChange={(event) => {
+            apply(event.target.value as WhenPreset, pattern);
+          }}
+        >
+          <Select.Option value="always">Always</Select.Option>
+          <Select.Option value="branch">Only on a specific branch</Select.Option>
+          <Select.Option value="production">Only when deploying to Production</Select.Option>
+          <Select.Option value="development">Only when deploying to Development</Select.Option>
+          <Select.Option value="not-branch">On every branch except one</Select.Option>
+          {preset === "custom" ? (
+            <Select.Option value="custom">Custom condition (kept as is)</Select.Option>
+          ) : null}
+        </Select>
+        {preset === "custom" ? (
+          <FormControl.Caption>
+            This condition is more complex than the presets. Edit it in the Text tab.
+          </FormControl.Caption>
+        ) : null}
+      </FormControl>
       {preset === "branch" || preset === "not-branch" ? (
-        <div className="nested">
-          <label htmlFor={`${id}-branch`}>Branch name</label>
-          <input
-            id={`${id}-branch`}
-            className="input mono"
-            value={pattern}
-            onChange={(event) => {
-              apply(preset, event.target.value);
-            }}
-          />
-          <p className="hint">
-            This environment deploys the {branch} branch. Patterns like release/* work.
-          </p>
+        <div className={styles.nested}>
+          <FormControl>
+            <FormControl.Label>Branch name</FormControl.Label>
+            <TextInput
+              block
+              monospace
+              value={pattern}
+              onChange={(event) => {
+                apply(preset, event.target.value);
+              }}
+            />
+            <FormControl.Caption>
+              This environment deploys the {branch} branch. Patterns like release/* work.
+            </FormControl.Caption>
+          </FormControl>
         </div>
       ) : null}
     </div>
@@ -330,7 +331,6 @@ export function PostEditor({
 }) {
   const { catalog } = useEditorEnv();
   const blocks = value?.blocks ?? [];
-  const id = useId();
   const [pick, setPick] = useState("");
   const setBlocks = (next: PostBlock[]) => {
     onChange(next.length === 0 ? null : { blocks: next });
@@ -350,21 +350,20 @@ export function PostEditor({
     { condition: "cleanup", label: "Clean up at the end" },
   ];
   return (
-    <div className="stack">
-      <div className="row-actions" role="group" aria-label="Quick additions">
+    <div className={styles.stack}>
+      <div className={styles.cluster} role="group" aria-label="Quick additions">
         {presets.map((preset) => (
-          <button
+          <Button
             key={preset.condition}
-            type="button"
-            className="btn"
+            size="small"
+            leadingVisual={PlusIcon}
             disabled={blocks.some((b) => b.condition === preset.condition)}
             onClick={() => {
               addPreset(preset.condition);
             }}
           >
-            <PlusIcon size={16} aria-hidden="true" />
             {preset.label}
-          </button>
+          </Button>
         ))}
       </div>
       {blocks.map((block, index) => {
@@ -372,19 +371,19 @@ export function PostEditor({
           (c) => c.name === block.condition,
         )?.description;
         return (
-          <section key={block.condition} className="card" aria-label={`Run ${block.condition}`}>
-            <div className="card-head">
+          <section
+            key={block.condition}
+            className={styles.card}
+            aria-label={`Run ${block.condition}`}
+          >
+            <div className={styles.cardHead}>
               <strong>{description ?? block.condition}</strong>
-              <button
-                type="button"
-                className="btn btn-icon btn-danger"
-                aria-label={`Remove the ${block.condition} actions`}
+              <RemoveButton
+                label={`Remove the ${block.condition} actions`}
                 onClick={() => {
                   setBlocks(removeAt(blocks, index));
                 }}
-              >
-                <TrashIcon size={16} />
-              </button>
+              />
             </div>
             <CallList
               calls={block.steps}
@@ -399,35 +398,30 @@ export function PostEditor({
         );
       })}
       {free.length > 0 ? (
-        <div className="add-row">
-          <div className="field">
-            <label htmlFor={`${id}-cond`}>Another moment</label>
-            <select
-              id={`${id}-cond`}
-              className="input"
+        <div className={styles.addRow}>
+          <FormControl>
+            <FormControl.Label>Another moment</FormControl.Label>
+            <Select
               value={free.some((c) => c.name === pick) ? pick : (free[0]?.name ?? "")}
               onChange={(event) => {
                 setPick(event.target.value);
               }}
             >
               {free.map((c) => (
-                <option key={c.name} value={c.name}>
+                <Select.Option key={c.name} value={c.name}>
                   {c.description}
-                </option>
+                </Select.Option>
               ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            className="btn"
+            </Select>
+          </FormControl>
+          <AddButton
             onClick={() => {
               const chosen = free.find((c) => c.name === pick) ?? free[0];
               if (chosen) addPreset(chosen.name);
             }}
           >
-            <PlusIcon size={16} aria-hidden="true" />
             Add actions
-          </button>
+          </AddButton>
         </div>
       ) : null}
     </div>

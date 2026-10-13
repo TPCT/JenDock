@@ -1,0 +1,26 @@
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.name {
+  font-size: var(--text-title-size-small);
+  font-weight: var(--base-text-weight-semibold);
+}
+.name a {
+  color: var(--fgColor-accent);
+}
+.repo {
+  margin: 0;
+}
+.envs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--base-size-16);
+  margin-top: var(--base-size-8);
+}

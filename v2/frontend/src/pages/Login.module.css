@@ -1,0 +1,39 @@
+/* github.com/login: centred logo and title, a muted bordered form box, a note box below. */
+.login {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: var(--base-size-32) var(--base-size-16);
+}
+.card {
+  width: 100%;
+  max-width: 20.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+}
+.logo {
+  align-self: center;
+  color: var(--fgColor-default);
+}
+.title {
+  text-align: center;
+  font-size: var(--text-title-size-medium);
+  font-weight: var(--base-text-weight-light);
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+  padding: var(--base-size-16);
+  background: var(--bgColor-muted);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.note {
+  margin: 0;
+  padding: var(--base-size-16);
+  text-align: center;
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}

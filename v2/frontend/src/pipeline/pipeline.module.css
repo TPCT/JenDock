@@ -1,0 +1,240 @@
+/* Pipeline editors: layout glue only; controls are Primer components. */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8) var(--base-size-16);
+}
+.saveState {
+  color: var(--fgColor-muted);
+  min-height: var(--base-size-24);
+}
+.saved {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  color: var(--fgColor-success);
+}
+.tabpanel {
+  margin-top: var(--base-size-16);
+}
+.tabpanel[hidden] {
+  display: none;
+}
+.codeEditor {
+  height: min(70vh, 40rem);
+  min-height: 18rem;
+  width: 100%;
+  min-width: 0;
+}
+.versionText {
+  max-height: 20rem;
+  overflow: auto;
+  margin: 0;
+  padding: var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background: var(--bgColor-inset);
+  color: var(--fgColor-default);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  white-space: pre-wrap;
+}
+
+/* Diagnostics */
+.diagnostics {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.diag {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--base-size-8);
+  padding: var(--base-size-4) 0;
+}
+.diag svg {
+  flex: none;
+  margin-top: var(--base-size-4);
+}
+.diagError svg {
+  color: var(--fgColor-danger);
+}
+.diagWarning svg {
+  color: var(--fgColor-attention);
+}
+.mono {
+  font-family: var(--fontStack-monospace);
+}
+
+/* History timeline */
+.history {
+  margin: 0;
+}
+
+/* Visual editor */
+.visual {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-16);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* A read-only pipeline: the whole fieldset is disabled, so say so visibly. */
+.visual:disabled {
+  opacity: 0.75;
+}
+.panel {
+  min-width: 0;
+  padding: var(--base-size-16);
+  background: var(--bgColor-default);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.panelTitle {
+  margin: 0 0 var(--base-size-8);
+  font-size: var(--text-title-size-small);
+}
+.inlineTitle {
+  display: inline;
+  font-size: var(--text-title-size-small);
+}
+.summary {
+  cursor: pointer;
+}
+.more[open] > .summary {
+  margin-bottom: var(--base-size-12);
+}
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-12);
+  min-width: 0;
+  padding: var(--base-size-12);
+  background: var(--bgColor-muted);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+}
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-12);
+}
+.grow {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.nested {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+  min-width: 0;
+  padding-left: var(--base-size-12);
+  border-left: var(--borderWidth-thick) solid var(--borderColor-muted);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.legend {
+  padding: 0;
+  margin-bottom: var(--base-size-4);
+  font-weight: var(--base-text-weight-semibold);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-12);
+  min-width: 0;
+}
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.inlineRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--base-size-8);
+}
+.inlineRow > :first-child,
+.inlineRow > :nth-child(2):not(:last-child) {
+  flex: 1;
+}
+.envRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)) auto;
+  gap: var(--base-size-12);
+  align-items: end;
+  padding: var(--base-size-12);
+  border: var(--borderWidth-thin) solid var(--borderColor-muted);
+  border-radius: var(--borderRadius-medium);
+}
+.addRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+  align-items: flex-end;
+}
+.hint {
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+@media (max-width: 47.99rem) {
+  .envRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inlineRow {
+    flex-wrap: wrap;
+  }
+  .codeEditor {
+    height: 60vh;
+  }
+}
+.legendHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

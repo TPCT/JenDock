@@ -36,7 +36,7 @@ function setDoc(view: (typeof editorViews)[number], text: string) {
 }
 
 async function ready() {
-  await screen.findByRole("heading", { name: /Shop API · Development pipeline/ });
+  await screen.findByRole("heading", { name: "Development pipeline" });
   await waitFor(() => {
     expect(screen.getAllByLabelText("Stage name").length).toBeGreaterThan(0);
   });
@@ -59,11 +59,8 @@ describe("visual editor", () => {
       .getAllByRole("listitem")
       .find((li) => li.getAttribute("data-card") === "stages-2");
     if (!deploy) throw new Error("deploy card missing");
-    await user.selectOptions(
-      within(deploy).getAllByLabelText("Step type")[0] as HTMLElement,
-      "Build an image",
-    );
     await user.click(within(deploy).getAllByRole("button", { name: "Add step" })[0] as HTMLElement);
+    await user.click(await screen.findByRole("menuitem", { name: /Build an image/ }));
     expect(within(deploy).getAllByLabelText("dockerfile").length).toBeGreaterThan(0);
     expect(within(deploy).getAllByText(/A name for the image/).length).toBeGreaterThan(0);
   });
@@ -138,11 +135,12 @@ describe("visual editor", () => {
     renderApp(DEV);
     await ready();
     await user.click(screen.getAllByLabelText("Run branches in parallel")[0] as HTMLElement);
-    const dialog = await screen.findByRole("dialog", {
+    const dialog = await screen.findByRole("alertdialog", {
       name: "Replace the contents of this stage?",
     });
     await user.click(within(dialog).getByRole("button", { name: "Keep it" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Run steps")[0]).toBeChecked();
   });
 });
 
@@ -279,13 +277,17 @@ describe("saving", () => {
     const first = screen.getAllByLabelText("Stage name")[0] as HTMLInputElement;
     await user.type(first, "!");
     await screen.findByText("Unsaved changes");
-    await user.click(screen.getByRole("link", { name: "Runs" }));
-    const dialog = await screen.findByRole("dialog", { name: "Leave without saving?" });
+    await user.click(
+      within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Runs" }),
+    );
+    const dialog = await screen.findByRole("alertdialog", { name: "Leave without saving?" });
     await user.click(within(dialog).getByRole("button", { name: "Stay and keep editing" }));
     expect(router.state.location.pathname).toBe(DEV);
-    await user.click(screen.getByRole("link", { name: "Runs" }));
     await user.click(
-      within(await screen.findByRole("dialog")).getByRole("button", {
+      within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Runs" }),
+    );
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
         name: "Leave and discard changes",
       }),
     );
@@ -330,7 +332,8 @@ describe("read-only mode (Jenkinsfile in the repository)", () => {
     expect(
       within(dialog).queryByRole("button", { name: "Restore into the editor" }),
     ).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    const closers = within(dialog).getAllByRole("button", { name: "Close" });
+    await user.click(closers[closers.length - 1] as HTMLElement);
     const view = await openText(user);
     expect(view.state.readOnly).toBe(true);
     expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
