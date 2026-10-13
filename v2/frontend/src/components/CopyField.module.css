@@ -1,0 +1,27 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-4);
+  min-width: 0;
+}
+.label {
+  font-weight: var(--base-text-weight-semibold);
+}
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--base-size-8);
+}
+.value {
+  flex: 1;
+  min-width: 0;
+  padding: var(--base-size-6) var(--base-size-8);
+  background: var(--bgColor-muted);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  overflow-wrap: anywhere;
+  direction: ltr;
+}
+.multi {
+  white-space: pre-wrap;
+}

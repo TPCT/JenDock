@@ -15,6 +15,7 @@ from shiftcodes.api.frontend import mount_frontend
 from shiftcodes.api.middleware import SecurityHeadersMiddleware
 from shiftcodes.api.routers import (
     auth,
+    containers,
     databases,
     deployments,
     domains,
@@ -23,6 +24,8 @@ from shiftcodes.api.routers import (
     projects,
     runs,
     secrets,
+    telemetry,
+    terminal,
     tokens,
 )
 from shiftcodes.config import Settings, get_settings
@@ -66,6 +69,9 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(databases.router)
     app.include_router(domains.router)
     app.include_router(runs.router)
+    app.include_router(containers.router)
+    app.include_router(terminal.router)
+    app.include_router(telemetry.router)
     app.include_router(deployments.router)
     app.include_router(projects.router)
     app.include_router(github.router)

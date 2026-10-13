@@ -39,7 +39,9 @@ export const PROJECT_TABS: readonly Tab[] = [
 function activeTab(pathname: string): TabId {
   if (pathname.includes("/runs")) return "runs";
   if (pathname.includes("/pipeline")) return "pipeline";
-  for (const id of ["containers", "database", "domains", "settings"] as const) {
+  if (pathname.includes("/domains")) return "domains";
+  if (pathname.includes("/settings")) return "settings";
+  for (const id of ["containers", "database"] as const) {
     if (pathname.endsWith(`/${id}`)) return id;
   }
   return "overview";
@@ -92,6 +94,8 @@ export function ProjectLayout() {
         return `${base}/environments/${env}/runs`;
       case "pipeline":
         return `${base}/environments/${env}/pipeline`;
+      case "domains":
+        return `${base}/environments/${env}/domains`;
       default:
         return `${base}/${id}`;
     }

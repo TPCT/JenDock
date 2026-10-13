@@ -1,0 +1,77 @@
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8) var(--base-size-16);
+}
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+.meta {
+  margin: var(--base-size-8) 0 0;
+}
+.details {
+  margin-top: var(--base-size-8);
+}
+.checks {
+  margin: var(--base-size-8) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--base-size-8);
+  padding: var(--base-size-2) 0;
+}
+.check svg {
+  flex: none;
+  margin-top: var(--base-size-4);
+}
+.ok {
+  color: var(--fgColor-success);
+}
+.bad {
+  color: var(--fgColor-danger);
+}
+.h {
+  margin: 0 0 var(--base-size-4);
+  font-size: var(--text-body-size-medium);
+  font-weight: var(--base-text-weight-semibold);
+}
+.steps {
+  margin: 0;
+  padding-left: var(--base-size-24);
+}
+.diff {
+  max-height: 16rem;
+  overflow: auto;
+  margin: var(--base-size-8) 0 0;
+  padding: var(--base-size-8) 0;
+  background: var(--bgColor-inset);
+  border: var(--borderWidth-thin) solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  font-family: var(--fontStack-monospace);
+  font-size: var(--text-codeBlock-size);
+  white-space: pre;
+}
+.diff span {
+  display: block;
+  padding: 0 var(--base-size-12);
+}
+.add {
+  background: var(--diffBlob-additionLine-bgColor);
+}
+.del {
+  background: var(--diffBlob-deletionLine-bgColor);
+}
+.two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--base-size-12);
+}

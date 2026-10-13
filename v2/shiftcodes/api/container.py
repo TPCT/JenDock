@@ -7,6 +7,7 @@ from datetime import timedelta
 
 from sqlalchemy import Engine
 
+from shiftcodes.adapters.container_client import ContainerClient, ContainersGateway
 from shiftcodes.adapters.ingress_client import IngressClient, IngressGateway, UnavailableIngress
 from shiftcodes.adapters.inspector_client import InspectorGateway, WorkerInspectorClient
 from shiftcodes.adapters.worker_client import (
@@ -18,6 +19,7 @@ from shiftcodes.adapters.worker_client import (
 )
 from shiftcodes.api.cookies import CookiePolicy
 from shiftcodes.api.schemas.runs import LogChunkResponse
+from shiftcodes.api.terminal_tickets import TicketStore
 from shiftcodes.config import Settings
 from shiftcodes.config_ingress import IngressSettings, get_ingress_settings
 from shiftcodes.domain.clock import Clock, utcnow
@@ -74,6 +76,10 @@ class AppContainer:
     webhook_limiter: LoginRateLimiter = field(default_factory=webhook_failure_limiter)
     # Database inspector calls to the worker; ``None`` means the default socket client.
     inspector: InspectorGateway | None = None
+    # Container management through the worker; ``None`` means "the default client" (see
+    # ``container_gateway``). Tickets of the terminal WebSocket live here, in process memory.
+    containers: ContainersGateway | None = None
+    terminal_tickets: TicketStore = field(default_factory=TicketStore)
 
     @classmethod
     def build(  # noqa: PLR0913 - one optional override per collaborator
@@ -86,6 +92,7 @@ class AppContainer:
         clock: Clock = utcnow,
         hasher: PasswordHasher | None = None,
         limiter: LoginRateLimiter | None = None,
+        containers: ContainersGateway | None = None,
     ) -> AppContainer:
         """Create the default wiring; tests override individual collaborators."""
         engine = create_db_engine(settings.database_url)
@@ -100,12 +107,20 @@ class AppContainer:
             secrets=secrets or worker,
             cookies=CookiePolicy.for_settings(settings),
             inspector=inspector,
+            containers=containers or ContainerClient(worker),
+            terminal_tickets=TicketStore(clock),
             ingress=IngressClient(settings.worker_socket_path),
             ingress_settings=get_ingress_settings(),
             github=github or worker,
             repository=worker,
             webhook_limiter=webhook_failure_limiter(clock),
         )
+
+    def container_gateway(self) -> ContainersGateway:
+        """Container management (always through the worker; the API has no Docker access)."""
+        if self.containers is not None:
+            return self.containers
+        return ContainerClient(WorkerClient(self.settings.worker_socket_path))
 
     def uow(self) -> UnitOfWork:
         """Return a fresh unit of work."""

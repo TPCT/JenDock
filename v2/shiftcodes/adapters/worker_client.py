@@ -153,8 +153,8 @@ class WorkerClient:
         *,
         timeout: float | None = None,
     ) -> object:
-        """Call any worker method; gateways for other method families build on this."""
-        return self._call(method, actor, params, timeout)
+        """Call any worker method; ``timeout`` overrides the default for slow operations."""
+        return self._call(method, actor, params, timeout=timeout)
 
     def verify_webhook(self, signature: str, body: bytes) -> bool:
         """Ask the worker to check a webhook signature; the secret never leaves the worker."""

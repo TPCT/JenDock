@@ -16,7 +16,17 @@ import styles from "./App.module.css";
 import { ErrorCallout, Loading } from "./components/Feedback";
 import { Shell } from "./components/Shell";
 import { LoginPage } from "./pages/Login";
-import { NotFoundPage, ProjectTabPlaceholder, SettingsPlaceholderPage } from "./pages/Placeholder";
+import { DomainsPage } from "./pages/Domains";
+import { AgentsPage, GlobalSettingsLayout, TokensPage } from "./pages/GlobalSettings";
+import { NewProjectPage } from "./pages/NewProject";
+import { NotFoundPage, ProjectTabPlaceholder } from "./pages/Placeholder";
+import {
+  EnvironmentsSettingsPage,
+  GeneralSettingsPage,
+  ProjectSettingsLayout,
+  WebhookSettingsPage,
+} from "./pages/ProjectSettings";
+import { SecretsSettingsPage } from "./pages/SecretsSettings";
 import { ProjectLayout } from "./pages/ProjectLayout";
 import { ProjectOverviewPage } from "./pages/ProjectOverview";
 import { ProjectsPage } from "./pages/Projects";
@@ -108,6 +118,7 @@ export const appRoutes: RouteObject[] = [
         children: [
           { index: true, element: <Navigate to="/projects" replace /> },
           { path: "/projects", element: <ProjectsPage /> },
+          { path: "/projects/new", element: <NewProjectPage /> },
           {
             path: "/projects/:slug",
             element: <ProjectLayout />,
@@ -117,13 +128,34 @@ export const appRoutes: RouteObject[] = [
               { path: "environments/:env/pipeline", element: <PipelineRoute /> },
               { path: "containers", element: <ProjectTabPlaceholder /> },
               { path: "database", element: <ProjectTabPlaceholder /> },
-              { path: "domains", element: <ProjectTabPlaceholder /> },
-              { path: "settings", element: <ProjectTabPlaceholder /> },
+              { path: "environments/:env/domains", element: <DomainsPage /> },
+              {
+                path: "domains",
+                element: <Navigate to="../environments/development/domains" replace />,
+              },
+              {
+                path: "settings",
+                element: <ProjectSettingsLayout />,
+                children: [
+                  { index: true, element: <GeneralSettingsPage /> },
+                  { path: "environments", element: <EnvironmentsSettingsPage /> },
+                  { path: "webhook", element: <WebhookSettingsPage /> },
+                  { path: "secrets", element: <SecretsSettingsPage /> },
+                ],
+              },
             ],
           },
           { path: "/runs", element: <AllRunsPage /> },
           { path: "/runs/:id", element: <RunDetailPage /> },
-          { path: "/settings", element: <SettingsPlaceholderPage /> },
+          {
+            path: "/settings",
+            element: <GlobalSettingsLayout />,
+            children: [
+              { index: true, element: <Navigate to="/settings/tokens" replace /> },
+              { path: "tokens", element: <TokensPage /> },
+              { path: "agents", element: <AgentsPage /> },
+            ],
+          },
           { path: "*", element: <NotFoundPage /> },
         ],
       },

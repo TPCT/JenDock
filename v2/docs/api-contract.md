@@ -587,6 +587,98 @@ always rolled back. Audited as `database.query` with the statement text and outc
 All shapes are flat JSON with stable keys; there is no HTML or driver-specific type. A read-only agent
 token (`read`) can enumerate schemas/tables/columns and read/query development data; production data
 needs an `admin` token.
+## Containers (exists, Task 8)
+
+Base: `/api/projects/{slug}/environments/{env}/containers`. Only containers of the environment's
+compose project (`com.docker.compose.project` label = the environment's `compose_project`) are
+visible; any other container id answers 404. `{container_id}` is always the **full 64 hex id**
+(422 otherwise); names and prefixes are not identities. Every Docker operation is executed by the
+worker; the API has no Docker access. Scopes: `read` = inventory, env names, stats, telemetry;
+`containers` = logs, files, start/stop/restart, env edit, limits; `admin` = env reveal;
+`terminal` = terminal tickets. Sessions hold every scope. Mutations need CSRF as usual.
+Operations on one environment are serialized with deployments; if the environment stays busy
+for more than 30 s the call answers 409 `conflict`.
+
+`ContainerView`: `{id, name, service, image (tag), image_id (sha256:...), revision (OCI revision
+label | null), commit (shiftcodes.commit label | null), state (created|running|paused|restarting|
+exited|removing|dead), health (starting|healthy|unhealthy | null), restart_count, started_at |
+null, exit_code | null, cpus | null, memory_bytes | null, ports: [{container_port, host_ip,
+host_port}], mounts: [{type, source, destination, read_only}]}`. No env values.
+
+- `GET ""` -> `ContainerView[]` ordered by service, name. `GET "/{id}"` -> `ContainerView`.
+- `POST "/{id}/actions"` body `{action: "start"|"stop"|"restart"}` -> step one, changes nothing:
+  `{action, container, effects: string[], confirmation, expires_at}`. 409 if not applicable
+  (start of a running / stop of a stopped container).
+- `POST "/{id}/actions/confirm"` body `{confirmation}` -> `{action, previous_state, container}`.
+  The confirmation is single use, valid 60 s, bound to the principal, the environment, the exact
+  container id and the action (422 otherwise). If the container was replaced meanwhile: 404.
+- `GET "/{id}/logs?tail=200"` (1-1000) -> `{lines: [{timestamp, text}], cursor: {since, skip} |
+  null, dropped}`. Text is secret-masked (values of credential-like env vars, `password=...`,
+  bearer tokens, private keys); lines are cut at 8 KiB. Continue with
+  `?since=<cursor.since>&skip=<cursor.skip>` to get only newer lines.
+- `GET "/{id}/logs/stream?tail=100"` SSE (background principal, no idle-timer extension). Events:
+  `log` `{lines, dropped}` (at most 500 lines per poll, polls >= 1 s apart; `dropped` counts
+  skipped lines; the first event holds the tail), `error` `{message}` (container vanished; the
+  stream ends), `end` after 1 hour; heartbeat comments.
+- `GET "/{id}/env"` -> `[{name, sensitive, overridden, masked_value: "********"}]`.
+- `POST "/{id}/env/{name}/reveal"` (admin) -> `{name, value}`; audited.
+- `PUT "/{id}/env"` body `{set: {NAME: value}, remove: [NAME]}` stores a per-service managed
+  override and recreates **only that service** (`up -d --no-deps --no-build`), then verifies that
+  it runs (healthy if it has a health check, stable for 3 s). A stopped service stays stopped
+  (created, not started). On failure the previous override file is restored, the service is
+  recreated with it and the call answers 409 "previous configuration was restored".
+  200 `{service, restarted, containers: ContainerView[]}` (ids change: the container is new).
+  Compose-file variables can be overridden, not deleted; `remove` drops the override.
+  The override file is also applied by every later deployment; the deployer's image override
+  stays the last compose file, so env edits never revert a deployed image.
+- `PUT "/{id}/limits"` body `{cpus?, memory?}` (`1.5`, `"512m"`; at least one; capped by
+  `SHIFTCODES_MANAGED_MAX_CPUS` / `SHIFTCODES_MANAGED_MAX_MEMORY`, 422 above) -> `ContainerView`.
+  Applied live with `docker update` and persisted in the override file so recreates keep them.
+- `GET "/{id}/files?path=/app"` -> `{path, entries: [{name, kind: directory|file}], truncated}`
+  (running container with `ls`; max 500 entries; credential-like names hidden).
+- `GET "/{id}/files/content?path=/app/x&max_bytes=65536"` (max 262144) -> `{path, size,
+  truncated, binary, text | null}`. Paths must be absolute and normalized (no `..`, `.`, empty
+  parts, control characters), outside `/proc`, `/sys`, `/dev`, and not credential-like files
+  (`.env*`, `*.pem`, `*.key`, `id_rsa`, `shadow`...): 422. Symlinks and directories: 422. Reads
+  are audited. Done with `docker exec <id> ls` / `docker cp`, never through a shell.
+- `GET "/{id}/stats"` -> `{latest, history}`; sample `{timestamp, cpu_percent, memory_used,
+  memory_limit, memory_percent, net_rx, net_tx, block_read, block_write, pids}`; history is an
+  in-memory ring buffer (240 samples; the worker samples every 15 s). 409 when not running.
+- `GET /api/telemetry/host` (read) -> `{latest, history}`, sample `{timestamp, cpu_percent (null
+  for the first sample), cpu_count, load_1, load_5, load_15, memory_total, memory_used,
+  memory_available, swap_total, swap_free, disk_total, disk_used, disk_free}`. CPU/RAM come from
+  the worker's `/proc`, which inside a container shows the host kernel's values (unless lxcfs is
+  used); disk is `statvfs` of the worker's data directory (the data volume's file system, normally
+  the host's Docker disk, not guaranteed).
+
+Audit actions: `container.start|stop|restart`, `container.env.update` (variable names only;
+outcome applied|restored|restore_failed), `container.env.reveal`, `container.limits.update`,
+`container.file.read` (path), `terminal.open`, `terminal.close`.
+
+## Terminal (exists, Task 9)
+
+1. `POST /api/projects/{slug}/environments/{env}/containers/{id}/terminal/tickets` (scope
+   `terminal`; CSRF for sessions) body `{terminal_id?}` -> `{ticket, expires_at, websocket_path:
+   "/api/terminal/ws", container_id}`. The container must belong to the environment and (for a new
+   terminal) run: 404/409 otherwise. The ticket is single use, valid 30 s, bound to the principal
+   and the exact container id. `terminal_id` reattaches a still living terminal after a disconnect.
+2. Open `wss://<host>/api/terminal/ws`. The browser sends the session cookie and `Origin` (must be
+   the public origin; a session ticket without it is refused; API-token tickets need neither).
+   First message (within 5 s): `{"type":"auth","ticket":"...","rows":24,"cols":80}`. Failure: close
+   code 1008. Success: text `{"type":"ready","terminal_id":"..."}`.
+3. Browser to server: **binary** messages = keystrokes (<= 64 KiB); text JSON
+   `{"type":"resize","rows":R,"cols":C}`, `{"type":"close"}` (ends the shell), `{"type":"ping"}`.
+   Server to browser: **binary** = terminal output (feed it to xterm.js); text JSON
+   `{"type":"exit","code","reason"}` (reason exited|closed|idle_timeout|absolute_timeout|shutdown),
+   `{"type":"error","message"}`, `{"type":"pong"}`. Close codes: 1000 normal, 1008 refused, 1013
+   worker unavailable, 4401 session ended (logout or expiry, checked every 15 s).
+4. Lifetime: after a disconnect the shell lives 2 minutes (`terminal_idle_seconds`) for a reattach
+   (new ticket with `terminal_id`; output produced meanwhile is dropped); absolute limit 30
+   minutes; at most 5 terminals (3 per user). The shell is `docker exec -it <exact id> /bin/sh` on a
+   PTY in the worker. Input is rate limited (64 KiB/s); frames are sequenced and bounded. Commands
+   and output are never stored or logged; the audit holds only open/close with who, container,
+   reason, duration and exit code.
+
 ## Domains (exists, Task 11)
 
 A **domain** routes a public hostname to one service port of an environment: Cloudflare DNS

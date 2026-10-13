@@ -1,4 +1,6 @@
-"""Admin command line: ``python -m shiftcodes.cli users create|reset-password <username>``.
+"""Admin command line: ``python -m shiftcodes.cli users create|reset-password <username>``,
+``import-v1`` (see ``shiftcodes.importer``) and ``backup create|restore|prune``
+(see README "Backup and restore").
 
 Passwords are read from a hidden prompt, or from stdin with ``--password-stdin``. They are
 never accepted as arguments or environment variables, so they stay out of shell history
@@ -13,12 +15,19 @@ import sys
 from collections.abc import Callable, Sequence
 from typing import TextIO
 
+from shiftcodes.backup.cli import add_backup_parser, run_backup
 from shiftcodes.config import get_settings
 from shiftcodes.domain.actor import Actor
 from shiftcodes.domain.errors import DomainError, ValidationError
+from shiftcodes.importer.apply import ImportServices
+from shiftcodes.importer.cli import add_arguments as add_import_arguments
+from shiftcodes.importer.cli import run_import
 from shiftcodes.process import apply_shared_umask
 from shiftcodes.repositories.database import UnitOfWork, create_db_engine, create_session_factory
+from shiftcodes.services.environments import EnvironmentService
 from shiftcodes.services.passwords import PasswordHasher
+from shiftcodes.services.pipelines import PipelineService
+from shiftcodes.services.projects import ProjectService
 from shiftcodes.services.users import UserService
 
 CLI_ACTOR = Actor.system("cli")
@@ -40,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="read the password from the first line of stdin instead of prompting",
         )
+    add_import_arguments(
+        groups.add_parser(
+            "import-v1", help="import v1 projects and convert recipes to Jenkinsfiles"
+        )
+    )
+    add_backup_parser(groups)
     return parser
 
 
@@ -75,10 +90,39 @@ def run(
     return 0
 
 
+def _import_v1(args: argparse.Namespace) -> int:
+    """Run the importer; a dry run never opens the database."""
+    if args.dry_run:
+        return run_import(args, _no_database)
+    engine = create_db_engine(get_settings().database_url)
+    try:
+        factory = create_session_factory(engine)
+
+        def services() -> ImportServices:
+            return ImportServices(
+                ProjectService(UnitOfWork(factory)),
+                EnvironmentService(UnitOfWork(factory)),
+                PipelineService(UnitOfWork(factory)),
+            )
+
+        return run_import(args, services)
+    finally:
+        engine.dispose()
+
+
+def _no_database() -> ImportServices:
+    raise RuntimeError("a dry run must not use the database")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point wiring the real database."""
     apply_shared_umask()
     parsed = list(sys.argv[1:] if argv is None else argv)
+    if parsed[:1] == ["backup"]:
+        return run_backup(build_parser().parse_args(parsed), get_settings())
+    args = build_parser().parse_args(parsed)
+    if args.group == "import-v1":
+        return _import_v1(args)
     engine = create_db_engine(get_settings().database_url)
     try:
         service = UserService(UnitOfWork(create_session_factory(engine)), PasswordHasher())

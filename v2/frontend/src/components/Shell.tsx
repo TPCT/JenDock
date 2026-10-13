@@ -13,7 +13,6 @@ import {
   Dialog,
   Header,
   IconButton,
-  Label,
   NavList,
   PageLayout,
 } from "@primer/react";
@@ -70,8 +69,7 @@ function MainNav({ onNavigate }: { onNavigate?: () => void }) {
       <NavItem
         to="/settings"
         icon={GearIcon}
-        match={(path) => path === "/settings"}
-        trailing={<Label variant="secondary">Soon</Label>}
+        match={(path) => path === "/settings" || path.startsWith("/settings/")}
       >
         Settings
       </NavItem>

@@ -45,6 +45,8 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
 - `make lock` - regenerate `requirements.lock` (needs Docker)
 - `make test-py313` - run tests on Python 3.13 in Docker (installs git in the throwaway container)
 - `make check` - lint, typecheck, test
+- `make preflight` - read-only host check before the production installation (`PREFLIGHT_ARGS`
+  passes flags, e.g. `--env-file .env`); see `docs/deployment.md`
 - `make lint-jenkins` - compare the Jenkinsfile engine with a real Jenkins linter in a throwaway
   container (needs Docker and network); rewrites `docs/jenkins-compatibility.md`
 
@@ -62,6 +64,68 @@ and the task list. v1 (the parent directory) keeps running until v2 reaches pari
   daemon resolves bind-mount sources, and relative paths in a compose file resolve against that
   file's directory. An environment's `compose_files` and `compose_env_files` are absolute paths
   below it; the deployer refuses to start a deployment when one is not readable.
+
+## Importing v1 projects (Task 15.1)
+
+```
+python -m shiftcodes.cli import-v1 --projects-json <v1>/projects.json [--v1-db <v1 sqlite>] \
+    [--compose-root <copy of /opt/docker-engine/projects>] [--dry-run]
+```
+
+Reads v1 read-only and creates v2 projects, environments (branch, auto deploy, compose project,
+compose files, services) and one canonical Jenkinsfile per recipe (`dockerBuild` per image, a
+`Test` stage per v1 test with its environment as stage `environment`, `deploy services: [...]`,
+`healthCheck`), each validated by the Jenkinsfile engine. `--dry-run` prints the whole plan and
+never opens the database. Re-running is safe: missing things are created, blank compose settings
+are filled, anything that exists and differs is only reported. Secrets are never imported; the
+report lists what the operator must provide (the compose env file is only referenced, never read).
+v1 has one branch per project: it is assigned to development or production (from the v1
+registry binding when `--v1-db` is given, else from the branch name) and every guess is a warning.
+The service -> image mapping is exact when `--compose-root` makes the compose files readable and
+a flagged name-based guess otherwise. The field mapping is the table `ENVIRONMENT_FIELDS` in
+`shiftcodes/importer/plan.py` (v1 `env_file` -> `compose_env_files`). Projects default to
+`git_transport = ssh` like v1 (deploy key `SHIFTCODES_GIT_SSH_KEY_FILE` must exist and be a
+deploy key of each repository); `--https` overrides. The dry run starts with a "needs operator
+decision" summary (ambiguous guesses, misspelled-looking branches, missing environment data,
+dropped tmpfs).
+
+## Production installation next to v1
+
+`docs/deployment.md` is the step-by-step plan (users, directories, Docker socket, Apache vhost,
+secrets, first admin, per-project cutover, rollback); `deployment/compose.production.yml`,
+`deployment/env.production.example` and `deployment/apache-deploy.shiftcodes.net.conf` are its
+files, and `make preflight` (`scripts/preflight.py`, read-only, flags via `PREFLIGHT_ARGS`)
+checks a host against every prerequisite and prints a report.
+
+## Backup and restore
+
+```
+python -m shiftcodes.cli backup create --to /backups [--include-logs] [--keep 7]
+python -m shiftcodes.cli backup restore --from /backups/shiftcodes-backup-<UTC>.tar.gz
+python -m shiftcodes.cli backup prune --dir /backups --keep 7
+```
+
+- `create` writes `shiftcodes-backup-<UTC timestamp>.tar.gz` (0600, built under a temporary name
+  and renamed when complete). It holds a snapshot of the SQLite database taken with SQLite's
+  **online backup API** (consistent while the API and worker keep writing), the managed compose
+  overrides (`<data_dir>/deployments/*/override.yml[.prev]`; journals are transient and
+  skipped), with `--include-logs` the per-run logs, and `manifest.json` (format version, UTC
+  time, **Alembic revision**, SHA-256 and size of every file).
+- The **secret key is never in the archive.** `--include-key` additionally writes it to a
+  separate `<archive>.secret.key` (0600) and prints a loud warning: whoever has the key and an
+  archive can decrypt every stored secret, so keep the two apart. Without the key a restored
+  database cannot decrypt its secrets.
+- `restore` verifies every member against the manifest (and rejects unexpected, duplicate,
+  absolute or `..` paths) and requires the Alembic revision to be one this code knows (a backup
+  from a newer version is refused). It writes only into an **empty** data directory and refuses
+  when the data directory or the database file already has content; on any failure it removes
+  what it wrote. `--key-file` puts a saved key in place (never overwriting one). Afterwards run
+  `make migrate` (`python -m shiftcodes.repositories.migrate`) to bring an older backup to head.
+- Scheduled backups run in the worker and are **off by default**:
+  `SHIFTCODES_BACKUP_ENABLED=true`, `SHIFTCODES_BACKUP_DIR` (a mounted directory the worker
+  can write), `SHIFTCODES_BACKUP_KEEP` (default 7, newest kept), `SHIFTCODES_BACKUP_HOUR_UTC`
+  (default 3), `SHIFTCODES_BACKUP_INCLUDE_LOGS`. They never include the key. Only files named
+  like our archives are pruned. Only SQLite databases are supported.
 
 ## Reproducible builds
 
@@ -504,7 +568,8 @@ removes the route.
 | `run` | `trigger_run`, `retry_run`, `cancel_run` |
 | `read` (domains) | `list_domains` (status, certificate state and expiry, latest check), `get_domain`, `list_certificates` |
 | `admin` (domains) | `check_domain`, `preview_domain_change` (DNS and vhost plan with its `plan_hash`; nothing changes), `apply_domain` / `remove_domain` (only with the previewed `plan_hash`), `issue_certificate`; scopes mirror the REST routes |
-| `deploy` | none yet: `mcp/tools/deploy.py` is a marked stub (planned `list_deployments`, `redeploy`, `rollback`) until Task 7 is merged |
+| `read` (deployments) | `list_deployments` |
+| `deploy` | `preview_redeploy` (images that would be deployed, images running now, whether a deployment is in progress), `redeploy` (same `deployment_id`; refused while a deployment of the environment is in progress). There is no rollback tool because the REST API has no rollback endpoint (failed deployments roll back automatically) |
 
 A manual run is two steps: `preview_commit` shows the branch head (sha, message, author, date) and
 `trigger_run` must be given exactly that `commit_sha`; it fails with `conflict` when the branch

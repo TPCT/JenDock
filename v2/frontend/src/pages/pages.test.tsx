@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,7 +47,7 @@ describe("every mock state renders without console errors", () => {
     ["/runs/106", /Run #9/],
     ["/runs/99999", "Run not found"],
     ["/runs/abc", "Run not found"],
-    ["/settings", "Settings are coming soon"],
+    ["/settings", "API tokens"],
     ["/nowhere", "Page not found"],
   ];
   it.each(routes)("%s", async (route, heading) => {
@@ -213,13 +213,10 @@ describe("project tabs", () => {
     expect(await screen.findByRole("heading", { name: "Production runs" })).toBeInTheDocument();
   });
 
-  it.each(["containers", "database", "domains", "settings"])(
-    "has a placeholder for the %s tab",
-    async (tab) => {
-      renderApp(`/projects/shop-api/${tab}`);
-      expect(await screen.findByRole("heading", { name: /coming soon/ })).toBeInTheDocument();
-    },
-  );
+  it.each(["containers", "database"])("has a placeholder for the %s tab", async (tab) => {
+    renderApp(`/projects/shop-api/${tab}`);
+    expect(await screen.findByRole("heading", { name: /coming soon/ })).toBeInTheDocument();
+  });
 });
 
 describe("projects", () => {
@@ -316,7 +313,7 @@ describe("run detail", () => {
       "aria-current",
       "page",
     );
-    await user.click(within(sidebar).getByRole("link", { name: "Summary" }));
+    fireEvent.click(within(sidebar).getByRole("link", { name: "Summary" }));
     const graph = await screen.findByRole("list", { name: "Pipeline stages" });
     expect(
       within(graph).getByRole("list", { name: "Stages that run in parallel" }),
@@ -462,7 +459,7 @@ describe("run detail", () => {
 
   it("reports a re-run the server refuses", async () => {
     server.use(
-      http.post("/api/projects/:slug/environments/:env/runs", () =>
+      http.post("/api/runs/:id/retry", () =>
         apiError(409, "conflict", "the commit is no longer on that branch"),
       ),
     );

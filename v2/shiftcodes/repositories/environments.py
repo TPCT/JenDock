@@ -40,3 +40,8 @@ class EnvironmentRepository:
         """Return the environments of a project ordered by name."""
         query = select(Environment).where(Environment.project_id == project_id)
         return self._session.scalars(query.order_by(Environment.name)).all()
+
+    def list_compose_projects(self) -> Sequence[str]:
+        """Distinct compose project names of every configured environment."""
+        query = select(Environment.compose_project).where(Environment.compose_project.is_not(None))
+        return sorted({name for name in self._session.scalars(query) if name})
