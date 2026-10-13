@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { terminalTimings } from "../components/TerminalView";
 import { MOCK_WEB_ID } from "../mocks/containers";
 import { server } from "../mocks/server";
@@ -26,6 +26,10 @@ vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 const PAGE = `/projects/shop-api/environments/development/containers/${MOCK_WEB_ID}/terminal`;
 const CACHE_PAGE = `/projects/shop-api/environments/development/containers/${"000000a3".repeat(8)}/terminal`;
 const saved = { ...terminalTimings };
+
+beforeAll(async () => {
+  await import("./TerminalPage");
+}, 60_000);
 
 let consoleError: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
