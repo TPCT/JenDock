@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import select
 import socket
 import socketserver
 import stat
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 SOCKET_MODE = 0o660
 OPEN_TIMEOUT = 5.0
 SEND_TIMEOUT = 10.0
+READ_POLL = 0.25
 RECV_CHUNK = 65536
 DEFAULT_ROWS = 24
 DEFAULT_COLS = 80
@@ -85,6 +87,15 @@ class SocketSink:
         self._lock = threading.Lock()
         self._sequence = SequenceCounter()
         self._alive = True
+        self._drained = threading.Event()
+
+    def mark_drained(self) -> None:
+        """The reading thread handled everything the peer had sent and is done."""
+        self._drained.set()
+
+    def wait_drained(self, timeout: float) -> bool:
+        """Block until the reading thread is done; ``False`` on timeout."""
+        return self._drained.wait(timeout)
 
     def send_control(self, frame_type: FrameType, body: dict[str, object]) -> bool:
         """Send a JSON frame."""
@@ -108,11 +119,27 @@ class SocketSink:
         self.send_control(FrameType.EXIT, {"code": code, "reason": reason})
 
     def close(self) -> None:
-        """Close the socket (wakes the reading thread)."""
+        """End the connection: no more output; the peer sees the end of the stream.
+
+        The receiving side is left alone: input the peer already sent is still queued in the
+        socket and the reading thread drains it before it notices ``alive`` is false (it polls
+        every ``READ_POLL`` seconds). Shutting down or closing the descriptor here would throw
+        away keystrokes typed just before a reattach replaced this connection.
+        """
         with self._lock:
             self._alive = False
         with contextlib.suppress(OSError):
-            self._connection.shutdown(socket.SHUT_RDWR)
+            self._connection.shutdown(socket.SHUT_WR)
+
+    @property
+    def alive(self) -> bool:
+        """Whether output can still be delivered."""
+        with self._lock:
+            return self._alive
+
+    def dispose(self) -> None:
+        """Close the socket for good (the serving thread is done with it)."""
+        self.close()
         with contextlib.suppress(OSError):
             self._connection.close()
 
@@ -153,10 +180,14 @@ class _Connection:
         finally:
             if self._session is not None:
                 self._session.detach(self._sink)
-            self._sink.close()
+            self._sink.mark_drained()
+            self._sink.dispose()
 
     def _read_frames(self) -> list[Frame] | None:
         """Frames of the next chunk; ``[]`` after a quiet period, ``None`` when the peer closed."""
+        readable, _, _ = select.select([self._connection], [], [], READ_POLL)
+        if not readable:
+            return []
         try:
             data = self._connection.recv(RECV_CHUNK)
         except TimeoutError:
@@ -208,6 +239,8 @@ class _Connection:
             if frames is None:
                 return
             self._handle(session, frames)
+            if not frames and not self._sink.alive:
+                return  # replaced or ended, and everything the peer had sent is handled
 
     def _handle(self, session: TerminalSession, frames: list[Frame]) -> None:
         for frame in frames:

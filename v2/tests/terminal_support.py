@@ -167,6 +167,13 @@ class Client:
             for frame in self.decoder.feed(data):
                 self._take(frame)
 
+    def wait_ready(self, timeout: float = 10.0) -> None:
+        """Read until the worker announced the terminal id (instead of guessing a delay)."""
+        deadline = time.monotonic() + timeout
+        while self.terminal_id is None and self.error is None and time.monotonic() < deadline:
+            self.pump(timeout=0.05)
+        assert self.terminal_id is not None, self.error
+
     def _take(self, frame: Frame) -> None:
         if frame.type is FrameType.READY:
             self.terminal_id = str(decode_json(frame)["terminal_id"])
