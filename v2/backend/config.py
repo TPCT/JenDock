@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     sse_poll_interval: float = Field(default=0.5, gt=0)
     sse_heartbeat_interval: float = Field(default=15.0, gt=0)
     public_origin: str = DEFAULT_PUBLIC_ORIGIN
-    worker_socket_path: Path = Path("/run/backend/worker.sock")
+    worker_socket_path: Path = Path("/run/jendock/worker.sock")
     log_level: LogLevel = "INFO"
     # Reverse proxies whose X-Forwarded-For is believed (IPs/CIDRs, comma separated in the
     # environment). Empty means nobody is trusted and the peer address is the client address.
