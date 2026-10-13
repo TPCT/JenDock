@@ -52,6 +52,8 @@ def _docker(*args: str, timeout: float = 60) -> subprocess.CompletedProcess[str]
 
 
 def _images_present() -> bool:
+    if not docker_available():
+        return False
     return all(
         _docker("image", "inspect", image).returncode == 0 for image in (PEBBLE, CHALLTESTSRV)
     )
@@ -108,7 +110,9 @@ def _wait_until(check, what: str, timeout: float = 60) -> None:  # type: ignore[
     raise AssertionError(f"timed out waiting for {what}")
 
 
-@pytest.fixture(scope="module")
+# Function scope on purpose: other docker tests remove every container labelled
+# shiftcodes.test=1 in their teardown, which would kill a module-wide Pebble.
+@pytest.fixture
 def pebble(tmp_path_factory: pytest.TempPathFactory) -> Iterator[PebbleEnv]:
     suffix = uuid.uuid4().hex[:8]
     network, srv, ca = f"sc-pebble-net-{suffix}", f"sc-challtestsrv-{suffix}", f"sc-pebble-{suffix}"
