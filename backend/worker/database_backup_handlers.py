@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 from collections.abc import Callable, Mapping
@@ -10,7 +11,7 @@ from typing import cast
 
 import boto3
 
-from backend.adapters.dump_runner import DumpRequest, DumpRunner, DumpRuntime
+from backend.adapters.dump_runner import DumpRequest, DumpRunner, DumpRuntime, ensure_dump_image
 from backend.adapters.s3_store import S3Client, S3Store
 from backend.domain.actor import Actor
 from backend.domain.database import DatabaseEngine
@@ -24,6 +25,8 @@ from backend.services.database_inspection import NETWORK_SUFFIX
 from backend.services.platform_secrets import PlatformSecretService
 from backend.services.secrets import SecretService
 from backend.worker.rpc import BadRequestError, Handler, RpcCall
+
+_LOG = logging.getLogger(__name__)
 
 
 class BackupLocks:
@@ -50,6 +53,7 @@ class DatabaseBackupHandlers:
         self._secret_service = secret_service
         self._notify = notify
         self._locks = locks
+        self._warming = threading.Lock()
 
     def run(self, call: RpcCall) -> object:
         backup_id = call.params.get("backup_id")
@@ -76,8 +80,37 @@ class DatabaseBackupHandlers:
         self._platform_secrets().clear(SECRET_NAME, call.require_actor())
         return {"configured": False}
 
+    def warm_images(self, call: RpcCall) -> object:
+        call.require_actor()
+        return {"started": self.start_warming()}
+
+    def start_warming(self) -> bool:
+        """Pull the configured dump images in the background so the first backup finds them."""
+        if self._warming.locked():
+            return False
+        settings = DatabaseBackupService(self._uow_factory()).settings()
+        images = sorted({_image(settings, engine) for engine in DatabaseEngine})
+        thread = threading.Thread(
+            target=self._warm, args=(images,), name="database-backup-images", daemon=True
+        )
+        thread.start()
+        return True
+
+    def _warm(self, images: list[str]) -> None:
+        if not self._warming.acquire(blocking=False):
+            return
+        try:
+            for image in images:
+                try:
+                    ensure_dump_image(self._runtime, image)
+                except Exception as error:
+                    _LOG.warning("database backup image %s was not warmed: %s", image, error)
+        finally:
+            self._warming.release()
+
     def test_s3(self, call: RpcCall) -> object:
         call.require_actor()
+        self.start_warming()
         settings = DatabaseBackupService(self._uow_factory()).settings()
         secret = self._platform_secrets().resolve(SECRET_NAME)
         if not settings.access_key_id or not secret:
@@ -323,4 +356,5 @@ def build_database_backup_handlers(handlers: DatabaseBackupHandlers) -> Mapping[
         "database_backups.set_s3_secret": handlers.set_s3_secret,
         "database_backups.clear_s3_secret": handlers.clear_s3_secret,
         "database_backups.test_s3": handlers.test_s3,
+        "database_backups.warm_images": handlers.warm_images,
     }

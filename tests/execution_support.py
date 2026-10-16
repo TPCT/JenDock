@@ -64,6 +64,7 @@ class FakeContainerRuntime:
         self.images: set[str] = set()
         self.networks: set[str] = set()
         self.build_exit_code = 0
+        self.pull_exit_code = 0
         self.rules: list[tuple[str, Behavior]] = []
         self.running: dict[str, RunSpec] = {}
         self.killed: set[str] = set()
@@ -109,9 +110,10 @@ class FakeContainerRuntime:
         """Record the pull."""
         with self._lock:
             self.pulls.append(image)
-            self.images.add(image)
+            if self.pull_exit_code == 0:
+                self.images.add(image)
         sink("sha256:fake")
-        return ExecResult(0)
+        return ExecResult(self.pull_exit_code)
 
     def image_exists(self, image: str) -> bool:
         """Whether the image was built or pulled."""
