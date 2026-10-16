@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections import defaultdict, deque
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from backend.domain.database import DatabaseEngine
 
@@ -19,13 +19,8 @@ class DetectionContainer:
     is_database: bool
 
 
-def scope_database_services(
-    containers: Sequence[DetectionContainer], services: Sequence[str]
-) -> frozenset[str]:
-    """Return database services in scope for an environment's configured app services."""
-    databases = {item.service for item in containers if item.is_database}
-    if not services:
-        return frozenset(databases)
+def _service_closure(containers: Sequence[DetectionContainer], services: Sequence[str]) -> set[str]:
+    """Return services and every dependency reachable from them."""
     dependencies: dict[str, set[str]] = defaultdict(set)
     for item in containers:
         dependencies[item.service].update(item.depends_on)
@@ -35,6 +30,17 @@ def scope_database_services(
         for dependency in dependencies[pending.popleft()] - closure:
             closure.add(dependency)
             pending.append(dependency)
+    return closure
+
+
+def scope_database_services(
+    containers: Sequence[DetectionContainer], services: Sequence[str]
+) -> frozenset[str]:
+    """Return database services in scope for an environment's configured app services."""
+    databases = {item.service for item in containers if item.is_database}
+    if not services:
+        return frozenset(databases)
+    closure = _service_closure(containers, services)
     scoped = databases & closure
     counts: dict[str, int] = defaultdict(int)
     for item in containers:
@@ -48,9 +54,9 @@ def scope_database_services(
         for network in item.networks
     }
     for item in containers:
-        if item.is_database and set(item.networks) & app_networks:
-            if any(counts[network] == 1 for network in set(item.networks) & app_networks):
-                scoped.add(item.service)
+        shared = set(item.networks) & app_networks
+        if item.is_database and shared and any(counts[network] == 1 for network in shared):
+            scoped.add(item.service)
     return frozenset(scoped)
 
 
@@ -60,18 +66,8 @@ def choose_database_network(
     services: Sequence[str],
 ) -> str | None:
     """Pick a deterministic DB network shared with relevant app services when possible."""
-    if services:
-        dependencies: dict[str, set[str]] = defaultdict(set)
-        for item in containers:
-            dependencies[item.service].update(item.depends_on)
-        closure = set(services)
-        pending = deque(services)
-        while pending:
-            for dependency in dependencies[pending.popleft()] - closure:
-                closure.add(dependency)
-                pending.append(dependency)
-    else:
-        closure = {item.service for item in containers if not item.is_database}
+    roots = services or tuple(item.service for item in containers if not item.is_database)
+    closure = _service_closure(containers, roots)
     shared = {
         network
         for item in containers

@@ -7,9 +7,15 @@ from alembic.migration import MigrationContext
 from sqlalchemy import inspect
 
 import backend.repositories
-from backend.repositories.database import create_db_engine
+from backend.domain.actor import Actor
+from backend.domain.audit import AuditEntry, AuditTarget
+from backend.domain.database import DatabaseEngine, TlsMode
+from backend.domain.enums import EnvironmentName
+from backend.repositories.database import UnitOfWork, create_db_engine, create_session_factory
 from backend.repositories.migrate import MIGRATIONS_DIR, build_config, upgrade_to_head
-from backend.repositories.models import Base
+from backend.repositories.models import Base, DatabaseConnection
+from backend.services.audit import add_audit_event
+from backend.services.projects import ProjectService
 
 
 @pytest.fixture
@@ -53,6 +59,51 @@ def test_upgrade_with_explicit_url_and_no_ini(tmp_path: Path) -> None:
     upgrade_to_head(url)
     engine = create_db_engine(url)
     assert "projects" in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_database_connection_network_migration_backfills_detected_names(
+    migrated_url: str,
+) -> None:
+    engine = create_db_engine(migrated_url)
+    uow = UnitOfWork(create_session_factory(engine))
+    detail = ProjectService(uow).create("detect-backfill", "Detect", "org/detect")
+    environment = next(
+        item for item in detail.environments if item.name is EnvironmentName.DEVELOPMENT
+    )
+    with uow:
+        for name in ("created-automatically", "added-manually"):
+            uow.database_connections.add(
+                DatabaseConnection(
+                    environment_id=environment.id,
+                    name=name,
+                    engine=DatabaseEngine.POSTGRESQL,
+                    host="db",
+                    port=5432,
+                    database="app",
+                    username="reader",
+                    password_secret=f"DBCONN_{name.upper().replace('-', '_')}_PASSWORD",
+                    tls_mode=TlsMode.DISABLE,
+                )
+            )
+    with uow:
+        add_audit_event(
+            uow,
+            AuditEntry(
+                Actor.system("migration-test"),
+                "database.detect",
+                AuditTarget("environment", str(environment.id)),
+                {"created": ["created-automatically"]},
+            ),
+        )
+    command.downgrade(build_config(), "0012_database_backups")
+    upgrade_to_head(migrated_url)
+    with uow:
+        values = {
+            item.name: item.auto_detected
+            for item in uow.database_connections.list_for_environment(environment.id)
+        }
+    assert values == {"created-automatically": True, "added-manually": False}
     engine.dispose()
 
 

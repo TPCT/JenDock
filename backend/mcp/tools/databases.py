@@ -110,7 +110,9 @@ def run_query(ctx: ToolContext, args: Args) -> object:
 def detect_databases(ctx: ToolContext, args: Args) -> object:
     """Detect databases in an environment; credentials remain inside the worker."""
     result = ctx.container.inspector_gateway().detect(
-        args.text("slug"), args.environment(), ctx.actor,
+        args.text("slug"),
+        args.environment(),
+        ctx.actor,
         prune=bool(args.values.get("prune", False)),
     )
     return parse_worker(DetectResponse, result).model_dump(mode="json")

@@ -125,8 +125,12 @@ def _handler(
 
 
 def _configured(
-    uow: UnitOfWork, cipher: SecretCipher, project: str, engine: DatabaseEngine,
-    *, network: str | None = None,
+    uow: UnitOfWork,
+    cipher: SecretCipher,
+    project: str,
+    engine: DatabaseEngine,
+    *,
+    network: str | None = None,
 ) -> DatabaseBackup:
     actor = Actor.system("test")
     with uow:
@@ -368,6 +372,9 @@ def test_schedule_record_prevents_same_day_rerun_after_restart(
         lambda *_args, **_kwargs: fake_s3,
     )
     _configured(uow, cipher, project, DatabaseEngine.POSTGRESQL)
+    DatabaseBackupService(uow).update_settings(
+        BackupSettings(access_key_id="AKIAEXAMPLE", enabled=True, hour=0), Actor.system("test")
+    )
     handler = _handler(uow, cipher, FakeRuntime())
 
     class StopAfterCheck:
@@ -652,7 +659,7 @@ def test_dump_nonzero_exit_aborts_upload_and_preserves_previous(
     assert len(notifications) == 1
     assert runtime.runs[0].env["PGPASSWORD"] == DB_MARKER
     assert DB_MARKER not in runtime.runs[0].command
-    assert runtime.runs[0].network == "octa_data"
+    assert runtime.runs[0].network == "demo-production_default"
     assert not any(
         marker in record.getMessage()
         for record in caplog.records

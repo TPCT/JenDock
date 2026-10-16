@@ -122,7 +122,9 @@ def create_connection(
 
 @router.post("/detect")
 def detect_connections(
-    path: Annotated[EnvPath, Depends()], principal: Detector, container: Container,
+    path: Annotated[EnvPath, Depends()],
+    principal: Detector,
+    container: Container,
     prune: bool = Query(default=False),
 ) -> DetectResponse:
     """Detect, store and test environment database connections inside the worker."""

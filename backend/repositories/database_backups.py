@@ -38,12 +38,17 @@ class DatabaseBackupRepository:
 
     def has_successful_for_connection(self, connection_id: int) -> bool:
         """Whether a connection has a completed backup that protects its history."""
-        return self._session.scalar(
-            select(DatabaseBackup.id).where(
-                DatabaseBackup.connection_id == connection_id,
-                DatabaseBackup.status == "succeeded",
-            ).limit(1)
-        ) is not None
+        return (
+            self._session.scalar(
+                select(DatabaseBackup.id)
+                .where(
+                    DatabaseBackup.connection_id == connection_id,
+                    DatabaseBackup.status == "succeeded",
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def interrupted(self) -> list[DatabaseBackup]:
         rows = self._session.scalars(

@@ -26,7 +26,10 @@ def upgrade() -> None:
         )
     bind = op.get_bind()
     rows = bind.execute(
-        sa.text("SELECT target_id, details FROM audit_events WHERE action = 'database.detect' AND target_type = 'environment'")
+        sa.text(
+            "SELECT target_id, details FROM audit_events "
+            "WHERE action = 'database.detect' AND target_type = 'environment'"
+        )
     )
     detected: set[tuple[str, str]] = set()
     for environment_id, details in rows:
@@ -36,12 +39,17 @@ def upgrade() -> None:
             payload = json.loads(details) if isinstance(details, str) else details
             names = payload.get("created", []) if isinstance(payload, dict) else []
             if isinstance(names, list):
-                detected.update((str(environment_id), name) for name in names if isinstance(name, str))
+                detected.update(
+                    (str(environment_id), name) for name in names if isinstance(name, str)
+                )
         except (TypeError, ValueError):
             continue
     for environment_id, name in detected:
         bind.execute(
-            sa.text("UPDATE database_connections SET auto_detected = true WHERE environment_id = :environment_id AND name = :name"),
+            sa.text(
+                "UPDATE database_connections SET auto_detected = true "
+                "WHERE environment_id = :environment_id AND name = :name"
+            ),
             {"environment_id": int(environment_id), "name": name},
         )
 

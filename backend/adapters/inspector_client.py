@@ -79,7 +79,10 @@ class WorkerInspectorClient:
 
     def detect(self, slug: str, env: EnvironmentName, actor: Actor, *, prune: bool = False) -> Json:
         result = self._client.call(
-            "db.detect", actor, {"slug": slug, "env": env.value, "prune": prune}, timeout=DETECT_TIMEOUT
+            "db.detect",
+            actor,
+            {"slug": slug, "env": env.value, "prune": prune},
+            timeout=DETECT_TIMEOUT,
         )
         if not isinstance(result, dict):
             raise WorkerError("worker returned an unexpected response")
