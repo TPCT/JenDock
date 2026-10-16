@@ -699,6 +699,11 @@ transaction on PostgreSQL; `SET SESSION TRANSACTION READ ONLY` + `START TRANSACT
 MySQL/MariaDB) and rolled back. UI copy for production: *use a dedicated database user that only has
 SELECT privileges; read-only sessions are defence in depth, the user is the strongest guarantee.*
 
+Admins and environment maintainers can use `POST .../databases/detect` to find running MySQL,
+MariaDB and PostgreSQL compose services. Detection reads container credentials only in the worker,
+stores each password as an encrypted environment secret, creates one connection per service and
+tests it. The response and audit record include connection metadata and outcomes, never credentials.
+
 Scopes: configuration (create/patch/delete/test) `admin`; list/get connection and metadata (schemas,
 tables, table detail) `read` on both environments; **rows and console: `read` on development, `admin`
 on production** (sessions hold every scope). Errors use the common envelope; specifics: 409

@@ -38,7 +38,7 @@ export function Callout({
       <Icon size={16} className={styles.icon} aria-hidden="true" />
       <div className={styles.body}>
         {title ? <strong>{title}</strong> : null}
-        {children ? <span>{children}</span> : null}
+        {children ? <div>{children}</div> : null}
         {actions ? <div className={styles.actions}>{actions}</div> : null}
       </div>
     </FlashMessage>

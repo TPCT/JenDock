@@ -7,14 +7,21 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from sqlalchemy import Engine
 
 from backend.api.container import AppContainer
 from backend.api.schemas.databases import decode_cursor, encode_cursor
+from backend.domain.access import AccessRole, GlobalRole
+from backend.domain.actor import Actor
 from backend.domain.enums import ActorType
 from backend.inspector.model import ErrorCode, InspectorError
+from backend.repositories.models import AuditEvent
+from backend.services.access import AccessService
 from backend.services.audit import AuditService
 from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.secret_cipher import SecretCipher
+from backend.services.users import UserService
 from tests.api_support import (
     FakeClock,
     create_user,
@@ -25,6 +32,7 @@ from tests.api_support import (
     mutation_headers,
 )
 from tests.conftest import DEV, PROD
+from tests.container_support import FakeEngine, make_record
 from tests.inspector_support import PAGE, FakeHelper, running_inspection_worker
 
 DEV_BASE = "/api/projects/demo/environments/development/databases"
@@ -46,6 +54,11 @@ def helper() -> FakeHelper:
 
 
 @pytest.fixture
+def fake_container_engine() -> FakeEngine:
+    return FakeEngine()
+
+
+@pytest.fixture
 def wired(
     tmp_path: Path,
     socket_dir: Path,
@@ -53,9 +66,12 @@ def wired(
     clock: FakeClock,
     project: str,
     helper: FakeHelper,
+    fake_container_engine: FakeEngine,
 ) -> Iterator[AppContainer]:
     key_file = tmp_path / "worker-only" / "secret.key"
-    with running_inspection_worker(socket_dir, engine, key_file, helper) as socket_path:
+    with running_inspection_worker(
+        socket_dir, engine, key_file, helper, fake_container_engine
+    ) as socket_path:
         container = make_container(make_settings(tmp_path, socket_path=socket_path), engine, clock)
         environments = EnvironmentService(container.uow())
         environments.update(project, DEV, EnvironmentUpdate(compose_project="demo-dev"))
@@ -80,6 +96,18 @@ def _create(client: TestClient, csrf: str, base: str = DEV_BASE, **changes: obje
     body = {**BODY, **changes}
     response = client.post(base, json=body, headers=mutation_headers(client, csrf))
     assert response.status_code == 201, response.text
+
+
+def _all_audit_events(container: AppContainer) -> list[AuditEvent]:
+    """Read every audit page when asserting that a detected password never appears."""
+    events: list[AuditEvent] = []
+    offset = 0
+    while True:
+        page = AuditService(container.uow()).list(limit=100, offset=offset)
+        events.extend(page)
+        if len(page) < 100:
+            return events
+        offset += len(page)
 
 
 # --- configuration -------------------------------------------------------------------------
@@ -112,6 +140,239 @@ def test_create_stores_the_password_as_a_secret_and_never_returns_it(
     assert PASSWORD not in listing.text
     assert [c["name"] for c in listing.json()] == ["main"]
     assert client.get(f"{DEV_BASE}/main").json()["host"] == "db"
+
+
+def test_detect_runs_in_worker_returns_no_password_and_is_idempotent(
+    tmp_path: Path,
+    wired: AppContainer,
+    fake_container_engine: FakeEngine,
+    session_client: tuple[TestClient, str],
+) -> None:
+    client, csrf = session_client
+    password = "detected-secret-123"
+    fake_container_engine.add(
+        make_record(
+            project="demo-dev",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": password},
+        )
+    )
+    first = client.post(f"{DEV_BASE}/detect", headers=mutation_headers(client, csrf))
+    assert first.status_code == 200, first.text
+    assert password not in first.text
+    assert first.json()["found"] == 1
+    assert first.json()["results"][0]["status"] == "created"
+    again = client.post(f"{DEV_BASE}/detect", headers=mutation_headers(client, csrf))
+    assert again.status_code == 200
+    assert again.json()["results"][0]["status"] == "existing"
+    assert len(client.get(DEV_BASE).json()) == 1
+    environment = EnvironmentService(wired.uow()).get("demo", DEV)
+    with wired.uow() as uow:
+        stored = uow.secrets.get(environment.id, "DBCONN_DB_PASSWORD")
+        assert stored is not None
+        assert (
+            SecretCipher(tmp_path / "worker-only" / "secret.key").decrypt(stored.ciphertext)
+            == password
+        )
+    assert password not in first.text and password not in again.text
+    events = _all_audit_events(wired)
+    assert all(password not in str(event.details) for event in events)
+
+
+def test_detects_mysql_mariadb_and_postgres_without_exposing_passwords(
+    wired: AppContainer,
+    fake_container_engine: FakeEngine,
+    helper: FakeHelper,
+    session_client: tuple[TestClient, str],
+) -> None:
+    client, csrf = session_client
+    containers = [
+        (
+            "mysql-service",
+            "library/mysql:8",
+            "mysql-user-secret",
+            {
+                "MYSQL_DATABASE": "mysql_db",
+                "MYSQL_USER": "mysql_user",
+                "MYSQL_PASSWORD": "mysql-user-secret",
+            },
+        ),
+        (
+            "maria-service",
+            "mariadb:11",
+            "maria-user-secret",
+            {
+                "MARIADB_DATABASE": "maria_db",
+                "MARIADB_USER": "maria_user",
+                "MARIADB_PASSWORD": "maria-user-secret",
+            },
+        ),
+        (
+            "pg-service",
+            "bitnami/postgresql:16",
+            "postgres-secret",
+            {
+                "POSTGRES_DB": "pg_db",
+                "POSTGRES_USER": "pg_user",
+                "POSTGRES_PASSWORD": "postgres-secret",
+            },
+        ),
+    ]
+    for service, image, _password, env in containers:
+        fake_container_engine.add(
+            make_record(project="demo-dev", service=service, image=image, env=env)
+        )
+    fake_container_engine.add(
+        make_record(
+            project="demo-dev",
+            service="stopped-db",
+            image="mysql:8",
+            running=False,
+            env={"MYSQL_DATABASE": "off", "MYSQL_ROOT_PASSWORD": "stopped-secret"},
+        )
+    )
+    fake_container_engine.add(make_record(project="demo-dev", service="cache", image="redis:7"))
+
+    response = client.post(f"{DEV_BASE}/detect", headers=mutation_headers(client, csrf))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["found"] == 3
+    assert [item["status"] for item in body["results"]] == ["created"] * 3
+    assert [item["connection"]["host"] for item in body["results"]] == [
+        item["service"] for item in body["results"]
+    ]
+    assert all(item["test"]["ok"] for item in body["results"])
+    assert [request.operation for _, request in helper.requests].count("test") == 3
+    for _, _, password, _ in containers:
+        assert password not in response.text
+    assert all(
+        password not in repr([event.details for event in _all_audit_events(wired)])
+        for _, _, password, _ in containers
+    )
+
+
+def test_detect_returns_zero_when_only_unsupported_or_stopped_containers_exist(
+    fake_container_engine: FakeEngine,
+    session_client: tuple[TestClient, str],
+) -> None:
+    client, csrf = session_client
+    fake_container_engine.add(
+        make_record(
+            project="demo-dev",
+            service="stopped-db",
+            image="mysql:8",
+            running=False,
+            env={"MYSQL_DATABASE": "stopped", "MYSQL_ROOT_PASSWORD": "stopped-secret"},
+        )
+    )
+    fake_container_engine.add(make_record(project="demo-dev", service="cache", image="redis:7"))
+    response = client.post(f"{DEV_BASE}/detect", headers=mutation_headers(client, csrf))
+    assert response.status_code == 200
+    assert response.json() == {"found": 0, "results": []}
+
+
+def test_detection_authorization_for_members_is_environment_scoped(
+    wired: AppContainer, fake_container_engine: FakeEngine
+) -> None:
+    fake_container_engine.add(
+        make_record(
+            project="demo-dev",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": "member-safe-password"},
+        )
+    )
+    create_user(wired)
+
+    def member_client(name: str, role: AccessRole | None) -> tuple[TestClient, str]:
+        password = "member password 123"
+        user = UserService(wired.uow(), wired.hasher, wired.clock).create(
+            name, password, Actor.system("test"), role=GlobalRole.MEMBER
+        )
+        if role is not None:
+            AccessService(wired.uow(), wired.clock).set_grant(
+                "demo", user.id, Actor.system("test"), environment=DEV, role=role
+            )
+        member = make_client(wired)
+        return member, login(member, name, password)
+
+    viewer, viewer_csrf = member_client("detect-viewer", AccessRole.VIEWER)
+    developer, developer_csrf = member_client("detect-developer", AccessRole.DEVELOPER)
+    nobody, nobody_csrf = member_client("detect-no-grant", None)
+    maintainer, maintainer_csrf = member_client("detect-maintainer", AccessRole.MAINTAINER)
+
+    def request(client: TestClient, csrf: str, base: str) -> Response:
+        return client.post(f"{base}/detect", headers=mutation_headers(client, csrf))
+
+    assert request(viewer, viewer_csrf, DEV_BASE).status_code == 403
+    assert request(developer, developer_csrf, DEV_BASE).status_code == 403
+    assert request(nobody, nobody_csrf, DEV_BASE).status_code == 404
+    assert request(maintainer, maintainer_csrf, DEV_BASE).status_code == 200
+    assert (
+        request(maintainer, maintainer_csrf, PROD_BASE).status_code == 404
+    )  # a development-only grant cannot see production
+
+
+def test_detection_route_role_matrix(
+    wired: AppContainer,
+    fake_container_engine: FakeEngine,
+) -> None:
+    fake_container_engine.add(
+        make_record(
+            project="demo-dev",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": "maintainer-db-password"},
+        )
+    )
+    owner_id = create_user(wired)
+    del owner_id
+
+    def member_request(username: str, role: AccessRole | None) -> tuple[TestClient, str]:
+        password = "member password 123"
+        user = UserService(wired.uow(), wired.hasher, wired.clock).create(
+            username, password, Actor.system("test"), role=GlobalRole.MEMBER
+        )
+        if role is not None:
+            AccessService(wired.uow(), wired.clock).set_grant(
+                "demo", user.id, Actor.system("test"), environment=DEV, role=role
+            )
+        client = make_client(wired)
+        return client, login(client, username, password)
+
+    viewer, viewer_csrf = member_request("viewer-detect", AccessRole.VIEWER)
+    developer, developer_csrf = member_request("developer-detect", AccessRole.DEVELOPER)
+    no_grant, no_grant_csrf = member_request("no-grant-detect", None)
+    maintainer, maintainer_csrf = member_request("maintainer-detect", AccessRole.MAINTAINER)
+    assert (
+        viewer.post(f"{DEV_BASE}/detect", headers=mutation_headers(viewer, viewer_csrf)).status_code
+        == 403
+    )
+    assert (
+        developer.post(
+            f"{DEV_BASE}/detect", headers=mutation_headers(developer, developer_csrf)
+        ).status_code
+        == 403
+    )
+    assert (
+        no_grant.post(
+            f"{DEV_BASE}/detect", headers=mutation_headers(no_grant, no_grant_csrf)
+        ).status_code
+        == 404
+    )
+    assert (
+        maintainer.post(
+            f"{DEV_BASE}/detect", headers=mutation_headers(maintainer, maintainer_csrf)
+        ).status_code
+        == 200
+    )
+    assert (
+        maintainer.post(
+            f"{PROD_BASE}/detect", headers=mutation_headers(maintainer, maintainer_csrf)
+        ).status_code
+        == 404
+    )
 
 
 def test_production_connection_carries_the_read_only_user_notice(

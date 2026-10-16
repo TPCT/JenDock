@@ -5,14 +5,15 @@ console need ``read`` on development and ``admin`` on production (the shared
 policy action ``database.data``, which depends on the environment).
 The worker runs every query in a helper container; passwords never reach the API or MCP.
 
-Deliberate gap: creating, changing, deleting or testing a connection is operator-only (``admin``
-REST endpoints) and is not exposed over MCP, so an agent can never read or change credentials.
+Connection detection is available to environment maintainers and runs fully inside the worker;
+credentials never pass through MCP. Manual connection changes remain operator-only.
 """
 
 from __future__ import annotations
 
 from backend.api.schemas.databases import (
     ConnectionResponse,
+    DetectResponse,
     QueryRequest,
     QueryResponse,
     SchemaListResponse,
@@ -104,7 +105,22 @@ def run_query(ctx: ToolContext, args: Args) -> object:
     return parse_worker(QueryResponse, result).model_dump(mode="json")
 
 
+def detect_databases(ctx: ToolContext, args: Args) -> object:
+    """Detect databases in an environment; credentials remain inside the worker."""
+    result = ctx.container.inspector_gateway().detect(
+        args.text("slug"), args.environment(), ctx.actor
+    )
+    return parse_worker(DetectResponse, result).model_dump(mode="json")
+
+
 TOOLS = (
+    Tool(
+        "detect_databases",
+        "Detect and test database connections from running environment containers.",
+        TokenScope.ADMIN,
+        schema.obj(_ENV, _REQUIRED_ENV),
+        detect_databases,
+    ),
     Tool(
         "list_database_connections",
         "List the database connections configured for an environment (engine, host, database, "
