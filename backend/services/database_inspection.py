@@ -186,7 +186,7 @@ class InspectionService:
             connection = uow.database_connections.get(environment.id, ref.name)
             if connection is None:
                 raise NotFoundError(f"database connection not found: {ref.name}")
-            network = (
+            network = connection.network or (
                 f"{environment.compose_project}{NETWORK_SUFFIX}"
                 if environment.compose_project
                 else None

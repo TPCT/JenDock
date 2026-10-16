@@ -8,6 +8,11 @@ from sqlalchemy import Engine
 from backend.domain.actor import Actor
 from backend.domain.database import ConnectionRef, DatabaseEngine
 from backend.domain.database_detection import parse_database_credentials
+from backend.domain.database_detection import (
+    DetectionContainer,
+    choose_database_network,
+    scope_database_services,
+)
 from backend.domain.enums import EnvironmentName
 from backend.repositories.database import UnitOfWork, create_session_factory
 from backend.services.database_detection import (
@@ -78,6 +83,59 @@ class _ContendedSecretGateway(_SecretGateway):
 class _InspectionStub:
     def test(self, ref: ConnectionRef, actor: Actor) -> dict[str, object]:
         return {"ok": True, "error": None, "server": None, "network": "demo-dev_default"}
+
+
+def test_database_detection_scopes_dependencies_and_single_database_networks() -> None:
+    containers = (
+        DetectionContainer("web", ("app",), ("api",), False),
+        DetectionContainer("api", ("app", "data"), ("db",), False),
+        DetectionContainer("db", ("data",), (), True),
+        DetectionContainer("metrics-db", ("app",), (), True),
+    )
+    assert scope_database_services(containers, ("web",)) == frozenset({"db", "metrics-db"})
+    assert choose_database_network(containers[2], containers, ("web",)) == "data"
+
+
+def test_shared_network_does_not_scope_multiple_databases() -> None:
+    containers = (
+        DetectionContainer("web", ("shared",), (), False),
+        DetectionContainer("db-a", ("shared",), (), True),
+        DetectionContainer("db-b", ("shared",), (), True),
+    )
+    assert scope_database_services(containers, ("web",)) == frozenset()
+
+
+def test_detection_stores_custom_network_for_database_connection(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(UnitOfWork(create_session_factory(engine))).update(
+        project, env, EnvironmentUpdate(compose_project="octa", services=["web"])
+    )
+    containers = FakeEngine()
+    containers.add(make_record(project="octa", service="web", networks=("octa_data",)))
+    db = make_record(
+        project="octa",
+        service="db",
+        image="postgres:16",
+        env={"POSTGRES_PASSWORD": "custom-network-secret"},
+        labels={"com.docker.compose.depends_on": "db:service_healthy:false"},
+        networks=("octa_data",),
+    )
+    containers.add(db)
+    service = DatabaseDetectionService(
+        UnitOfWork(create_session_factory(engine)),
+        _SecretGateway(engine, cipher),
+        containers,
+        _InspectionStub(),
+    )
+
+    result = service.detect(project, env, Actor.system("test"))
+
+    connection = result.results[0].connection
+    assert connection is not None
+    assert connection.network == "octa_data"
+    assert connection.auto_detected is True
 
 
 def test_concurrent_detection_keeps_one_connection_and_its_secret(

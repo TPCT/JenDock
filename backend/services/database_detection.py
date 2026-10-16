@@ -11,7 +11,7 @@ from threading import Lock
 from typing import Protocol
 
 from backend.adapters.container_admin import ContainerEngine
-from backend.adapters.docker_inspect import parse_env, service_of
+from backend.adapters.docker_inspect import depends_on_of, networks_of, parse_env, service_of
 from backend.adapters.worker_client import SecretsGateway
 from backend.domain.actor import Actor
 from backend.domain.audit import AuditEntry, AuditTarget
@@ -22,7 +22,13 @@ from backend.domain.database import (
     password_secret_name,
     validate_connection_name,
 )
-from backend.domain.database_detection import DetectedCredentials, parse_database_credentials
+from backend.domain.database_detection import (
+    DetectionContainer,
+    DetectedCredentials,
+    choose_database_network,
+    parse_database_credentials,
+    scope_database_services,
+)
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import ConflictError
 from backend.repositories.database import UnitOfWork
@@ -76,6 +82,8 @@ class DetectionSummary:
 
     found: int
     results: tuple[DetectionResult, ...]
+    removed: tuple[str, ...] = ()
+    kept: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +93,7 @@ class _ConnectionCandidate:
     service: str
     name: str
     credentials: DetectedCredentials
+    network: str | None
 
 
 class DatabaseDetectionService:
@@ -106,12 +115,16 @@ class DatabaseDetectionService:
         )
         self._lock_registry = lock_registry or DetectionLockRegistry()
 
-    def detect(self, slug: str, env: EnvironmentName, actor: Actor) -> DetectionSummary:
+    def detect(
+        self, slug: str, env: EnvironmentName, actor: Actor, *, prune: bool = False
+    ) -> DetectionSummary:
         """Create missing database connections, re-test existing ones, and audit summary."""
         with self._lock_registry.for_environment(slug, env):
-            return self._detect_locked(slug, env, actor)
+            return self._detect_locked(slug, env, actor, prune=prune)
 
-    def _detect_locked(self, slug: str, env: EnvironmentName, actor: Actor) -> DetectionSummary:
+    def _detect_locked(
+        self, slug: str, env: EnvironmentName, actor: Actor, *, prune: bool
+    ) -> DetectionSummary:
         with self._uow:
             environment = require_environment(self._uow, slug, env)
             project = environment.compose_project
@@ -119,22 +132,35 @@ class DatabaseDetectionService:
                 raise ConflictError("this environment has no compose project configured")
             environment_id = environment.id
             existing_rows = self._uow.database_connections.list_for_environment(environment_id)
+            app_services = tuple(environment.services or ())
         existing = list(existing_rows)
         results: list[DetectionResult] = []
         records = self._containers.list_project(project)
-        for record in records:
-            raw_state = record.get("State")
-            state = raw_state if isinstance(raw_state, dict) else {}
-            if not state.get("Running"):
-                continue
+        running = [record for record in records if _is_running(record)]
+        parsed_records = {id(record): _parse_container(record) for record in running}
+        inventory = tuple(
+            DetectionContainer(
+                service_of(record) or "",
+                networks_of(record),
+                depends_on_of(record),
+                parsed_records[id(record)] is not None,
+            )
+            for record in running
+            if service_of(record)
+        )
+        scoped_services = scope_database_services(inventory, app_services)
+        in_scope_hosts: set[str] = set(scoped_services)
+        for record in running:
             service = service_of(record)
             raw_config = record.get("Config")
             config = raw_config if isinstance(raw_config, dict) else {}
             image = str(config.get("Image") or "")
             if not service:
                 continue
-            parsed = parse_database_credentials(image, parse_env(record))
+            parsed = parsed_records[id(record)]
             if parsed is None:
+                continue
+            if service not in scoped_services:
                 continue
             container = str(record.get("Id") or "")
             if parsed.credentials is None:
@@ -145,6 +171,12 @@ class DatabaseDetectionService:
                 )
                 continue
             credentials = parsed.credentials
+            container_info = next((item for item in inventory if item.service == service), None)
+            network = (
+                choose_database_network(container_info, inventory, app_services)
+                if container_info
+                else None
+            )
             match = next(
                 (
                     item
@@ -154,6 +186,12 @@ class DatabaseDetectionService:
                 None,
             )
             if match is not None:
+                if match.network != network:
+                    with self._uow:
+                        current = self._uow.database_connections.get(environment_id, match.name)
+                        if current is not None:
+                            current.network = network
+                            match.network = network
                 outcome = self._inspection.test(ConnectionRef(slug, env, match.name), actor)
                 results.append(
                     DetectionResult(
@@ -186,7 +224,7 @@ class DatabaseDetectionService:
             connection, status, existing = self._create_or_reuse_connection(
                 slug,
                 env,
-                _ConnectionCandidate(service, name, credentials),
+                _ConnectionCandidate(service, name, credentials, network),
                 existing,
                 actor,
             )
@@ -203,6 +241,20 @@ class DatabaseDetectionService:
                     outcome,
                 )
             )
+        removed: list[str] = []
+        kept: list[tuple[str, str]] = []
+        if prune:
+            connections = DatabaseConnectionService(self._uow, self._secrets)
+            for item in list(connections.list(slug, env)):
+                if not item.auto_detected or item.host in in_scope_hosts:
+                    continue
+                with self._uow:
+                    protected = self._uow.database_backups.has_successful_for_connection(item.id)
+                if protected:
+                    kept.append((item.name, "has backups"))
+                else:
+                    connections.delete(slug, env, item.name, actor)
+                    removed.append(item.name)
         with self._uow:
             environment = require_environment(self._uow, slug, env)
             add_audit_event(
@@ -224,10 +276,11 @@ class DatabaseDetectionService:
                             if r.status == "existing" and r.connection
                         ],
                         "skipped": [r.service for r in results if r.status == "skipped"],
+                        "removed": removed,
                     },
                 ),
             )
-        return DetectionSummary(len(results), tuple(results))
+        return DetectionSummary(len(results), tuple(results), tuple(removed), tuple(kept))
 
     def _create_or_reuse_connection(
         self,
@@ -255,6 +308,8 @@ class DatabaseDetectionService:
                     credentials.database,
                     credentials.username,
                     credentials.password,
+                    network=candidate.network,
+                    auto_detected=True,
                 ),
                 actor,
             )
@@ -278,6 +333,8 @@ def to_wire(summary: DetectionSummary, env: EnvironmentName) -> dict[str, object
     """Serialize safe detection metadata without crossing API schema boundaries."""
     return {
         "found": summary.found,
+        "removed": list(summary.removed),
+        "kept": [{"name": name, "reason": reason} for name, reason in summary.kept],
         "results": [
             {
                 "service": item.service,
@@ -307,6 +364,8 @@ def _connection_wire(
         "database": connection.database,
         "username": connection.username,
         "tls_mode": connection.tls_mode.value,
+        "network": connection.network,
+        "auto_detected": connection.auto_detected,
         "password_secret": password_secret_name(connection.name),
         "read_only": True,
         "environment": env.value,
@@ -337,3 +396,19 @@ def _available_name(service: str, used: set[str]) -> str:
         candidate = f"{base[: 48 - len(ending)].rstrip('-')}{ending}"
         suffix += 1
     return validate_connection_name(candidate)
+
+
+def _is_running(record: object) -> bool:
+    if not isinstance(record, dict):
+        return False
+    state = record.get("State")
+    return isinstance(state, dict) and bool(state.get("Running"))
+
+
+def _parse_container(record: object):
+    if not isinstance(record, dict):
+        return None
+    config = record.get("Config")
+    image = str(config.get("Image") or "") if isinstance(config, dict) else ""
+    parsed = parse_database_credentials(image, parse_env(record))
+    return parsed

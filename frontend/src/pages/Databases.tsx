@@ -310,8 +310,8 @@ export function DatabasesPage() {
   const [dialog, setDialog] = useState<{ existing: DbConnection | null } | null>(null);
   const [deleting, setDeleting] = useState<DbConnection | null>(null);
   const [tested, setTested] = useState<{ name: string; result: TestResult } | null>(null);
-  const runDetection = useCallback(() => {
-    detectDatabases(undefined, { onSuccess: setDetection });
+  const runDetection = useCallback((prune = false) => {
+    detectDatabases(prune, { onSuccess: setDetection });
   }, [detectDatabases]);
 
   if (env === null) {
@@ -342,6 +342,9 @@ export function DatabasesPage() {
             {can("database.detect", scope) ? (
               <Button leadingVisual={SyncIcon} disabled={detect.isPending} onClick={runDetection}>
                 {detect.isPending ? "Detecting…" : "Detect databases"}
+              </Button>
+              <Button disabled={detect.isPending} onClick={() => runDetection(true)}>
+                Detect and clean up
               </Button>
             ) : null}
             {can("database.configure", scope) ? (
@@ -410,6 +413,10 @@ export function DatabasesPage() {
             {detection.results.filter((r) => r.status === "existing").length} already there,{" "}
             {detection.results.filter((r) => r.status === "skipped").length} skipped.
           </p>
+          {detection.removed.length > 0 ? <p>Removed: {detection.removed.join(", ")}</p> : null}
+          {detection.kept.length > 0 ? (
+            <p>Kept: {detection.kept.map((item) => `${item.name} (${item.reason})`).join(", ")}</p>
+          ) : null}
           <ul aria-label="Detection results">
             {detection.results.map((result) => {
               const outcome =
@@ -557,6 +564,7 @@ export function DatabasesPage() {
                   "never tested"
                 )}
               </p>
+              {item.network ? <p className="muted">Docker network: <code>{item.network}</code></p> : null}
               {item.notice && env !== "production" ? <p className="muted">{item.notice}</p> : null}
               <DatabaseBackupActions slug={slug} env={env} connection={item.name} />
             </li>

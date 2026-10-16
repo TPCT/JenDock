@@ -125,7 +125,8 @@ def _handler(
 
 
 def _configured(
-    uow: UnitOfWork, cipher: SecretCipher, project: str, engine: DatabaseEngine
+    uow: UnitOfWork, cipher: SecretCipher, project: str, engine: DatabaseEngine,
+    *, network: str | None = None,
 ) -> DatabaseBackup:
     actor = Actor.system("test")
     with uow:
@@ -142,6 +143,7 @@ def _configured(
                 database=FIXTURE_SCHEMA,
                 username=FIXTURE_LOGIN,
                 password_secret=_connection_ref("main"),
+                network=network,
             )
         )
         environment_id = env.id
@@ -184,7 +186,7 @@ def test_worker_uploads_verified_object_and_retains_only_latest(
         return fake_s3
 
     monkeypatch.setattr("backend.worker.database_backup_handlers.boto3.client", fake_client)
-    row = _configured(uow, cipher, project, db_engine)
+    row = _configured(uow, cipher, project, db_engine, network="octa_data")
     runtime = FakeRuntime()
     handler = _handler(uow, cipher, runtime)
     prior = f"backups/{project}/production/main/2026-10-15{extension}"
@@ -202,6 +204,7 @@ def test_worker_uploads_verified_object_and_retains_only_latest(
     assert list(fake_s3.objects) == [record.object_key]
     assert fake_s3.upload_args == {"ExtraArgs": {"ServerSideEncryption": "AES256"}}
     assert runtime.spec is not None
+    assert runtime.spec.network == "octa_data"
     assert DB_MARKER not in runtime.spec.command
     assert S3_MARKER not in runtime.spec.command
     assert runtime.spec.env == {
@@ -252,7 +255,7 @@ def test_any_unverified_backup_fails_and_keeps_previous_object(
         return fake_s3
 
     monkeypatch.setattr("backend.worker.database_backup_handlers.boto3.client", fake_client)
-    row = _configured(uow, cipher, project, DatabaseEngine.POSTGRESQL)
+    row = _configured(uow, cipher, project, DatabaseEngine.POSTGRESQL, network="octa_data")
     prior = f"backups/{project}/production/main/2026-10-15.dump"
     fake_s3.objects[prior] = b"old backup"
     same_day = object_key("backups", project, "production", "main", row.started_at, True)
@@ -649,8 +652,7 @@ def test_dump_nonzero_exit_aborts_upload_and_preserves_previous(
     assert len(notifications) == 1
     assert runtime.runs[0].env["PGPASSWORD"] == DB_MARKER
     assert DB_MARKER not in runtime.runs[0].command
-    assert runtime.runs[0].network is not None
-    assert runtime.runs[0].network.endswith("_default")
+    assert runtime.runs[0].network == "octa_data"
     assert not any(
         marker in record.getMessage()
         for record in caplog.records

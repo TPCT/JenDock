@@ -29,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
@@ -410,6 +411,8 @@ class DatabaseConnection(Base):
     username: Mapped[str] = mapped_column(String(128))
     password_secret: Mapped[str] = mapped_column(String(128))
     tls_mode: Mapped[TlsMode] = mapped_column(_enum(TlsMode), default=TlsMode.DISABLE)
+    network: Mapped[str | None] = mapped_column(String(255), default=None)
+    auto_detected: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     last_tested_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)

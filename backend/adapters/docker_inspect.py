@@ -61,6 +61,20 @@ def service_of(record: Record) -> str | None:
     return _text(labels_of(record).get(COMPOSE_SERVICE_LABEL))
 
 
+def depends_on_of(record: Record) -> tuple[str, ...]:
+    """Parse Compose's ``service:condition:restart`` dependency label."""
+    raw = labels_of(record).get("com.docker.compose.depends_on")
+    if not isinstance(raw, str):
+        return ()
+    return tuple(sorted({item.split(":", 1)[0] for item in raw.split(",") if item}))
+
+
+def networks_of(record: Record) -> tuple[str, ...]:
+    """Network names attached to a container, in stable order."""
+    networks = _mapping(_mapping(record.get("NetworkSettings")).get("Networks"))
+    return tuple(sorted(str(name) for name in networks))
+
+
 def parse_ports(record: Record) -> tuple[PortBinding, ...]:
     """Published and exposed ports in a stable order."""
     ports = _mapping(_mapping(record.get("NetworkSettings")).get("Ports"))

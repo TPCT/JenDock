@@ -36,6 +36,7 @@ def make_record(
     image: str = "demo/web:1",
     labels: Mapping[str, str] | None = None,
     restart_count: int = 0,
+    networks: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """A ``docker inspect`` record with the fields the platform reads."""
     identity = container_id or new_id()
@@ -60,7 +61,10 @@ def make_record(
             "Env": [f"{key}={value}" for key, value in (env or {"PATH": "/usr/bin"}).items()],
         },
         "HostConfig": {"NanoCpus": 0, "Memory": 0},
-        "NetworkSettings": {"Ports": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]}},
+        "NetworkSettings": {
+            "Ports": {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "8080"}]},
+            "Networks": {network: {} for network in networks},
+        },
         "Mounts": [{"Type": "volume", "Name": "data", "Destination": "/data", "RW": True}],
     }
 
