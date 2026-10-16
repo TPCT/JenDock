@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
@@ -96,6 +97,10 @@ def update_s3_backup_settings(
             "database_backups.set_s3_secret", principal.actor, {"secret_key": body.secret_key}
         )
     settings = service.update_settings(body.to_settings(), principal.actor)
+    with contextlib.suppress(WorkerError):
+        WorkerClient(container.settings.worker_socket_path, timeout=5).call(
+            "database_backups.warm_images", principal.actor, {}, timeout=5
+        )
     return BackupSettingsResponse.from_settings(settings)
 
 

@@ -10,15 +10,21 @@ import threading
 from dataclasses import dataclass
 from typing import BinaryIO, Protocol
 
-from backend.adapters.container_runtime import BinarySink, ExecResult, RunSpec
+from backend.adapters.container_runtime import BinarySink, ExecResult, LineSink, RunSpec
+from backend.adapters.errors import ContainerRuntimeError
 from backend.domain.database import DatabaseEngine
 from backend.domain.database_backups import BackupError
 
 _END = object()
+PULL_TIMEOUT = 600.0
 
 
 class DumpRuntime(Protocol):
     def image_exists(self, image: str) -> bool: ...
+
+    def pull_image(
+        self, image: str, sink: LineSink, *, timeout: float | None = None
+    ) -> ExecResult: ...
 
     def run_container_binary(
         self, spec: RunSpec, sink: BinarySink, *, timeout: float | None = None
@@ -117,6 +123,21 @@ class DumpRequest:
     key: str
 
 
+def ensure_dump_image(runtime: DumpRuntime, image: str, timeout: float = PULL_TIMEOUT) -> None:
+    """Pull ``image`` when the Docker host lacks it; raise ``BackupError`` if the pull fails."""
+    if runtime.image_exists(image):
+        return
+    lines: list[str] = []
+    try:
+        result = runtime.pull_image(image, lines.append, timeout=timeout)
+    except ContainerRuntimeError:
+        result = ExecResult(1)
+    if result.timed_out:
+        raise BackupError(f"pulling dump image {image} timed out; check the configured image")
+    if not result.ok or not runtime.image_exists(image):
+        raise BackupError(f"dump image {image} could not be pulled; check the configured image")
+
+
 class DumpRunner:
     """Streams dump container stdout through optional gzip and directly to S3 multipart."""
 
@@ -125,9 +146,8 @@ class DumpRunner:
         self._store = store
         self._timeout = timeout
 
-    def run(self, request: DumpRequest) -> int:  # noqa: PLR0915
-        if not self._runtime.image_exists(request.image):
-            raise BackupError("dump image is not available; check the configured image")
+    def run(self, request: DumpRequest) -> int:
+        ensure_dump_image(self._runtime, request.image)
         pipe = _Pipe()
         outcome: list[ExecResult | Exception] = []
 

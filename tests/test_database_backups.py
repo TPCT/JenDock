@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import logging
 import secrets
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import BinaryIO, cast
@@ -65,6 +66,65 @@ def test_backup_engine_selects_matching_image_and_dump_command() -> None:
     assert command[0] == "mariadb-dump"
 
 
+class _CollectUpload:
+    def __init__(self) -> None:
+        self.data = b""
+
+    def upload(self, key: str, stream: BinaryIO) -> None:
+        self.data = stream.read()
+
+
+def _dump_request(image: str) -> DumpRequest:
+    return DumpRequest(
+        DatabaseEngine.POSTGRESQL, image, "network", "db", 5432, "app", "reader", "pw", "k.dump"
+    )
+
+
+def test_missing_dump_image_is_pulled_before_the_dump_runs() -> None:
+    runtime = FakeContainerRuntime()
+    runtime.when("app", binary_chunks=(b"dump bytes",))
+    store = _CollectUpload()
+
+    DumpRunner(runtime, store).run(_dump_request("postgres:17"))
+
+    assert runtime.pulls == ["postgres:17"]
+    assert runtime.runs[0].image == "postgres:17"
+    assert store.data == b"dump bytes"
+
+
+def test_present_dump_image_is_not_pulled_again() -> None:
+    runtime = FakeContainerRuntime()
+    runtime.images.add("postgres:17")
+    DumpRunner(runtime, _CollectUpload()).run(_dump_request("postgres:17"))
+    assert runtime.pulls == []
+    assert len(runtime.runs) == 1
+
+
+def test_dump_image_pull_failure_fails_with_a_clear_error() -> None:
+    runtime = FakeContainerRuntime()
+    runtime.pull_exit_code = 1
+
+    with pytest.raises(BackupError, match=r"dump image postgres:17 could not be pulled"):
+        DumpRunner(runtime, _NoUpload()).run(_dump_request("postgres:17"))
+
+    assert runtime.pulls == ["postgres:17"]
+    assert runtime.runs == []
+
+
+def test_warming_pulls_every_configured_dump_image(uow: UnitOfWork, cipher: SecretCipher) -> None:
+    runtime = FakeContainerRuntime()
+    runtime.images.add("mysql:8.4")
+    handler = _handler(uow, cipher, runtime)
+
+    assert handler.warm_images(RpcCall(Actor.system("test"), {})) == {"started": True}
+    deadline = time.monotonic() + 5
+    while handler._warming.locked() or len(runtime.pulls) < 2:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+
+    assert sorted(runtime.pulls) == ["mariadb:11.4", "postgres:17"]
+
+
 def _connection_ref(name: str) -> str:
     return password_secret_name(name)
 
@@ -122,6 +182,11 @@ class FakeRuntime:
 
     def image_exists(self, image: str) -> bool:
         return bool(image)
+
+    def pull_image(
+        self, image: str, sink: Callable[[str], None], *, timeout: float | None = None
+    ) -> ExecResult:
+        raise AssertionError("not expected")
 
     def run_container_binary(
         self, spec: RunSpec, sink: Callable[[bytes], None], *, timeout: float | None = None

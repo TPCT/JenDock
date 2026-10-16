@@ -116,6 +116,7 @@ def test_s3_backup_settings_are_admin_only_and_write_only(
     assert "secret_key" not in saved.json()
     assert calls[0][0] == "database_backups.set_s3_secret"
     assert calls[0][1] == {"secret_key": S3_MARKER}
+    assert calls[1][0] == "database_backups.warm_images"
 
     fetched = admin.get(paths[0])
     assert fetched.status_code == 200
