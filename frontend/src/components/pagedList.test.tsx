@@ -57,7 +57,12 @@ describe("paged project list (shared list view)", () => {
     await waitFor(() => {
       expect(router.state.location.search).toBe("?q=atlas");
     });
-    expect(await screen.findByText("3 projects found")).toBeInTheDocument();
+    // Wait on the count itself, not with findByText: a whole-page text query costs ~50ms on this
+    // Primer page, and polling it every 50ms starves React's transition render of the new URL.
+    const count = screen.getByText(/^\d+ projects( found)?$/);
+    await waitFor(() => {
+      expect(count).toHaveTextContent("3 projects found");
+    });
     const list = screen.getByRole("list", { name: "Projects" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     expect(within(list).getByRole("link", { name: "Atlas API" })).toBeInTheDocument();
