@@ -39,6 +39,11 @@ from backend.services.database_connections import DatabaseConnectionService, New
 from backend.services.lookup import require_environment
 
 
+def _same_engine_family(left: DatabaseEngine, right: DatabaseEngine) -> bool:
+    mysql_family = {DatabaseEngine.MYSQL, DatabaseEngine.MARIADB}
+    return left is right or (left in mysql_family and right in mysql_family)
+
+
 class ConnectionTester(Protocol):
     """Port used to test a created or existing connection."""
 
@@ -233,12 +238,13 @@ class DatabaseDetectionService:
             (
                 row
                 for row in context.existing
-                if row.host == service and row.engine is credentials.engine
+                if row.host == service and _same_engine_family(row.engine, credentials.engine)
             ),
             None,
         )
         if match is not None:
             self._set_network(context.environment_id, match, network)
+            self._set_engine(context.environment_id, match, credentials.engine)
             outcome = self._inspection.test(
                 ConnectionRef(context.slug, context.env, match.name), context.actor
             )
@@ -288,6 +294,17 @@ class DatabaseDetectionService:
             if current is not None:
                 current.network = network
                 match.network = network
+
+    def _set_engine(
+        self, environment_id: int, match: DatabaseConnection, engine: DatabaseEngine
+    ) -> None:
+        if not match.auto_detected or match.engine is engine:
+            return
+        with self._uow:
+            current = self._uow.database_connections.get(environment_id, match.name)
+            if current is not None and current.auto_detected:
+                current.engine = engine
+                match.engine = engine
 
     def _prune(
         self, context: _DetectionContext, scoped: frozenset[str]
@@ -376,12 +393,13 @@ class DatabaseDetectionService:
                 (
                     item
                     for item in refreshed
-                    if item.host == service and item.engine is credentials.engine
+                    if item.host == service and _same_engine_family(item.engine, credentials.engine)
                 ),
                 None,
             )
             if match is None:
                 raise
+            self._set_engine(match.environment_id, match, credentials.engine)
             return match, "existing", refreshed
         return created, "created", [*existing, created]
 

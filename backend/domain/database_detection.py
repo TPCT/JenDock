@@ -129,7 +129,12 @@ def _mysql_credentials(image_name: str, env: dict[str, str]) -> CredentialResult
     ):
         return CredentialResult(None, "no usable database password in the container environment")
     return CredentialResult(
-        DetectedCredentials(DatabaseEngine.MYSQL, database, username or "root", password)
+        DetectedCredentials(
+            DatabaseEngine.MARIADB if image_name == "mariadb" else DatabaseEngine.MYSQL,
+            database,
+            username or "root",
+            password,
+        )
     )
 
 

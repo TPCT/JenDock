@@ -11,7 +11,7 @@ import pytest
 
 from backend.adapters.container_runtime import ExecResult, RunSpec
 from backend.adapters.docker_args import env_file_text, run_argv
-from backend.adapters.dump_runner import DumpRuntime
+from backend.adapters.dump_runner import DumpRequest, DumpRunner, DumpRuntime
 from backend.adapters.s3_store import S3Client, S3Store, verify_and_retain_latest
 from backend.domain.actor import Actor
 from backend.domain.database import DatabaseEngine, password_secret_name
@@ -25,7 +25,12 @@ from backend.services.database_backups import SECRET_NAME, DatabaseBackupService
 from backend.services.platform_secrets import PlatformSecretService
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
-from backend.worker.database_backup_handlers import BackupLocks, DatabaseBackupHandlers, _safe_error
+from backend.worker.database_backup_handlers import (
+    BackupLocks,
+    DatabaseBackupHandlers,
+    _image,
+    _safe_error,
+)
 from backend.worker.rpc import RpcCall
 from tests.execution_support import FakeContainerRuntime
 
@@ -34,6 +39,30 @@ S3_MARKER = "fixture-s3-" + secrets.token_hex(8)
 FIXTURE_LOGIN = "fixture_" + "reader"
 FIXTURE_HOST = "db"
 FIXTURE_SCHEMA = "app"
+
+
+class _NoUpload:
+    def upload(self, key: str, stream: BinaryIO) -> None:
+        raise AssertionError("not expected")
+
+
+def test_backup_engine_selects_matching_image_and_dump_command() -> None:
+    settings = BackupSettings(mysql_image="mysql:8.4", mariadb_image="mariadb:10.11.8")
+    assert _image(settings, DatabaseEngine.MARIADB) == "mariadb:10.11.8"
+    assert _image(settings, DatabaseEngine.MYSQL) == "mysql:8.4"
+    request = DumpRequest(
+        DatabaseEngine.MARIADB,
+        _image(settings, DatabaseEngine.MARIADB),
+        "network",
+        "db",
+        3306,
+        "app",
+        "reader",
+        "secret",
+        "backup.sql.gz",
+    )
+    command = DumpRunner(FakeRuntime(), _NoUpload())._spec(request).command
+    assert command[0] == "mariadb-dump"
 
 
 def _connection_ref(name: str) -> str:

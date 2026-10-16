@@ -10,10 +10,15 @@ import backend.repositories
 from backend.domain.actor import Actor
 from backend.domain.audit import AuditEntry, AuditTarget
 from backend.domain.database import DatabaseEngine, TlsMode
-from backend.domain.enums import EnvironmentName
+from backend.domain.enums import (
+    DeploymentStatus,
+    EnvironmentName,
+    PipelineSource,
+    RunTrigger,
+)
 from backend.repositories.database import UnitOfWork, create_db_engine, create_session_factory
 from backend.repositories.migrate import MIGRATIONS_DIR, build_config, upgrade_to_head
-from backend.repositories.models import Base, DatabaseConnection
+from backend.repositories.models import Base, DatabaseConnection, Deployment, Run
 from backend.services.audit import add_audit_event
 from backend.services.projects import ProjectService
 
@@ -104,6 +109,69 @@ def test_database_connection_network_migration_backfills_detected_names(
             for item in uow.database_connections.list_for_environment(environment.id)
         }
     assert values == {"created-automatically": True, "added-manually": False}
+    engine.dispose()
+
+
+def test_mariadb_engine_migration_flips_only_matching_auto_detected_mysql(
+    migrated_url: str,
+) -> None:
+    engine = create_db_engine(migrated_url)
+    uow = UnitOfWork(create_session_factory(engine))
+    detail = ProjectService(uow).create("maria-migration", "Maria", "org/maria")
+    environment = next(
+        item for item in detail.environments if item.name is EnvironmentName.DEVELOPMENT
+    )
+    with uow:
+        for name, host, automatic in (
+            ("matching", "db", True),
+            ("manual", "db", False),
+            ("unmatched", "other-db", True),
+        ):
+            uow.database_connections.add(
+                DatabaseConnection(
+                    environment_id=environment.id,
+                    name=name,
+                    engine=DatabaseEngine.MYSQL,
+                    host=host,
+                    port=3306,
+                    database="app",
+                    username="reader",
+                    password_secret=f"DBCONN_{name.upper()}_PASSWORD",
+                    auto_detected=automatic,
+                )
+            )
+        run = Run(
+            environment_id=environment.id,
+            number=1,
+            trigger=RunTrigger.MANUAL,
+            branch="main",
+            commit_sha="a" * 40,
+            pipeline_source=PipelineSource.PLATFORM,
+            pipeline_text="",
+        )
+        uow.session.add(run)
+        uow.session.flush()
+        uow.session.add(
+            Deployment(
+                run_id=run.id,
+                environment_id=environment.id,
+                status=DeploymentStatus.SUCCEEDED,
+                commit_sha="a" * 40,
+                services=[{"service": "db", "new_image": "registry.example/mariadb:10.11.8"}],
+            )
+        )
+    command.downgrade(build_config(), "0013_database_connection_network")
+    upgrade_to_head(migrated_url)
+    with uow:
+        values = {
+            item.name: item.engine
+            for item in uow.database_connections.list_for_environment(environment.id)
+        }
+    assert values == {
+        "matching": DatabaseEngine.MARIADB,
+        "manual": DatabaseEngine.MYSQL,
+        "unmatched": DatabaseEngine.MYSQL,
+    }
     engine.dispose()
 
 
