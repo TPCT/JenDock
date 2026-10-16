@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock
 
+import pytest
 from sqlalchemy import Engine
 
 from backend.domain.actor import Actor
@@ -392,9 +393,87 @@ def test_mariadb_accepts_aliases_and_root_fallback() -> None:
         "mariadb:11", {"MYSQL_DATABASE": "app", "MYSQL_ROOT_PASSWORD": "root-secret"}
     )
     assert result is not None and result.credentials is not None
-    assert result.credentials.engine is DatabaseEngine.MYSQL
+    assert result.credentials.engine is DatabaseEngine.MARIADB
     assert result.credentials.username == "root"
     assert result.credentials.password == "root-secret"
+
+
+def test_mysql_image_names_parse_to_their_distinct_engines() -> None:
+    mariadb = parse_database_credentials(
+        "mariadb:10.11.8",
+        {"MARIADB_DATABASE": "app", "MARIADB_USER": "reader", "MARIADB_PASSWORD": "secret"},
+    )
+    mysql = parse_database_credentials(
+        "mysql:8.4", {"MYSQL_DATABASE": "app", "MYSQL_USER": "reader", "MYSQL_PASSWORD": "secret"}
+    )
+    assert mariadb is not None and mariadb.credentials is not None
+    assert mysql is not None and mysql.credentials is not None
+    assert mariadb.credentials.engine is DatabaseEngine.MARIADB
+    assert mysql.credentials.engine is DatabaseEngine.MYSQL
+
+
+@pytest.mark.parametrize(
+    ("auto_detected", "expected_engine"),
+    [(True, DatabaseEngine.MARIADB), (False, DatabaseEngine.MYSQL)],
+)
+def test_redetection_reuses_mysql_family_connection_and_respects_ownership(
+    engine: Engine,
+    project: str,
+    cipher: SecretCipher,
+    auto_detected: bool,
+    expected_engine: DatabaseEngine,
+) -> None:
+    sessions = create_session_factory(engine)
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(UnitOfWork(sessions)).update(
+        project, env, EnvironmentUpdate(compose_project="maria-redetect", services=["web"])
+    )
+    with UnitOfWork(sessions) as uow:
+        environment = uow.environments.get_by_project_slug(project, env)
+        assert environment is not None
+        uow.database_connections.add(
+            DatabaseConnection(
+                environment_id=environment.id,
+                name="db",
+                engine=DatabaseEngine.MYSQL,
+                host="db",
+                port=3306,
+                database="app",
+                username="reader",
+                password_secret="DBCONN_DB_PASSWORD",
+                auto_detected=auto_detected,
+            )
+        )
+    containers = FakeEngine()
+    containers.add(
+        make_record(
+            project="maria-redetect",
+            service="web",
+            labels={"com.docker.compose.depends_on": "db:service_started:false"},
+        )
+    )
+    containers.add(
+        make_record(
+            project="maria-redetect",
+            service="db",
+            image="mariadb:10.11.8",
+            env={"MARIADB_DATABASE": "app", "MARIADB_USER": "reader", "MARIADB_PASSWORD": "secret"},
+        )
+    )
+
+    result = DatabaseDetectionService(
+        UnitOfWork(sessions), _SecretGateway(engine, cipher), containers, _InspectionStub()
+    ).detect(project, env, Actor.system("test"))
+
+    assert result.results[0].status == "existing"
+    assert result.results[0].connection is not None
+    assert result.results[0].connection.engine is expected_engine
+    with UnitOfWork(sessions) as uow:
+        environment = uow.environments.get_by_project_slug(project, env)
+        assert environment is not None
+        rows = uow.database_connections.list_for_environment(environment.id)
+        assert len(rows) == 1
+        assert rows[0].engine is expected_engine
 
 
 def test_named_mysql_user_without_password_falls_back_to_root() -> None:

@@ -97,6 +97,10 @@ class MySqlAdapter:
         self._limits = limits
         self._mariadb = spec.engine is Engine.MARIADB
         self._conn = _connect(spec, address, limits)
+        with contextlib.suppress(pymysql.Error, AttributeError):
+            server_info = self._conn.get_server_info()
+            if isinstance(server_info, str) and "mariadb" in server_info.lower():
+                self._mariadb = True
         self._dead = False
         self._prepare_session()
 
