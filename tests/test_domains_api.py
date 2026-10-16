@@ -145,7 +145,9 @@ def test_preview_then_apply_flow(api: Api) -> None:
     plan = api.preview(domain_id)
     assert plan["blocked"] is False and plan["operation"] == "apply"
     assert plan["dns"]["action"] == "create" and plan["dns"]["desired"]["content"] == DEFAULT_IPV4  # type: ignore[index]
-    assert plan["vhost"]["action"] == "create" and "+<VirtualHost *:80>" in plan["vhost"]["diff"]  # type: ignore[index]
+    vhost_diff = plan["vhost"]["diff"]  # type: ignore[index]
+    assert plan["vhost"]["action"] == "create"  # type: ignore[index]
+    assert f"+<VirtualHost {DEFAULT_IPV4}:80>" in vhost_diff
     assert plan["tls"]["action"] == "issue"  # type: ignore[index]
     assert (
         api.world.cloudflare.mutations() == [] and api.world.helper.vhosts == {}

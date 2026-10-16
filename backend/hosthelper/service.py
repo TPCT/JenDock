@@ -10,6 +10,7 @@ command, path or configuration-text parameter.
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import socket
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -86,13 +87,19 @@ class HelperService:
         return hostname
 
     def _spec(self, params: Mapping[str, object]) -> VhostSpec:
-        _only(params, {"hostname", "upstream_port", "tls", "websocket"})
+        _only(params, {"hostname", "upstream_port", "tls", "websocket", "listen_addresses"})
         port = require_port(params.get("upstream_port"))
         if not self._config.port_allowed(port):
             raise InvalidRequestError("upstream port is not allowed")
         tls = _boolean(params.get("tls"), "tls")
         websocket = _boolean(params.get("websocket", True), "websocket")
-        return VhostSpec(self._hostname(params), port, tls, websocket)
+        return VhostSpec(
+            self._hostname(params),
+            port,
+            tls,
+            websocket,
+            require_listen_addresses(params.get("listen_addresses")),
+        )
 
     def _vhost_path(self, hostname: str) -> Path:
         path = self._config.vhost_dir / f"{VHOST_PREFIX}{file_stem(hostname)}{VHOST_SUFFIX}"
@@ -274,6 +281,37 @@ def _boolean(value: object, name: str) -> bool:
     if not isinstance(value, bool):
         raise InvalidRequestError(f"{name} must be true or false")
     return value
+
+
+def require_listen_addresses(value: object) -> tuple[str, ...]:
+    """Validate canonical public IP literals and order IPv4 before IPv6."""
+    if value is None:
+        return ()
+    if not isinstance(value, list) or len(value) > 2:
+        raise InvalidRequestError("invalid listen address")
+    parsed: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    try:
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError
+            address = ipaddress.ip_address(item)
+            if (
+                str(address) != item
+                or address.is_unspecified
+                or address.is_loopback
+                or address.is_multicast
+                or address.is_link_local
+            ):
+                raise ValueError
+            parsed.append(address)
+        if len({address.version for address in parsed}) != len(parsed):
+            raise ValueError
+    except ValueError as error:
+        raise InvalidRequestError("invalid listen address") from error
+    return tuple(
+        str(address)
+        for address in sorted(parsed, key=lambda address: address.version, reverse=True)
+    )
 
 
 def _first_line(path: Path) -> str:

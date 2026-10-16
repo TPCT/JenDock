@@ -95,9 +95,9 @@ served **serially**. The kernel-reported peer uid must be in `allowed_uids`. Req
 | op | params | effect |
 | --- | --- | --- |
 | `ping` | - | liveness |
-| `vhost.render` | hostname, upstream_port, tls, websocket | dry run: `{proposed, current}` |
+| `vhost.render` | hostname, upstream_port, tls, websocket, optional `listen_addresses` | dry run: `{proposed, current}` |
 | `vhost.get` / `vhost.list` | hostname / - | read managed files |
-| `vhost.put` | hostname, upstream_port, tls, websocket | atomic write, configtest, graceful reload, **revert on failure** |
+| `vhost.put` | hostname, upstream_port, tls, websocket, optional canonical `listen_addresses` | atomic write, configtest, graceful reload, **revert on failure**; binds to configured public addresses when supplied |
 | `vhost.remove` | hostname | remove, configtest, reload, revert on failure |
 | `cert.install` | hostname, fullchain_pem, private_key_pem | validate, install (key 0600), test+reload if a TLS vhost uses it, revert on failure |
 | `cert.info` / `cert.remove` | hostname | read / remove (refused while a TLS vhost uses it) |
