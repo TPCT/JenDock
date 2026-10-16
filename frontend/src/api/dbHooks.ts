@@ -3,6 +3,7 @@ import { api } from "./client";
 import type {
   CreateConnectionBody,
   DbConnection,
+  DetectResult,
   QueryResult,
   RowsPage,
   SchemaInfo,
@@ -75,6 +76,14 @@ export function useTestConnection(slug: string, env: EnvironmentName) {
   return useMutation({
     mutationFn: (name: string) => api.post<TestResult>(`${conn(slug, env, name)}/test`),
     onSettled: refresh,
+  });
+}
+
+export function useDetectDatabases(slug: string, env: EnvironmentName) {
+  const refresh = useRefresh(slug, env);
+  return useMutation({
+    mutationFn: () => api.post<DetectResult>(`${base(slug, env)}/detect`),
+    onSuccess: refresh,
   });
 }
 

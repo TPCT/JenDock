@@ -1,4 +1,4 @@
-import { DatabaseIcon, PlusIcon } from "@primer/octicons-react";
+import { DatabaseIcon, PlusIcon, SyncIcon } from "@primer/octicons-react";
 import {
   Button,
   ConfirmationDialog,
@@ -9,16 +9,17 @@ import {
   Select,
   TextInput,
 } from "@primer/react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   useConnections,
   useCreateConnection,
   useDeleteConnection,
+  useDetectDatabases,
   useTestConnection,
   useUpdateConnection,
 } from "../api/dbHooks";
-import type { DbConnection, DbEngine, TestResult, TlsMode } from "../api/dbTypes";
+import type { DbConnection, DbEngine, DetectResult, TestResult, TlsMode } from "../api/dbTypes";
 import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import { EnvToolbar } from "../components/EnvSwitch";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
@@ -295,10 +296,16 @@ export function DatabasesPage() {
   const can = useCan();
   const scope = { project: slug, env: env ?? "development" };
   const test = useTestConnection(slug, env ?? "development");
+  const detect = useDetectDatabases(slug, env ?? "development");
+  const { mutate: detectDatabases } = detect;
+  const [detection, setDetection] = useState<DetectResult | null>(null);
   const remove = useDeleteConnection(slug, env ?? "development");
   const [dialog, setDialog] = useState<{ existing: DbConnection | null } | null>(null);
   const [deleting, setDeleting] = useState<DbConnection | null>(null);
   const [tested, setTested] = useState<{ name: string; result: TestResult } | null>(null);
+  const runDetection = useCallback(() => {
+    detectDatabases(undefined, { onSuccess: setDetection });
+  }, [detectDatabases]);
 
   if (env === null) {
     return (
@@ -324,17 +331,24 @@ export function DatabasesPage() {
         env={env}
         pathFor={(next) => databasesPath(slug, next)}
         actions={
-          can("database.configure", scope) ? (
-            <Button
-              variant="primary"
-              leadingVisual={PlusIcon}
-              onClick={() => {
-                setDialog({ existing: null });
-              }}
-            >
-              Add connection
-            </Button>
-          ) : null
+          <div className={box.cluster}>
+            {can("database.detect", scope) ? (
+              <Button leadingVisual={SyncIcon} disabled={detect.isPending} onClick={runDetection}>
+                {detect.isPending ? "Detecting…" : "Detect databases"}
+              </Button>
+            ) : null}
+            {can("database.configure", scope) ? (
+              <Button
+                variant="primary"
+                leadingVisual={PlusIcon}
+                onClick={() => {
+                  setDialog({ existing: null });
+                }}
+              >
+                Add connection
+              </Button>
+            ) : null}
+          </div>
         }
       />
       {env === "production" ? (
@@ -342,6 +356,61 @@ export function DatabasesPage() {
           Browsing rows and running queries here needs admin access or a maintainer role on
           production, and every access is recorded in the audit log (the table and page, or the
           statement text; never the data itself). {READ_ONLY_ADVICE}
+        </Callout>
+      ) : null}
+      {can("database.detect", scope) || can("database.configure", scope) ? (
+        <Callout variant="default">
+          Detected connections use the app&apos;s own database user. For browsing, we recommend a
+          user with SELECT-only rights; sessions here are already read-only.
+        </Callout>
+      ) : null}
+      {detect.isError ? (
+        <Callout variant="danger" role="alert">
+          {errorMessage(detect.error)}
+        </Callout>
+      ) : null}
+      {detection ? (
+        <Callout
+          variant={
+            detection.results.every(
+              (result) =>
+                (result.status === "created" || result.status === "existing") &&
+                result.test?.ok === true,
+            )
+              ? "success"
+              : "warning"
+          }
+          role="status"
+          title="Database detection complete"
+        >
+          <p>
+            {detection.found} found:{" "}
+            {detection.results.filter((r) => r.status === "created").length} created,{" "}
+            {detection.results.filter((r) => r.status === "existing").length} already there,{" "}
+            {detection.results.filter((r) => r.status === "skipped").length} skipped.
+          </p>
+          <ul aria-label="Detection results">
+            {detection.results.map((result) => {
+              const outcome =
+                result.status === "created"
+                  ? "created"
+                  : result.status === "existing"
+                    ? "already there"
+                    : `skipped — ${result.reason ?? "no connection details available"}`;
+              const testOutcome =
+                result.status === "skipped"
+                  ? ""
+                  : result.test?.ok
+                    ? " — Test passed"
+                    : ` — Test failed: ${result.test?.error?.message ?? "unknown error"}`;
+              return (
+                <li key={`${result.service}-${result.container}`}>
+                  {result.service} ({result.engine ?? "unknown engine"}): {outcome}
+                  {testOutcome}
+                </li>
+              );
+            })}
+          </ul>
         </Callout>
       ) : null}
       {connections.isPending ? <Loading label="Loading connections" /> : null}
@@ -353,7 +422,17 @@ export function DatabasesPage() {
         />
       ) : null}
       {connections.data?.length === 0 ? (
-        <EmptyState icon={<DatabaseIcon size={32} aria-hidden="true" />} title="No connections yet">
+        <EmptyState
+          icon={<DatabaseIcon size={32} aria-hidden="true" />}
+          title="No connections yet"
+          action={
+            can("database.detect", scope) ? (
+              <Button disabled={detect.isPending} onClick={runDetection}>
+                Detect databases
+              </Button>
+            ) : undefined
+          }
+        >
           Add a connection to the environment&apos;s database to browse its tables and run read-only
           queries. {env === "production" ? "" : READ_ONLY_ADVICE}
         </EmptyState>

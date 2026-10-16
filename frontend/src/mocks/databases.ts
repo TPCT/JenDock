@@ -385,6 +385,73 @@ export function databaseHandlers(ctx: MockContext): HttpHandler[] {
   const missing = () => error(404, "not_found", "connection not found");
 
   return [
+    http.post(`${BASE}/detect`, ({ params, request }) => {
+      const denied = guard(request, true, params.slug);
+      if (denied) return denied;
+      const list = listOf(params.slug, params.env);
+      let found = list.find((item) => item.host === "db" && item.engine === "postgresql");
+      let status: "created" | "existing" = "existing";
+      if (!found) {
+        const env = params.env === "production" ? "production" : "development";
+        const now = new Date().toISOString();
+        found = {
+          name: "db",
+          engine: "postgresql",
+          host: "db",
+          port: 5432,
+          database: "app",
+          username: "app",
+          tls_mode: "disable",
+          password_secret: "DBCONN_DB_PASSWORD",
+          read_only: true,
+          environment: env,
+          notice: env === "production" ? PROD_NOTICE : null,
+          created_at: now,
+          updated_at: now,
+          last_tested_at: now,
+          last_test_ok: true,
+        };
+        list.push(found);
+        connections.set(key(params.slug, params.env), list);
+        status = "created";
+      }
+      return HttpResponse.json({
+        found: 2,
+        results: [
+          {
+            service: "db",
+            container: "mock-db",
+            image: "postgres:16",
+            engine: "postgresql",
+            status,
+            reason: null,
+            connection: found,
+            test: {
+              ok: true,
+              server: {
+                version: "PostgreSQL 16",
+                read_only: true,
+                current_user: found.username,
+                database: found.database,
+                tls: false,
+              },
+              error: null,
+              network: `${String(params.slug)}-${String(params.env)}_default`,
+            },
+          },
+          {
+            service: "analytics-db",
+            container: "mock-analytics-db",
+            image: "mysql:8",
+            engine: "mysql",
+            status: "skipped",
+            reason: "no usable database password in the container environment",
+            connection: null,
+            test: null,
+          },
+        ],
+      });
+    }),
     http.get(
       BASE,
       ({ params, request }) =>

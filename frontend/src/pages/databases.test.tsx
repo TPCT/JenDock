@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../mocks/server";
+import { setMockPersona } from "../mocks/access";
 import { editorViews } from "../pipeline/CodeEditor";
 import { renderApp } from "../test/render";
 import { hexLines } from "../components/ResultTable";
@@ -14,6 +15,7 @@ beforeAll(async () => {
 
 let consoleError: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
+  setMockPersona("owner");
   consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -25,6 +27,43 @@ const apiError = (status: number, code: string, message: string) =>
   HttpResponse.json({ error: { code, message } }, { status });
 
 describe("connections", () => {
+  it("detects databases from the header and reports the tested result", async () => {
+    const user = userEvent.setup();
+    renderApp(DBS);
+    await user.click(await screen.findByRole("button", { name: "Detect databases" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("already there");
+    expect(
+      within(screen.getByRole("list", { name: "Detection results" })).getByText(
+        /db \(postgresql\)/,
+      ),
+    ).toHaveTextContent("db (postgresql): already there — Test passed");
+    expect(
+      within(screen.getByRole("list", { name: "Detection results" })).getByText(
+        /analytics-db \(mysql\)/,
+      ),
+    ).toHaveTextContent(
+      "analytics-db (mysql): skipped — no usable database password in the container environment",
+    );
+  });
+
+  it("offers detection in the empty state and hides it without permission", async () => {
+    const user = userEvent.setup();
+    const emptyPage = renderApp("/projects/internal-tools/environments/development/databases");
+    await user.click(await screen.findByRole("button", { name: "Detect databases" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("created");
+    expect(
+      within(screen.getByRole("list", { name: "Detection results" })).getByText(
+        /analytics-db \(mysql\)/,
+      ),
+    ).toHaveTextContent("analytics-db (mysql): skipped");
+
+    emptyPage.unmount();
+    setMockPersona("viewer");
+    renderApp(DBS);
+    await screen.findByRole("list", { name: "Database connections" });
+    expect(screen.queryByRole("button", { name: "Detect databases" })).not.toBeInTheDocument();
+  });
+
   it("lists connections with engine, address, TLS and last test", async () => {
     renderApp(DBS);
     const list = await screen.findByRole("list", { name: "Database connections" });
@@ -52,6 +91,15 @@ describe("connections", () => {
     renderApp("/projects/internal-tools/environments/development/databases");
     expect(await screen.findByRole("heading", { name: "No connections yet" })).toBeInTheDocument();
     expect(screen.getAllByText(/only has SELECT privileges/).length).toBeGreaterThan(0);
+  });
+
+  it("does not show the SELECT-only note to a viewer", async () => {
+    setMockPersona("viewer");
+    renderApp(DBS);
+    await screen.findByRole("list", { name: "Database connections" });
+    expect(
+      screen.queryByText(/Detected connections use the app's own database user/),
+    ).not.toBeInTheDocument();
   });
 
   it("adds a connection (password stored server side) and validates the form", async () => {

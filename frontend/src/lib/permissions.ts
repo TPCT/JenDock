@@ -26,6 +26,7 @@ export type Action =
   | "database.read"
   | "database.data"
   | "database.configure"
+  | "database.detect"
   | "domain.read"
   | "domain.manage"
   | "domain.discover"

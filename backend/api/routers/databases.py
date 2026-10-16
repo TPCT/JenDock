@@ -19,6 +19,7 @@ from backend.api.schemas.databases import (
     ConnectionResponse,
     ConnectionTestResponse,
     CreateConnectionRequest,
+    DetectResponse,
     QueryRequest,
     QueryResponse,
     RowsResponse,
@@ -40,6 +41,7 @@ router = APIRouter(prefix="/api/projects/{slug}/environments/{env}/databases", t
 Reader = Annotated[Principal, Depends(require(Action.DATABASE_READ))]
 Configurer = Annotated[Principal, Depends(require(Action.DATABASE_CONFIGURE))]
 DataReader = Annotated[Principal, Depends(require(Action.DATABASE_DATA))]
+Detector = Annotated[Principal, Depends(require(Action.DATABASE_DETECT))]
 MAX_OFFSET = 10_000_000
 
 
@@ -116,6 +118,15 @@ def create_connection(
     )
     created = container.database_connections().create(path.slug, path.env, new, principal.actor)
     return ConnectionResponse.from_model(created, path.env)
+
+
+@router.post("/detect")
+def detect_connections(
+    path: Annotated[EnvPath, Depends()], principal: Detector, container: Container
+) -> DetectResponse:
+    """Detect, store and test environment database connections inside the worker."""
+    result = container.inspector_gateway().detect(path.slug, path.env, principal.actor)
+    return parse_worker(DetectResponse, result)
 
 
 @router.get("/{name}")

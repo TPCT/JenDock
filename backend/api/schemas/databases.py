@@ -137,6 +137,26 @@ class ConnectionTestResponse(_Worker):
     network: str | None
 
 
+class DetectionItemResponse(BaseModel):
+    """Safe metadata about one database container considered by detection."""
+
+    service: str
+    container: str
+    image: str
+    engine: DatabaseEngine | None
+    status: str
+    reason: str | None
+    connection: ConnectionResponse | None
+    test: ConnectionTestResponse | None
+
+
+class DetectResponse(BaseModel):
+    """Summary and safe per-container outcomes from database detection."""
+
+    found: int
+    results: list[DetectionItemResponse]
+
+
 class SchemaResponse(_Worker):
     """One schema."""
 

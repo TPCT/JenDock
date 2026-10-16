@@ -10,10 +10,12 @@ from pydantic import ValidationError as PydanticValidationError
 from backend.domain.database import ConnectionRef, TableRef
 from backend.domain.enums import EnvironmentName
 from backend.inspector.model import MAX_PAGE_ROWS, MAX_STATEMENT_CHARS
+from backend.services.database_detection import DatabaseDetectionService, to_wire
 from backend.services.database_inspection import InspectionService
 from backend.worker.rpc import BadRequestError, Handler, RpcCall
 
 InspectionFactory = Callable[[], InspectionService]
+DetectionFactory = Callable[[], DatabaseDetectionService]
 MAX_NAME = 256
 
 
@@ -64,8 +66,18 @@ def _ref(params: _ConnectionParams) -> ConnectionRef:
 class DatabaseHandlers:
     """Adapts ``InspectionService`` to RPC calls; a fresh service per call."""
 
-    def __init__(self, factory: InspectionFactory) -> None:
+    def __init__(
+        self, factory: InspectionFactory, detection: DetectionFactory | None = None
+    ) -> None:
         self._factory = factory
+        self._detection = detection
+
+    def detect(self, call: RpcCall) -> object:
+        """``db.detect``: discover credentials and create/test connections in worker only."""
+        p = _parse(_DetectParams, call)
+        if self._detection is None:
+            raise BadRequestError("database detection unavailable")
+        return to_wire(self._detection().detect(p.slug, p.env, call.require_actor()), p.env)
 
     def test(self, call: RpcCall) -> object:
         """``db.test``: connect through the environment network and report."""
@@ -103,9 +115,11 @@ class DatabaseHandlers:
         return self._factory().query(_ref(p), p.statement, call.require_actor())
 
 
-def build_database_handlers(factory: InspectionFactory) -> Mapping[str, Handler]:
+def build_database_handlers(
+    factory: InspectionFactory, detection: DetectionFactory | None = None
+) -> Mapping[str, Handler]:
     """Return the ``db.*`` part of the RPC allowlist."""
-    handlers = DatabaseHandlers(factory)
+    handlers = DatabaseHandlers(factory, detection)
     return {
         "db.test": handlers.test,
         "db.schemas": handlers.schemas,
@@ -113,4 +127,10 @@ def build_database_handlers(factory: InspectionFactory) -> Mapping[str, Handler]
         "db.table": handlers.table,
         "db.rows": handlers.rows,
         "db.query": handlers.query,
+        "db.detect": handlers.detect,
     }
+
+
+class _DetectParams(_Params):
+    slug: str = Field(max_length=64)
+    env: EnvironmentName

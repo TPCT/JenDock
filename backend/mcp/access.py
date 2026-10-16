@@ -96,6 +96,7 @@ TOOL_ACCESS: dict[str, ToolAccess] = {
     "remove_resource_limits": ToolAccess(A.CONTAINER_LIMITS),
     # databases
     "list_database_connections": ToolAccess(A.DATABASE_READ),
+    "detect_databases": ToolAccess(A.DATABASE_DETECT),
     "get_database_connection": ToolAccess(A.DATABASE_READ),
     "list_database_schemas": ToolAccess(A.DATABASE_READ),
     "list_database_tables": ToolAccess(A.DATABASE_READ),

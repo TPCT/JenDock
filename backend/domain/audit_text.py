@@ -67,6 +67,12 @@ def _project_update(details: Details) -> str:
     return f"Updated the project ({fields})" if fields else "Updated the project"
 
 
+def _count_list(details: Details, key: str) -> int:
+    """Length of a list-valued audit detail, otherwise zero."""
+    value = details.get(key)
+    return len(value) if isinstance(value, list) else 0
+
+
 _DESCRIBERS: dict[str, Callable[[Details], str]] = {
     "auth.login": lambda d: (
         f"Signed in with {_text(d, 'two_factor').replace('_', ' ')}"
@@ -144,6 +150,10 @@ _DESCRIBERS: dict[str, Callable[[Details], str]] = {
     "database.connection.test": lambda d: (
         f"Tested the database connection {_quoted(d, 'name', '')}: "
         f"{'reachable' if d.get('ok') else 'failed'}"
+    ),
+    "database.detect": lambda d: (
+        f"Detected database connections: {d.get('found', 0)} found, "
+        f"{_count_list(d, 'created')} created"
     ),
     "database.rows.read": lambda d: (
         f"Browsed {_text(d, 'schema')}.{_text(d, 'table')} on {_quoted(d, 'name', 'a database')}"
