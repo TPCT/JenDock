@@ -310,9 +310,12 @@ export function DatabasesPage() {
   const [dialog, setDialog] = useState<{ existing: DbConnection | null } | null>(null);
   const [deleting, setDeleting] = useState<DbConnection | null>(null);
   const [tested, setTested] = useState<{ name: string; result: TestResult } | null>(null);
-  const runDetection = useCallback((prune = false) => {
-    detectDatabases(prune, { onSuccess: setDetection });
-  }, [detectDatabases]);
+  const runDetection = useCallback(
+    (prune = false) => {
+      detectDatabases(prune, { onSuccess: setDetection });
+    },
+    [detectDatabases],
+  );
 
   if (env === null) {
     return (
@@ -340,12 +343,25 @@ export function DatabasesPage() {
         actions={
           <div className={box.cluster}>
             {can("database.detect", scope) ? (
-              <Button leadingVisual={SyncIcon} disabled={detect.isPending} onClick={runDetection}>
-                {detect.isPending ? "Detecting…" : "Detect databases"}
-              </Button>
-              <Button disabled={detect.isPending} onClick={() => runDetection(true)}>
-                Detect and clean up
-              </Button>
+              <>
+                <Button
+                  leadingVisual={SyncIcon}
+                  disabled={detect.isPending}
+                  onClick={() => {
+                    runDetection(false);
+                  }}
+                >
+                  {detect.isPending ? "Detecting…" : "Detect databases"}
+                </Button>
+                <Button
+                  disabled={detect.isPending}
+                  onClick={() => {
+                    runDetection(true);
+                  }}
+                >
+                  Detect and clean up
+                </Button>
+              </>
             ) : null}
             {can("database.configure", scope) ? (
               <Button
@@ -455,7 +471,12 @@ export function DatabasesPage() {
           title="No connections yet"
           action={
             can("database.detect", scope) ? (
-              <Button disabled={detect.isPending} onClick={runDetection}>
+              <Button
+                disabled={detect.isPending}
+                onClick={() => {
+                  runDetection(false);
+                }}
+              >
                 Detect databases
               </Button>
             ) : undefined
@@ -564,7 +585,11 @@ export function DatabasesPage() {
                   "never tested"
                 )}
               </p>
-              {item.network ? <p className="muted">Docker network: <code>{item.network}</code></p> : null}
+              {item.network ? (
+                <p className="muted">
+                  Docker network: <code>{item.network}</code>
+                </p>
+              ) : null}
               {item.notice && env !== "production" ? <p className="muted">{item.notice}</p> : null}
               <DatabaseBackupActions slug={slug} env={env} connection={item.name} />
             </li>
