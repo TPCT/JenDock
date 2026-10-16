@@ -18,6 +18,9 @@ TimeoutStopSec=60
 # The socket directory is created fresh for the service; group access only.
 RuntimeDirectory=jendock-ingress
 RuntimeDirectoryMode=0750
+# Keep the directory across restarts: the worker container bind-mounts it, and a recreated
+# directory would leave the worker pointing at the old, deleted one.
+RuntimeDirectoryPreserve=yes
 
 # Hardening: root is needed to write Apache's include directory and run apachectl, nothing more.
 NoNewPrivileges=true
@@ -31,7 +34,9 @@ PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_UNIX
+# The helper listens on its Unix socket only, but `apachectl configtest` opens the configured
+# Listen sockets (IPv4/IPv6) to check them, so those families must be allowed for its children.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
