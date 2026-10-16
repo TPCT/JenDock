@@ -166,7 +166,8 @@ class DatabaseDetectionService:
         )
         scoped = scope_database_services(inventory, context.app_services)
         results = self._detect_running(context, inventory, scoped, inspected)
-        removed, kept = self._prune(context, scoped) if prune else ([], [])
+        # A torn-down project lists no containers; never treat that as "nothing in scope".
+        removed, kept = self._prune(context, scoped) if prune and records else ([], [])
         self._audit_detection(context, results, removed)
         return DetectionSummary(len(results), tuple(results), tuple(removed), tuple(kept))
 
