@@ -187,6 +187,7 @@ class FakeCloudflare:
         self.next_id = 1
         self.fail_create_once_with: dict[str, Any] | None = None
         self.reject_auth = False
+        self.account_token = False
 
     def add_record(self, **fields: Any) -> dict[str, Any]:
         """Seed a record (Cloudflare field names)."""
@@ -205,12 +206,20 @@ class FakeCloudflare:
         """A real ``CloudflareDns`` on top of ``client``."""
         return CloudflareDns(self.client())
 
-    def handle(self, request: httpx.Request) -> httpx.Response:
+    def handle(self, request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         """Serve one request."""
         self.requests.append((request.method, request.url.path))
         if self.reject_auth or request.headers.get("authorization") != f"Bearer {self.token}":
-            return httpx.Response(403, json=fixture("cloudflare", "error_auth.json"))
+            return httpx.Response(401, json=fixture("cloudflare", "error_auth.json"))
         path = request.url.path.removeprefix("/client/v4")
+        if request.method == "GET" and path == "/user/tokens/verify":
+            if self.account_token:
+                return httpx.Response(401, json=fixture("cloudflare", "error_auth.json"))
+            return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
+        if request.method == "GET" and path == "/accounts":
+            return httpx.Response(200, json={"success": True, "result": [{"id": "account-1"}]})
+        if request.method == "GET" and path == "/accounts/account-1/tokens/verify":
+            return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
         if request.method == "GET" and path == "/zones":
             return self._zones(request)
         parts = path.strip("/").split("/")
@@ -220,7 +229,7 @@ class FakeCloudflare:
 
     def _zones(self, request: httpx.Request) -> httpx.Response:
         name = request.url.params.get("name")
-        result = [z for z in self.zones["result"] if z["name"] == name]
+        result = [z for z in self.zones["result"] if name is None or z["name"] == name]
         return httpx.Response(200, json={**self.zones, "result": result})
 
     def _records(self, request: httpx.Request, parts: list[str]) -> httpx.Response:
