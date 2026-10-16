@@ -7,6 +7,7 @@ from backend.adapters.cloudflare import (
     CloudflareClient,
     CloudflareError,
     DnsDesired,
+    _decode,
 )
 from backend.domain.ingress import MANAGED_TAG, DnsRecordType, PlanAction
 from tests.ingress_support import HOST, ZONE, FakeCloudflare, fixture
@@ -153,6 +154,74 @@ def test_a_rejected_token_gives_a_clear_error_without_the_token() -> None:
         fake.client().find_zone(HOST)
     assert "token" in str(raised.value)
     assert "cf-super-secret-token" not in str(raised.value)
+
+
+def test_user_token_verification_uses_only_the_user_endpoint() -> None:
+    fake = FakeCloudflare()
+    assert fake.client().verify_token() == "active"
+    assert fake.requests == [("GET", "/client/v4/user/tokens/verify")]
+
+
+def test_account_token_falls_back_after_user_verification_401() -> None:
+    fake = FakeCloudflare()
+    fake.account_token = True
+    assert fake.client().verify_token() == "active"
+    assert fake.requests == [
+        ("GET", "/client/v4/user/tokens/verify"),
+        ("GET", "/client/v4/accounts"),
+        ("GET", "/client/v4/accounts/account-1/tokens/verify"),
+    ]
+
+
+def test_cfat_token_skips_user_verification() -> None:
+    fake = FakeCloudflare(token="cfat_account-secret")
+    assert fake.client().verify_token() == "active"
+    assert all("user/tokens/verify" not in path for _, path in fake.requests)
+
+
+@pytest.mark.parametrize("accounts_status", [403, 200])
+def test_account_verification_can_discover_id_from_zone(
+    accounts_status: int,
+) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        calls.append(path)
+        if path.endswith("/accounts"):
+            if accounts_status == 403:
+                return httpx.Response(403, json=fixture("cloudflare", "error_auth.json"))
+            return httpx.Response(200, json={"success": True, "result": []})
+        if path.endswith("/zones"):
+            return httpx.Response(
+                200,
+                json={"success": True, "result": [{"account": {"id": "zone-account"}}]},
+            )
+        return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
+
+    client = CloudflareClient(
+        "cfat_token",
+        base_url="https://api.test/client/v4",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert client.verify_token() == "active"
+    assert calls[-1].endswith("/accounts/zone-account/tokens/verify")
+
+
+def test_invalid_account_token_has_safe_invalid_message() -> None:
+    fake = FakeCloudflare(token="cfat-super-secret-token")
+    fake.reject_auth = True
+    with pytest.raises(CloudflareError) as raised:
+        fake.client().verify_token()
+    assert "invalid" in str(raised.value)
+    assert fake.token not in str(raised.value)
+
+
+def test_forbidden_request_explains_missing_permission() -> None:
+    response = httpx.Response(403, json=fixture("cloudflare", "error_auth.json"))
+    with pytest.raises(CloudflareError, match="missing a permission") as raised:
+        _decode(response)
+    assert raised.value.http_status == 403
 
 
 def test_the_token_is_sent_only_as_bearer_header_never_in_the_url() -> None:

@@ -26,14 +26,18 @@ ALREADY_EXISTS_CODES = frozenset({81057, 81058})
 ADDRESS_TYPES = frozenset({"A", "AAAA", "CNAME"})
 DEFAULT_TIMEOUT = 15.0
 MAX_ERROR_TEXT = 300
+ACCOUNT_TOKEN_PREFIX = "cfat_"  # noqa: S105 - prefix of Cloudflare account-owned API tokens
 
 
 class CloudflareError(AdapterError):
     """Cloudflare refused a request or could not be reached; the message holds no credentials."""
 
-    def __init__(self, message: str, code: int | None = None) -> None:
+    def __init__(
+        self, message: str, code: int | None = None, *, http_status: int | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.http_status = http_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,8 +122,42 @@ class CloudflareClient:
         raise CloudflareError(f"no Cloudflare zone is reachable with this token for {hostname}")
 
     def verify_token(self) -> str:
-        """The token's status as Cloudflare reports it (``GET /user/tokens/verify``)."""
-        payload = self._request("GET", "/user/tokens/verify", params=None, body=None)
+        """Return the token status reported by Cloudflare."""
+        if self._token.startswith(ACCOUNT_TOKEN_PREFIX):
+            return self._verify_account_token()
+        try:
+            payload = self._request("GET", "/user/tokens/verify", params=None, body=None)
+        except CloudflareError as error:
+            if error.http_status != 401:
+                raise
+            return self._verify_account_token()
+        result = payload.get("result")
+        status = result.get("status") if isinstance(result, dict) else None
+        return str(status) if status else "unknown"
+
+    def _verify_account_token(self) -> str:
+        """Verify an account token against an account visible to it."""
+        account_id: str | None = None
+        try:
+            accounts = self._get("/accounts", {}, per_page=10, max_pages=1)
+            if accounts and accounts[0].get("id"):
+                account_id = str(accounts[0]["id"])
+        except CloudflareError as error:
+            if error.http_status not in {401, 403}:
+                raise
+        if account_id is None:
+            zones = self._get("/zones", {}, per_page=ZONE_PAGE_SIZE, max_pages=1)
+            account = zones[0].get("account") if zones else None
+            if isinstance(account, dict) and account.get("id"):
+                account_id = str(account["id"])
+        if account_id is None:
+            raise CloudflareError(
+                "the API token is not a valid user token and can see no account or zone"
+                " to verify it against"
+            )
+        payload = self._request(
+            "GET", f"/accounts/{account_id}/tokens/verify", params=None, body=None
+        )
         result = payload.get("result")
         status = result.get("status") if isinstance(result, dict) else None
         return str(status) if status else "unknown"
@@ -208,8 +246,13 @@ class CloudflareClient:
 
 
 def _decode(response: httpx.Response) -> Mapping[str, Any]:
-    if response.status_code in {401, 403}:
-        raise CloudflareError("Cloudflare rejected the API token (check its scope)")
+    if response.status_code == 401:
+        raise CloudflareError("Cloudflare says the API token is invalid", http_status=401)
+    if response.status_code == 403:
+        raise CloudflareError(
+            "the API token is missing a permission for this request (check its scope)",
+            http_status=403,
+        )
     try:
         payload = response.json()
     except ValueError as error:

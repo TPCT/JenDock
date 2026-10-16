@@ -65,6 +65,11 @@ class IntegrationDeps:
     webhook_secret_file: Path | None
 
 
+NO_ZONES_MESSAGE = (
+    "the token is valid but can see no zones (grant it Zone:Read and DNS:Edit on your zones)"
+)
+
+
 class IntegrationHandlers:
     """Adapts the integration use cases to RPC calls."""
 
@@ -103,11 +108,16 @@ class IntegrationHandlers:
                 "message": str(error),
             }
         else:
+            active = status == "active"
+            if active and not zones:
+                message = NO_ZONES_MESSAGE
+            else:
+                message = "" if active else f"the token is {status}"
             result = {
-                "ok": status == "active",
+                "ok": active and bool(zones),
                 "status": status,
                 "zones": zones,
-                "message": "" if status == "active" else f"the token is {status}",
+                "message": message,
             }
         self._record(
             actor,

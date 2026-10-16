@@ -36,6 +36,7 @@ from backend.services.platform_secrets import CLOUDFLARE_TOKEN, PlatformSecretSe
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
 from backend.worker.__main__ import build_rpc_server
+from backend.worker.integrations_handlers import NO_ZONES_MESSAGE
 from backend.worker.integrations_wiring import build_integrations
 from tests.api_support import (
     FakeClock,
@@ -51,20 +52,39 @@ TOKEN = "cf-secret-token-0123456789abcdef"
 needs_keygen = pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="no ssh-keygen")
 
 
-def cloudflare_handler(request: httpx.Request) -> httpx.Response:
+def cloudflare_handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
     """Verify and zones endpoints of a fake Cloudflare that accepts exactly ``TOKEN``."""
-    if request.headers.get("authorization") != f"Bearer {TOKEN}":
-        return httpx.Response(403, json={"success": False, "errors": [{"code": 9109}]})
+    bearer = request.headers.get("authorization", "")
+    account_token = bearer.startswith("Bearer cfat_")
+    if (
+        bearer != f"Bearer {TOKEN}"
+        and not account_token
+        and not bearer.startswith("Bearer cf-no-zones")
+    ):
+        return httpx.Response(401, json={"success": False, "errors": [{"code": 1000}]})
     path = request.url.path
     if path.endswith("/user/tokens/verify"):
+        if account_token:
+            return httpx.Response(401, json={"success": False, "errors": [{"code": 1000}]})
         return httpx.Response(
             200, json={"success": True, "result": {"id": "t", "status": "active"}}
         )
     if path.endswith("/zones"):
-        zones = [{"id": "z2", "name": "zeta.example"}, {"id": "z1", "name": "alpha.example"}]
+        zones = (
+            []
+            if "no-zones" in bearer
+            else [
+                {"id": "z2", "name": "zeta.example", "account": {"id": "acct"}},
+                {"id": "z1", "name": "alpha.example", "account": {"id": "acct"}},
+            ]
+        )
         return httpx.Response(
             200, json={"success": True, "result": zones, "result_info": {"total_pages": 1}}
         )
+    if path.endswith("/accounts"):
+        return httpx.Response(200, json={"success": True, "result": [{"id": "acct"}]})
+    if path.endswith("/accounts/acct/tokens/verify"):
+        return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
     return httpx.Response(404, json={"success": False, "errors": [{"message": "no"}]})
 
 
@@ -185,7 +205,25 @@ def test_a_wrong_token_fails_the_test_without_an_http_error(world: World) -> Non
     world.put("/api/integrations/cloudflare/token", {"token": "x" * 40})
     result = world.post("/api/integrations/cloudflare/test").json()
     assert result["ok"] is False and result["zones"] == []
-    assert "rejected" in result["message"]
+    assert "invalid" in result["message"]
+
+
+def test_test_connection_accepts_an_account_token(world: World) -> None:
+    world.put("/api/integrations/cloudflare/token", {"token": "cfat_account-secret-token-012345"})
+    result = world.post("/api/integrations/cloudflare/test").json()
+    assert result["ok"] is True and result["status"] == "active"
+    assert result["zones"] == ["alpha.example", "zeta.example"]
+
+
+def test_active_token_with_no_zones_reports_missing_zone_access(world: World) -> None:
+    world.put("/api/integrations/cloudflare/token", {"token": "cf-no-zones-secret-token-012345678"})
+    result = world.post("/api/integrations/cloudflare/test").json()
+    assert result == {
+        "ok": False,
+        "status": "active",
+        "zones": [],
+        "message": NO_ZONES_MESSAGE,
+    }
 
 
 def test_testing_without_a_token_says_so(world: World) -> None:
