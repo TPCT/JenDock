@@ -82,7 +82,8 @@ export function useTestConnection(slug: string, env: EnvironmentName) {
 export function useDetectDatabases(slug: string, env: EnvironmentName) {
   const refresh = useRefresh(slug, env);
   return useMutation({
-    mutationFn: () => api.post<DetectResult>(`${base(slug, env)}/detect`),
+    mutationFn: (prune: boolean) =>
+      api.post<DetectResult>(`${base(slug, env)}/detect?prune=${prune}`),
     onSuccess: refresh,
   });
 }

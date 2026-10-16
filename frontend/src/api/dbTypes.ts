@@ -11,6 +11,8 @@ export interface DbConnection {
   database: string;
   username: string;
   tls_mode: TlsMode;
+  network: string | null;
+  auto_detected: boolean;
   password_secret: string;
   read_only: boolean;
   environment: "development" | "production";
@@ -59,6 +61,8 @@ export interface TestResult {
 
 export interface DetectResult {
   found: number;
+  removed: string[];
+  kept: { name: string; reason: string }[];
   results: {
     service: string;
     container: string;

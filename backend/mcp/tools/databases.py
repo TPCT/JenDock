@@ -110,7 +110,10 @@ def run_query(ctx: ToolContext, args: Args) -> object:
 def detect_databases(ctx: ToolContext, args: Args) -> object:
     """Detect databases in an environment; credentials remain inside the worker."""
     result = ctx.container.inspector_gateway().detect(
-        args.text("slug"), args.environment(), ctx.actor
+        args.text("slug"),
+        args.environment(),
+        ctx.actor,
+        prune=bool(args.values.get("prune", False)),
     )
     return parse_worker(DetectResponse, result).model_dump(mode="json")
 
@@ -144,7 +147,7 @@ TOOLS = (
         "detect_databases",
         "Detect and test database connections from running environment containers.",
         TokenScope.ADMIN,
-        schema.obj(_ENV, _REQUIRED_ENV),
+        schema.obj({**_ENV, "prune": {"type": "boolean", "default": False}}, _REQUIRED_ENV),
         detect_databases,
     ),
     Tool(

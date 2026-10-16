@@ -75,6 +75,8 @@ class ConnectionResponse(BaseModel):
     database: str
     username: str
     tls_mode: TlsMode
+    network: str | None = None
+    auto_detected: bool = False
     password_secret: str
     read_only: bool = True
     environment: EnvironmentName
@@ -95,6 +97,8 @@ class ConnectionResponse(BaseModel):
             database=connection.database,
             username=connection.username,
             tls_mode=connection.tls_mode,
+            network=connection.network,
+            auto_detected=connection.auto_detected,
             password_secret=password_secret_name(connection.name),
             environment=env,
             notice=PRODUCTION_NOTICE if env is EnvironmentName.PRODUCTION else None,
@@ -150,11 +154,20 @@ class DetectionItemResponse(BaseModel):
     test: ConnectionTestResponse | None
 
 
+class DetectionKeptResponse(BaseModel):
+    """A connection retained during pruning, with the reason it was protected."""
+
+    name: str
+    reason: str
+
+
 class DetectResponse(BaseModel):
     """Summary and safe per-container outcomes from database detection."""
 
     found: int
     results: list[DetectionItemResponse]
+    removed: list[str] = Field(default_factory=list)
+    kept: list[DetectionKeptResponse] = Field(default_factory=list)
 
 
 class SchemaResponse(_Worker):

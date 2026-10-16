@@ -7,9 +7,15 @@ from sqlalchemy import Engine
 
 from backend.domain.actor import Actor
 from backend.domain.database import ConnectionRef, DatabaseEngine
-from backend.domain.database_detection import parse_database_credentials
+from backend.domain.database_detection import (
+    DetectionContainer,
+    choose_database_network,
+    parse_database_credentials,
+    scope_database_services,
+)
 from backend.domain.enums import EnvironmentName
 from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.repositories.models import DatabaseBackup, DatabaseConnection
 from backend.services.database_detection import (
     DatabaseDetectionService,
     DetectionLockRegistry,
@@ -78,6 +84,251 @@ class _ContendedSecretGateway(_SecretGateway):
 class _InspectionStub:
     def test(self, ref: ConnectionRef, actor: Actor) -> dict[str, object]:
         return {"ok": True, "error": None, "server": None, "network": "demo-dev_default"}
+
+
+def test_database_detection_scopes_dependencies_and_single_database_networks() -> None:
+    containers = (
+        DetectionContainer("web", ("app",), ("api",), False),
+        DetectionContainer("api", ("app", "data"), ("db",), False),
+        DetectionContainer("db", ("data",), (), True),
+        DetectionContainer("metrics-db", ("app",), (), True),
+    )
+    assert scope_database_services(containers, ("web",)) == frozenset({"db", "metrics-db"})
+    assert choose_database_network(containers[2], containers, ("web",)) == "data"
+
+
+def test_shared_network_does_not_scope_multiple_databases() -> None:
+    containers = (
+        DetectionContainer("web", ("shared",), (), False),
+        DetectionContainer("db-a", ("shared",), (), True),
+        DetectionContainer("db-b", ("shared",), (), True),
+    )
+    assert scope_database_services(containers, ("web",)) == frozenset()
+
+
+def test_detection_stores_custom_network_for_database_connection(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(UnitOfWork(create_session_factory(engine))).update(
+        project, env, EnvironmentUpdate(compose_project="octa", services=["web"])
+    )
+    containers = FakeEngine()
+    containers.add(make_record(project="octa", service="web", networks=("octa_data",)))
+    db = make_record(
+        project="octa",
+        service="db",
+        image="postgres:16",
+        env={"POSTGRES_PASSWORD": "custom-network-secret"},
+        labels={"com.docker.compose.depends_on": "db:service_healthy:false"},
+        networks=("octa_data",),
+    )
+    containers.add(db)
+    service = DatabaseDetectionService(
+        UnitOfWork(create_session_factory(engine)),
+        _SecretGateway(engine, cipher),
+        containers,
+        _InspectionStub(),
+    )
+
+    result = service.detect(project, env, Actor.system("test"))
+
+    connection = result.results[0].connection
+    assert connection is not None
+    assert connection.network == "octa_data"
+    assert connection.auto_detected is True
+
+
+def test_shared_compose_project_detection_is_scoped_per_environment(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    sessions = create_session_factory(engine)
+    environments = EnvironmentService(UnitOfWork(sessions))
+    environments.update(
+        project,
+        EnvironmentName.DEVELOPMENT,
+        EnvironmentUpdate(compose_project="shared", services=["web-a"]),
+    )
+    environments.update(
+        project,
+        EnvironmentName.PRODUCTION,
+        EnvironmentUpdate(compose_project="shared", services=["web-b"]),
+    )
+    containers = FakeEngine()
+    for app, database in (("web-a", "db-a"), ("web-b", "db-b")):
+        containers.add(
+            make_record(
+                project="shared",
+                service=app,
+                labels={"com.docker.compose.depends_on": f"{database}:service_started:false"},
+            )
+        )
+        containers.add(
+            make_record(
+                project="shared",
+                service=database,
+                image="postgres:16",
+                env={"POSTGRES_PASSWORD": f"secret-{database}"},
+            )
+        )
+    found: dict[EnvironmentName, set[str]] = {}
+    for env in (EnvironmentName.DEVELOPMENT, EnvironmentName.PRODUCTION):
+        result = DatabaseDetectionService(
+            UnitOfWork(sessions), _SecretGateway(engine, cipher), containers, _InspectionStub()
+        ).detect(project, env, Actor.system("test"))
+        found[env] = {item.service for item in result.results}
+    assert found == {
+        EnvironmentName.DEVELOPMENT: {"db-a"},
+        EnvironmentName.PRODUCTION: {"db-b"},
+    }
+
+
+def test_transitive_dependencies_are_detected_through_service(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(UnitOfWork(create_session_factory(engine))).update(
+        project, env, EnvironmentUpdate(compose_project="chain", services=["web"])
+    )
+    containers = FakeEngine()
+    containers.add(
+        make_record(
+            project="chain",
+            service="web",
+            labels={"com.docker.compose.depends_on": "api:service_started:false"},
+        )
+    )
+    containers.add(
+        make_record(
+            project="chain",
+            service="api",
+            labels={"com.docker.compose.depends_on": "db:service_healthy:false"},
+        )
+    )
+    containers.add(
+        make_record(
+            project="chain",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": "transitive-secret"},
+        )
+    )
+    result = DatabaseDetectionService(
+        UnitOfWork(create_session_factory(engine)),
+        _SecretGateway(engine, cipher),
+        containers,
+        _InspectionStub(),
+    ).detect(project, env, Actor.system("test"))
+    assert [item.service for item in result.results] == ["db"]
+
+
+def test_prune_preserves_manual_backed_up_and_stopped_in_scope_connections(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    sessions = create_session_factory(engine)
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(UnitOfWork(sessions)).update(
+        project, env, EnvironmentUpdate(compose_project="prune", services=["web"])
+    )
+    with UnitOfWork(sessions) as uow:
+        environment = uow.environments.get_by_project_slug(project, env)
+        assert environment is not None
+        for name, host, automatic in (
+            ("old", "old-db", True),
+            ("manual", "manual-db", False),
+            ("archived", "archived-db", True),
+            ("stopped", "stopped-db", True),
+        ):
+            connection = uow.database_connections.add(
+                DatabaseConnection(
+                    environment_id=environment.id,
+                    name=name,
+                    engine=DatabaseEngine.POSTGRESQL,
+                    host=host,
+                    port=5432,
+                    database="app",
+                    username="reader",
+                    password_secret=f"DBCONN_{name.upper()}_PASSWORD",
+                    auto_detected=automatic,
+                )
+            )
+            if name == "archived":
+                uow.database_backups.add(
+                    DatabaseBackup(
+                        connection_id=connection.id,
+                        environment_id=environment.id,
+                        trigger="manual",
+                        status="succeeded",
+                    )
+                )
+    containers = FakeEngine()
+    containers.add(
+        make_record(
+            project="prune",
+            service="web",
+            labels={
+                "com.docker.compose.depends_on": (
+                    "db:service_started:false,stopped-db:service_started:false"
+                )
+            },
+        )
+    )
+    containers.add(
+        make_record(
+            project="prune",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": "running-secret"},
+        )
+    )
+    containers.add(
+        make_record(
+            project="prune",
+            service="stopped-db",
+            image="postgres:16",
+            running=False,
+            env={"POSTGRES_PASSWORD": "stopped-secret"},
+        )
+    )
+    result = DatabaseDetectionService(
+        UnitOfWork(sessions), _SecretGateway(engine, cipher), containers, _InspectionStub()
+    ).detect(project, env, Actor.system("test"), prune=True)
+    assert result.removed == ("old",)
+    assert result.kept == (("archived", "has backups"),)
+    with UnitOfWork(sessions) as uow:
+        environment = uow.environments.get_by_project_slug(project, env)
+        assert environment is not None
+        names = {
+            item.name for item in uow.database_connections.list_for_environment(environment.id)
+        }
+    assert {"manual", "archived", "stopped", "db"} <= names
+    assert "old" not in names
+
+
+def test_empty_services_detects_every_database_service(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(UnitOfWork(create_session_factory(engine))).update(
+        project, env, EnvironmentUpdate(compose_project="all-databases", services=[])
+    )
+    containers = FakeEngine()
+    for service in ("db-a", "db-b"):
+        containers.add(
+            make_record(
+                project="all-databases",
+                service=service,
+                image="postgres:16",
+                env={"POSTGRES_PASSWORD": f"secret-{service}"},
+            )
+        )
+    result = DatabaseDetectionService(
+        UnitOfWork(create_session_factory(engine)),
+        _SecretGateway(engine, cipher),
+        containers,
+        _InspectionStub(),
+    ).detect(project, env, Actor.system("test"))
+    assert {item.service for item in result.results} == {"db-a", "db-b"}
 
 
 def test_concurrent_detection_keeps_one_connection_and_its_secret(

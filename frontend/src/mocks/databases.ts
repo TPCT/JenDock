@@ -32,6 +32,8 @@ function seed(): Map<string, DbConnection[]> {
     database: "shop",
     username: "reader",
     tls_mode: "disable",
+    network: null,
+    auto_detected: false,
     password_secret: "DBCONN_MAIN_PASSWORD",
     read_only: true,
     environment,
@@ -402,6 +404,8 @@ export function databaseHandlers(ctx: MockContext): HttpHandler[] {
           database: "app",
           username: "app",
           tls_mode: "disable",
+          network: null,
+          auto_detected: true,
           password_secret: "DBCONN_DB_PASSWORD",
           read_only: true,
           environment: env,
@@ -417,6 +421,11 @@ export function databaseHandlers(ctx: MockContext): HttpHandler[] {
       }
       return HttpResponse.json({
         found: 2,
+        removed: new URL(request.url).searchParams.get("prune") === "true" ? ["old-db"] : [],
+        kept:
+          new URL(request.url).searchParams.get("prune") === "true"
+            ? [{ name: "archive-db", reason: "has backups" }]
+            : [],
         results: [
           {
             service: "db",
@@ -488,6 +497,8 @@ export function databaseHandlers(ctx: MockContext): HttpHandler[] {
         database: body.database,
         username: body.username,
         tls_mode: body.tls_mode,
+        network: null,
+        auto_detected: false,
         password_secret: `DBCONN_${body.name.toUpperCase().replaceAll("-", "_")}_PASSWORD`,
         read_only: true,
         environment: env,

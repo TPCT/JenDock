@@ -41,7 +41,7 @@ class InspectorGateway(Protocol):
     def query(self, ref: ConnectionRef, statement: str, actor: Actor) -> Json:
         """Run one read-only console statement."""
 
-    def detect(self, slug: str, env: EnvironmentName, actor: Actor) -> Json:
+    def detect(self, slug: str, env: EnvironmentName, actor: Actor, *, prune: bool = False) -> Json:
         """Detect connections inside the worker; return safe metadata only."""
 
 
@@ -77,9 +77,12 @@ class WorkerInspectorClient:
         """``db.query``."""
         return self._call("db.query", actor, ref, {"statement": statement})
 
-    def detect(self, slug: str, env: EnvironmentName, actor: Actor) -> Json:
+    def detect(self, slug: str, env: EnvironmentName, actor: Actor, *, prune: bool = False) -> Json:
         result = self._client.call(
-            "db.detect", actor, {"slug": slug, "env": env.value}, timeout=DETECT_TIMEOUT
+            "db.detect",
+            actor,
+            {"slug": slug, "env": env.value, "prune": prune},
+            timeout=DETECT_TIMEOUT,
         )
         if not isinstance(result, dict):
             raise WorkerError("worker returned an unexpected response")

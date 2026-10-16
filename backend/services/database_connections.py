@@ -52,6 +52,8 @@ class NewConnection:
     password: str
     port: int | None = None
     tls_mode: TlsMode = TlsMode.DISABLE
+    network: str | None = None
+    auto_detected: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +170,8 @@ class DatabaseConnectionService:
                     username=fields.username,
                     password_secret=secret,
                     tls_mode=fields.tls_mode,
+                    network=fields.network,
+                    auto_detected=fields.auto_detected,
                     created_at=now,
                     updated_at=now,
                 )
@@ -207,6 +211,8 @@ class _Fields:
     database: str
     username: str
     tls_mode: TlsMode
+    network: str | None
+    auto_detected: bool
 
 
 def _validated_fields(new: NewConnection) -> _Fields:
@@ -217,6 +223,8 @@ def _validated_fields(new: NewConnection) -> _Fields:
         database=validate_database_name(new.database),
         username=validate_username(new.username),
         tls_mode=new.tls_mode,
+        network=new.network,
+        auto_detected=new.auto_detected,
     )
 
 

@@ -46,6 +46,15 @@ describe("connections", () => {
     );
   });
 
+  it("reports removed and protected connections after clean-up detection", async () => {
+    const user = userEvent.setup();
+    renderApp(DBS);
+    await user.click(await screen.findByRole("button", { name: "Detect and clean up" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Removed: old-db");
+    expect(status).toHaveTextContent("Kept: archive-db (has backups)");
+  });
+
   it("offers detection in the empty state and hides it without permission", async () => {
     const user = userEvent.setup();
     const emptyPage = renderApp("/projects/internal-tools/environments/development/databases");

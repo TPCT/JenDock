@@ -192,7 +192,7 @@ class DatabaseBackupHandlers:
             image = _image(settings, connection.engine)
             if not environment.compose_project:
                 raise BackupError("environment compose project is not configured")
-            network = f"{environment.compose_project}{NETWORK_SUFFIX}"
+            network = connection.network or f"{environment.compose_project}{NETWORK_SUFFIX}"
             runner.run(
                 DumpRequest(
                     engine=connection.engine,

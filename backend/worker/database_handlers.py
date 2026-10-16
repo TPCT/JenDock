@@ -77,7 +77,9 @@ class DatabaseHandlers:
         p = _parse(_DetectParams, call)
         if self._detection is None:
             raise BadRequestError("database detection unavailable")
-        return to_wire(self._detection().detect(p.slug, p.env, call.require_actor()), p.env)
+        return to_wire(
+            self._detection().detect(p.slug, p.env, call.require_actor(), prune=p.prune), p.env
+        )
 
     def test(self, call: RpcCall) -> object:
         """``db.test``: connect through the environment network and report."""
@@ -134,3 +136,4 @@ def build_database_handlers(
 class _DetectParams(_Params):
     slug: str = Field(max_length=64)
     env: EnvironmentName
+    prune: bool = False

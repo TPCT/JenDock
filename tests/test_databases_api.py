@@ -269,7 +269,7 @@ def test_detect_returns_zero_when_only_unsupported_or_stopped_containers_exist(
     fake_container_engine.add(make_record(project="demo-dev", service="cache", image="redis:7"))
     response = client.post(f"{DEV_BASE}/detect", headers=mutation_headers(client, csrf))
     assert response.status_code == 200
-    assert response.json() == {"found": 0, "results": []}
+    assert response.json() == {"found": 0, "results": [], "removed": [], "kept": []}
 
 
 def test_detection_authorization_for_members_is_environment_scoped(
@@ -569,6 +569,24 @@ def test_test_endpoint_reports_the_server_and_records_the_result(
     assert network == "demo-dev_default"
     assert request.connection.password == PASSWORD
     assert (request.connection.host, request.connection.port) == ("db", 5432)
+
+
+def test_test_endpoint_uses_a_saved_custom_network(
+    wired: AppContainer,
+    helper: FakeHelper,
+    session_client: tuple[TestClient, str],
+) -> None:
+    client, csrf = session_client
+    _create(client, csrf)
+    with wired.uow() as uow:
+        environment = uow.environments.get_by_project_slug("demo", DEV)
+        assert environment is not None
+        connection = uow.database_connections.get(environment.id, "main")
+        assert connection is not None
+        connection.network = "octa_data"
+    response = client.post(f"{DEV_BASE}/main/test", headers=mutation_headers(client, csrf))
+    assert response.status_code == 200
+    assert helper.requests[0][0] == "octa_data"
 
 
 def test_failed_test_is_a_200_with_ok_false(
