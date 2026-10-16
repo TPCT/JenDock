@@ -38,6 +38,7 @@ class EnvironmentUpdate:
     compose_files: list[str] | None = None
     compose_env_files: list[str] | None = None
     services: list[str] | None = None
+    include_in_backups: bool | None = None
 
 
 class EnvironmentService:
@@ -71,10 +72,11 @@ class EnvironmentService:
                 raise ValidationError("auto-stop can only be set on development")
             self._reject_shared_branch(environment, validated)
             before = (environment.branch, environment.auto_deploy, environment.auto_stop_hours)
+            previous_backup = environment.include_in_backups
             _apply_update(environment, validated)
             environment.updated_at = self._clock()
             if actor is not None:
-                self._audit_update(environment, slug, before, actor)
+                self._audit_update(environment, slug, before, previous_backup, actor)
             return environment
 
     def _reject_shared_branch(self, environment: Environment, change: EnvironmentUpdate) -> None:
@@ -91,6 +93,7 @@ class EnvironmentService:
         environment: Environment,
         slug: str,
         before: tuple[str, bool, int | None],
+        previous_backup: bool,
         actor: Actor,
     ) -> None:
         details: dict[str, object] = {
@@ -99,6 +102,7 @@ class EnvironmentService:
             "branch": {"from": before[0], "to": environment.branch},
             "auto_deploy": {"from": before[1], "to": environment.auto_deploy},
             "auto_stop_hours": {"from": before[2], "to": environment.auto_stop_hours},
+            "include_in_backups": {"from": previous_backup, "to": environment.include_in_backups},
             "compose": {
                 "project": environment.compose_project,
                 "files": list(environment.compose_files),
@@ -127,6 +131,7 @@ def _validate_update(change: EnvironmentUpdate) -> EnvironmentUpdate:
         if change.compose_env_files is not None
         else None,
         services=validate_service_names(change.services) if change.services is not None else None,
+        include_in_backups=change.include_in_backups,
     )
 
 
@@ -137,6 +142,8 @@ def _apply_update(environment: Environment, change: EnvironmentUpdate) -> None:
         environment.auto_deploy = change.auto_deploy
     if change.set_auto_stop_hours:
         environment.auto_stop_hours = change.auto_stop_hours
+    if change.include_in_backups is not None:
+        environment.include_in_backups = change.include_in_backups
     if change.clear_compose_project:
         environment.compose_project = None
     elif change.compose_project is not None:

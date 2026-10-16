@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 LineSink = Callable[[str], None]
+BinarySink = Callable[[bytes], None]
 DEFAULT_CPU_SHARES = 512
 
 
@@ -114,6 +115,11 @@ class ContainerRuntime(Protocol):
         cancel: CancelSignal | None = None,
     ) -> ExecResult:
         """Run a container to completion, streaming combined stdout and stderr."""
+
+    def run_container_binary(
+        self, spec: RunSpec, sink: BinarySink, *, timeout: float | None = None
+    ) -> ExecResult:
+        """Run a container and stream stdout as bytes while discarding stderr."""
 
     def kill_by_label(self, label: str) -> int:
         """Kill running containers carrying ``label`` (``key=value``); return how many."""

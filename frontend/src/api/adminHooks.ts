@@ -105,6 +105,7 @@ export function useUpdateEnvironment(slug: string, env: EnvironmentName) {
       branch?: string;
       auto_deploy?: boolean;
       auto_stop_hours?: number | null;
+      include_in_backups?: boolean;
     }) => api.patch<EnvironmentSummary>(envPath(slug, env), body),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: keys.projects });

@@ -105,6 +105,8 @@ TOOL_ACCESS: dict[str, ToolAccess] = {
     "get_database_table": ToolAccess(A.DATABASE_READ),
     "read_table_rows": ToolAccess(A.DATABASE_DATA),
     "run_readonly_query": ToolAccess(A.DATABASE_DATA),
+    "list_backups": ToolAccess(A.BACKUP_READ),
+    "run_backup": ToolAccess(A.BACKUP_RUN),
 }
 
 

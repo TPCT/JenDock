@@ -231,6 +231,7 @@ class Environment(Base):
     name: Mapped[EnvironmentName] = mapped_column(_enum(EnvironmentName))
     branch: Mapped[str] = mapped_column(String(200))
     auto_deploy: Mapped[bool] = mapped_column(default=False)
+    include_in_backups: Mapped[bool] = mapped_column(default=False)
     compose_project: Mapped[str | None] = mapped_column(String(63), default=None)
     compose_files: Mapped[list[str]] = mapped_column(JSON, default=list)
     # Interpolation env files for every compose invocation (absolute host paths).
@@ -413,6 +414,29 @@ class DatabaseConnection(Base):
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     last_tested_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     last_test_ok: Mapped[bool | None] = mapped_column(default=None)
+
+
+class DatabaseBackup(Base):
+    """One scheduled or manually requested database backup."""
+
+    __tablename__ = "database_backups"
+    __table_args__ = (
+        Index("ix_database_backups_connection_id_started_at", "connection_id", "started_at"),
+        Index("ix_database_backups_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    connection_id: Mapped[int] = mapped_column(
+        ForeignKey("database_connections.id", ondelete="RESTRICT")
+    )
+    environment_id: Mapped[int] = mapped_column(ForeignKey("environments.id", ondelete="RESTRICT"))
+    trigger: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    started_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    object_key: Mapped[str | None] = mapped_column(String(1024), default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
 
 
 class Domain(Base):

@@ -210,6 +210,8 @@ const TOOLS: McpTool[] = [
   ["read", "get_run", "Get a run: status, stages and steps.", true],
   ["read", "read_step_log", "Read a step's log from a byte offset.", true],
   ["read", "list_secret_names", "List the names of an environment's secrets (never values).", true],
+  ["read", "list_backups", "List database backup history for an environment.", true],
+  ["admin", "run_backup", "Queue a manual database backup.", false],
   ["run", "trigger_run", "Manual run, step 2 of 2: queue a run of the previewed commit.", false],
   ["run", "retry_run", "Queue a new run with the same commit as a finished run.", false],
   ["run", "cancel_run", "Cancel a queued run or request cancellation of a running one.", false],

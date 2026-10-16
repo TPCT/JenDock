@@ -47,6 +47,7 @@ from backend.services.audit_log import AuditLogService
 from backend.services.auth import AuthService
 from backend.services.certificates import RenewalPolicy
 from backend.services.dashboard import DashboardService
+from backend.services.database_backups import DatabaseBackupService
 from backend.services.database_connections import DatabaseConnectionService
 from backend.services.deployments import DeploymentService
 from backend.services.discovery_queries import DiscoveryQueryService
@@ -242,6 +243,10 @@ class AppContainer:
     def database_connections(self) -> DatabaseConnectionService:
         """Return the connection configuration service (passwords go through the worker)."""
         return DatabaseConnectionService(self.uow(), self.secrets, self.clock)
+
+    def database_backups(self) -> DatabaseBackupService:
+        """Backup settings and record queries (S3 credentials stay in the worker)."""
+        return DatabaseBackupService(self.uow(), self.clock)
 
     def inspector_gateway(self) -> InspectorGateway:
         """Return the worker gateway for database inspection."""

@@ -13,6 +13,7 @@ import { byText, byTime, listResponse, type MockList } from "./paging";
 import { discoveryHandlers } from "./discovery";
 import { integrationHandlers } from "./integrations";
 import { environmentPowerHandlers } from "./environmentPower";
+import { backupHandlers } from "./backups";
 import { CATALOG, getStored, parseText, renderModel, saveStored, validateText } from "./pipelines";
 import {
   MOCK_LOCKED_USERNAME,
@@ -113,6 +114,7 @@ export const handlers: HttpHandler[] = [
   ...notificationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...integrationHandlers({ authenticated: () => authenticated, error, unauthenticated }),
   ...environmentPowerHandlers(() => authenticated, error),
+  ...backupHandlers({ authenticated: () => authenticated, error, unauthenticated }),
 
   http.get("/api/auth/session", () =>
     authenticated ? HttpResponse.json(session()) : unauthenticated(),

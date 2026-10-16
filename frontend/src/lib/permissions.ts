@@ -30,6 +30,8 @@ export type Action =
   | "database.data"
   | "database.configure"
   | "database.detect"
+  | "backup.read"
+  | "backup.run"
   | "domain.read"
   | "domain.manage"
   | "domain.discover"

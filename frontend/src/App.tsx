@@ -48,6 +48,7 @@ import { ProjectOverviewPage } from "./pages/ProjectOverview";
 import { ProjectsPage } from "./pages/Projects";
 import { RunDetailPage } from "./pages/RunDetail";
 import { AllRunsPage, EnvironmentRunsPage } from "./pages/Runs";
+import { BackupsPage } from "./pages/Backups";
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -214,6 +215,7 @@ export const appRoutes: RouteObject[] = [
             ],
           },
           { path: "/runs", element: <AllRunsPage /> },
+          { path: "/backups", element: <BackupsPage /> },
           { path: "/runs/:id", element: <RunDetailPage /> },
           {
             path: "/settings",

@@ -13,6 +13,7 @@ from backend.api.paging import Paging
 from backend.api.principal import Principal
 from backend.api.run_filters import RunFilters
 from backend.api.schemas.projects import (
+    BackupEnvironmentRequest,
     BranchHeadResponse,
     CreateProjectRequest,
     EnvironmentResponse,
@@ -36,6 +37,7 @@ Editor = Annotated[Principal, Depends(require(Action.PROJECT_UPDATE, Target.PROJ
 EnvEditor = Annotated[Principal, Depends(require(Action.ENVIRONMENT_UPDATE))]
 RunReader = Annotated[Principal, Depends(require(Action.RUN_READ))]
 Runner = Annotated[Principal, Depends(require(Action.RUN_CREATE))]
+BackupRunner = Annotated[Principal, Depends(require(Action.BACKUP_RUN))]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,8 +116,28 @@ def update_environment(
         compose_files=body.compose_files,
         compose_env_files=body.compose_env_files,
         services=body.services,
+        include_in_backups=body.include_in_backups,
     )
     container.environment_service().update(path.slug, path.env, change, principal.actor)
+    return EnvironmentResponse.from_view(
+        container.project_queries().environment(path.slug, path.env)
+    )
+
+
+@router.patch("/{slug}/environments/{env}/backups")
+def update_environment_backup_setting(
+    path: Annotated[EnvPath, Depends()],
+    body: BackupEnvironmentRequest,
+    principal: BackupRunner,
+    container: Container,
+) -> EnvironmentResponse:
+    """Allow project maintainers to include a non-production environment in backups."""
+    container.environment_service().update(
+        path.slug,
+        path.env,
+        EnvironmentUpdate(include_in_backups=body.include_in_backups),
+        principal.actor,
+    )
     return EnvironmentResponse.from_view(
         container.project_queries().environment(path.slug, path.env)
     )

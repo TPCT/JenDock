@@ -17,6 +17,7 @@ from backend.api.routers import (
     access,
     audit,
     auth,
+    backups,
     containers,
     dashboard,
     databases,
@@ -83,6 +84,7 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(access.router)
     app.include_router(secrets.router)
     app.include_router(databases.router)
+    app.include_router(backups.router)
     app.include_router(discovery.router)  # before domains: "zones" is not a domain id
     app.include_router(domains.router)
     app.include_router(runs.router)

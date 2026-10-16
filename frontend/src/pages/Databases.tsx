@@ -27,6 +27,9 @@ import { RelativeTime } from "../components/Time";
 import { useCan } from "../lib/permissions";
 import { capitalize } from "../lib/format";
 import box from "../styles/box.module.css";
+import { DatabaseBackupActions, EnvironmentBackupHistory } from "./DatabaseBackupActions";
+import { useProject } from "../api/hooks";
+import { useSetBackupEnvironment } from "../api/backupHooks";
 
 export function databasesPath(slug: string, env: string): string {
   return `/projects/${encodeURIComponent(slug)}/environments/${env}/databases`;
@@ -293,8 +296,12 @@ export function DatabasesPage() {
   const { slug = "", env: rawEnv } = useParams();
   const env = ENVIRONMENTS.find((name) => name === rawEnv) ?? null;
   const connections = useConnections(slug, env ?? "development");
+  const project = useProject(slug);
   const can = useCan();
   const scope = { project: slug, env: env ?? "development" };
+  const include =
+    project.data?.environments.find((item) => item.name === env)?.include_in_backups ?? false;
+  const setBackupEnvironment = useSetBackupEnvironment(slug, env ?? "development");
   const test = useTestConnection(slug, env ?? "development");
   const detect = useDetectDatabases(slug, env ?? "development");
   const { mutate: detectDatabases } = detect;
@@ -351,11 +358,25 @@ export function DatabasesPage() {
           </div>
         }
       />
+      {env !== "production" && can("backup.run", scope) ? (
+        <label className={box.cluster}>
+          <input
+            type="checkbox"
+            checked={include}
+            disabled={setBackupEnvironment.isPending}
+            onChange={(event) => {
+              setBackupEnvironment.mutate(event.target.checked);
+            }}
+          />
+          Include this development environment in daily backups
+        </label>
+      ) : null}
       {env === "production" ? (
         <Callout variant="warning" title="Production data">
-          Browsing rows and running queries here needs admin access or a maintainer role on
-          production, and every access is recorded in the audit log (the table and page, or the
-          statement text; never the data itself). {READ_ONLY_ADVICE}
+          Production databases are always included in daily backups. Browsing rows and running
+          queries here needs admin access or a maintainer role on production, and every access is
+          recorded in the audit log (the table and page, or the statement text; never the data
+          itself). {READ_ONLY_ADVICE}
         </Callout>
       ) : null}
       {can("database.detect", scope) || can("database.configure", scope) ? (
@@ -537,10 +558,13 @@ export function DatabasesPage() {
                 )}
               </p>
               {item.notice && env !== "production" ? <p className="muted">{item.notice}</p> : null}
+              <DatabaseBackupActions slug={slug} env={env} connection={item.name} />
             </li>
           ))}
         </ul>
       ) : null}
+
+      <EnvironmentBackupHistory slug={slug} env={env} />
 
       {dialog ? (
         <ConnectionDialog
