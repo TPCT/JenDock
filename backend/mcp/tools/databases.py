@@ -11,6 +11,8 @@ credentials never pass through MCP. Manual connection changes remain operator-on
 
 from __future__ import annotations
 
+from backend.adapters.worker_client import WorkerClient
+from backend.api.schemas.database_backups import BackupResponse
 from backend.api.schemas.databases import (
     ConnectionResponse,
     DetectResponse,
@@ -113,6 +115,30 @@ def detect_databases(ctx: ToolContext, args: Args) -> object:
     return parse_worker(DetectResponse, result).model_dump(mode="json")
 
 
+def list_backups(ctx: ToolContext, args: Args) -> object:
+    """List backup runs for one environment."""
+    env = args.environment()
+    rows = ctx.container.database_backups().list(args.text("slug"), env.value)
+    return [BackupResponse.from_view(row).model_dump(mode="json") for row in rows]
+
+
+def run_backup(ctx: ToolContext, args: Args) -> object:
+    """Queue a manual backup for one configured connection."""
+    env = args.environment()
+    slug, connection_name = args.text("slug"), args.text("connection")
+    connection = ctx.container.database_connections().get(slug, env, connection_name)
+    environment = ctx.container.environment_service().get(slug, env)
+    service = ctx.container.database_backups()
+
+    def start(backup_id: int) -> object:
+        return WorkerClient(ctx.container.settings.worker_socket_path).call(
+            "database_backups.run", ctx.actor, {"backup_id": backup_id}, timeout=5
+        )
+
+    row = service.start_manual(connection.id, environment.id, ctx.actor, connection_name, start)
+    return BackupResponse.from_model(row, slug, env.value, connection_name).model_dump(mode="json")
+
+
 TOOLS = (
     Tool(
         "detect_databases",
@@ -120,6 +146,21 @@ TOOLS = (
         TokenScope.ADMIN,
         schema.obj(_ENV, _REQUIRED_ENV),
         detect_databases,
+    ),
+    Tool(
+        "list_backups",
+        "List database backup history for an environment.",
+        TokenScope.READ,
+        schema.obj(_ENV, _REQUIRED_ENV),
+        list_backups,
+    ),
+    Tool(
+        "run_backup",
+        "Queue a manual database backup for an environment connection.",
+        TokenScope.ADMIN,
+        schema.obj(_CONNECTION, _REQUIRED_CONNECTION),
+        run_backup,
+        read_only=False,
     ),
     Tool(
         "list_database_connections",

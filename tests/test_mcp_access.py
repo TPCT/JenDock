@@ -7,13 +7,18 @@ from typing import Any
 
 import pytest
 
+from backend.adapters.worker_client import WorkerClient
 from backend.api.principal import Principal
 from backend.domain.access import RULES, Action
-from backend.domain.enums import TokenScope
+from backend.domain.actor import Actor
+from backend.domain.database import DatabaseEngine, password_secret_name
+from backend.domain.enums import EnvironmentName, TokenScope
 from backend.mcp.access import TOOL_ACCESS
 from backend.mcp.dispatcher import ToolDispatcher
 from backend.mcp.tools import default_registry
+from backend.repositories.models import DatabaseConnection
 from backend.services.audit import AuditService
+from backend.services.database_backups import DatabaseBackupService
 from tests.access_support import SYSTEM, WEB, WORKER
 from tests.access_world import World
 from tests.github_support import SHA_A
@@ -221,6 +226,84 @@ def test_denials_are_audited_with_the_token(world: World) -> None:
     event = AuditService(world.container.uow()).list(action="mcp.tool_call")[0]
     assert event.details["outcome"] == "denied" and event.details["tool"] == "trigger_run"
     assert principal.token is not None and event.actor_id == str(principal.token.id)
+
+
+def test_backup_tools_use_backup_read_and_run_actions(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with world.container.uow() as uow:
+        environment = uow.environments.get_by_project_slug("demo", EnvironmentName.DEVELOPMENT)
+        assert environment is not None
+        connection = uow.database_connections.add(
+            DatabaseConnection(
+                environment_id=environment.id,
+                name="main",
+                engine=DatabaseEngine.POSTGRESQL,
+                host="db",
+                port=5432,
+                database="app",
+                username="fixture_reader",
+                password_secret=password_secret_name("main"),
+            )
+        )
+        connection_id, environment_id = connection.id, environment.id
+    backup_service = DatabaseBackupService(world.container.uow(), world.container.clock)
+    record = backup_service.create(connection_id, environment_id, "manual")
+    backup_service.finish(
+        record.id, "succeeded", size_bytes=10, object_key="backups/demo/dev/main.dump"
+    )
+
+    viewer = _principal(world, "viewer")
+    listed = _call(
+        world,
+        viewer,
+        "list_backups",
+        {"slug": "demo", "environment": "development"},
+    )
+    assert len(listed["items"]) == 1 and listed["items"][0]["connection"] == "main"
+    assert (
+        _code(
+            _call(
+                world,
+                _principal(world, "nobody"),
+                "list_backups",
+                {"slug": "demo", "environment": "development"},
+            )
+        )
+        == "not_found"
+    )
+
+    for username in ("viewer", "developer"):
+        denied = _call(
+            world,
+            _principal(world, username),
+            "run_backup",
+            {"slug": "demo", "environment": "development", "connection": "main"},
+        )
+        assert _code(denied) == "forbidden"
+
+    calls: list[str] = []
+
+    def fake_call(
+        _self: WorkerClient,
+        method: str,
+        _actor: Actor | None,
+        _params: Mapping[str, object],
+        *,
+        timeout: float | None = None,
+    ) -> object:
+        calls.append(method)
+        return {"started": True}
+
+    monkeypatch.setattr(WorkerClient, "call", fake_call)
+    ran = _call(
+        world,
+        _principal(world, "maintainer"),
+        "run_backup",
+        {"slug": "demo", "environment": "development", "connection": "main"},
+    )
+    assert not ran["_error"] and ran["status"] == "running"
+    assert calls == ["database_backups.run"]
 
 
 def test_a_disabled_owner_voids_the_token(world: World) -> None:

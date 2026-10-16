@@ -43,6 +43,7 @@ const VIEWER = [
   "deployment.read",
   "container.read",
   "database.read",
+  "backup.read",
   "domain.read",
   "secret.list",
 ];
@@ -50,6 +51,7 @@ const DEVELOPER = ["run.create", "run.cancel", "run.retry", "pipeline.write", "d
 DEVELOPER.push("environment.start", "environment.stop");
 VIEWER.push("environment.power_read");
 const MAINTAINER = [
+  "backup.run",
   "database.detect",
   "deployment.redeploy",
   "container.logs",

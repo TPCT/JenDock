@@ -15,8 +15,10 @@ import threading
 import uuid
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import IO
 
 from backend.adapters.container_runtime import (
+    BinarySink,
     BuildSpec,
     CancelSignal,
     ExecResult,
@@ -24,7 +26,7 @@ from backend.adapters.container_runtime import (
     RunSpec,
 )
 from backend.adapters.docker_args import build_argv, env_file_text, run_argv
-from backend.adapters.docker_process import stream_process
+from backend.adapters.docker_process import Watchdog, stream_process
 from backend.adapters.errors import ContainerRuntimeError
 
 logger = logging.getLogger(__name__)
@@ -181,6 +183,60 @@ class DockerCliRuntime:
                 watcher=watcher,
             )
         finally:
+            if env_file is not None:
+                env_file.release()
+
+    def run_container_binary(
+        self, spec: RunSpec, sink: BinarySink, *, timeout: float | None = None
+    ) -> ExecResult:
+        """Stream only container stdout bytes; never retain the dump in process memory."""
+        env_file = _EnvFile(self._private_dir, env_file_text(spec.env)) if spec.env else None
+        watcher: _CreationWatcher | None = None
+        process: subprocess.Popen[bytes] | None = None
+        watchdog: Watchdog | None = None
+        try:
+            argv = run_argv(
+                self._binary, spec, self._labels, str(env_file.path) if env_file else None
+            )
+            watcher = _CreationWatcher(self, spec.name, env_file)
+            process = subprocess.Popen(  # noqa: S603 - explicit argv, never a shell
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=self._env,
+                start_new_session=True,
+            )
+            watcher.start()
+            watchdog = Watchdog(process, timeout, None, lambda: self._kill_named(spec.name))
+            watchdog.start()
+            stream: IO[bytes] | None = process.stdout
+            if stream is None:
+                raise ContainerRuntimeError("docker did not provide a stdout stream")
+            while chunk := stream.read(64 * 1024):
+                watcher.release()
+                sink(chunk)
+            process.wait()
+            return ExecResult(process.returncode, watchdog.timed_out, watchdog.cancelled)
+        except BaseException as error:
+            if process is not None:
+                with contextlib.suppress(Exception):
+                    process.kill()
+                with contextlib.suppress(Exception):
+                    process.wait(timeout=5)
+            with contextlib.suppress(Exception):
+                self._kill_named(spec.name)
+            if isinstance(error, OSError):
+                raise ContainerRuntimeError("docker is not usable") from error
+            raise
+        finally:
+            if watchdog is not None:
+                watchdog.stop()
+                watchdog.join(6)
+            if process is not None and process.stdout is not None:
+                process.stdout.close()
+            if watcher is not None:
+                watcher.stop()
             if env_file is not None:
                 env_file.release()
 

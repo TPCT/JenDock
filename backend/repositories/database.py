@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from backend.repositories.audit import AuditRepository
+from backend.repositories.database_backups import DatabaseBackupRepository
 from backend.repositories.database_connections import DatabaseConnectionRepository
 from backend.repositories.deliveries import WebhookDeliveryRepository
 from backend.repositories.deployments import DeploymentRepository
@@ -169,6 +170,11 @@ class UnitOfWork:
     def database_connections(self) -> DatabaseConnectionRepository:
         """Database connection repository bound to the active session."""
         return DatabaseConnectionRepository(self.session)
+
+    @property
+    def database_backups(self) -> DatabaseBackupRepository:
+        """Database backup records and eligible connection queries."""
+        return DatabaseBackupRepository(self.session)
 
     @property
     def audit(self) -> AuditRepository:

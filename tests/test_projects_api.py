@@ -344,6 +344,7 @@ def test_patch_environment_branch_and_auto_deploy(
         "branch": "develop",
         "auto_deploy": True,
         "auto_stop_hours": None,
+        "include_in_backups": False,
         "compose_project": None,
         "compose_files": [],
         "compose_env_files": [],

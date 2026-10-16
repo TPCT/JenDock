@@ -133,6 +133,7 @@ class DatabaseConnectionService:
             connection = _require(self._uow, environment, name)
             secret = connection.password_secret
             self._audit(actor, "database.connection.delete", connection, {"name": connection.name})
+            self._uow.database_backups.delete_for_connection(connection.id)
             self._uow.database_connections.delete(connection)
         self._discard_secret(slug, env, secret, actor)
 

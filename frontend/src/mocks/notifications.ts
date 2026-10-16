@@ -25,6 +25,12 @@ const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
 const ahead = (ms: number): string => new Date(Date.now() + ms).toISOString();
 
 const EVENTS: EventInfo[] = [
+  {
+    event: "backup.failed",
+    label: "Database backup failed",
+    severity: "critical",
+    project_scoped: true,
+  },
   { event: "run.failed", label: "Run failed", severity: "critical", project_scoped: true },
   {
     event: "run.fixed",

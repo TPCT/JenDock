@@ -23,11 +23,13 @@ from backend.repositories.database import (
     create_session_factory,
 )
 from backend.services.auto_stop import AutoStopScheduler
+from backend.services.database_backups import DatabaseBackupService
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
 from backend.services.totp import TotpVault
 from backend.worker.container_handlers import build_container_handlers
-from backend.worker.container_wiring import build_container_parts
+from backend.worker.container_wiring import ContainerWorkerParts, build_container_parts
+from backend.worker.database_backup_wiring import build_database_backups
 from backend.worker.database_wiring import build_inspection_handlers
 from backend.worker.discovery_wiring import build_discovery
 from backend.worker.git_wiring import build_branch_files, build_heads
@@ -170,6 +172,43 @@ def _start_backups(settings: Settings, shutdown: ShutdownHandler) -> threading.T
     return thread
 
 
+def _start_database_backups(handlers: object, shutdown: ShutdownHandler) -> threading.Thread:
+    thread = threading.Thread(
+        target=handlers.schedule_forever,  # type: ignore[attr-defined]
+        args=(shutdown,),
+        name="database-backup-schedule",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _start_optional_schedulers(
+    settings: Settings,
+    containers: ContainerWorkerParts,
+    session_factory: SessionFactory,
+    database_backup_scheduler: object,
+    shutdown: ShutdownHandler,
+) -> tuple[threading.Thread | None, threading.Thread | None, threading.Thread]:
+    backups = _start_backups(settings, shutdown)
+    auto_stop = None
+    services = containers.services
+    if services.power is not None:
+        auto_stop = threading.Thread(
+            target=AutoStopScheduler(
+                session_factory,
+                services.power,
+                settings.auto_stop_interval,
+            ).run_forever,
+            args=(shutdown,),
+            name="environment-auto-stop",
+            daemon=True,
+        )
+        auto_stop.start()
+    database_backups = _start_database_backups(database_backup_scheduler, shutdown)
+    return backups, auto_stop, database_backups
+
+
 def main() -> None:
     """Configure logging, recover interrupted runs, serve RPC and run the queue until SIGTERM."""
     apply_shared_umask()
@@ -181,6 +220,13 @@ def main() -> None:
     containers = build_container_parts(settings, session_factory, locks)
     notifications = build_notification_parts(
         settings, session_factory, SecretCipher(settings.secret_key_file), redactor
+    )
+    database_backup_handlers, database_backup_scheduler = build_database_backups(
+        settings,
+        session_factory,
+        SecretCipher(settings.secret_key_file),
+        redactor,
+        notifications.sink,
     )
     ingress = build_ingress(settings, session_factory, redactor, notifications)
     discovery = build_discovery(
@@ -194,6 +240,7 @@ def main() -> None:
     extra = {
         **build_container_handlers(containers.services),
         **discovery,
+        **database_backup_handlers,
         **(
             build_ingress_handlers(ingress.ingress_service, ingress.check_service)
             if ingress
@@ -209,19 +256,11 @@ def main() -> None:
     containers.terminal_server.start()
     containers.collector.start()
     recover_interrupted_runs(scheduler.env)
+    DatabaseBackupService(UnitOfWork(session_factory)).fail_interrupted()
     renewal = _start_renewal(ingress, shutdown)
-    backups = _start_backups(settings, shutdown)
-    auto_stop = None
-    if containers.services.power is not None:
-        auto_stop = threading.Thread(
-            target=AutoStopScheduler(
-                session_factory, containers.services.power, settings.auto_stop_interval
-            ).run_forever,
-            args=(shutdown,),
-            name="environment-auto-stop",
-            daemon=True,
-        )
-        auto_stop.start()
+    backups, auto_stop, database_backups = _start_optional_schedulers(
+        settings, containers, session_factory, database_backup_scheduler, shutdown
+    )
     notifiers = notifications.start(shutdown)
     logger.info("worker started")
     try:
@@ -236,6 +275,7 @@ def main() -> None:
             backups.join(timeout=5)
         if auto_stop is not None:
             auto_stop.join(timeout=5)
+        database_backups.join(timeout=5)
         if renewal is not None:
             renewal.join(timeout=5)
         server.stop()

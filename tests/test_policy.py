@@ -80,6 +80,8 @@ ROLE_ACTIONS: dict[Action, tuple[AccessRole, AccessRole]] = {
     Action.ENVIRONMENT_STOP: (D, M),
     Action.DATABASE_DATA: (D, M),
     Action.DATABASE_DETECT: (M, M),
+    Action.BACKUP_READ: (V, V),
+    Action.BACKUP_RUN: (M, M),
     Action.DEPLOYMENT_REDEPLOY: (M, M),
     Action.CONTAINER_LOGS: (M, M),
     Action.CONTAINER_TERMINAL: (M, M),
@@ -161,6 +163,16 @@ def test_database_detection_requires_a_maintainer_grant_on_the_target_environmen
     assert not allowed(member(grant(DEV, M)), Action.DATABASE_DETECT, prod)
     assert not allowed(member(grant(DEV, D)), Action.DATABASE_DETECT, dev)
     assert allowed(Who(GlobalRole.ADMIN), Action.DATABASE_DETECT, dev)
+
+
+def test_backup_read_and_run_follow_environment_grants() -> None:
+    dev = Resource.of_environment("demo", DEV)
+    prod = Resource.of_environment("demo", PROD)
+    assert allowed(member(grant(DEV, V)), Action.BACKUP_READ, dev)
+    assert not allowed(member(grant(DEV, V)), Action.BACKUP_READ, prod)
+    assert not allowed(member(grant(DEV, D)), Action.BACKUP_RUN, dev)
+    assert allowed(member(grant(PROD, M)), Action.BACKUP_RUN, prod)
+    assert allowed(Who(GlobalRole.ADMIN), Action.BACKUP_RUN, dev)
 
 
 @pytest.mark.parametrize("role", [GlobalRole.OWNER, GlobalRole.ADMIN])

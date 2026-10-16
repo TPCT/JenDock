@@ -195,9 +195,8 @@ describe("connections", () => {
     const user = userEvent.setup();
     renderApp(DBS);
     await user.click(await screen.findByRole("button", { name: "Test connection main" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "outside the environment's private network",
-    );
+    const connectionFailure = await screen.findByText(/outside the environment's private network/);
+    expect(connectionFailure.closest('[role="alert"]')).toContainElement(connectionFailure);
   });
 
   it("deletes after confirmation", async () => {

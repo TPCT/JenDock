@@ -45,6 +45,7 @@ class NotificationEvent(StrEnum):
     CERTIFICATE_RENEWAL_FAILED = "certificate.renewal_failed"
     WEBHOOK_SIGNATURE_SPIKE = "webhook.signature_spike"
     DISK_USAGE_HIGH = "disk.usage_high"
+    BACKUP_FAILED = "backup.failed"
 
 
 class Severity(StrEnum):
@@ -88,6 +89,7 @@ CATALOGUE: tuple[EventInfo, ...] = (
         0,
     ),
     EventInfo(_E.DISK_USAGE_HIGH, "Disk usage above the threshold", Severity.WARNING, False, 360),
+    EventInfo(_E.BACKUP_FAILED, "Database backup failed", Severity.CRITICAL, True, 0),
 )
 _BY_EVENT = {info.event: info for info in CATALOGUE}
 

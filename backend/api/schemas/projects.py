@@ -21,6 +21,7 @@ class EnvironmentResponse(BaseModel):
     branch: str
     auto_deploy: bool
     auto_stop_hours: int | None = None
+    include_in_backups: bool = False
     compose_project: str | None
     compose_files: list[str]
     compose_env_files: list[str]
@@ -38,6 +39,7 @@ class EnvironmentResponse(BaseModel):
             branch=environment.branch,
             auto_deploy=environment.auto_deploy,
             auto_stop_hours=environment.auto_stop_hours,
+            include_in_backups=environment.include_in_backups,
             compose_project=environment.compose_project,
             compose_files=list(environment.compose_files),
             compose_env_files=list(environment.compose_env_files),
@@ -117,6 +119,7 @@ class UpdateEnvironmentRequest(BaseModel):
     branch: str | None = Field(default=None, min_length=1, max_length=200)
     auto_deploy: bool | None = None
     auto_stop_hours: int | None = Field(default=None, ge=1, le=168)
+    include_in_backups: bool | None = None
     # The Docker Compose project the platform deploys to and manages. ``null`` clears the name;
     # the file lists replace the stored ones; every path is absolute (docs/execution.md).
     compose_project: str | None = Field(default=None, max_length=63)
@@ -128,7 +131,14 @@ class UpdateEnvironmentRequest(BaseModel):
     def _require_a_change(self) -> UpdateEnvironmentRequest:
         if not self.model_fields_set:
             raise ValueError("at least one field is required")
-        for name in ("branch", "auto_deploy", "compose_files", "compose_env_files", "services"):
+        for name in (
+            "branch",
+            "auto_deploy",
+            "include_in_backups",
+            "compose_files",
+            "compose_env_files",
+            "services",
+        ):
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name} cannot be null")
         return self
@@ -137,6 +147,12 @@ class UpdateEnvironmentRequest(BaseModel):
     def clears_compose_project(self) -> bool:
         """Whether the request names ``compose_project`` explicitly as null."""
         return "compose_project" in self.model_fields_set and self.compose_project is None
+
+
+class BackupEnvironmentRequest(BaseModel):
+    """Whether a non-production environment is included in scheduled backups."""
+
+    include_in_backups: bool
 
 
 class BranchHeadResponse(BaseModel):

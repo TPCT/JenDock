@@ -26,8 +26,8 @@ interface ProjectSeed {
   slug: string;
   name: string;
   repository: string;
-  development: { branch: string; autoDeploy: boolean };
-  production: { branch: string; autoDeploy: boolean };
+  development: { branch: string; autoDeploy: boolean; includeInBackups?: boolean };
+  production: { branch: string; autoDeploy: boolean; includeInBackups?: boolean };
   /** Environments with compose settings and a stored pipeline (default: both). */
   configured?: { development: boolean; production: boolean };
   gitTransport?: "ssh" | "https";
@@ -340,6 +340,7 @@ export function projects(): Project[] {
       branch: seed[name].branch,
       auto_deploy: seed[name].autoDeploy,
       auto_stop_hours: name === "development" ? (seed.autoStopHours ?? null) : null,
+      include_in_backups: seed[name].includeInBackups ?? false,
       compose_project: seed.configured?.[name] === false ? null : `${seed.slug}-${name}`,
       compose_files:
         seed.configured?.[name] === false ? [] : [`/opt/projects/${seed.slug}/${name}/compose.yml`],
@@ -582,7 +583,12 @@ export function patchProject(
 export function patchEnvironment(
   slug: string,
   env: EnvironmentName,
-  body: { branch?: string; auto_deploy?: boolean; auto_stop_hours?: number | null },
+  body: {
+    branch?: string;
+    auto_deploy?: boolean;
+    auto_stop_hours?: number | null;
+    include_in_backups?: boolean;
+  },
 ): { error: string } | { value: Project["environments"][number] } | null {
   const seed = SEEDS.find((item) => item.slug === slug);
   if (!seed) return null;
@@ -594,6 +600,7 @@ export function patchEnvironment(
   if (body.auto_deploy !== undefined) seed[env].autoDeploy = body.auto_deploy;
   if (body.auto_stop_hours !== undefined || Object.hasOwn(body, "auto_stop_hours"))
     seed.autoStopHours = body.auto_stop_hours;
+  if (body.include_in_backups !== undefined) seed[env].includeInBackups = body.include_in_backups;
   const value = projects()
     .find((item) => item.slug === slug)
     ?.environments.find((item) => item.name === env);

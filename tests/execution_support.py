@@ -45,6 +45,7 @@ class Behavior:
     """What the fake container does for a script containing a given text."""
 
     lines: tuple[str, ...] = ()
+    binary_chunks: tuple[bytes, ...] = ()
     exit_code: int = 0
     block: bool = False
     delay: float = 0.0
@@ -141,6 +142,27 @@ class FakeContainerRuntime:
             for line in behavior.lines:
                 sink(line)
             return self._wait(spec, behavior, timeout, cancel)
+        finally:
+            with self._lock:
+                self.concurrent -= 1
+                self.running.pop(spec.name, None)
+
+    def run_container_binary(
+        self, spec: RunSpec, sink: Callable[[bytes], None], *, timeout: float | None = None
+    ) -> ExecResult:
+        """Run a binary container command with scripted output and exit status."""
+        script = spec.command[-1] if spec.command else ""
+        behavior = self._behavior(script)
+        with self._lock:
+            self.runs.append(spec)
+            self.script_order.append(script)
+            self.concurrent += 1
+            self.max_concurrent = max(self.max_concurrent, self.concurrent)
+            self.running[spec.name] = spec
+        try:
+            for chunk in behavior.binary_chunks:
+                sink(chunk)
+            return self._wait(spec, behavior, timeout, None)
         finally:
             with self._lock:
                 self.concurrent -= 1

@@ -17,7 +17,7 @@ TERMINATE_GRACE = 5.0
 OnFirstLine = Callable[[], None]
 
 
-class _Watchdog(threading.Thread):
+class Watchdog(threading.Thread):
     """Ends a process when its deadline passes or cancellation is requested."""
 
     def __init__(
@@ -90,7 +90,7 @@ def stream_process(  # noqa: PLR0913 - a streamed process genuinely has these kn
         env=dict(env),
         start_new_session=True,
     )
-    watchdog = _Watchdog(process, timeout, cancel, on_abort)
+    watchdog = Watchdog(process, timeout, cancel, on_abort)
     watchdog.start()
     try:
         if on_started is not None:

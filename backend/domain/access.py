@@ -92,6 +92,8 @@ class Action(StrEnum):
     DATABASE_DATA = "database.data"
     DATABASE_CONFIGURE = "database.configure"
     DATABASE_DETECT = "database.detect"
+    BACKUP_READ = "backup.read"
+    BACKUP_RUN = "backup.run"
     DOMAIN_READ = "domain.read"
     DOMAIN_MANAGE = "domain.manage"
     DOMAIN_DISCOVER = "domain.discover"
@@ -210,6 +212,8 @@ RULES: dict[Action, Rule] = {
     Action.DATABASE_DATA: _role(_S.READ, _D, _M, production_scope=_S.ADMIN),
     Action.DATABASE_CONFIGURE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
     Action.DATABASE_DETECT: _role(_S.ADMIN, _M, _M),
+    Action.BACKUP_READ: _role(_S.READ, _V),
+    Action.BACKUP_RUN: _role(_S.ADMIN, _M, _M),
     Action.DOMAIN_READ: _role(_S.READ, _V),
     Action.DOMAIN_MANAGE: _role(_S.ADMIN, _M),
     # Everything Cloudflare and Apache already serve, across all projects: owners and admins.
