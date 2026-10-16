@@ -1,7 +1,127 @@
 """Database image and environment credential parsing rules."""
 
-from backend.domain.database import DatabaseEngine
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
+
+from sqlalchemy import Engine
+
+from backend.domain.actor import Actor
+from backend.domain.database import ConnectionRef, DatabaseEngine
 from backend.domain.database_detection import parse_database_credentials
+from backend.domain.enums import EnvironmentName
+from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.database_detection import (
+    DatabaseDetectionService,
+    DetectionLockRegistry,
+)
+from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.services.secret_cipher import SecretCipher
+from backend.services.secrets import SecretInfo, SecretService
+from tests.container_support import FakeEngine, make_record
+
+
+class _SecretGateway:
+    """Use the real encrypted test store behind the SecretsGateway boundary."""
+
+    def __init__(self, engine: Engine, cipher: SecretCipher) -> None:
+        self._engine = engine
+        self._cipher = cipher
+
+    def _service(self) -> SecretService:
+        return SecretService(UnitOfWork(create_session_factory(self._engine)), self._cipher)
+
+    def ping(self) -> None:
+        return None
+
+    def set_secret(
+        self, slug: str, env: EnvironmentName, name: str, value: str, actor: Actor
+    ) -> SecretInfo:
+        return self._service().set(slug, env, name, value, actor)
+
+    def list_secrets(self, slug: str, env: EnvironmentName, actor: Actor) -> list[SecretInfo]:
+        return list(self._service().list_names(slug, env))
+
+    def delete_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> None:
+        return self._service().delete(slug, env, name, actor)
+
+    def reveal_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> str:
+        return self._service().reveal(slug, env, name, actor)
+
+
+class _ContendedSecretGateway(_SecretGateway):
+    """Pause the first write so a second detection can expose an unprotected race."""
+
+    def __init__(self, engine: Engine, cipher: SecretCipher) -> None:
+        super().__init__(engine, cipher)
+        self.first_write_started = Event()
+        self.release_first_write = Event()
+        self.second_write_started = Event()
+        self._write_count = 0
+        self._write_lock = Lock()
+
+    def set_secret(
+        self, slug: str, env: EnvironmentName, name: str, value: str, actor: Actor
+    ) -> SecretInfo:
+        secret = super().set_secret(slug, env, name, value, actor)
+        with self._write_lock:
+            self._write_count += 1
+            write_number = self._write_count
+        if write_number == 1:
+            self.first_write_started.set()
+            if not self.release_first_write.wait(timeout=5):
+                raise TimeoutError("test did not release the first secret write")
+        elif write_number == 2:
+            self.second_write_started.set()
+        return secret
+
+
+class _InspectionStub:
+    def test(self, ref: ConnectionRef, actor: Actor) -> dict[str, object]:
+        return {"ok": True, "error": None, "server": None, "network": "demo-dev_default"}
+
+
+def test_concurrent_detection_keeps_one_connection_and_its_secret(
+    engine: Engine, project: str, cipher: SecretCipher
+) -> None:
+    session_factory = create_session_factory(engine)
+    uow = UnitOfWork(session_factory)
+    env = EnvironmentName.DEVELOPMENT
+    EnvironmentService(uow).update(project, env, EnvironmentUpdate(compose_project="demo-dev"))
+    containers = FakeEngine()
+    containers.add(
+        make_record(
+            project="demo-dev",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": "concurrent-database-password"},
+        )
+    )
+    gateway = _ContendedSecretGateway(engine, cipher)
+    locks = DetectionLockRegistry()
+    services = [
+        DatabaseDetectionService(
+            UnitOfWork(session_factory), gateway, containers, _InspectionStub(), lock_registry=locks
+        )
+        for _ in range(2)
+    ]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(services[0].detect, project, env, Actor.system("test"))
+        assert gateway.first_write_started.wait(timeout=2)
+        second = pool.submit(services[1].detect, project, env, Actor.system("test"))
+        try:
+            second_overlapped_secret_write = gateway.second_write_started.wait(timeout=0.2)
+        finally:
+            gateway.release_first_write.set()
+        results = [first.result(timeout=5), second.result(timeout=5)]
+
+    assert not second_overlapped_secret_write
+    assert sorted(result.results[0].status for result in results) == ["created", "existing"]
+    environment = EnvironmentService(UnitOfWork(session_factory)).get(project, env)
+    with UnitOfWork(session_factory) as active:
+        assert len(active.database_connections.list_for_environment(environment.id)) == 1
+        secret = active.secrets.get(environment.id, "DBCONN_DB_PASSWORD")
+        assert secret is not None
+        assert cipher.decrypt(secret.ciphertext) == "concurrent-database-password"
 
 
 def test_matches_registry_image_and_parses_mysql_credentials() -> None:

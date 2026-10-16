@@ -16,7 +16,7 @@ from backend.domain.enums import EnvironmentName
 from backend.domain.errors import DomainError
 from backend.inspector.model import InspectorError
 from backend.repositories.database import UnitOfWork, create_session_factory
-from backend.services.database_detection import DatabaseDetectionService
+from backend.services.database_detection import DatabaseDetectionService, DetectionLockRegistry
 from backend.services.database_inspection import HelperPort, InspectionService
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretInfo, SecretService
@@ -126,6 +126,8 @@ def running_inspection_worker(
     def inspection() -> InspectionService:
         return InspectionService(lambda: UnitOfWork(session_factory), secret_service, helper)
 
+    detection_locks = DetectionLockRegistry()
+
     class InProcessSecrets:
         def ping(self) -> None:
             pass
@@ -150,7 +152,11 @@ def running_inspection_worker(
         if containers is None:
             raise RuntimeError("container engine not provided")
         return DatabaseDetectionService(
-            UnitOfWork(session_factory), InProcessSecrets(), containers, inspection()
+            UnitOfWork(session_factory),
+            InProcessSecrets(),
+            containers,
+            inspection(),
+            lock_registry=detection_locks,
         )
 
     handlers = build_handlers(

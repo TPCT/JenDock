@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import re
+from _thread import LockType
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from threading import Lock
+from typing import Protocol
 
 from backend.adapters.container_admin import ContainerEngine
 from backend.adapters.docker_inspect import parse_env, service_of
@@ -17,15 +22,38 @@ from backend.domain.database import (
     password_secret_name,
     validate_connection_name,
 )
-from backend.domain.database_detection import parse_database_credentials
+from backend.domain.database_detection import DetectedCredentials, parse_database_credentials
 from backend.domain.enums import EnvironmentName
 from backend.domain.errors import ConflictError
 from backend.repositories.database import UnitOfWork
 from backend.repositories.models import DatabaseConnection
 from backend.services.audit import add_audit_event
 from backend.services.database_connections import DatabaseConnectionService, NewConnection
-from backend.services.database_inspection import InspectionService
 from backend.services.lookup import require_environment
+
+
+class ConnectionTester(Protocol):
+    """Port used to test a created or existing connection."""
+
+    def test(self, ref: ConnectionRef, actor: Actor) -> dict[str, object]:
+        """Return the safe connection test result."""
+
+
+class DetectionLockRegistry:
+    """Provide one detection lock per project environment."""
+
+    def __init__(self) -> None:
+        self._registry_lock = Lock()
+        self._locks: dict[tuple[str, EnvironmentName], LockType] = {}
+
+    @contextmanager
+    def for_environment(self, slug: str, env: EnvironmentName) -> Iterator[None]:
+        """Serialize detections for one environment, leaving other environments independent."""
+        key = (slug, env)
+        with self._registry_lock:
+            lock = self._locks.setdefault(key, Lock())
+        with lock:
+            yield
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +78,15 @@ class DetectionSummary:
     results: tuple[DetectionResult, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _ConnectionCandidate:
+    """Parsed credentials and identity for one compose service."""
+
+    service: str
+    name: str
+    credentials: DetectedCredentials
+
+
 class DatabaseDetectionService:
     """Detect, configure and test database connections entirely in the worker."""
 
@@ -58,7 +95,8 @@ class DatabaseDetectionService:
         uow: UnitOfWork,
         secrets: SecretsGateway,
         containers: ContainerEngine,
-        inspection: InspectionService,
+        inspection: ConnectionTester,
+        lock_registry: DetectionLockRegistry | None = None,
     ) -> None:
         self._uow, self._secrets, self._containers, self._inspection = (
             uow,
@@ -66,9 +104,14 @@ class DatabaseDetectionService:
             containers,
             inspection,
         )
+        self._lock_registry = lock_registry or DetectionLockRegistry()
 
     def detect(self, slug: str, env: EnvironmentName, actor: Actor) -> DetectionSummary:
         """Create missing database connections, re-test existing ones, and audit summary."""
+        with self._lock_registry.for_environment(slug, env):
+            return self._detect_locked(slug, env, actor)
+
+    def _detect_locked(self, slug: str, env: EnvironmentName, actor: Actor) -> DetectionSummary:
         with self._uow:
             environment = require_environment(self._uow, slug, env)
             project = environment.compose_project
@@ -140,28 +183,21 @@ class DatabaseDetectionService:
                 )
                 continue
             name = _available_name(service, {item.name for item in existing})
-            connection = DatabaseConnectionService(self._uow, self._secrets).create(
+            connection, status, existing = self._create_or_reuse_connection(
                 slug,
                 env,
-                NewConnection(
-                    name,
-                    credentials.engine,
-                    service,
-                    credentials.database,
-                    credentials.username,
-                    credentials.password,
-                ),
+                _ConnectionCandidate(service, name, credentials),
+                existing,
                 actor,
             )
-            existing.append(connection)
-            outcome = self._inspection.test(ConnectionRef(slug, env, name), actor)
+            outcome = self._inspection.test(ConnectionRef(slug, env, connection.name), actor)
             results.append(
                 DetectionResult(
                     service,
                     container,
                     image,
                     credentials.engine.value,
-                    "created",
+                    status,
                     None,
                     connection,
                     outcome,
@@ -192,6 +228,50 @@ class DatabaseDetectionService:
                 ),
             )
         return DetectionSummary(len(results), tuple(results))
+
+    def _create_or_reuse_connection(
+        self,
+        slug: str,
+        env: EnvironmentName,
+        candidate: _ConnectionCandidate,
+        existing: list[DatabaseConnection],
+        actor: Actor,
+    ) -> tuple[DatabaseConnection, str, list[DatabaseConnection]]:
+        """Create one service connection or recover if another writer created it first."""
+        service, name, credentials = (
+            candidate.service,
+            candidate.name,
+            candidate.credentials,
+        )
+        connections = DatabaseConnectionService(self._uow, self._secrets)
+        try:
+            created = connections.create(
+                slug,
+                env,
+                NewConnection(
+                    name,
+                    credentials.engine,
+                    service,
+                    credentials.database,
+                    credentials.username,
+                    credentials.password,
+                ),
+                actor,
+            )
+        except ConflictError:
+            refreshed = list(connections.list(slug, env))
+            match = next(
+                (
+                    item
+                    for item in refreshed
+                    if item.host == service and item.engine is credentials.engine
+                ),
+                None,
+            )
+            if match is None:
+                raise
+            return match, "existing", refreshed
+        return created, "created", [*existing, created]
 
 
 def to_wire(summary: DetectionSummary, env: EnvironmentName) -> dict[str, object]:

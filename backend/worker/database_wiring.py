@@ -14,7 +14,7 @@ from backend.domain.actor import Actor
 from backend.domain.enums import EnvironmentName
 from backend.logging import SecretRedactor
 from backend.repositories.database import SessionFactory, UnitOfWork
-from backend.services.database_detection import DatabaseDetectionService
+from backend.services.database_detection import DatabaseDetectionService, DetectionLockRegistry
 from backend.services.database_inspection import InspectionService
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretInfo, SecretService
@@ -38,6 +38,7 @@ def build_inspection_handlers(
     )
     runner = InspectorRunner(runtime, settings.inspector_image)
     containers = DockerContainerEngine(DockerClient(settings.docker_binary, settings.docker_host))
+    detection_locks = DetectionLockRegistry()
 
     def service() -> InspectionService:
         return InspectionService(
@@ -80,6 +81,12 @@ def build_inspection_handlers(
     secrets: SecretsGateway = InProcessSecrets()
 
     def detection() -> DatabaseDetectionService:
-        return DatabaseDetectionService(UnitOfWork(session_factory), secrets, containers, service())
+        return DatabaseDetectionService(
+            UnitOfWork(session_factory),
+            secrets,
+            containers,
+            service(),
+            lock_registry=detection_locks,
+        )
 
     return build_database_handlers(service, detection)
