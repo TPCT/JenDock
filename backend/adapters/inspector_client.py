@@ -11,10 +11,12 @@ from typing import Protocol
 from backend.adapters.worker_client import WorkerClient
 from backend.domain.actor import Actor
 from backend.domain.database import ConnectionRef, TableRef
+from backend.domain.enums import EnvironmentName
 from backend.domain.errors import WorkerError
 
 # The helper container is allowed 30 s; leave headroom for starting it.
 INSPECT_TIMEOUT = 45.0
+DETECT_TIMEOUT = 180.0
 Json = dict[str, object]
 
 
@@ -38,6 +40,9 @@ class InspectorGateway(Protocol):
 
     def query(self, ref: ConnectionRef, statement: str, actor: Actor) -> Json:
         """Run one read-only console statement."""
+
+    def detect(self, slug: str, env: EnvironmentName, actor: Actor) -> Json:
+        """Detect connections inside the worker; return safe metadata only."""
 
 
 class WorkerInspectorClient:
@@ -71,6 +76,14 @@ class WorkerInspectorClient:
     def query(self, ref: ConnectionRef, statement: str, actor: Actor) -> Json:
         """``db.query``."""
         return self._call("db.query", actor, ref, {"statement": statement})
+
+    def detect(self, slug: str, env: EnvironmentName, actor: Actor) -> Json:
+        result = self._client.call(
+            "db.detect", actor, {"slug": slug, "env": env.value}, timeout=DETECT_TIMEOUT
+        )
+        if not isinstance(result, dict):
+            raise WorkerError("worker returned an unexpected response")
+        return result
 
     def _call(self, method: str, actor: Actor, ref: ConnectionRef, params: Json) -> Json:
         body: Json = {"slug": ref.slug, "env": ref.env.value, "name": ref.name, **params}

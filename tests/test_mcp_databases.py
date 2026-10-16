@@ -20,11 +20,13 @@ from backend.services.audit import AuditService
 from backend.services.database_connections import NewConnection
 from tests import test_databases_api
 from tests.conftest import DEV, PROD
+from tests.container_support import FakeEngine, make_record
 from tests.inspector_support import PAGE, FakeHelper
 from tests.test_mcp import _real_principal, _run, _session, _text, _token
 
 wired = test_databases_api.wired  # API + real worker RPC + faked helper container
 helper = test_databases_api.helper
+fake_container_engine = test_databases_api.fake_container_engine
 PASSWORD = test_databases_api.PASSWORD
 
 REGISTRY = default_registry()
@@ -90,8 +92,37 @@ def test_no_connection_management_tool_exists() -> None:
     for banned in ("create_database", "update_database", "delete_database", "test_database"):
         assert not any(name.startswith(banned) for name in names), banned
     assert {n for n in names if "database" in n or "table" in n or "query" in n} == (
-        METADATA_TOOLS | DATA_TOOLS
+        METADATA_TOOLS | DATA_TOOLS | {"detect_databases"}
     )
+
+
+def test_detection_tool_requires_admin_scope_and_returns_safe_shape(
+    wired: AppContainer, fake_container_engine: FakeEngine
+) -> None:
+    tool = REGISTRY.get("detect_databases")
+    assert tool is not None and tool.scope is TokenScope.ADMIN
+    reader = _real_principal(wired, TokenScope.READ)
+    admin = _real_principal(wired, TokenScope.ADMIN)
+    assert "detect_databases" not in {t.name for t in REGISTRY.visible_to(reader)}
+    assert "detect_databases" in {t.name for t in REGISTRY.visible_to(admin)}
+    password = "mcp-detected-password"
+    fake_container_engine.add(
+        make_record(
+            project="demo-dev",
+            service="db",
+            image="postgres:16",
+            env={"POSTGRES_PASSWORD": password},
+        )
+    )
+    result = _call(
+        wired,
+        admin,
+        "detect_databases",
+        {"slug": "demo", "environment": "development"},
+    )
+    assert result["found"] == 1
+    assert result["results"][0]["status"] == "existing"
+    assert password not in repr(result)
 
 
 def test_scope_filtering(wired: AppContainer) -> None:

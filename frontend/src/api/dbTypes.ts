@@ -57,6 +57,20 @@ export interface TestResult {
   network: string;
 }
 
+export interface DetectResult {
+  found: number;
+  results: {
+    service: string;
+    container: string;
+    image: string;
+    engine: DbEngine | null;
+    status: "created" | "existing" | "skipped";
+    reason: string | null;
+    connection: DbConnection | null;
+    test: TestResult | null;
+  }[];
+}
+
 export interface SchemaInfo {
   name: string;
   system: boolean;

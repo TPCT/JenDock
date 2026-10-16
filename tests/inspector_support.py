@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import Engine
 
+from backend.adapters.container_admin import ContainerEngine
 from backend.adapters.inspector_runner import HelperRequest
+from backend.domain.actor import Actor
+from backend.domain.enums import EnvironmentName
 from backend.domain.errors import DomainError
 from backend.inspector.model import InspectorError
 from backend.repositories.database import UnitOfWork, create_session_factory
+from backend.services.database_detection import DatabaseDetectionService, DetectionLockRegistry
 from backend.services.database_inspection import HelperPort, InspectionService
 from backend.services.secret_cipher import SecretCipher
-from backend.services.secrets import SecretService
+from backend.services.secrets import SecretInfo, SecretService
 from backend.worker.database_handlers import build_database_handlers
 from backend.worker.handlers import build_handlers
 from backend.worker.rpc import RpcServer
@@ -105,7 +109,11 @@ class FakeHelper:
 
 @contextmanager
 def running_inspection_worker(
-    socket_dir: Path, engine: Engine, key_file: Path, helper: HelperPort
+    socket_dir: Path,
+    engine: Engine,
+    key_file: Path,
+    helper: HelperPort,
+    containers: ContainerEngine | None = None,
 ) -> Iterator[Path]:
     """A real RPC server with secrets and ``db.*`` handlers; the helper container is faked."""
     socket_path = socket_dir / "w.sock"
@@ -118,7 +126,43 @@ def running_inspection_worker(
     def inspection() -> InspectionService:
         return InspectionService(lambda: UnitOfWork(session_factory), secret_service, helper)
 
-    handlers = build_handlers(secret_service, build_database_handlers(inspection))
+    detection_locks = DetectionLockRegistry()
+
+    class InProcessSecrets:
+        def ping(self) -> None:
+            pass
+
+        def set_secret(
+            self, slug: str, env: EnvironmentName, name: str, value: str, actor: Actor
+        ) -> SecretInfo:
+            return secret_service().set(slug, env, name, value, actor)
+
+        def list_secrets(
+            self, slug: str, env: EnvironmentName, actor: Actor
+        ) -> Sequence[SecretInfo]:
+            return secret_service().list_names(slug, env)
+
+        def delete_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> None:
+            secret_service().delete(slug, env, name, actor)
+
+        def reveal_secret(self, slug: str, env: EnvironmentName, name: str, actor: Actor) -> str:
+            return secret_service().reveal(slug, env, name, actor)
+
+    def detection() -> DatabaseDetectionService:
+        if containers is None:
+            raise RuntimeError("container engine not provided")
+        return DatabaseDetectionService(
+            UnitOfWork(session_factory),
+            InProcessSecrets(),
+            containers,
+            inspection(),
+            lock_registry=detection_locks,
+        )
+
+    handlers = build_handlers(
+        secret_service,
+        build_database_handlers(inspection, detection if containers is not None else None),
+    )
     server = RpcServer(socket_path, handlers)
     server.start()
     try:

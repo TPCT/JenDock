@@ -79,6 +79,7 @@ ROLE_ACTIONS: dict[Action, tuple[AccessRole, AccessRole]] = {
     Action.ENVIRONMENT_START: (D, M),
     Action.ENVIRONMENT_STOP: (D, M),
     Action.DATABASE_DATA: (D, M),
+    Action.DATABASE_DETECT: (M, M),
     Action.DEPLOYMENT_REDEPLOY: (M, M),
     Action.CONTAINER_LOGS: (M, M),
     Action.CONTAINER_TERMINAL: (M, M),
@@ -151,6 +152,15 @@ def test_every_action_is_classified_exactly_once() -> None:
         len(classified) == len(ROLE_ACTIONS) + len(GLOBAL_ADMIN_ACTIONS) + len(ANY_USER_ACTIONS) + 2
     )
     assert {a for a, r in RULES.items() if r.kind is RuleKind.ROLE} == set(ROLE_ACTIONS)
+
+
+def test_database_detection_requires_a_maintainer_grant_on_the_target_environment() -> None:
+    dev = Resource.of_environment("demo", DEV)
+    prod = Resource.of_environment("demo", PROD)
+    assert allowed(member(grant(DEV, M)), Action.DATABASE_DETECT, dev)
+    assert not allowed(member(grant(DEV, M)), Action.DATABASE_DETECT, prod)
+    assert not allowed(member(grant(DEV, D)), Action.DATABASE_DETECT, dev)
+    assert allowed(Who(GlobalRole.ADMIN), Action.DATABASE_DETECT, dev)
 
 
 @pytest.mark.parametrize("role", [GlobalRole.OWNER, GlobalRole.ADMIN])

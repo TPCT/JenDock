@@ -50,6 +50,7 @@ const DEVELOPER = ["run.create", "run.cancel", "run.retry", "pipeline.write", "d
 DEVELOPER.push("environment.start", "environment.stop");
 VIEWER.push("environment.power_read");
 const MAINTAINER = [
+  "database.detect",
   "deployment.redeploy",
   "container.logs",
   "container.terminal",
@@ -66,6 +67,7 @@ const OWNER_GLOBAL = [
   "certificate.list",
   "container.env_reveal",
   "database.configure",
+  "database.detect",
   "domain.adopt_all",
   "domain.discover",
   "domain.discover_refresh",
