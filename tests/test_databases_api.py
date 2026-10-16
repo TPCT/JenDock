@@ -269,7 +269,7 @@ def test_detect_returns_zero_when_only_unsupported_or_stopped_containers_exist(
     fake_container_engine.add(make_record(project="demo-dev", service="cache", image="redis:7"))
     response = client.post(f"{DEV_BASE}/detect", headers=mutation_headers(client, csrf))
     assert response.status_code == 200
-    assert response.json() == {"found": 0, "results": []}
+    assert response.json() == {"found": 0, "results": [], "removed": [], "kept": []}
 
 
 def test_detection_authorization_for_members_is_environment_scoped(
