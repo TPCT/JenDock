@@ -68,7 +68,13 @@ class HostHelper(Protocol):
     """The helper operations the platform uses; implemented by the client and by test fakes."""
 
     def render_vhost(
-        self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True
+        self,
+        hostname: str,
+        upstream_port: int,
+        *,
+        tls: bool,
+        websocket: bool = True,
+        listen_addresses: tuple[str, ...] = (),
     ) -> VhostProposal:
         """Render (do not write) the vhost and return it with the current file."""
 
@@ -76,7 +82,13 @@ class HostHelper(Protocol):
         """Return the managed vhost text of ``hostname`` or ``None``."""
 
     def put_vhost(
-        self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True
+        self,
+        hostname: str,
+        upstream_port: int,
+        *,
+        tls: bool,
+        websocket: bool = True,
+        listen_addresses: tuple[str, ...] = (),
     ) -> bool:
         """Write the vhost, test and reload Apache; return whether the file changed."""
 
@@ -117,10 +129,18 @@ class HostHelperClient:
         self._call("ping", {})
 
     def render_vhost(
-        self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True
+        self,
+        hostname: str,
+        upstream_port: int,
+        *,
+        tls: bool,
+        websocket: bool = True,
+        listen_addresses: tuple[str, ...] = (),
     ) -> VhostProposal:
         """Ask the helper to render the vhost without writing it."""
-        result = self._call("vhost.render", _vhost(hostname, upstream_port, tls, websocket))
+        result = self._call(
+            "vhost.render", _vhost(hostname, upstream_port, tls, websocket, listen_addresses)
+        )
         proposed, current = result.get("proposed"), result.get("current")
         if not isinstance(proposed, str) or not (current is None or isinstance(current, str)):
             raise HostHelperError("protocol", "unexpected helper response")
@@ -132,10 +152,18 @@ class HostHelperClient:
         return content if isinstance(content, str) else None
 
     def put_vhost(
-        self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True
+        self,
+        hostname: str,
+        upstream_port: int,
+        *,
+        tls: bool,
+        websocket: bool = True,
+        listen_addresses: tuple[str, ...] = (),
     ) -> bool:
         """Write the vhost; the helper tests the config, reloads and reverts on failure."""
-        result = self._call("vhost.put", _vhost(hostname, upstream_port, tls, websocket))
+        result = self._call(
+            "vhost.put", _vhost(hostname, upstream_port, tls, websocket, listen_addresses)
+        )
         return bool(result.get("changed"))
 
     def remove_vhost(self, hostname: str) -> bool:
@@ -244,8 +272,13 @@ def _entry(item: object) -> VhostEntry:
     )
 
 
-def _vhost(hostname: str, port: int, tls: bool, websocket: bool) -> dict[str, object]:
-    return {"hostname": hostname, "upstream_port": port, "tls": tls, "websocket": websocket}
+def _vhost(
+    hostname: str, port: int, tls: bool, websocket: bool, listen_addresses: tuple[str, ...] = ()
+) -> dict[str, object]:
+    params = {"hostname": hostname, "upstream_port": port, "tls": tls, "websocket": websocket}
+    if listen_addresses:
+        params["listen_addresses"] = list(listen_addresses)
+    return params
 
 
 def _read_line(connection: socket.socket, deadline: float) -> bytes:

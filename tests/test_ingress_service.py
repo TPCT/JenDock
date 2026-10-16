@@ -33,7 +33,7 @@ def test_preview_changes_nothing_and_describes_dns_vhost_and_tls(world: IngressW
     assert plan.dns.desired is not None
     assert (plan.dns.desired.record_type, plan.dns.desired.content) == ("A", DEFAULT_IPV4)
     assert plan.vhost.action is PlanAction.CREATE
-    assert "+<VirtualHost *:443>" in plan.vhost.diff
+    assert f"+<VirtualHost {DEFAULT_IPV4}:443>" in plan.vhost.diff
     assert "ProxyPass / http://127.0.0.1:20001/" in (plan.vhost.proposed or "")
     assert plan.tls.action == "issue" and plan.tls.challenge == "dns-01"
     assert len(plan.plan_hash) == 64
@@ -41,6 +41,23 @@ def test_preview_changes_nothing_and_describes_dns_vhost_and_tls(world: IngressW
     assert world.cloudflare.mutations() == []
     assert world.helper.vhosts == {} and world.helper.calls == []
     assert world.domains().get_by_id(domain.id).status is DomainStatus.DRAFT
+
+
+def test_preview_hash_and_apply_follow_public_listen_addresses(world: IngressWorld) -> None:
+    world.settings.public_ipv4 = "176.118.198.49"
+    world.settings.public_ipv6 = "2001:db8::1"
+    domain = world.create()
+    first = world.ingress().preview(domain.id)
+    assert "<VirtualHost 176.118.198.49:443 [2001:db8::1]:443>" in (first.vhost.proposed or "")
+    assert "+<VirtualHost 176.118.198.49:443 [2001:db8::1]:443>" in first.vhost.diff
+    world.settings.public_ipv4 = "198.51.100.8"
+    second = world.ingress().preview(domain.id)
+    assert first.plan_hash != second.plan_hash
+    world.settings.public_ipv4 = "176.118.198.49"
+    world.ingress().apply(domain.id, first.plan_hash, ACTOR)
+    assert (
+        "<VirtualHost 176.118.198.49:443 [2001:db8::1]:443>" in world.helper.vhosts[domain.hostname]
+    )
 
 
 def test_apply_rolls_out_dns_http_vhost_certificate_and_tls_vhost_in_order(
@@ -191,7 +208,7 @@ def test_remove_tears_down_vhost_certificate_and_only_owned_dns(world: IngressWo
         PlanAction.DELETE,
         "remove",
     )
-    assert "-<VirtualHost *:443>" in plan.vhost.diff
+    assert f"-<VirtualHost {DEFAULT_IPV4}:443>" in plan.vhost.diff
     service.remove(domain.id, plan.plan_hash, ACTOR)
     assert world.helper.vhosts == {} and world.helper.certificates == {}
     assert world.cloudflare.records == [foreign]

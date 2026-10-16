@@ -1,12 +1,13 @@
 """The fixed Apache virtual host template.
 
-The helper renders the file itself from three validated values (hostname, upstream port, mode);
-callers never supply configuration text. Requirements: mod_proxy, mod_proxy_http,
-mod_proxy_wstunnel, mod_rewrite, mod_headers, mod_alias and (for TLS) mod_ssl.
+The helper renders the file itself from validated values (hostname, upstream port, mode and
+listen addresses); callers never supply configuration text. Requirements: mod_proxy,
+mod_proxy_http, mod_proxy_wstunnel, mod_rewrite, mod_headers, mod_alias and (for TLS) mod_ssl.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +28,7 @@ class VhostSpec:
     upstream_port: int
     tls: bool
     websocket: bool = True
+    addresses: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,8 +82,23 @@ def _acme_block(paths: VhostPaths) -> list[str]:
     ]
 
 
+def _listen(spec: VhostSpec, port: int) -> str:
+    """Format validated addresses for one Apache listener directive."""
+    values = []
+    for address in spec.addresses:
+        parsed = ipaddress.ip_address(address)
+        values.append(f"[{parsed}]:{port}" if parsed.version == 6 else f"{parsed}:{port}")
+    return " ".join(values) if values else f"*:{port}"
+
+
 def _port_80(spec: VhostSpec, paths: VhostPaths) -> list[str]:
-    lines = ["<VirtualHost *:80>", *_server_names(spec.hostname), "", *_acme_block(paths), ""]
+    lines = [
+        f"<VirtualHost {_listen(spec, 80)}>",
+        *_server_names(spec.hostname),
+        "",
+        *_acme_block(paths),
+        "",
+    ]
     if spec.tls:
         lines.extend(_redirect_block(spec.hostname))
     else:
@@ -113,7 +130,7 @@ def _redirect_block(hostname: str) -> list[str]:
 
 
 def _port_443(spec: VhostSpec, paths: VhostPaths) -> list[str]:
-    lines = ["<VirtualHost *:443>", *_server_names(spec.hostname), ""]
+    lines = [f"<VirtualHost {_listen(spec, 443)}>", *_server_names(spec.hostname), ""]
     lines += [
         "    SSLEngine on",
         f'    SSLCertificateFile "{paths.fullchain(spec.hostname)}"',

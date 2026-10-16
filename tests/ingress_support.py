@@ -91,10 +91,18 @@ class FakeHelper:
         return VhostDiscovery(tuple(self.existing_sites))
 
     def render_vhost(
-        self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True
+        self,
+        hostname: str,
+        upstream_port: int,
+        *,
+        tls: bool,
+        websocket: bool = True,
+        listen_addresses: tuple[str, ...] = (),
     ) -> VhostProposal:
         """Render without storing."""
-        text = render_vhost(VhostSpec(hostname, upstream_port, tls, websocket), self.paths)
+        text = render_vhost(
+            VhostSpec(hostname, upstream_port, tls, websocket, listen_addresses), self.paths
+        )
         return VhostProposal(text, self.vhosts.get(hostname))
 
     def get_vhost(self, hostname: str) -> str | None:
@@ -102,13 +110,21 @@ class FakeHelper:
         return self.vhosts.get(hostname)
 
     def put_vhost(
-        self, hostname: str, upstream_port: int, *, tls: bool, websocket: bool = True
+        self,
+        hostname: str,
+        upstream_port: int,
+        *,
+        tls: bool,
+        websocket: bool = True,
+        listen_addresses: tuple[str, ...] = (),
     ) -> bool:
         """Store the vhost (unless a failure was scripted)."""
         self.calls.append(f"put_vhost tls={tls}")
         if self.fail_put is not None:
             raise self.fail_put
-        text = render_vhost(VhostSpec(hostname, upstream_port, tls, websocket), self.paths)
+        text = render_vhost(
+            VhostSpec(hostname, upstream_port, tls, websocket, listen_addresses), self.paths
+        )
         changed = self.vhosts.get(hostname) != text
         self.vhosts[hostname] = text
         return changed

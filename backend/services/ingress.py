@@ -145,7 +145,10 @@ class IngressService:
         )
         needs_certificate = domain.tls_enabled and not has_certificate
         tls_final = domain.tls_enabled
-        proposal = self._helper.render_vhost(domain.hostname, domain.published_port, tls=tls_final)
+        addresses = self._listen_addresses()
+        proposal = self._helper.render_vhost(
+            domain.hostname, domain.published_port, tls=tls_final, listen_addresses=addresses
+        )
         vhost = _vhost_view(proposal)
         tls = self._tls_view(domain, needs_certificate)
         steps = _apply_steps(dns_plan, vhost, tls, needs_certificate)
@@ -178,6 +181,13 @@ class IngressService:
         comment = f"{MANAGED_TAG} domain={domain.id}"
         return DnsDesired(record_type, domain.hostname, content, domain.dns_proxied, comment)
 
+    def _listen_addresses(self) -> tuple[str, ...]:
+        return tuple(
+            address
+            for address in (self._settings.public_ipv4, self._settings.public_ipv6)
+            if address is not None
+        )
+
     def _tls_view(self, domain: Domain, needs_certificate: bool) -> TlsPlanView:
         status = self._certificates.status_for(domain.id)
         if not domain.tls_enabled:
@@ -196,13 +206,21 @@ class IngressService:
 
     def _run_apply(self, prepared: _Prepared) -> None:
         domain = prepared.domain
+        addresses = self._listen_addresses()
         dns = self._dns_factory(domain)
         record = dns.apply_upsert(prepared.dns)
         if prepared.needs_certificate:
             # Reachable over HTTP first (needed by HTTP-01, harmless for DNS-01), then TLS.
-            self._helper.put_vhost(domain.hostname, domain.published_port, tls=False)
+            self._helper.put_vhost(
+                domain.hostname, domain.published_port, tls=False, listen_addresses=addresses
+            )
             self._certificates.issue(domain, Actor.system("ingress"))
-        self._helper.put_vhost(domain.hostname, domain.published_port, tls=prepared.tls_final)
+        self._helper.put_vhost(
+            domain.hostname,
+            domain.published_port,
+            tls=prepared.tls_final,
+            listen_addresses=addresses,
+        )
         if not domain.tls_enabled and prepared.has_certificate:
             self._certificates.discard(domain)
         self._domains.record_applied(

@@ -25,6 +25,23 @@ def test_every_golden_file_is_covered() -> None:
     assert {p.name for p in GOLDEN.glob("*.conf")} == set(CASES)
 
 
+@pytest.mark.parametrize("tls,port", [(False, 80), (True, 443)])
+def test_listen_addresses_format_ipv4_and_ipv6(tls: bool, port: int) -> None:
+    spec = VhostSpec("app.example.com", 20001, tls=tls, addresses=("176.118.198.49", "2001:db8::1"))
+    text = render_vhost(spec, PATHS)
+    assert f"<VirtualHost 176.118.198.49:{port} [2001:db8::1]:{port}>" in text
+
+
+@pytest.mark.parametrize("tls,port", [(False, 80), (True, 443)])
+def test_listen_addresses_format_ipv4_only_and_fallback(tls: bool, port: int) -> None:
+    assert f"<VirtualHost 176.118.198.49:{port}>" in render_vhost(
+        VhostSpec("app.example.com", 20001, tls=tls, addresses=("176.118.198.49",)), PATHS
+    )
+    assert f"<VirtualHost *:{port}>" in render_vhost(
+        VhostSpec("app.example.com", 20001, tls=tls), PATHS
+    )
+
+
 def test_the_tls_vhost_redirects_http_but_keeps_the_acme_path_open() -> None:
     text = render_vhost(CASES["https_websocket.conf"], PATHS)
     assert "RewriteRule ^/?(.*)$ https://app.example.com/$1 [R=301,L]" in text

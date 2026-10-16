@@ -151,6 +151,36 @@ def test_vhost_render_is_a_dry_run_and_get_list_report_state(
     assert service.execute("vhost.list", {}) == {"hostnames": [HOST, "b.example.org"]}
 
 
+@pytest.mark.parametrize(
+    "addresses",
+    [
+        ["176.118.198.49 "],
+        ["1.2.3.4:80"],
+        ["[2001:db8::1]"],
+        ["fe80::1%eth0"],
+        ["2001:DB8::1"],
+        ["01.2.3.4"],
+        ["0.0.0.0"],
+        ["127.0.0.1"],
+        ["1.2.3.4\n<Directory />"],
+        "1.2.3.4",
+        ["1.2.3.4", "2.3.4.5", "3.4.5.6"],
+        ["1.2.3.4", "2.3.4.5"],
+        [1],
+    ],
+)
+def test_invalid_listen_addresses_are_rejected_before_writing(
+    helper: tuple[HelperService, ScriptedApache, Path],
+    addresses: object,
+) -> None:
+    service, apache, vhosts = helper
+    with pytest.raises(InvalidRequestError, match="invalid listen address"):
+        service.execute("vhost.put", vhost_params(listen_addresses=addresses))
+    with pytest.raises(InvalidRequestError, match="invalid listen address"):
+        service.execute("vhost.render", vhost_params(listen_addresses=addresses))
+    assert list(vhosts.iterdir()) == [] and apache.events == []
+
+
 def test_vhost_count_is_limited(tmp_path: Path) -> None:
     service, _apache, _config = make_service(tmp_path, max_vhosts=1)
     put(service)
