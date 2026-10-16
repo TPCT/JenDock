@@ -67,6 +67,9 @@ class Action(StrEnum):
     PROJECT_CREATE = "project.create"
     PROJECT_UPDATE = "project.update"
     ENVIRONMENT_UPDATE = "environment.update"
+    ENVIRONMENT_POWER_READ = "environment.power_read"
+    ENVIRONMENT_START = "environment.start"
+    ENVIRONMENT_STOP = "environment.stop"
     RUN_LIST = "run.list"
     RUN_READ = "run.read"
     RUN_CREATE = "run.create"
@@ -181,6 +184,9 @@ RULES: dict[Action, Rule] = {
     Action.PROJECT_CREATE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
     Action.PROJECT_UPDATE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
     Action.ENVIRONMENT_UPDATE: Rule(RuleKind.GLOBAL_ADMIN, _S.ADMIN),
+    Action.ENVIRONMENT_POWER_READ: _role(_S.READ, _V),
+    Action.ENVIRONMENT_START: _role(_S.DEPLOY, _D, _M),
+    Action.ENVIRONMENT_STOP: _role(_S.DEPLOY, _D, _M),
     Action.RUN_LIST: Rule(RuleKind.ANY_USER, _S.READ),
     Action.RUN_READ: _role(_S.READ, _V),
     Action.RUN_CREATE: _role(_S.RUN, _D, _M),

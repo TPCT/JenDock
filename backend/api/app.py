@@ -23,6 +23,7 @@ from backend.api.routers import (
     deployments,
     discovery,
     domains,
+    environment_power,
     github,
     integrations,
     mcp_tools,
@@ -87,6 +88,7 @@ def create_app(settings: Settings | None = None, container: AppContainer | None 
     app.include_router(runs.router)
     app.include_router(containers.router)
     app.include_router(resources.router)
+    app.include_router(environment_power.router)
     app.include_router(terminal.router)
     app.include_router(telemetry.router)
     app.include_router(deployments.router)

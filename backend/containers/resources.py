@@ -63,6 +63,7 @@ class ServiceResources:
     limits: ResourceLimits
     saved: bool
     updated_at: datetime | None = None
+    origin: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,7 +199,9 @@ def live_update(
 def _entry(name: str, saved: SavedLimits | None) -> ServiceResources:
     if saved is None:
         return ServiceResources(name, ResourceLimits(), saved=False)
-    return ServiceResources(name, saved.limits, saved=True, updated_at=saved.updated_at)
+    return ServiceResources(
+        name, saved.limits, saved=True, updated_at=saved.updated_at, origin=saved.origin
+    )
 
 
 class ResourceService:

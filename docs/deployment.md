@@ -79,6 +79,8 @@ Copy `deployment/env.production.example` to `.env` (mode 0640). Everything in it
   `ProxyPreserveHost On`, so the public name arrives unchanged and this stays empty. Set it only
   if you proxy with a rewritten Host (for example `127.0.0.1:8000`).
 - `BACKUP_ENABLED`, `BACKUP_KEEP`, `BACKUP_HOUR_UTC`: scheduled backups (section 8), off by default.
+- `JENDOCK_AUTO_STOP_INTERVAL`: worker scan interval in seconds for development auto-stop (default `300`).
+- `JENDOCK_DEV_DEFAULT_CPUS`, `JENDOCK_DEV_DEFAULT_MEMORY_MIB`: default limits for services first deployed to development (defaults `0.5` and `512`).
 
 ## 5. Apache
 

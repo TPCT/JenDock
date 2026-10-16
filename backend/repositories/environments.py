@@ -45,3 +45,13 @@ class EnvironmentRepository:
         """Distinct compose project names of every configured environment."""
         query = select(Environment.compose_project).where(Environment.compose_project.is_not(None))
         return sorted({name for name in self._session.scalars(query) if name})
+
+    def list_auto_stop_candidates(self) -> Sequence[tuple[str, EnvironmentName]]:
+        """Development environments with auto-stop enabled."""
+        query = (
+            select(Project.slug, Environment.name)
+            .join(Environment, Environment.project_id == Project.id)
+            .where(Environment.name == EnvironmentName.DEVELOPMENT)
+            .where(Environment.auto_stop_hours.is_not(None))
+        )
+        return self._session.execute(query).all()

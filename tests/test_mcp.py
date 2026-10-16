@@ -30,6 +30,7 @@ from backend.services.audit import AuditService
 from backend.services.runs import RunService
 from backend.services.secrets import SecretInfo
 from backend.services.tokens import AuthenticatedToken
+from tests.access_support import FakeContainers
 from tests.api_support import FakeClock, create_user, make_container, make_settings
 from tests.conftest import DEV
 from tests.github_support import SHA_A, SHA_B, FakeGithub
@@ -168,7 +169,35 @@ def test_visibility_follows_the_scopes() -> None:
     admin = {t.name for t in REGISTRY.visible_to(_principal(TokenScope.ADMIN))}
     assert admin == {t.name for t in REGISTRY.all()}
     deployer = {t.name for t in REGISTRY.visible_to(_principal(TokenScope.DEPLOY))}
-    assert deployer == {"preview_redeploy", "redeploy"}
+    assert deployer == {
+        "preview_redeploy",
+        "redeploy",
+        "start_environment",
+        "stop_environment",
+    }
+
+
+def test_stop_environment_requires_production_slug_and_deploy_scope(
+    wired: AppContainer, dispatcher: ToolDispatcher
+) -> None:
+    fake = FakeContainers()
+    object.__setattr__(wired, "containers", fake)
+    args = {"slug": "demo", "environment": "production"}
+    reader = _real_principal(wired, TokenScope.READ)
+    for name in ("stop_environment", "start_environment"):
+        denied = dispatcher.call(reader, name, args)
+        assert denied.is_error
+        assert _payload(denied)["error"]["code"] == "forbidden"
+
+    deployer = _real_principal(wired, TokenScope.DEPLOY)
+    for confirm in (None, "wrong"):
+        payload = {**args, **({} if confirm is None else {"confirm": confirm})}
+        refused = dispatcher.call(deployer, "stop_environment", payload)
+        assert refused.is_error
+        assert _payload(refused)["error"]["code"] == "validation_error"
+    success = dispatcher.call(deployer, "stop_environment", {**args, "confirm": "demo"})
+    assert not success.is_error
+    assert [(action, env) for action, env, _actor in fake.power_calls] == [("stop", "production")]
 
 
 # --- scope enforcement per tool --------------------------------------------------------------

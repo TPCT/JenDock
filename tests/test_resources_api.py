@@ -94,8 +94,8 @@ def test_overview_lists_the_host_and_every_service(wired: Wired) -> None:
     assert response.json() == {
         "host": {"cpus": 4, "memory_bytes": 8 * GIB},
         "services": [
-            {"service": "web", "limits": None, "updated_at": None},
-            {"service": "worker", "limits": None, "updated_at": None},
+            {"service": "web", "limits": None, "updated_at": None, "origin": None},
+            {"service": "worker", "limits": None, "updated_at": None, "origin": None},
         ],
     }
 

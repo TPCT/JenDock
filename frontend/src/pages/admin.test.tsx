@@ -158,6 +158,26 @@ describe("project settings", () => {
     await userEvent.setup().click(within(group).getByRole("button", { name: "Automatic deploy" }));
     expect(await within(group).findByText("Not ready to deploy yet")).toBeInTheDocument();
   });
+
+  it("keeps auto-stop off by default and lets development choose an hour limit", async () => {
+    const user = userEvent.setup();
+    renderApp("/projects/shop-api/settings/environments");
+    const development = await screen.findByRole("group", { name: "Development environment" });
+    const autoStop = within(development).getByRole("button", {
+      name: "Stop after N hours without a deploy",
+    });
+    expect(autoStop).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(development).queryByLabelText("Auto-stop hours (1 to 168)"),
+    ).not.toBeInTheDocument();
+    await user.click(autoStop);
+    const hours = await within(development).findByLabelText("Auto-stop hours (1 to 168)");
+    expect(hours).toHaveValue(1);
+    await user.clear(hours);
+    await user.type(hours, "24");
+    await user.tab();
+    await waitFor(() => expect(hours).toHaveValue(24));
+  });
 });
 
 describe("secrets", () => {

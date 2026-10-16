@@ -15,6 +15,7 @@ from backend.containers.logs import LogCursor
 from backend.containers.wire import (
     ActionPlanView,
     ContainerView,
+    EnvironmentPowerView,
     HostCapacityView,
     LogLineView,
     LogPageView,
@@ -199,6 +200,25 @@ class FakeContainers(_FakeResources):
     def __init__(self) -> None:
         self.views = (_view(WEB, "web"), _view(WORKER, "worker"))
         self.calls: list[str] = []
+        self.power_calls: list[tuple[str, str, Actor]] = []
+
+    def environment_power(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        self.power_calls.append(("read", env.value, actor))
+        return _power_view()
+
+    def stop_environment(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        self.power_calls.append(("stop", env.value, actor))
+        return _power_view("STOPPED")
+
+    def start_environment(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        self.power_calls.append(("start", env.value, actor))
+        return _power_view("RUNNING")
 
     def list_containers(
         self, slug: str, env: EnvironmentName, actor: Actor
@@ -248,6 +268,18 @@ class FakeContainers(_FakeResources):
             confirmation="c" * 20,
             expires_at=datetime(2030, 1, 1, tzinfo=UTC),
         )
+
+
+def _power_view(state: str = "RUNNING") -> EnvironmentPowerView:
+    return EnvironmentPowerView(
+        state=state,
+        running=1 if state == "RUNNING" else 0,
+        total=2,
+        auto_stop_hours=None,
+        last_deployed_at=None,
+        started_at=None,
+        auto_stop_due_at=None,
+    )
 
 
 def with_fake_containers(container: AppContainer) -> tuple[AppContainer, FakeContainers]:

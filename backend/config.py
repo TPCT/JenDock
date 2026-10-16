@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     deploy_health_timeout: int = Field(default=120, gt=0)
     deploy_settle_seconds: float = Field(default=3.0, ge=0)
     image_retention: int = Field(default=0, ge=0)
+    auto_stop_interval: int = Field(default=300, ge=1)
+    dev_default_cpus: float = Field(default=0.5, gt=0)
+    dev_default_memory_mib: int = Field(default=512, gt=0)
     # Scheduled backups in the worker (off by default): one archive per day at ``backup_hour_utc``
     # into ``backup_dir``, keeping the newest ``backup_keep``. The secret key is never included.
     backup_enabled: bool = False

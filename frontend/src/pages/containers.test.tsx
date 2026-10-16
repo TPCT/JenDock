@@ -446,6 +446,10 @@ describe("resources", () => {
         await within(all).findByRole("group", { name: `${service} resources` }),
       ).toBeInTheDocument();
     }
+    expect(within(all).getAllByText("Default").length).toBeGreaterThan(0);
+    expect(
+      within(all).getByText(/New services get 0.5 CPU \/ 512 MiB by default/),
+    ).toBeInTheDocument();
     expect(
       within(all).getByText("No running container, so there is no usage to show."),
     ).toBeInTheDocument();

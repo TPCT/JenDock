@@ -31,6 +31,7 @@ interface ProjectSeed {
   /** Environments with compose settings and a stored pipeline (default: both). */
   configured?: { development: boolean; production: boolean };
   gitTransport?: "ssh" | "https";
+  autoStopHours?: number | null;
 }
 
 const INITIAL_SEEDS: ProjectSeed[] = [
@@ -338,6 +339,7 @@ export function projects(): Project[] {
       name,
       branch: seed[name].branch,
       auto_deploy: seed[name].autoDeploy,
+      auto_stop_hours: name === "development" ? (seed.autoStopHours ?? null) : null,
       compose_project: seed.configured?.[name] === false ? null : `${seed.slug}-${name}`,
       compose_files:
         seed.configured?.[name] === false ? [] : [`/opt/projects/${seed.slug}/${name}/compose.yml`],
@@ -580,7 +582,7 @@ export function patchProject(
 export function patchEnvironment(
   slug: string,
   env: EnvironmentName,
-  body: { branch?: string; auto_deploy?: boolean },
+  body: { branch?: string; auto_deploy?: boolean; auto_stop_hours?: number | null },
 ): { error: string } | { value: Project["environments"][number] } | null {
   const seed = SEEDS.find((item) => item.slug === slug);
   if (!seed) return null;
@@ -590,6 +592,8 @@ export function patchEnvironment(
   }
   if (body.branch !== undefined) seed[env].branch = body.branch;
   if (body.auto_deploy !== undefined) seed[env].autoDeploy = body.auto_deploy;
+  if (body.auto_stop_hours !== undefined || Object.hasOwn(body, "auto_stop_hours"))
+    seed.autoStopHours = body.auto_stop_hours;
   const value = projects()
     .find((item) => item.slug === slug)
     ?.environments.find((item) => item.name === env);

@@ -107,6 +107,8 @@ def update_environment(
     change = EnvironmentUpdate(
         branch=body.branch,
         auto_deploy=body.auto_deploy,
+        auto_stop_hours=body.auto_stop_hours,
+        set_auto_stop_hours="auto_stop_hours" in body.model_fields_set,
         compose_project=body.compose_project,
         clear_compose_project=body.clears_compose_project,
         compose_files=body.compose_files,

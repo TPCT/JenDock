@@ -236,6 +236,8 @@ class Environment(Base):
     # Interpolation env files for every compose invocation (absolute host paths).
     compose_env_files: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     services: Mapped[list[str]] = mapped_column(JSON, default=list)
+    auto_stop_hours: Mapped[int | None] = mapped_column(default=None)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime, default=None)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
 
@@ -531,6 +533,7 @@ class ResourceLimit(Base):
         ForeignKey("users.id", ondelete="SET NULL"), default=None
     )
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utcnow)
+    origin: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
 
 
 class DomainCertificate(Base):

@@ -111,7 +111,9 @@ class LockedDeployer:
 
 
 def managed_files(
-    root: Path, more: Callable[[EnvironmentKey], Sequence[str]] | None = None
+    root: Path,
+    more: Callable[[EnvironmentKey], Sequence[str]] | None = None,
+    before: Callable[[DeployRequest, EnvironmentKey], None] | None = None,
 ) -> ExtraFiles:
     """Provider of the managed override files of the deployed environment: the container
     management file (environment variables) and, through ``more``, the resource limits file."""
@@ -119,6 +121,8 @@ def managed_files(
 
     def files(request: DeployRequest) -> list[str]:
         key = EnvironmentKey(request.project, EnvironmentName(request.environment))
+        if before is not None:
+            before(request, key)
         found = store.compose_file_args(key)[1::2]
         return [*found, *(more(key) if more is not None else ())]
 

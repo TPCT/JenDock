@@ -22,6 +22,7 @@ from backend.repositories.database import (
     create_db_engine,
     create_session_factory,
 )
+from backend.services.auto_stop import AutoStopScheduler
 from backend.services.secret_cipher import SecretCipher
 from backend.services.secrets import SecretService
 from backend.services.totp import TotpVault
@@ -210,6 +211,17 @@ def main() -> None:
     recover_interrupted_runs(scheduler.env)
     renewal = _start_renewal(ingress, shutdown)
     backups = _start_backups(settings, shutdown)
+    auto_stop = None
+    if containers.services.power is not None:
+        auto_stop = threading.Thread(
+            target=AutoStopScheduler(
+                session_factory, containers.services.power, settings.auto_stop_interval
+            ).run_forever,
+            args=(shutdown,),
+            name="environment-auto-stop",
+            daemon=True,
+        )
+        auto_stop.start()
     notifiers = notifications.start(shutdown)
     logger.info("worker started")
     try:
@@ -222,6 +234,8 @@ def main() -> None:
             thread.join(timeout=5)
         if backups is not None:
             backups.join(timeout=5)
+        if auto_stop is not None:
+            auto_stop.join(timeout=5)
         if renewal is not None:
             renewal.join(timeout=5)
         server.stop()

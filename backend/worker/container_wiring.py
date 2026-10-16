@@ -23,6 +23,7 @@ from backend.containers.lifecycle import ContainerInventory, LifecycleService
 from backend.containers.limits import LimitsService
 from backend.containers.locks import EnvironmentLocks
 from backend.containers.logs import LogService
+from backend.containers.power import EnvironmentPowerService
 from backend.containers.recreate import (
     CombinedOverrideFiles,
     DeployOverrideFiles,
@@ -116,6 +117,15 @@ def build_container_parts(
         ),
         files=FileBrowser(resolver, engine, membership, auditor),
         telemetry=telemetry,
+        power=EnvironmentPowerService(
+            resolver,
+            ContainerInventory(resolver, engine, membership),
+            commands,
+            files.paths,
+            locks,
+            auditor,
+            session_factory,
+        ),
     )
     manager = TerminalManager(
         TerminalLimits(

@@ -10,6 +10,20 @@ const apiError = (status: number, code: string, message: string) =>
   HttpResponse.json({ error: { code, message } }, { status });
 
 describe("paged project list (shared list view)", () => {
+  it("does not load per-environment power for compact project cards", async () => {
+    enableBulkMockData();
+    let powerReads = 0;
+    server.use(
+      http.get("/api/projects/:slug/environments/:env/power", () => {
+        powerReads += 1;
+        return HttpResponse.json({});
+      }),
+    );
+    renderApp("/projects");
+    expect(await screen.findByText("Showing 1-25 of 68")).toBeInTheDocument();
+    expect(powerReads).toBe(0);
+  });
+
   it("shows the first page, the total and the pagination", async () => {
     enableBulkMockData();
     renderApp("/projects");

@@ -68,6 +68,8 @@ TOOL_ACCESS: dict[str, ToolAccess] = {
     "list_deployments": ToolAccess(A.DEPLOYMENT_READ),
     "preview_redeploy": ToolAccess(A.DEPLOYMENT_REDEPLOY),
     "redeploy": ToolAccess(A.DEPLOYMENT_REDEPLOY),
+    "stop_environment": ToolAccess(A.ENVIRONMENT_STOP),
+    "start_environment": ToolAccess(A.ENVIRONMENT_START),
     # domains
     "list_domains": ToolAccess(A.DOMAIN_READ, At.ENVIRONMENT_OPTIONAL, without=A.DOMAIN_DISCOVER),
     "discover_domains": ToolAccess(A.DOMAIN_DISCOVER_REFRESH, At.NOTHING),

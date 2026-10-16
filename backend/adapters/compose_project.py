@@ -91,6 +91,23 @@ class ComposeProject:
         ]
         return self._docker.stream(args, sink, timeout=timeout, cancel=cancel)
 
+    def start(self, services: Sequence[str], sink: LineSink, timeout: float) -> ExecResult:
+        """Start only services with existing containers, without building or pulling images."""
+        args = [
+            *self.base_command(),
+            "up",
+            "--detach",
+            "--no-build",
+            "--pull",
+            "never",
+            *services,
+        ]
+        return self._docker.stream(args, sink, timeout=timeout)
+
+    def stop(self, sink: LineSink, timeout: float) -> ExecResult:
+        """Stop all services while preserving their containers, networks and volumes."""
+        return self._docker.stream([*self.base_command(), "stop"], sink, timeout=timeout)
+
     def remove(self, service: str, sink: LineSink, timeout: float) -> ExecResult:
         """Stop and remove the containers of one service (and nothing else)."""
         args = [*self.base_command(with_override=False), "rm", "--stop", "--force", service]

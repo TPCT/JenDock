@@ -101,10 +101,14 @@ export function useUpdateProject(slug: string) {
 export function useUpdateEnvironment(slug: string, env: EnvironmentName) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { branch?: string; auto_deploy?: boolean }) =>
-      api.patch<EnvironmentSummary>(envPath(slug, env), body),
+    mutationFn: (body: {
+      branch?: string;
+      auto_deploy?: boolean;
+      auto_stop_hours?: number | null;
+    }) => api.patch<EnvironmentSummary>(envPath(slug, env), body),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: keys.projects });
+      await client.invalidateQueries({ queryKey: ["environment-power", slug, env] });
     },
   });
 }

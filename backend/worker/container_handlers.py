@@ -13,6 +13,7 @@ from backend.containers.files import DEFAULT_READ_BYTES, FileBrowser
 from backend.containers.lifecycle import ContainerInventory, LifecycleService
 from backend.containers.limits import LimitsService
 from backend.containers.logs import DEFAULT_TAIL, LogCursor, LogService
+from backend.containers.power import EnvironmentPowerService
 from backend.containers.resources import ResourceService
 from backend.containers.telemetry import TelemetryService
 from backend.containers.wire import (
@@ -22,6 +23,7 @@ from backend.containers.wire import (
     ContainerStatsView,
     ContainerView,
     DirectoryView,
+    EnvironmentPowerView,
     EnvRevealView,
     EnvUpdateView,
     EnvVarView,
@@ -54,6 +56,7 @@ class ContainerServices:
     resources: ResourceService
     files: FileBrowser
     telemetry: TelemetryService
+    power: EnvironmentPowerService | None = None
 
 
 class _Params(BaseModel):
@@ -310,6 +313,33 @@ class ContainerHandlers:
             )
         )
 
+    def power_state(self, call: RpcCall) -> object:
+        params = _parse(_EnvParams, call)
+        call.require_actor()
+        if self._s.power is None:
+            raise BadRequestError("environment power is not configured")
+        return _dump(EnvironmentPowerView.of(self._s.power.state(params.slug, params.env)))
+
+    def power_stop(self, call: RpcCall) -> object:
+        params = _parse(_EnvParams, call)
+        if self._s.power is None:
+            raise BadRequestError("environment power is not configured")
+        return _dump(
+            EnvironmentPowerView.of(
+                self._s.power.stop(params.slug, params.env, call.require_actor())
+            )
+        )
+
+    def power_start(self, call: RpcCall) -> object:
+        params = _parse(_EnvParams, call)
+        if self._s.power is None:
+            raise BadRequestError("environment power is not configured")
+        return _dump(
+            EnvironmentPowerView.of(
+                self._s.power.start(params.slug, params.env, call.require_actor())
+            )
+        )
+
 
 def build_container_handlers(services: ContainerServices) -> Mapping[str, Handler]:
     """The allowlist of container methods."""
@@ -333,4 +363,7 @@ def build_container_handlers(services: ContainerServices) -> Mapping[str, Handle
         "containers.files.read": handlers.files_read,
         "containers.stats": handlers.stats,
         "telemetry.host": handlers.host,
+        "environments.power": handlers.power_state,
+        "environments.stop": handlers.power_stop,
+        "environments.start": handlers.power_start,
     }

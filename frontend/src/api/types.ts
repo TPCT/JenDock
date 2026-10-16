@@ -77,6 +77,7 @@ export interface EnvironmentSummary {
   name: EnvironmentName;
   branch: string;
   auto_deploy: boolean;
+  auto_stop_hours?: number | null;
   /** Docker Compose settings the deployer needs; empty until configured. */
   compose_project: string | null;
   compose_files: string[];

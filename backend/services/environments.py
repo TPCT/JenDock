@@ -31,6 +31,8 @@ class EnvironmentUpdate:
 
     branch: str | None = None
     auto_deploy: bool | None = None
+    auto_stop_hours: int | None = None
+    set_auto_stop_hours: bool = False
     compose_project: str | None = None
     clear_compose_project: bool = False
     compose_files: list[str] | None = None
@@ -65,8 +67,10 @@ class EnvironmentService:
         validated = _validate_update(change)
         with self._uow:
             environment = require_environment(self._uow, slug, name)
+            if name is EnvironmentName.PRODUCTION and change.auto_stop_hours is not None:
+                raise ValidationError("auto-stop can only be set on development")
             self._reject_shared_branch(environment, validated)
-            before = (environment.branch, environment.auto_deploy)
+            before = (environment.branch, environment.auto_deploy, environment.auto_stop_hours)
             _apply_update(environment, validated)
             environment.updated_at = self._clock()
             if actor is not None:
@@ -83,13 +87,18 @@ class EnvironmentService:
                 )
 
     def _audit_update(
-        self, environment: Environment, slug: str, before: tuple[str, bool], actor: Actor
+        self,
+        environment: Environment,
+        slug: str,
+        before: tuple[str, bool, int | None],
+        actor: Actor,
     ) -> None:
         details: dict[str, object] = {
             "project": slug,
             "environment": environment.name.value,
             "branch": {"from": before[0], "to": environment.branch},
             "auto_deploy": {"from": before[1], "to": environment.auto_deploy},
+            "auto_stop_hours": {"from": before[2], "to": environment.auto_stop_hours},
             "compose": {
                 "project": environment.compose_project,
                 "files": list(environment.compose_files),
@@ -107,6 +116,8 @@ def _validate_update(change: EnvironmentUpdate) -> EnvironmentUpdate:
     return EnvironmentUpdate(
         branch=str(BranchName(change.branch)) if change.branch is not None else None,
         auto_deploy=change.auto_deploy,
+        auto_stop_hours=change.auto_stop_hours,
+        set_auto_stop_hours=change.set_auto_stop_hours,
         compose_project=validate_compose_project(change.compose_project),
         clear_compose_project=change.clear_compose_project,
         compose_files=validate_compose_files(change.compose_files)
@@ -124,6 +135,8 @@ def _apply_update(environment: Environment, change: EnvironmentUpdate) -> None:
         environment.branch = change.branch
     if change.auto_deploy is not None:
         environment.auto_deploy = change.auto_deploy
+    if change.set_auto_stop_hours:
+        environment.auto_stop_hours = change.auto_stop_hours
     if change.clear_compose_project:
         environment.compose_project = None
     elif change.compose_project is not None:

@@ -16,6 +16,7 @@ from backend.containers.wire import (
     ContainerStatsView,
     ContainerView,
     DirectoryView,
+    EnvironmentPowerView,
     EnvRevealView,
     EnvUpdateView,
     EnvVarView,
@@ -161,6 +162,21 @@ class ContainersGateway(Protocol):
 
     def host_telemetry(self, actor: Actor) -> HostTelemetryView:
         """Host reading and history."""
+
+    def environment_power(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        """Read environment power state."""
+
+    def stop_environment(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        """Stop all services of an environment."""
+
+    def start_environment(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        """Start all services of an environment."""
 
 
 def _env(slug: str, env: EnvironmentName) -> dict[str, object]:
@@ -371,6 +387,28 @@ class ContainerClient:
         """``telemetry.host``."""
         result = self._worker.call("telemetry.host", actor, {}, timeout=QUICK_TIMEOUT)
         return _view(HostTelemetryView, result)
+
+    def environment_power(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        result = self._worker.call("environments.power", actor, _env(slug, env))
+        return _view(EnvironmentPowerView, result)
+
+    def stop_environment(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        result = self._worker.call(
+            "environments.stop", actor, _env(slug, env), timeout=ACTION_TIMEOUT
+        )
+        return _view(EnvironmentPowerView, result)
+
+    def start_environment(
+        self, slug: str, env: EnvironmentName, actor: Actor
+    ) -> EnvironmentPowerView:
+        result = self._worker.call(
+            "environments.start", actor, _env(slug, env), timeout=ACTION_TIMEOUT
+        )
+        return _view(EnvironmentPowerView, result)
 
 
 def _items(result: object) -> list[object]:

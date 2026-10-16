@@ -22,7 +22,10 @@ const keyOf = (slug: unknown, env: unknown, service: unknown) =>
   `${String(slug)}/${String(env)}/${String(service)}`;
 
 /** The seeded web containers already run with 1 CPU and 512 MiB, saved like a real deploy would. */
-function seed(): Map<string, { limits: ResourceLimits; updated_at: string }> {
+function seed(): Map<
+  string,
+  { limits: ResourceLimits; updated_at: string; origin: "user" | "default" }
+> {
   const web: ResourceLimits = {
     cpus: 1,
     memory_bytes: 512 * MIB,
@@ -30,12 +33,31 @@ function seed(): Map<string, { limits: ResourceLimits; updated_at: string }> {
     cpu_shares: null,
   };
   const at = new Date(Date.now() - 3 * 24 * 3_600_000).toISOString();
-  return new Map(
-    ["development", "production"].map((env) => [
-      keyOf("shop-api", env, "web"),
-      { limits: web, updated_at: at },
-    ]),
-  );
+  return new Map<
+    string,
+    { limits: ResourceLimits; updated_at: string; origin: "user" | "default" }
+  >([
+    ...["development", "production"].map(
+      (env) =>
+        [
+          keyOf("shop-api", env, "web"),
+          { limits: web, updated_at: at, origin: "user" as const },
+        ] as const,
+    ),
+    [
+      keyOf("shop-api", "development", "worker"),
+      {
+        limits: {
+          cpus: 0.5,
+          memory_bytes: 512 * MIB,
+          memory_reservation_bytes: null,
+          cpu_shares: null,
+        },
+        updated_at: at,
+        origin: "default" as const,
+      },
+    ],
+  ]);
 }
 
 let saved = seed();
@@ -126,6 +148,7 @@ export function resourcesHandlers(ctx: MockContext): HttpHandler[] {
           service,
           limits: entry?.limits ?? null,
           updated_at: entry?.updated_at ?? null,
+          origin: entry?.origin ?? null,
         };
       });
       return HttpResponse.json({ host: MOCK_HOST, services: items });
@@ -170,6 +193,7 @@ export function resourcesHandlers(ctx: MockContext): HttpHandler[] {
       saved.set(keyOf(params.slug, params.env, service), {
         limits,
         updated_at: new Date().toISOString(),
+        origin: "user",
       });
       const applied =
         body.apply_now === true ? applyLive(params.slug, params.env, service, limits) : [];
