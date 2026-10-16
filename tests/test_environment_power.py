@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -162,7 +163,10 @@ def test_auto_stop_tick_waits_until_due_and_uses_system_actor(engine: Engine, pr
             *,
             audit_action: str,
             audit_details: dict[str, object] | None,
+            only_if: Callable[[EnvironmentPower], bool] | None = None,
         ) -> None:
+            if only_if is not None and not only_if(self.state_value):
+                return
             self.stopped.append((slug, actor, {**(audit_details or {}), "action": audit_action}))
 
     power = FakePower()
@@ -212,7 +216,12 @@ def test_auto_stop_skips_stopped_and_disabled_environments(
         def state(self, _slug: str, _env: EnvironmentName) -> EnvironmentPower:
             return power_state
 
-        def stop(self, *_args: object, **_kwargs: object) -> None:
+        def stop(
+            self,
+            *_args: object,
+            only_if: Callable[[EnvironmentPower], bool] | None = None,
+            **_kwargs: object,
+        ) -> None:
             pytest.fail("ineligible environment was stopped")
 
     AutoStopScheduler(factory, FakePower()).tick(  # type: ignore[arg-type]
@@ -269,10 +278,53 @@ def test_auto_stop_candidates_are_development_only(engine: Engine, project: str)
                 datetime(2026, 10, 16, 10, tzinfo=UTC),
             )
 
-        def stop(self, _slug: str, env: EnvironmentName, *_args: object, **_kwargs: object) -> None:
+        def stop(
+            self,
+            _slug: str,
+            env: EnvironmentName,
+            *_args: object,
+            only_if: Callable[[EnvironmentPower], bool] | None = None,
+            **_kwargs: object,
+        ) -> None:
             self.stopped.append(env)
 
     power = FakePower()
     AutoStopScheduler(factory, power).tick(datetime(2026, 10, 16, 10, tzinfo=UTC))  # type: ignore[arg-type]
     assert power.states == [DEV]
     assert power.stopped == [DEV]
+
+
+def test_auto_stop_rechecks_deadline_after_acquiring_environment_lock(
+    tmp_path: Path, engine: Engine, project: str
+) -> None:
+    stack = build_stack(tmp_path, engine, project)
+    factory = create_session_factory(engine)
+    EnvironmentService(UnitOfWork(factory)).update(
+        project, DEV, EnvironmentUpdate(auto_stop_hours=1, set_auto_stop_hours=True)
+    )
+    with UnitOfWork(factory) as uow:
+        environment = uow.environments.get(stack.environment_id)
+        assert environment is not None
+        environment.started_at = datetime(2026, 10, 16, 9, tzinfo=UTC)
+
+    commands = Commands()
+    power = _power(tmp_path, engine, stack, commands)
+    original_locks = stack.locks
+
+    class DeadlineMovesAfterLock:
+        @contextmanager
+        def hold(self, key: str, *, timeout: float | None) -> Iterator[None]:
+            # Model a deployment completing after the scheduler scan and before this stop
+            # operation acquires the shared environment lock.
+            with UnitOfWork(factory) as uow:
+                environment = uow.environments.get(stack.environment_id)
+                assert environment is not None
+                environment.started_at = datetime(2026, 10, 16, 9, 30, tzinfo=UTC)
+            with original_locks.hold(key, timeout=timeout):
+                yield
+
+    power._locks = DeadlineMovesAfterLock()  # type: ignore[assignment]
+    AutoStopScheduler(factory, power).tick(datetime(2026, 10, 16, 10, tzinfo=UTC))
+
+    assert commands.args == []
+    assert AuditService(UnitOfWork(factory)).list(action="environment.auto_stop") == []

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Protocol
 
-from backend.containers.power import EnvironmentPowerService, PowerState
+from backend.containers.power import EnvironmentPower, EnvironmentPowerService, PowerState
 from backend.domain.actor import Actor
 from backend.domain.clock import Clock, utcnow
 from backend.domain.enums import EnvironmentName
@@ -45,25 +45,46 @@ class AutoStopScheduler:
                 continue
             try:
                 state = self._power.state(slug, environment)
-                if state.state is not PowerState.RUNNING or state.auto_stop_due_at is None:
+                if not self._due(state, current):
                     continue
-                if current < state.auto_stop_due_at:
-                    continue
-                reference = max(
-                    item for item in (state.started_at, state.last_deployed_at) if item is not None
-                )
+                details: dict[str, object] = {}
+
+                def still_due(
+                    fresh: EnvironmentPower, detail_values: dict[str, object] = details
+                ) -> bool:
+                    # The stop service calls this with a fresh snapshot while holding the
+                    # environment lock, after any in-flight deployment has completed.
+                    if not self._due(fresh, current):
+                        return False
+                    reference = max(
+                        item
+                        for item in (fresh.started_at, fresh.last_deployed_at)
+                        if item is not None
+                    )
+                    detail_values.update(
+                        {"hours": fresh.auto_stop_hours, "reference_time": reference.isoformat()}
+                    )
+                    return True
+
                 self._power.stop(
                     slug,
                     environment,
                     Actor.system("auto-stop"),
                     audit_action="environment.auto_stop",
-                    audit_details={
-                        "hours": state.auto_stop_hours or 0,
-                        "reference_time": reference.isoformat(),
-                    },
+                    audit_details=details,
+                    only_if=still_due,
                 )
             except Exception:
                 logger.exception("auto-stop failed", extra={"project": slug})
+
+    @staticmethod
+    def _due(state: EnvironmentPower, now: datetime) -> bool:
+        """Whether a power snapshot is running and its configured deadline has passed."""
+        return (
+            state.state is PowerState.RUNNING
+            and state.auto_stop_due_at is not None
+            and now >= state.auto_stop_due_at
+        )
 
     def run_forever(self, shutdown: StopSignal) -> None:
         """Run scans until the worker is shutting down."""

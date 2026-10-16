@@ -88,7 +88,7 @@ class EnvironmentPowerService:
             state, running, len(infos), auto_stop_hours, last_deployed_at, started_at, due
         )
 
-    def stop(
+    def stop(  # noqa: PLR0913 - stop exposes optional scheduler guard and audit context
         self,
         slug: str,
         env: EnvironmentName,
@@ -96,13 +96,14 @@ class EnvironmentPowerService:
         *,
         audit_action: str = "environment.stop",
         audit_details: dict[str, object] | None = None,
+        only_if: Callable[[EnvironmentPower], bool] | None = None,
     ) -> EnvironmentPower:
         """Stop every service while preserving the project and its volumes."""
-        return self._change(slug, env, actor, "stop", audit_action, audit_details)
+        return self._change(slug, env, actor, "stop", audit_action, audit_details, only_if)
 
     def start(self, slug: str, env: EnvironmentName, actor: Actor) -> EnvironmentPower:
         """Start services with existing containers using deployed images without pulling."""
-        return self._change(slug, env, actor, "start", "environment.start", None)
+        return self._change(slug, env, actor, "start", "environment.start", None, None)
 
     def _change(  # noqa: PLR0913, PLR0917 - one power operation and its audit context
         self,
@@ -112,6 +113,7 @@ class EnvironmentPowerService:
         action: str,
         audit_action: str,
         audit_details: dict[str, object] | None,
+        only_if: Callable[[EnvironmentPower], bool] | None,
     ) -> EnvironmentPower:
         target = self._resolver.resolve(slug, env)
         before = EnvironmentPower(PowerState.NOT_DEPLOYED, 0, 0, None, None, None, None)
@@ -119,6 +121,8 @@ class EnvironmentPowerService:
             ensure_readable(target.compose_files, target.compose_env_files)
             with self._locks.hold(lock_key(slug, env.value), timeout=30):
                 before = self.state(slug, env)
+                if only_if is not None and not only_if(before):
+                    return before
                 if action == "start" and before.state is PowerState.NOT_DEPLOYED:
                     raise ConflictError("deploy it first")
                 services = sorted(

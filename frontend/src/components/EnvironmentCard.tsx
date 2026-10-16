@@ -247,7 +247,7 @@ export function EnvironmentCard({
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant={dialog === "stop" ? "danger" : "primary"}
                 disabled={
                   action.isPending ||
                   (dialog === "stop" &&
