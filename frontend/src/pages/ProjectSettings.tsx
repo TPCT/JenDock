@@ -255,9 +255,12 @@ function EnvironmentForm({
   const [branch, setBranch] = useState(environment.branch);
   const dirty = branch.trim() !== environment.branch;
   const auto = environment.auto_deploy;
+  const [autoStopHours, setAutoStopHours] = useState(String(environment.auto_stop_hours ?? 1));
   const switchId = `auto-${environment.name}`;
   const configured = environment.compose_files.length > 0 && environment.has_pipeline;
   const toggled = update.variables?.auto_deploy !== undefined;
+  const autoStopChanged =
+    update.variables !== undefined && Object.hasOwn(update.variables, "auto_stop_hours");
   return (
     <div
       className={`${box.box} ${box.row} ${box.stack}`}
@@ -299,7 +302,54 @@ function EnvironmentForm({
             : "This environment has no stored pipeline. Add one in the Pipeline tab unless the repository has its own Jenkinsfile."}
         </Callout>
       ) : null}
+      {environment.name === "development" ? (
+        <div className={`${box.cluster} ${styles.auto}`}>
+          <ToggleSwitch
+            aria-labelledby={`auto-stop-${environment.name}`}
+            checked={
+              environment.auto_stop_hours !== null && environment.auto_stop_hours !== undefined
+            }
+            onChange={(enabled) => {
+              update.mutate({ auto_stop_hours: enabled ? Number(autoStopHours) : null });
+            }}
+          />
+          <div className={styles.autoText}>
+            <strong id={`auto-stop-${environment.name}`}>
+              Stop after N hours without a deploy
+            </strong>
+            <p>Off by default. Starting the environment resets the timer.</p>
+          </div>
+          {environment.auto_stop_hours !== null && environment.auto_stop_hours !== undefined ? (
+            <TextInput
+              aria-label="Auto-stop hours (1 to 168)"
+              type="number"
+              min={1}
+              max={168}
+              value={autoStopHours}
+              onChange={(event) => {
+                setAutoStopHours(event.target.value);
+              }}
+              onBlur={() => {
+                const value = Number(autoStopHours);
+                if (
+                  Number.isInteger(value) &&
+                  value >= 1 &&
+                  value <= 168 &&
+                  value !== environment.auto_stop_hours
+                ) {
+                  update.mutate({ auto_stop_hours: value });
+                }
+              }}
+            />
+          ) : null}
+        </div>
+      ) : null}
       {update.isError && toggled ? (
+        <Callout variant="danger" role="alert">
+          {errorMessage(update.error)}
+        </Callout>
+      ) : null}
+      {update.isError && autoStopChanged ? (
         <Callout variant="danger" role="alert">
           {errorMessage(update.error)}
         </Callout>

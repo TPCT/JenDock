@@ -47,6 +47,8 @@ const VIEWER = [
   "secret.list",
 ];
 const DEVELOPER = ["run.create", "run.cancel", "run.retry", "pipeline.write", "database.data"];
+DEVELOPER.push("environment.start", "environment.stop");
+VIEWER.push("environment.power_read");
 const MAINTAINER = [
   "database.detect",
   "deployment.redeploy",

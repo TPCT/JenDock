@@ -23,6 +23,7 @@ class SavedLimits:
     service: str
     limits: ResourceLimits
     updated_at: datetime
+    origin: str = "user"
 
 
 def _limits_of(row: ResourceLimit) -> ResourceLimits:
@@ -46,7 +47,10 @@ class ResourceLimitStore:
         uow = UnitOfWork(self._session_factory)
         with uow:
             rows = uow.resource_limits.list_for_environment(environment_id)
-            return [SavedLimits(row.service, _limits_of(row), row.updated_at) for row in rows]
+            return [
+                SavedLimits(row.service, _limits_of(row), row.updated_at, row.origin)
+                for row in rows
+            ]
 
     def limits(self, environment_id: int) -> Mapping[str, ResourceLimits]:
         """Service to limits of the environment."""
@@ -72,7 +76,11 @@ class ResourceLimitStore:
         uow = UnitOfWork(self._session_factory)
         with uow:
             row = uow.resource_limits.get(environment_id, service)
-            return SavedLimits(row.service, _limits_of(row), row.updated_at) if row else None
+            return (
+                SavedLimits(row.service, _limits_of(row), row.updated_at, row.origin)
+                if row
+                else None
+            )
 
     def save(
         self, environment_id: int, service: str, limits: ResourceLimits, actor: Actor
@@ -92,7 +100,31 @@ class ResourceLimitStore:
             user_id = _user_id(actor)
             row.updated_by = user_id if user_id and uow.users.get(user_id) else None
             row.updated_at = self._clock()
-            return SavedLimits(row.service, _limits_of(row), row.updated_at)
+            row.origin = "user"
+            return SavedLimits(row.service, _limits_of(row), row.updated_at, row.origin)
+
+    def apply_development_defaults(
+        self, environment_id: int, services: list[str], cpus: float, memory_bytes: int
+    ) -> list[str]:
+        """Create default rows only for services that have no saved row."""
+        uow = UnitOfWork(self._session_factory)
+        with uow:
+            applied: list[str] = []
+            for service in sorted(set(services)):
+                if uow.resource_limits.get(environment_id, service) is None:
+                    uow.resource_limits.add(
+                        ResourceLimit(
+                            environment_id=environment_id,
+                            service=service,
+                            cpus=cpus,
+                            memory_bytes=memory_bytes,
+                            origin="default",
+                            updated_by=None,
+                            updated_at=self._clock(),
+                        )
+                    )
+                    applied.append(service)
+            return applied
 
     def delete(self, environment_id: int, service: str) -> bool:
         """Remove the limits of a service; whether there were any."""

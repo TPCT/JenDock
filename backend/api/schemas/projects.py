@@ -20,6 +20,7 @@ class EnvironmentResponse(BaseModel):
     name: str
     branch: str
     auto_deploy: bool
+    auto_stop_hours: int | None = None
     compose_project: str | None
     compose_files: list[str]
     compose_env_files: list[str]
@@ -36,6 +37,7 @@ class EnvironmentResponse(BaseModel):
             name=environment.name.value,
             branch=environment.branch,
             auto_deploy=environment.auto_deploy,
+            auto_stop_hours=environment.auto_stop_hours,
             compose_project=environment.compose_project,
             compose_files=list(environment.compose_files),
             compose_env_files=list(environment.compose_env_files),
@@ -114,6 +116,7 @@ class UpdateEnvironmentRequest(BaseModel):
 
     branch: str | None = Field(default=None, min_length=1, max_length=200)
     auto_deploy: bool | None = None
+    auto_stop_hours: int | None = Field(default=None, ge=1, le=168)
     # The Docker Compose project the platform deploys to and manages. ``null`` clears the name;
     # the file lists replace the stored ones; every path is absolute (docs/execution.md).
     compose_project: str | None = Field(default=None, max_length=63)

@@ -128,3 +128,20 @@ def test_existing_domains_stay_managed_and_the_discovery_tables_come_and_go(
     assert tuple(row) == ("managed", None, None)
     assert {"discovered_domains", "discovery_state"} <= set(inspect(engine).get_table_names())
     engine.dispose()
+
+
+def test_environment_power_columns_upgrade_and_downgrade(migrated_url: str) -> None:
+    engine = create_db_engine(migrated_url)
+    environment_columns = {column["name"] for column in inspect(engine).get_columns("environments")}
+    limit_columns = {column["name"] for column in inspect(engine).get_columns("resource_limits")}
+    assert {"auto_stop_hours", "started_at"} <= environment_columns
+    assert "origin" in limit_columns
+    engine.dispose()
+
+    command.downgrade(build_config(), "0010_domain_adoption")
+    engine = create_db_engine(migrated_url)
+    environment_columns = {column["name"] for column in inspect(engine).get_columns("environments")}
+    limit_columns = {column["name"] for column in inspect(engine).get_columns("resource_limits")}
+    assert not {"auto_stop_hours", "started_at"} & environment_columns
+    assert "origin" not in limit_columns
+    engine.dispose()

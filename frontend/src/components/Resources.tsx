@@ -1,4 +1,4 @@
-import { ProgressBar } from "@primer/react";
+import { Label, ProgressBar } from "@primer/react";
 import { Button } from "@primer/react";
 import { useState } from "react";
 import { useApplyResources, useResourceUsage, useResources } from "../api/resourceHooks";
@@ -113,6 +113,7 @@ function ServiceRow({
       <div className={box.spread}>
         <div className={styles.limits}>
           <strong>{entry.service}</strong>{" "}
+          {entry.origin === "default" ? <Label variant="secondary">Default</Label> : null}{" "}
           <span className="muted">
             {entry.limits ? describeLimits(entry.limits) : "No limit set"}
           </span>
@@ -212,6 +213,11 @@ export function ResourcesSection({
           Limits are saved for every future deploy; Apply now updates running containers.
         </span>
       </div>
+      {env === "development" ? (
+        <p className={`${box.row} muted`}>
+          New services get 0.5 CPU / 512 MiB by default; edit to change.
+        </p>
+      ) : null}
       {resources.isPending ? (
         <div className={box.row}>
           <Loading label="Loading resources" />

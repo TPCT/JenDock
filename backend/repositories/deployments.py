@@ -107,6 +107,20 @@ class DeploymentRepository:
         )
         return self._session.scalar(query)
 
+    def latest_successful(self, environment_id: int) -> Deployment | None:
+        """Newest successfully completed deployment of an environment."""
+        query = (
+            select(Deployment)
+            .where(
+                Deployment.environment_id == environment_id,
+                Deployment.status == DeploymentStatus.SUCCEEDED,
+                Deployment.finished_at.is_not(None),
+            )
+            .order_by(Deployment.finished_at.desc())
+            .limit(1)
+        )
+        return self._session.scalar(query)
+
     def list_by_status(self, status: DeploymentStatus) -> Sequence[Deployment]:
         """Return deployments in ``status``, oldest first."""
         query = select(Deployment).where(Deployment.status == status).order_by(Deployment.id)

@@ -17,6 +17,7 @@ export interface ServiceResources {
   /** `null` when no limits are saved for the service. */
   limits: ResourceLimits | null;
   updated_at: string | null;
+  origin?: "user" | "default" | null;
 }
 
 export interface ResourceOverview {

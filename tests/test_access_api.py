@@ -151,6 +151,35 @@ def test_run_actions_need_developer_and_production_needs_maintainer(world: World
     assert world["devonly"].post(f"{DEV_BASE}/runs", body).status_code == 403
 
 
+def test_environment_power_routes_follow_environment_grants_and_confirmation(world: World) -> None:
+    dev_power = f"{DEV_BASE}/power"
+    prod_power = f"{PROD_BASE}/power"
+
+    for env_power in (dev_power, prod_power):
+        assert world["viewer"].post(f"{env_power}/stop").status_code == 403
+        assert world["viewer"].post(f"{env_power}/start").status_code == 403
+
+    assert world["developer"].post(f"{dev_power}/stop").status_code == 200
+    assert world["developer"].post(f"{dev_power}/start").status_code == 200
+    assert world["developer"].post(f"{prod_power}/stop", {"confirm": "demo"}).status_code == 403
+    assert world["developer"].post(f"{prod_power}/start").status_code == 403
+
+    assert world["maintainer"].post(f"{prod_power}/stop").status_code == 422
+    assert world["maintainer"].post(f"{prod_power}/stop", {"confirm": "other"}).status_code == 422
+    assert world["maintainer"].post(f"{prod_power}/stop", {"confirm": "demo"}).status_code == 200
+    assert world.owner.post(f"{prod_power}/stop", {"confirm": "demo"}).status_code == 200
+    assert world["viewer"].get(dev_power).status_code == 200
+    assert world["nobody"].get(dev_power).status_code in {403, 404}
+
+    assert [(action, env) for action, env, _actor in world.fake.power_calls] == [
+        ("stop", "development"),
+        ("start", "development"),
+        ("stop", "production"),
+        ("stop", "production"),
+        ("read", "development"),
+    ]
+
+
 def test_cancel_and_retry_follow_the_run(world: World) -> None:
     dev, prod = world.runs["demo_dev"], world.runs["demo_prod"]
     assert world["viewer"].post(f"/api/runs/{dev}/cancel").status_code == 403

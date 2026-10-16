@@ -343,6 +343,7 @@ def test_patch_environment_branch_and_auto_deploy(
         "name": "development",
         "branch": "develop",
         "auto_deploy": True,
+        "auto_stop_hours": None,
         "compose_project": None,
         "compose_files": [],
         "compose_env_files": [],
@@ -357,6 +358,32 @@ def test_patch_environment_branch_and_auto_deploy(
     events = AuditService(wired.uow()).list(action="environment.update")
     assert len(events) == 2
     assert events[1].details["branch"] == {"from": "development", "to": "develop"}
+
+
+def test_patch_auto_stop_hours_is_development_only_and_nullable(
+    api: tuple[TestClient, str],
+) -> None:
+    client, csrf = api
+    headers = mutation_headers(client, csrf)
+    assert (
+        client.patch(
+            f"{ENV_URL}/production", json={"auto_stop_hours": 1}, headers=headers
+        ).status_code
+        == 422
+    )
+    for value in (0, 169):
+        response = client.patch(
+            f"{ENV_URL}/development", json={"auto_stop_hours": value}, headers=headers
+        )
+        assert response.status_code == 422
+    enabled = client.patch(f"{ENV_URL}/development", json={"auto_stop_hours": 8}, headers=headers)
+    assert enabled.status_code == 200
+    assert enabled.json()["auto_stop_hours"] == 8
+    disabled = client.patch(
+        f"{ENV_URL}/development", json={"auto_stop_hours": None}, headers=headers
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["auto_stop_hours"] is None
 
 
 def test_patch_environment_compose_settings_round_trip_and_clear(

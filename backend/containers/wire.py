@@ -15,6 +15,7 @@ from backend.containers.environment import EnvUpdateResult
 from backend.containers.files import DirectoryListing, FileContent
 from backend.containers.lifecycle import ActionPlan, ActionResult
 from backend.containers.logs import LogCursor, LogPage
+from backend.containers.power import EnvironmentPower
 from backend.containers.resources import (
     AppliedContainer,
     ContainerUsage,
@@ -32,6 +33,30 @@ class View(BaseModel):
     """Base of every wire model."""
 
     model_config = ConfigDict(frozen=True)
+
+
+class EnvironmentPowerView(View):
+    """Power state and auto-stop timing of an environment."""
+
+    state: str
+    running: int
+    total: int
+    auto_stop_hours: int | None
+    last_deployed_at: datetime | None
+    started_at: datetime | None
+    auto_stop_due_at: datetime | None
+
+    @classmethod
+    def of(cls, item: EnvironmentPower) -> EnvironmentPowerView:
+        return cls(
+            state=item.state.value,
+            running=item.running,
+            total=item.total,
+            auto_stop_hours=item.auto_stop_hours,
+            last_deployed_at=item.last_deployed_at,
+            started_at=item.started_at,
+            auto_stop_due_at=item.auto_stop_due_at,
+        )
 
 
 class PortView(View):
@@ -392,6 +417,7 @@ class ServiceResourcesView(View):
     service: str
     limits: ResourceLimitsView | None
     updated_at: datetime | None
+    origin: str | None = None
 
     @classmethod
     def of(cls, item: ServiceResources) -> ServiceResourcesView:
@@ -400,6 +426,7 @@ class ServiceResourcesView(View):
             service=item.service,
             limits=ResourceLimitsView.of(item.limits) if item.saved else None,
             updated_at=item.updated_at,
+            origin=item.origin,
         )
 
 

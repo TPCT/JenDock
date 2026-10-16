@@ -118,3 +118,20 @@ class ContainerAuditor:
             **(details or {}),
         }
         service.record(actor, action, AuditTarget("container", container_id), merged)
+
+    def record_environment(
+        self,
+        actor: Actor,
+        action: str,
+        target: EnvironmentTarget,
+        details: Mapping[str, object] | None = None,
+    ) -> None:
+        """Store an event about an environment-wide operation."""
+        merged: dict[str, object] = {
+            "project": target.key.project,
+            "environment": target.key.environment.value,
+            **(details or {}),
+        }
+        AuditService(UnitOfWork(self._session_factory), self._clock).record(
+            actor, action, AuditTarget("environment", str(target.environment_id)), merged
+        )

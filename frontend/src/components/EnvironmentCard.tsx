@@ -5,7 +5,16 @@ import {
   PlayIcon,
   WorkflowIcon,
 } from "@primer/octicons-react";
-import { BranchName, Heading, Label, LinkButton, VisuallyHidden } from "@primer/react";
+import {
+  BranchName,
+  Button,
+  Dialog,
+  Heading,
+  Label,
+  LinkButton,
+  TextInput,
+  VisuallyHidden,
+} from "@primer/react";
 import { Link } from "react-router-dom";
 import type { EnvironmentSummary, Project } from "../api/types";
 import { capitalize } from "../lib/format";
@@ -15,6 +24,9 @@ import { CopySha } from "./CopySha";
 import styles from "./EnvironmentCard.module.css";
 import { StatusBadge } from "./Status";
 import { Duration, RelativeTime } from "./Time";
+import { useEnvironmentPower, useEnvironmentPowerAction } from "../api/environmentPowerHooks";
+import { useState } from "react";
+import { Callout, errorMessage } from "./Feedback";
 
 export function runsPath(slug: string, env: string): string {
   return `/projects/${encodeURIComponent(slug)}/environments/${env}/runs`;
@@ -47,6 +59,10 @@ export function EnvironmentCard({
   const can = useCan();
   const scope = { project: project.slug, env: environment.name };
   const headingId = `env-${project.slug}-${environment.name}`;
+  const power = useEnvironmentPower(project.slug, environment.name, detailed);
+  const [dialog, setDialog] = useState<"start" | "stop" | null>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const action = useEnvironmentPowerAction(project.slug, environment.name, dialog ?? "start");
   return (
     <section className={styles.env} aria-labelledby={headingId}>
       <div className={box.spread}>
@@ -62,6 +78,56 @@ export function EnvironmentCard({
         <VisuallyHidden>Branch</VisuallyHidden>
         <BranchName as="span">{environment.branch}</BranchName>
       </p>
+      {detailed && power.data ? (
+        <div className={box.cluster}>
+          <Label
+            variant={
+              power.data.state === "RUNNING"
+                ? "success"
+                : power.data.state === "STOPPED"
+                  ? "attention"
+                  : "secondary"
+            }
+          >
+            {power.data.state === "RUNNING"
+              ? "Running"
+              : power.data.state === "STOPPED"
+                ? "Stopped"
+                : "Not deployed"}
+          </Label>
+          {power.data.state === "RUNNING" && can("environment.stop", scope) ? (
+            <Button
+              size="small"
+              onClick={() => {
+                setDialog("stop");
+              }}
+            >
+              Stop
+            </Button>
+          ) : power.data.state === "STOPPED" && can("environment.start", scope) ? (
+            <Button
+              size="small"
+              variant="primary"
+              onClick={() => {
+                setDialog("start");
+              }}
+            >
+              Start
+            </Button>
+          ) : null}
+          {power.data.auto_stop_hours ? (
+            <span className="muted">
+              Auto-stop after {power.data.auto_stop_hours} h without a deploy
+              {power.data.auto_stop_due_at
+                ? ` · due ${new Date(power.data.auto_stop_due_at).toLocaleString()}`
+                : ""}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {detailed && power.isError ? (
+        <p className="muted">Environment power state is unavailable.</p>
+      ) : null}
       {run ? (
         <div className={styles.run}>
           <div className={box.cluster}>
@@ -143,6 +209,70 @@ export function EnvironmentCard({
           ) : null}
         </div>
       )}
+      {dialog ? (
+        <Dialog
+          title={`${dialog === "stop" ? "Stop" : "Start"} ${environment.name}?`}
+          onClose={() => {
+            setDialog(null);
+            setConfirmation("");
+          }}
+        >
+          <div className={box.stack}>
+            <p>
+              {dialog === "stop"
+                ? "Services will stop while containers and volumes stay in place."
+                : "Services will start with the last deployed images."}
+            </p>
+            {dialog === "stop" && environment.name === "production" ? (
+              <TextInput
+                aria-label="Confirm project slug"
+                placeholder={project.slug}
+                value={confirmation}
+                onChange={(event) => {
+                  setConfirmation(event.target.value);
+                }}
+              />
+            ) : null}
+            {action.isError ? (
+              <Callout variant="danger" role="alert">
+                {errorMessage(action.error)}
+              </Callout>
+            ) : null}
+            <div className={box.cluster}>
+              <Button
+                onClick={() => {
+                  setDialog(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={dialog === "stop" ? "danger" : "primary"}
+                disabled={
+                  action.isPending ||
+                  (dialog === "stop" &&
+                    environment.name === "production" &&
+                    confirmation !== project.slug)
+                }
+                onClick={() => {
+                  action.mutate(confirmation, {
+                    onSuccess: () => {
+                      setDialog(null);
+                      setConfirmation("");
+                    },
+                  });
+                }}
+              >
+                {action.isPending
+                  ? "Working…"
+                  : dialog === "stop"
+                    ? "Stop environment"
+                    : "Start environment"}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
     </section>
   );
 }

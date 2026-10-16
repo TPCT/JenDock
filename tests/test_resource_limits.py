@@ -14,14 +14,16 @@ from sqlalchemy import Engine
 
 from backend.adapters.compose_overrides import OverrideFileError
 from backend.adapters.container_admin import LiveUpdate
-from backend.adapters.deployer import DeployRequest
+from backend.adapters.deployer import DeployRequest, ServiceImage
 from backend.adapters.docker_stats import ContainerStats
+from backend.adapters.override_store import OverrideStore
 from backend.adapters.resource_overrides import FILE_NAME, ResourceOverrideStore, render_limits
+from backend.containers.base import ContainerAuditor, TargetResolver
 from backend.containers.locks import EnvironmentLocks, LockedDeployer, managed_files
 from backend.containers.resources import ResourceOverrideFiles, live_update
 from backend.domain.actor import Actor
 from backend.domain.containers import EnvChange, EnvironmentKey, LimitChange
-from backend.domain.enums import ActorType
+from backend.domain.enums import ActorType, EnvironmentName
 from backend.domain.errors import ConflictError, NotFoundError, ValidationError
 from backend.domain.resources import (
     GIB,
@@ -35,6 +37,7 @@ from backend.domain.resources import (
 from backend.repositories.database import UnitOfWork, create_session_factory
 from backend.services.audit import AuditService
 from backend.services.environments import EnvironmentService, EnvironmentUpdate
+from backend.worker.wiring import apply_development_default_limits
 from tests.container_harness import DEV, Stack, build_stack
 
 ACTOR = Actor(ActorType.USER, "1")
@@ -63,6 +66,26 @@ def _save(
     return stack.services.resources.save(
         stack.slug, DEV, service, limits, ACTOR, apply_now=apply_now
     )
+
+
+def test_development_defaults_fill_only_missing_services_and_user_edits_mark_origin(
+    stack: Stack,
+) -> None:
+    _save(stack, ResourceLimits(cpus=1), service="web")
+    user_row = stack.limit_store.get(stack.environment_id, "web")
+    assert user_row is not None and user_row.origin == "user"
+
+    inserted = stack.limit_store.apply_development_defaults(
+        stack.environment_id, ["web", "worker", "cron"], 0.5, 512 * MIB
+    )
+
+    assert inserted == ["cron", "worker"]
+    unchanged = stack.limit_store.get(stack.environment_id, "web")
+    assert unchanged is not None and unchanged.limits == user_row.limits
+    default = stack.limit_store.get(stack.environment_id, "worker")
+    assert default is not None
+    assert default.limits == ResourceLimits(cpus=0.5, memory_bytes=512 * MIB)
+    assert default.origin == "default"
 
 
 # --- validation -------------------------------------------------------------------
@@ -420,6 +443,84 @@ def test_every_deploy_renders_the_limits_before_the_image_override(
     compose_files = seen[0].compose_files
     assert compose_files[0] == "/r/compose.yml" and Path(compose_files[-1]).name == FILE_NAME
     assert "mem_limit: 1073741824" in Path(compose_files[-1]).read_text()
+
+
+def test_deploy_hook_applies_missing_development_defaults_before_image_override(
+    stack: Stack, tmp_path: Path, engine: Engine
+) -> None:
+    factory = create_session_factory(engine)
+    resolver = TargetResolver(factory)
+    auditor = ContainerAuditor(factory)
+    image_store = OverrideStore(tmp_path / "images")
+    files = ResourceOverrideFiles(stack.limit_store, stack.limit_files)
+    seen: list[tuple[str, ...]] = []
+
+    _save(stack, ResourceLimits(cpus=1), service="web")
+    with UnitOfWork(factory) as uow:
+        production_env = uow.environments.get_by_project_slug(
+            stack.slug, EnvironmentName.PRODUCTION
+        )
+        assert production_env is not None
+        production_id = production_env.id
+    stack.limit_store.save(production_id, "web", ResourceLimits(cpus=2), ACTOR)
+
+    def apply_defaults(request: DeployRequest, key: EnvironmentKey) -> None:
+        apply_development_default_limits(
+            request,
+            key,
+            resolver,
+            stack.limit_store,
+            auditor,
+            cpus=0.5,
+            memory_mib=512,
+        )
+
+    class CapturingDeployer:
+        def deploy(self, request: DeployRequest, _sink: object, _cancel: object) -> None:
+            managed = tuple(request.compose_files)
+            image_override = image_store.write(
+                request.compose_project or "",
+                {item.service: item.image for item in request.services},
+            )
+            seen.append((*managed, str(image_override)))
+
+    deployer = LockedDeployer(
+        CapturingDeployer(),
+        EnvironmentLocks(),
+        managed_files(tmp_path / "managed", files.render, apply_defaults),
+    )
+    dev_services = tuple(ServiceImage(name, f"demo/{name}:1") for name in ("web", "worker", "cron"))
+    development = DeployRequest(
+        stack.slug, "development", "demo-dev", ("/repo/compose.yml",), dev_services, 1, "a" * 40
+    )
+    production_request = DeployRequest(
+        stack.slug, "production", "demo-prod", ("/repo/compose.yml",), dev_services, 2, "b" * 40
+    )
+    deployer.deploy(development, print, threading.Event())
+    deployer.deploy(production_request, print, threading.Event())
+
+    dev_default = stack.limit_store.get(stack.environment_id, "worker")
+    cron_default = stack.limit_store.get(stack.environment_id, "cron")
+    dev_web = stack.limit_store.get(stack.environment_id, "web")
+    assert dev_web is not None and dev_web.origin == "user"
+    assert dev_web.limits == ResourceLimits(cpus=1)
+    assert dev_default is not None and dev_default.origin == "default"
+    assert dev_default.limits == ResourceLimits(cpus=0.5, memory_bytes=512 * MIB)
+    assert cron_default is not None and cron_default.origin == "default"
+    assert stack.limit_store.get(production_id, "worker") is None
+    production_web = stack.limit_store.get(production_id, "web")
+    assert production_web is not None and production_web.origin == "user"
+
+    dev_limit_file = next(path for path in seen[0] if Path(path).name == FILE_NAME)
+    assert seen[0][-1].endswith("override.yml")
+    assert seen[0].index(dev_limit_file) < len(seen[0]) - 1
+    rendered = Path(dev_limit_file).read_text()
+    assert '"worker":' in rendered and "cpus: 0.5" in rendered
+    assert '"cron":' in rendered
+    [event] = AuditService(UnitOfWork(factory)).list(action="resource_limits.default_applied")
+    assert event.actor_type is ActorType.SYSTEM
+    assert event.actor_id == "development-default-limits"
+    assert event.details["services"] == ["cron", "worker"]
 
 
 def test_usage_reports_running_containers_against_their_limits(stack: Stack) -> None:
