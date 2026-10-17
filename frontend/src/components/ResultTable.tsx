@@ -1,13 +1,13 @@
-import { Button, Dialog } from "@primer/react";
-import { useState } from "react";
+import { CheckIcon, CopyIcon, KeyIcon, TableIcon } from "@primer/octicons-react";
+import { Dialog, IconButton } from "@primer/react";
+import { Blankslate } from "@primer/react/experimental";
+import { useEffect, useMemo, useState } from "react";
 import type { Cell, ResultColumn } from "../api/dbTypes";
 import { formatBytes } from "../lib/format";
 import box from "../styles/box.module.css";
 import styles from "./ResultTable.module.css";
 
 const PREVIEW_CHARS = 80;
-
-/** 89504e47 -> "89 50 4e 47", eight bytes per line. */
 export function hexLines(hex: string): string {
   const pairs = hex.match(/.{1,2}/g) ?? [];
   const lines: string[] = [];
@@ -15,101 +15,146 @@ export function hexLines(hex: string): string {
   return lines.join("\n");
 }
 
-type Open =
-  | { kind: "text"; column: string; text: string; limit: number }
-  | { kind: "hex"; column: string; hex: string; bytes: number };
+type Open = { column: ResultColumn; cell: Exclude<Cell, null> };
 
-/**
- * Query and row results as a table. Long text and binary values arrive cut by the API (4,096
- * bytes of text, 64 bytes of binary); the dialog shows exactly what the API sent and says so.
- */
 export function ResultTable({
   columns,
   rows,
   label,
+  primaryKey = [],
+  emptyTitle = "No rows",
+  emptyDescription = "This table is empty.",
+  bare = false,
 }: {
   columns: ResultColumn[];
   rows: Cell[][];
   label: string;
+  primaryKey?: string[];
+  emptyTitle?: string;
+  emptyDescription?: string;
+  /** Drop the grid's own border when it sits inside a bordered box. */
+  bare?: boolean;
 }) {
   const [open, setOpen] = useState<Open | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => {
+      setCopied(false);
+    }, 2000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [copied]);
+
+  const numericColumns = useMemo(
+    () =>
+      columns.map((column, index) => {
+        const hasNumbers = rows.some((row) => typeof row[index] === "number");
+        return (
+          /^((tiny|small|medium|big)?int(eger)?\d*|(big|small)?serial\d*|numeric|decimal|real|double|float\d*|money)\b/i.test(
+            column.type,
+          ) ||
+          (hasNumbers &&
+            rows
+              .filter((row) => row[index] !== null)
+              .every((row) => typeof row[index] === "number"))
+        );
+      }),
+    [columns, rows],
+  );
+
+  const display = (cell: Exclude<Cell, null>) => {
+    if (typeof cell === "object" && "truncated" in cell)
+      return `${cell.text.slice(0, PREVIEW_CHARS)}…`;
+    if (typeof cell === "object") return `0x${cell.hex.slice(0, 8)}… (${formatBytes(cell.bytes)})`;
+    return String(cell);
+  };
+  const fullValue = (cell: Exclude<Cell, null>) =>
+    typeof cell === "object" && "truncated" in cell
+      ? cell.text
+      : typeof cell === "object"
+        ? cell.hex
+        : String(cell);
+
   return (
     <>
-      <div className={styles.scroll}>
+      <div className={`${styles.gridScroll} ${bare ? styles.bare : ""}`} data-testid="grid-scroll">
         <table className={styles.table} aria-label={label}>
           <thead>
             <tr>
-              {columns.map((column) => (
-                <th key={column.name} scope="col">
-                  {column.name}
-                  <span className={styles.type}>{column.type}</span>
+              {columns.map((column, index) => (
+                <th
+                  key={column.name}
+                  scope="col"
+                  className={`${styles.stickyHeader} ${index === 0 ? styles.stickyColumn : ""} ${numericColumns[index] ? styles.numeric : ""}`}
+                  title={column.type}
+                >
+                  <span className={styles.headingName}>
+                    {primaryKey.includes(column.name) ? (
+                      <KeyIcon size={12} aria-label="Primary key" />
+                    ) : null}
+                    {column.name}
+                  </span>
+                  {column.type ? <span className={styles.type}>{column.type}</span> : null}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {row.map((cell, index) => {
-                  const column = columns[index]?.name ?? String(index);
-                  if (cell === null) {
-                    return (
-                      <td key={index}>
-                        <span className={styles.null}>NULL</span>
-                      </td>
-                    );
-                  }
-                  if (typeof cell === "object" && "truncated" in cell) {
-                    return (
-                      <td key={index}>
-                        <span className={styles.text}>{cell.text.slice(0, PREVIEW_CHARS)}…</span>{" "}
-                        <Button
-                          size="small"
-                          variant="invisible"
-                          aria-label={`Show full value of ${column}`}
-                          onClick={() => {
-                            setOpen({ kind: "text", column, text: cell.text, limit: cell.limit });
-                          }}
-                        >
-                          Show full value
-                        </Button>
-                      </td>
-                    );
-                  }
-                  if (typeof cell === "object") {
-                    return (
-                      <td key={index}>
-                        <code className={styles.hex}>{cell.hex.slice(0, 16)}…</code>{" "}
-                        <span className="muted">binary, {formatBytes(cell.bytes)}</span>{" "}
-                        <Button
-                          size="small"
-                          variant="invisible"
-                          aria-label={`Show hex of ${column}`}
-                          onClick={() => {
-                            setOpen({ kind: "hex", column, hex: cell.hex, bytes: cell.bytes });
-                          }}
-                        >
-                          Show hex
-                        </Button>
-                      </td>
-                    );
-                  }
-                  return (
-                    <td key={index}>
-                      <span className={styles.text}>{String(cell)}</span>
-                    </td>
-                  );
-                })}
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={Math.max(columns.length, 1)} className={styles.emptyCell}>
+                  <Blankslate narrow>
+                    <Blankslate.Visual>
+                      <TableIcon />
+                    </Blankslate.Visual>
+                    <Blankslate.Heading>{emptyTitle}</Blankslate.Heading>
+                    {emptyDescription ? (
+                      <Blankslate.Description>{emptyDescription}</Blankslate.Description>
+                    ) : null}
+                  </Blankslate>
+                </td>
               </tr>
-            ))}
+            ) : (
+              rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {columns.map((column, index) => {
+                    const cell = row[index] ?? null;
+                    const first = index === 0;
+                    const numericCell = numericColumns[index];
+                    return (
+                      <td
+                        key={index}
+                        className={`${first ? styles.stickyColumn : ""} ${numericCell ? styles.numeric : ""}`}
+                      >
+                        {cell === null ? (
+                          <span className={styles.null}>NULL</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.cellButton}
+                            aria-haspopup="dialog"
+                            onClick={() => {
+                              setCopied(false);
+                              setOpen({ column, cell });
+                            }}
+                          >
+                            {display(cell)}
+                          </button>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
       {open ? (
         <Dialog
-          title={
-            open.kind === "text" ? `Value of ${open.column}` : `Binary value of ${open.column}`
-          }
+          title={open.column.name}
           width="large"
           onClose={() => {
             setOpen(null);
@@ -125,27 +170,46 @@ export function ResultTable({
           ]}
         >
           <div className={box.stack}>
-            {open.kind === "text" ? (
-              <>
-                <p className="muted">
-                  The API returns at most the first {open.limit.toLocaleString()} bytes of a long
-                  value, so this is the beginning, not necessarily all of it.
-                </p>
-                <pre className={styles.full} tabIndex={0} aria-label="Full value">
-                  {open.text}
-                </pre>
-              </>
-            ) : (
-              <>
-                <p className="muted">
-                  The first {String(open.hex.length / 2)} of {open.bytes.toLocaleString()} bytes, in
-                  hexadecimal.
-                </p>
-                <pre className={styles.full} tabIndex={0} aria-label="Hex dump">
-                  {hexLines(open.hex)}
-                </pre>
-              </>
-            )}
+            <p className="muted">{open.column.type}</p>
+            {typeof open.cell === "object" && "truncated" in open.cell ? (
+              <p className="muted">
+                The API returns at most the first {open.cell.limit.toLocaleString()} bytes of a long
+                value, so this is the beginning, not necessarily all of it.
+              </p>
+            ) : null}
+            {typeof open.cell === "object" && "binary" in open.cell ? (
+              <p className="muted">
+                The first {String(open.cell.hex.length / 2)} of {open.cell.bytes.toLocaleString()}{" "}
+                bytes, in hexadecimal.
+              </p>
+            ) : null}
+            <pre
+              className={styles.full}
+              tabIndex={0}
+              aria-label={
+                typeof open.cell === "object" && "binary" in open.cell ? "Hex dump" : "Full value"
+              }
+            >
+              {typeof open.cell === "object" && "binary" in open.cell
+                ? hexLines(open.cell.hex)
+                : fullValue(open.cell)}
+            </pre>
+            <IconButton
+              size="small"
+              variant="invisible"
+              icon={copied ? CheckIcon : CopyIcon}
+              aria-label={copied ? "Copied" : "Copy value"}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(fullValue(open.cell))
+                  .then(() => {
+                    setCopied(true);
+                  })
+                  .catch(() => {
+                    setCopied(false);
+                  });
+              }}
+            />
           </div>
         </Dialog>
       ) : null}

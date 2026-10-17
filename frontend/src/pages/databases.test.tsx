@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import { editorViews } from "../pipeline/CodeEditor";
 import { renderApp } from "../test/render";
 import { hexLines } from "../components/ResultTable";
 import { explainTestError } from "./Databases";
+import { useFillViewport } from "../lib/useFillViewport";
 
 beforeAll(async () => {
   await import("./DatabaseConsole");
@@ -25,6 +26,42 @@ afterEach(() => {
 const DBS = "/projects/shop-api/environments/development/databases";
 const apiError = (status: number, code: string, message: string) =>
   HttpResponse.json({ error: { code, message } }, { status });
+
+describe("useFillViewport", () => {
+  it("measures below the surrounding page and clamps short viewports", () => {
+    const initialHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+    const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query) =>
+        ({
+          matches: query === "(min-width: 1012px)",
+          media: query,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+        }) as unknown as MediaQueryList,
+    );
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 300, 600, 400));
+    function Probe() {
+      const ref = useFillViewport();
+      return <div ref={ref} data-testid="viewport-probe" />;
+    }
+
+    const view = render(<Probe />);
+    const element = screen.getByTestId("viewport-probe");
+    expect(element.style.height).toBe("576px");
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(element.style.height).toBe("448px");
+    view.unmount();
+    bounds.mockRestore();
+    matchMedia.mockRestore();
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: initialHeight });
+  });
+});
 
 describe("connections", () => {
   it("detects databases from the header and reports the tested result", async () => {
@@ -270,8 +307,12 @@ describe("rows", () => {
     const user = userEvent.setup();
     renderApp(ROWS);
     const table = await screen.findByRole("table", { name: "Rows of orders" });
+    expect(screen.getByTestId("grid-scroll").className).toContain("gridScroll");
+    expect(within(table).getAllByRole("columnheader")[0]?.className).toContain("stickyHeader");
+    expect(within(table).getAllByRole("cell")[0]?.className).toContain("stickyColumn");
     expect(within(table).getAllByRole("row")).toHaveLength(101);
-    expect(screen.getByText(/Ordered by the primary key \(id\)/)).toBeInTheDocument();
+    expect(screen.getByText("Rows 1–100")).toBeInTheDocument();
+    expect(screen.getByText("Ordered by primary key (id).")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => {
       expect(
@@ -301,30 +342,66 @@ describe("rows", () => {
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
-  it("shows NULL, truncated text with the full value, and binary with hex", async () => {
+  it("shows NULL without a button and opens full text and binary values", async () => {
     const user = userEvent.setup();
     renderApp(ROWS);
     const table = await screen.findByRole("table", { name: "Rows of orders" });
-    expect(within(table).getAllByText("NULL").length).toBeGreaterThan(0);
-    await user.click(within(table).getByRole("button", { name: "Show full value of notes" }));
-    const text = await screen.findByRole("dialog", { name: "Value of notes" });
+    const nulls = within(table).getAllByText("NULL");
+    expect(nulls.length).toBeGreaterThan(0);
+    expect(nulls[0]?.closest("button")).toBeNull();
+    expect(nulls[0]?.className).toContain("null");
+    await user.click(within(table).getByRole("button", { name: /^long note long note/ }));
+    const text = await screen.findByRole("dialog", { name: "notes" });
     expect(text).toHaveTextContent("first 4,096 bytes");
     expect(within(text).getByLabelText("Full value").textContent).toHaveLength(4096);
+    expect(within(text).getByRole("button", { name: "Copy value" })).toBeInTheDocument();
     const closers = within(text).getAllByRole("button", { name: "Close" });
     await user.click(closers[closers.length - 1] as HTMLElement);
-    await user.click(within(table).getByRole("button", { name: "Show hex of payload" }));
-    const hex = await screen.findByRole("dialog", { name: "Binary value of payload" });
+    await user.click(within(table).getByRole("button", { name: /0x89504e47…/ }));
+    const hex = await screen.findByRole("dialog", { name: "payload" });
     expect(hex).toHaveTextContent("8 of 18,321 bytes");
     expect(within(hex).getByLabelText("Hex dump")).toHaveTextContent("89 50 4e 47 0d 0a 1a 0a");
-    expect(within(table).getByText(/binary, 17\.9 KiB/)).toBeInTheDocument();
+    expect(within(table).getByText(/0x89504e47… \(17\.9 KiB\)/)).toBeInTheDocument();
   });
 
   it("explains position paging for a table without a primary key", async () => {
     const user = userEvent.setup();
     renderApp(`${DBS}/main?schema=public&table=audit_log&tab=rows`);
-    expect(await screen.findByText(/no primary key or sortable columns/)).toBeInTheDocument();
+    expect(await screen.findByText(/no primary key or sortable columns/i)).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Rows per page"), "50");
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+
+  it("filters the table list and reports an empty result", async () => {
+    const user = userEvent.setup();
+    renderApp(`${DBS}/main`);
+    const nav = await screen.findByRole("navigation", { name: "Tables" });
+    await user.type(screen.getByLabelText("Filter tables"), "missing");
+    expect(within(nav).queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText("No tables match.")).toBeInTheDocument();
+  });
+
+  it("shows the Primer empty result state", async () => {
+    server.use(
+      http.get(
+        "/api/projects/:slug/environments/:env/databases/:name/schemas/:schema/tables/:table/rows",
+        () =>
+          HttpResponse.json({
+            columns: [{ name: "id", type: "integer" }],
+            rows: [],
+            limit: 100,
+            offset: 0,
+            ordering: "primary_key",
+            order_by: ["id"],
+            next_cursor: null,
+            next_offset: null,
+            size_limited: false,
+          }),
+      ),
+    );
+    renderApp(ROWS);
+    expect(await screen.findByRole("heading", { name: "No rows" })).toBeInTheDocument();
+    expect(screen.getByText("This table is empty.")).toBeInTheDocument();
   });
 
   it("shows the server's refusal when production data needs admin", async () => {
@@ -379,7 +456,7 @@ describe("SQL console", () => {
     const result = await screen.findByRole("region", { name: "Result" });
     expect(within(result).getByText(/SELECT: 3 rows in 12 ms/)).toBeInTheDocument();
     expect(within(result).getByRole("table", { name: "Query result" })).toBeInTheDocument();
-    expect(within(result).getByRole("button", { name: "Show hex of payload" })).toBeInTheDocument();
+    expect(within(result).getByRole("button", { name: /0x89504e47…/ })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Recent statements" })).toHaveTextContent(
       "SELECT * FROM orders WHERE id < 10;",
     );

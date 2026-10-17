@@ -1,48 +1,110 @@
-.scroll {
+.gridScroll {
+  /* Its own stacking context, so the sticky cells never paint over dialogs and menus. */
+  isolation: isolate;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
-  max-height: 32rem;
   border: var(--borderWidth-thin) solid var(--borderColor-default);
   border-radius: var(--borderRadius-medium);
 }
 .table {
-  width: 100%;
-  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   font-family: var(--fontStack-monospace);
   font-size: var(--text-codeBlock-size);
 }
 .table th,
 .table td {
-  padding: var(--base-size-4) var(--base-size-12);
+  box-sizing: border-box;
+  height: 32px;
+  max-width: 20rem;
+  padding: var(--base-size-4) var(--base-size-8);
+  overflow: hidden;
+  border-right: var(--borderWidth-thin) solid var(--borderColor-muted);
+  border-bottom: var(--borderWidth-thin) solid var(--borderColor-muted);
   text-align: left;
-  vertical-align: top;
+  text-overflow: ellipsis;
+  vertical-align: middle;
   white-space: nowrap;
-  border-top: var(--borderWidth-thin) solid var(--borderColor-muted);
 }
-.table thead th {
+.stickyHeader {
   position: sticky;
+  z-index: 2;
   top: 0;
   background: var(--bgColor-muted);
-  border-top: 0;
+  border-bottom-color: var(--borderColor-default) !important;
+}
+.stickyColumn {
+  position: sticky;
+  z-index: 1;
+  left: 0;
+  background: var(--bgColor-default);
+  border-right-color: var(--borderColor-default) !important;
+}
+th.stickyColumn {
+  z-index: 3;
+  background: var(--bgColor-muted);
+}
+.table tbody tr:hover td {
+  background: var(--bgColor-muted);
+}
+.table tbody tr:hover td.stickyColumn {
+  background: var(--bgColor-muted);
+}
+.headingName {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  font-family: var(--fontStack-sansSerif);
+  font-size: 14px;
   font-weight: var(--base-text-weight-semibold);
 }
 .type {
   display: block;
+  max-width: 12rem;
+  overflow: hidden;
   color: var(--fgColor-muted);
+  font-family: var(--fontStack-sansSerif);
+  font-size: 12px;
   font-weight: var(--base-text-weight-normal);
+  text-overflow: ellipsis;
+}
+.numeric {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+.numeric .headingName {
+  justify-content: flex-end;
+}
+.numeric .type {
+  margin-left: auto;
 }
 .null {
   color: var(--fgColor-muted);
   font-style: italic;
 }
-.text {
-  display: inline-block;
-  max-width: 28rem;
+.cellButton {
+  display: block;
+  width: 100%;
+  padding: 0;
   overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
   text-overflow: ellipsis;
-  vertical-align: bottom;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
 }
-.hex {
-  color: var(--fgColor-muted);
+.cellButton:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 1px;
+}
+.emptyCell {
+  padding: var(--base-size-16) !important;
 }
 .full {
   max-height: 24rem;
@@ -56,4 +118,8 @@
   font-size: var(--text-codeBlock-size);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.bare {
+  border: 0;
+  border-radius: 0;
 }

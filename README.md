@@ -53,6 +53,8 @@ GitHub-style web UI, a REST API or an MCP endpoint for AI agents.
   `acme-postgres:16`) or by the server's environment variables. **Detect and clean up** also
   removes out-of-scope auto-detected connections (never hand-added ones, never one with a
   successful backup).
+- A spreadsheet-style viewer that fits the screen: a filterable table list, a data grid with a
+  sticky header and key column, keyset paging, and a dialog with a copy button for long values.
 
 **Database backups**
 - A daily dump of every connection to S3 (`mysqldump`/`mariadb-dump` and `pg_dump`), at an hour
