@@ -1,0 +1,237 @@
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  min-height: 28rem;
+  min-width: 0;
+  gap: var(--base-size-8);
+}
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.back {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+.connection {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  min-width: 0;
+}
+.connection h2 {
+  margin: 0;
+}
+.address {
+  color: var(--fgColor-muted);
+}
+.console {
+  margin-left: auto;
+}
+.split {
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+  gap: var(--base-size-24);
+  flex: 1;
+  min-height: 0;
+}
+.pane,
+.content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.paneInner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--base-size-8);
+}
+.controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.controls > * {
+  min-width: 0;
+}
+.filter {
+  flex: none;
+}
+.listScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.contentInner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.tableHeading {
+  flex: none;
+  margin: 0 0 var(--base-size-8);
+}
+.contentInner > [role="tablist"] {
+  flex: none;
+}
+.contentInner > [role="tabpanel"]:not([hidden]) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.rowsPanel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--base-size-8);
+}
+.toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--base-size-8);
+}
+.status {
+  margin: 0 0 0 auto;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+.help {
+  flex: none;
+  margin: 0;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+.structure {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--base-size-8);
+}
+.structureGrid {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 12rem;
+  overflow: hidden;
+}
+.metadata {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--base-size-8);
+}
+.metadataBox {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.consoleEditor {
+  flex: none;
+  min-width: 0;
+}
+/* A statement is a few lines: a short editor leaves the height to the result grid. */
+.consoleEditor > div {
+  height: 12rem;
+  min-height: 8rem;
+}
+.consoleViewer {
+  /* The console keeps the page scroll for its editor and history; only the result grid has a
+     fixed height with its own scrollbars. */
+  height: auto;
+}
+.consoleResult {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--base-size-8);
+}
+.consoleResult > [data-testid="grid-scroll"] {
+  flex: none;
+  height: min(70dvh, 40rem);
+  min-height: 16rem;
+}
+@media (max-width: 767px) {
+  .viewer {
+    height: auto;
+    min-height: 0;
+    overflow-x: clip;
+  }
+  .header {
+    align-items: flex-start;
+  }
+  .connection {
+    flex-wrap: wrap;
+  }
+  .console {
+    margin-left: 0;
+  }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+    flex: none;
+    gap: var(--base-size-8);
+  }
+  .pane,
+  .content {
+    width: 100%;
+  }
+  .paneInner {
+    flex: none;
+  }
+  .listScroll {
+    flex: none;
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+  .contentInner {
+    min-height: 0;
+  }
+  .panel {
+    min-height: 0;
+  }
+  .rowsPanel {
+    min-height: 0;
+  }
+  .rowsPanel :global([data-testid="grid-scroll"]) {
+    flex: none;
+    height: 70dvh;
+    min-height: 20rem;
+  }
+  .toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .status {
+    width: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+  .structureGrid {
+    flex: none;
+    max-height: 60dvh;
+  }
+  .metadata {
+    grid-template-columns: 1fr;
+  }
+}

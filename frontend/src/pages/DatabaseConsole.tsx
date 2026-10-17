@@ -10,6 +10,7 @@ import { useDocumentTitle } from "../components/PageHead";
 import { ResultTable } from "../components/ResultTable";
 import { CodeEditor } from "../pipeline/CodeEditor";
 import box from "../styles/box.module.css";
+import styles from "./DatabaseBrowser.module.css";
 import { databasesPath } from "./Databases";
 
 const MAX_CHARS = 20_000;
@@ -76,11 +77,11 @@ export default function DatabaseConsolePage() {
   const result = run.data;
 
   return (
-    <div className={box.stack}>
+    <div className={`${styles.viewer} ${styles.consoleViewer}`}>
       <div>
         <Link to={`${databasesPath(slug, env)}/${encodeURIComponent(name)}`}>← {conn.name}</Link>
       </div>
-      <Heading as="h2" variant="medium">
+      <Heading as="h2" variant="small">
         SQL console: {conn.name}
       </Heading>
       {env === "production" ? (
@@ -108,7 +109,7 @@ export default function DatabaseConsolePage() {
           <li>At most {MAX_CHARS.toLocaleString()} characters.</li>
         </ul>
       </Details>
-      <div>
+      <div className={styles.consoleEditor}>
         <CodeEditor
           label="SQL statement"
           value={statement}
@@ -141,7 +142,7 @@ export default function DatabaseConsolePage() {
         </Callout>
       ) : null}
       {result ? (
-        <section aria-label="Result" className={box.stack}>
+        <section aria-label="Result" className={styles.consoleResult}>
           <p role="status" className="muted">
             {result.statement_kind}: {result.row_count} {result.row_count === 1 ? "row" : "rows"} in{" "}
             {result.elapsed_ms} ms.
@@ -155,11 +156,13 @@ export default function DatabaseConsolePage() {
           {result.size_limited ? (
             <Callout>The result was cut short because it would be very large.</Callout>
           ) : null}
-          {result.rows.length === 0 ? (
-            <p>The statement returned no rows.</p>
-          ) : (
-            <ResultTable columns={result.columns} rows={result.rows} label="Query result" />
-          )}
+          <ResultTable
+            columns={result.columns}
+            rows={result.rows}
+            label="Query result"
+            emptyTitle="No rows returned"
+            emptyDescription=""
+          />
         </section>
       ) : null}
       {history.length > 0 ? (

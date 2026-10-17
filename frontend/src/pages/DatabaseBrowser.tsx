@@ -1,4 +1,4 @@
-import { DatabaseIcon, EyeIcon, TableIcon } from "@primer/octicons-react";
+import { DatabaseIcon, EyeIcon, SearchIcon, TableIcon } from "@primer/octicons-react";
 import {
   Button,
   ButtonGroup,
@@ -8,8 +8,8 @@ import {
   Label,
   LinkButton,
   NavList,
-  PageLayout,
   Select,
+  TextInput,
 } from "@primer/react";
 import { UnderlinePanels } from "@primer/react/experimental";
 import { memo, useState } from "react";
@@ -21,8 +21,9 @@ import { ENVIRONMENTS, type EnvironmentName } from "../api/types";
 import { Callout, EmptyState, ErrorCallout, Loading, errorMessage } from "../components/Feedback";
 import { ResultTable } from "../components/ResultTable";
 import { useDocumentTitle } from "../components/PageHead";
+import { useFillViewport } from "../lib/useFillViewport";
 import box from "../styles/box.module.css";
-import tableStyles from "./Containers.module.css";
+import styles from "./DatabaseBrowser.module.css";
 import { databasesPath } from "./Databases";
 
 const LIMITS = [50, 100, 500] as const;
@@ -33,91 +34,77 @@ function kindLabel(kind: TableInfo["kind"]): string {
 
 function Structure({ detail }: { detail: TableDetail }) {
   return (
-    <div className={box.stack}>
-      <section className={`${box.box} ${tableStyles.scroll}`} aria-label="Columns">
+    <div className={styles.structure}>
+      <section className={`${styles.structureGrid} ${box.box}`} aria-label="Columns">
         <div className={box.header}>Columns</div>
-        <table className={tableStyles.table} aria-label="Columns of the table">
-          <thead>
-            <tr>
-              <th scope="col">#</th>
-              <th scope="col">Name</th>
-              <th scope="col">Type</th>
-              <th scope="col">Null?</th>
-              <th scope="col">Default</th>
-              <th scope="col">Key</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.columns.map((column) => (
-              <tr key={column.name}>
-                <td>{column.position}</td>
-                <th scope="row">
-                  <code>{column.name}</code>
-                </th>
-                <td>
-                  <code>{column.data_type}</code>
-                  {column.extra ? <span className="muted"> {column.extra}</span> : null}
-                </td>
-                <td>{column.nullable ? "yes" : "no"}</td>
-                <td>
-                  {column.default === null ? (
-                    <span className="muted">none</span>
-                  ) : (
-                    <code>{column.default}</code>
-                  )}
-                </td>
-                <td>
-                  {column.primary_key_position === null ? (
-                    ""
-                  ) : (
-                    <Label variant="accent">primary key {column.primary_key_position}</Label>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ResultTable
+          label="Columns of the table"
+          bare
+          columns={[
+            { name: "Name", type: "" },
+            { name: "#", type: "" },
+            { name: "Type", type: "" },
+            { name: "Null?", type: "" },
+            { name: "Default", type: "" },
+            { name: "Key", type: "" },
+          ]}
+          rows={detail.columns.map((column) => [
+            column.name,
+            column.position,
+            `${column.data_type}${column.extra ? ` ${column.extra}` : ""}`,
+            column.nullable ? "yes" : "no",
+            column.default ?? "none",
+            column.primary_key_position === null
+              ? ""
+              : `primary key ${String(column.primary_key_position)}`,
+          ])}
+          primaryKey={detail.columns
+            .filter((column) => column.primary_key_position !== null)
+            .map((column) => column.name)}
+        />
       </section>
-      <section className={box.box} aria-label="Indexes">
-        <div className={box.header}>Indexes</div>
-        {detail.indexes.length === 0 ? (
-          <p className={box.row}>No indexes.</p>
-        ) : (
-          <ul className={box.list}>
-            {detail.indexes.map((index) => (
-              <li key={index.name} className={box.row}>
-                <code>{index.name}</code> on <code>{index.columns.join(", ")}</code>{" "}
-                {index.primary ? (
-                  <Label variant="accent">primary</Label>
-                ) : index.unique ? (
-                  <Label>unique</Label>
-                ) : null}{" "}
-                {index.method ? <span className="muted">({index.method})</span> : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-      <section className={box.box} aria-label="Foreign keys">
-        <div className={box.header}>Foreign keys</div>
-        {detail.foreign_keys.length === 0 ? (
-          <p className={box.row}>No foreign keys.</p>
-        ) : (
-          <ul className={box.list}>
-            {detail.foreign_keys.map((fk) => (
-              <li key={fk.name} className={box.row}>
-                <code>{fk.columns.join(", ")}</code> references{" "}
-                <code>
-                  {fk.ref_schema}.{fk.ref_table}({fk.ref_columns.join(", ")})
-                </code>
-                <div className="muted">
-                  On update: {fk.on_update ?? "default"}. On delete: {fk.on_delete ?? "default"}.
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <div className={styles.metadata}>
+        <section className={`${box.box} ${styles.metadataBox}`} aria-label="Indexes">
+          <div className={box.header}>Indexes</div>
+          {detail.indexes.length === 0 ? (
+            <p className={box.row}>No indexes.</p>
+          ) : (
+            <ul className={box.list}>
+              {detail.indexes.map((index) => (
+                <li key={index.name} className={box.row}>
+                  <code>{index.name}</code> on <code>{index.columns.join(", ")}</code>{" "}
+                  {index.primary ? (
+                    <Label variant="accent">primary</Label>
+                  ) : index.unique ? (
+                    <Label>unique</Label>
+                  ) : null}{" "}
+                  {index.method ? <span className="muted">({index.method})</span> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className={`${box.box} ${styles.metadataBox}`} aria-label="Foreign keys">
+          <div className={box.header}>Foreign keys</div>
+          {detail.foreign_keys.length === 0 ? (
+            <p className={box.row}>No foreign keys.</p>
+          ) : (
+            <ul className={box.list}>
+              {detail.foreign_keys.map((fk) => (
+                <li key={fk.name} className={box.row}>
+                  <code>{fk.columns.join(", ")}</code> references{" "}
+                  <code>
+                    {fk.ref_schema}.{fk.ref_table}({fk.ref_columns.join(", ")})
+                  </code>
+                  <div className="muted">
+                    On update: {fk.on_update ?? "default"}. On delete: {fk.on_delete ?? "default"}.
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
@@ -163,6 +150,8 @@ export function DatabaseBrowserPage() {
   const [params, setParams] = useSearchParams();
   const connection = useConnection(slug, env, name);
   const [system, setSystem] = useState(false);
+  const [filter, setFilter] = useState("");
+  const fillViewportRef = useFillViewport();
   const schemas = useSchemas(slug, env, name, system);
   const schemaList = schemas.data?.schemas ?? [];
   const schema =
@@ -203,21 +192,21 @@ export function DatabaseBrowserPage() {
   const base = `${databasesPath(slug, env)}/${encodeURIComponent(name)}`;
 
   return (
-    <div className={box.stack}>
-      <div>
-        <Link to={databasesPath(slug, env)}>← Databases</Link>
-      </div>
-      <div className={box.spread}>
-        <div className={box.cluster}>
-          <Heading as="h2" variant="medium">
+    <div ref={fillViewportRef} className={styles.viewer}>
+      <div className={styles.header}>
+        <Link className={styles.back} to={databasesPath(slug, env)}>
+          ← Databases
+        </Link>
+        <div className={styles.connection}>
+          <Heading as="h2" variant="small">
             {conn.name}
           </Heading>
           <Label>{conn.engine}</Label>
-          <span className="muted ltr">
+          <span className={`${styles.address} ltr`}>
             {conn.host}:{conn.port}/{conn.database}
           </span>
         </div>
-        <LinkButton as={Link} to={`${base}/console`}>
+        <LinkButton className={styles.console} size="small" as={Link} to={`${base}/console`}>
           SQL console
         </LinkButton>
       </div>
@@ -227,13 +216,13 @@ export function DatabaseBrowserPage() {
           and page, never the data).
         </Callout>
       ) : null}
-      <PageLayout containerWidth="full" padding="none" columnGap="normal" rowGap="normal">
-        <PageLayout.Pane position="start" width="medium" padding="none" divider="none">
-          <div className={box.stack}>
-            <FormControl>
-              <FormControl.Label>Schema</FormControl.Label>
+      <div className={styles.split}>
+        <div className={styles.pane}>
+          <div className={styles.paneInner}>
+            <div className={styles.controls}>
               <Select
-                block
+                size="small"
+                aria-label="Schema"
                 value={schema ?? ""}
                 onChange={(event) => {
                   select({ schema: event.target.value });
@@ -246,49 +235,70 @@ export function DatabaseBrowserPage() {
                   </Select.Option>
                 ))}
               </Select>
-            </FormControl>
-            <FormControl>
-              <Checkbox
-                checked={system}
-                onChange={(event) => {
-                  setSystem(event.target.checked);
-                }}
-              />
-              <FormControl.Label>Show system schemas</FormControl.Label>
-            </FormControl>
-            {schemas.isPending ? <Loading label="Loading schemas" /> : null}
-            {schemas.isError ? (
-              <Callout variant="danger" role="alert">
-                {errorMessage(schemas.error)}
-              </Callout>
-            ) : null}
-            {tables.data ? (
-              tables.data.tables.length === 0 ? (
-                <p className="muted">This schema has no tables.</p>
-              ) : (
-                <TableNav tables={tables.data.tables} selected={table} />
-              )
-            ) : null}
-            {tables.isError ? (
-              <Callout variant="danger" role="alert">
-                {errorMessage(tables.error)}
-              </Callout>
-            ) : null}
+              <FormControl>
+                <Checkbox
+                  checked={system}
+                  onChange={(event) => {
+                    setSystem(event.target.checked);
+                  }}
+                />
+                <FormControl.Label>Show system schemas</FormControl.Label>
+              </FormControl>
+            </div>
+            <TextInput
+              className={styles.filter}
+              size="small"
+              block
+              leadingVisual={SearchIcon}
+              placeholder="Filter tables"
+              aria-label="Filter tables"
+              value={filter}
+              onChange={(event) => {
+                setFilter(event.target.value);
+              }}
+            />
+            <div className={styles.listScroll}>
+              {schemas.isPending ? <Loading label="Loading schemas" /> : null}
+              {schemas.isError ? (
+                <Callout variant="danger" role="alert">
+                  {errorMessage(schemas.error)}
+                </Callout>
+              ) : null}
+              {tables.data ? (
+                tables.data.tables.length === 0 ? (
+                  <p className="muted">This schema has no tables.</p>
+                ) : tables.data.tables.filter((item) =>
+                    item.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase()),
+                  ).length > 0 ? (
+                  <TableNav
+                    tables={tables.data.tables.filter((item) =>
+                      item.name.toLocaleLowerCase().includes(filter.toLocaleLowerCase()),
+                    )}
+                    selected={table}
+                  />
+                ) : (
+                  <p className="muted">No tables match.</p>
+                )
+              ) : null}
+              {tables.isError ? (
+                <Callout variant="danger" role="alert">
+                  {errorMessage(tables.error)}
+                </Callout>
+              ) : null}
+            </div>
           </div>
-        </PageLayout.Pane>
-        <PageLayout.Content as="div" padding="none">
+        </div>
+        <div className={styles.content}>
           {table === null || schema === null ? (
             <EmptyState icon={<TableIcon size={32} aria-hidden="true" />} title="Choose a table">
               Pick a table on the left to see its columns, indexes and relations, and to page
               through its rows. Row counts next to the names are estimates from the database.
             </EmptyState>
           ) : (
-            <div className={box.stack}>
-              <div className={box.cluster}>
-                <Heading as="h3" variant="medium">
-                  {schema}.{table}
-                </Heading>
-              </div>
+            <div className={styles.contentInner}>
+              <Heading className={styles.tableHeading} as="h3" variant="small">
+                {schema}.{table}
+              </Heading>
               <UnderlinePanels
                 aria-label="Table sections"
                 value={tab}
@@ -299,16 +309,20 @@ export function DatabaseBrowserPage() {
                 <UnderlinePanels.Tab value="structure">Structure</UnderlinePanels.Tab>
                 <UnderlinePanels.Tab value="rows">Rows</UnderlinePanels.Tab>
                 <UnderlinePanels.Panel value="structure">
-                  <div className={box.section}>
-                    {detail.isPending ? <Loading label="Loading structure" /> : null}
-                    {detail.isError ? (
-                      <ErrorCallout title="Could not load the structure" error={detail.error} />
+                  <div className={styles.panel}>
+                    {tab === "structure" ? (
+                      <>
+                        {detail.isPending ? <Loading label="Loading structure" /> : null}
+                        {detail.isError ? (
+                          <ErrorCallout title="Could not load the structure" error={detail.error} />
+                        ) : null}
+                        {detail.data ? <Structure detail={detail.data} /> : null}
+                      </>
                     ) : null}
-                    {detail.data ? <Structure detail={detail.data} /> : null}
                   </div>
                 </UnderlinePanels.Panel>
                 <UnderlinePanels.Panel value="rows">
-                  <div className={box.section}>
+                  <div className={styles.panel}>
                     {tab === "rows" ? (
                       <RowsPanel
                         key={`${schema}.${table}`}
@@ -324,8 +338,8 @@ export function DatabaseBrowserPage() {
               </UnderlinePanels>
             </div>
           )}
-        </PageLayout.Content>
-      </PageLayout>
+        </div>
+      </div>
     </div>
   );
 }
@@ -355,11 +369,12 @@ function RowsPanel({
   const page = rows.data;
 
   return (
-    <div className={box.stack}>
-      <div className={box.cluster}>
+    <div className={styles.rowsPanel}>
+      <div className={styles.toolbar}>
         <FormControl>
           <FormControl.Label visuallyHidden>Rows per page</FormControl.Label>
           <Select
+            size="small"
             value={String(limit)}
             onChange={(event) => {
               setLimit(Number(event.target.value));
@@ -375,6 +390,7 @@ function RowsPanel({
         </FormControl>
         <ButtonGroup>
           <Button
+            size="small"
             disabled={trail.length === 1}
             onClick={() => {
               setTrail([{ cursor: null, offset: 0 }]);
@@ -383,6 +399,7 @@ function RowsPanel({
             First page
           </Button>
           <Button
+            size="small"
             disabled={trail.length === 1}
             onClick={() => {
               setTrail((value) => value.slice(0, -1));
@@ -391,6 +408,7 @@ function RowsPanel({
             Previous
           </Button>
           <Button
+            size="small"
             disabled={!page || (page.next_cursor === null && page.next_offset === null)}
             onClick={() => {
               if (!page) return;
@@ -403,6 +421,13 @@ function RowsPanel({
             Next
           </Button>
         </ButtonGroup>
+        {page ? (
+          <p className={styles.status} role="status">
+            {page.rows.length === 0
+              ? "Rows 0–0"
+              : `Rows ${String(page.offset + 1)}–${String(page.offset + page.rows.length)}`}
+          </p>
+        ) : null}
       </div>
       {rows.isPending ? <Loading label="Loading rows" /> : null}
       {rows.isError ? (
@@ -412,23 +437,25 @@ function RowsPanel({
       ) : null}
       {page ? (
         <>
-          <p className="muted" role="status">
-            {page.rows.length === 0
-              ? "No rows."
-              : `Rows ${String(page.offset + 1)} to ${String(page.offset + page.rows.length)} of this page sequence. `}
-            {page.ordering === "primary_key"
-              ? `Ordered by the primary key (${page.order_by.join(", ")}); paging continues after the last key, so it stays fast and stable.`
-              : page.ordering === "columns"
-                ? `This table has no primary key; rows are ordered by ${page.order_by.join(", ")} and paged by position.`
-                : "This table has no primary key or sortable columns, so the order is not guaranteed and paging is by position."}
-          </p>
           {page.size_limited ? (
             <Callout>
               This page was cut short because it would be very large. Press Next to continue where
               it stopped.
             </Callout>
           ) : null}
-          <ResultTable columns={page.columns} rows={page.rows} label={`Rows of ${table}`} />
+          <ResultTable
+            columns={page.columns}
+            rows={page.rows}
+            label={`Rows of ${table}`}
+            primaryKey={page.ordering === "primary_key" ? page.order_by : []}
+          />
+          <p className={styles.help}>
+            {page.ordering === "primary_key"
+              ? `Ordered by primary key (${page.order_by.join(", ")}).`
+              : page.ordering === "columns"
+                ? `No primary key: ordered by ${page.order_by.join(", ")} and paged by position.`
+                : "No primary key or sortable columns: order is not guaranteed."}
+          </p>
         </>
       ) : null}
     </div>

@@ -60,12 +60,63 @@ const listOf = (slug: unknown, env: unknown) => connections.get(key(slug, env)) 
 
 const TABLES: TableInfo[] = [
   { schema: "public", name: "orders", kind: "table", approx_rows: 250 },
+  { schema: "public", name: "events_wide", kind: "table", approx_rows: 12000 },
   { schema: "public", name: "customers", kind: "table", approx_rows: 1243 },
   { schema: "public", name: "audit_log", kind: "table", approx_rows: 30 },
   { schema: "public", name: "v_totals", kind: "view", approx_rows: null },
 ];
 
 const DETAIL: Record<string, TableDetail> = {
+  events_wide: {
+    table: "events_wide",
+    columns: [
+      "id:bigint",
+      "created_at:timestamp(0) without time zone",
+      "updated_at:timestamp(0) without time zone",
+      "event_type:varchar(255)",
+      "source:varchar(255)",
+      "description:text",
+      "payload:jsonb",
+      "amount:numeric(12,2)",
+      "active:boolean",
+      "user_id:bigint",
+      "session_id:varchar(255)",
+      "ip_address:varchar(64)",
+      "user_agent:text",
+      "region:varchar(100)",
+      "country:varchar(100)",
+      "status:varchar(50)",
+      "attempts:integer",
+      "duration_ms:bigint",
+      "metadata:jsonb",
+      "reference_id:varchar(255)",
+      "category:varchar(100)",
+      "priority:smallint",
+      "processed:boolean",
+      "error_message:text",
+      "received_at:timestamp(0) without time zone",
+      "source_version:varchar(100)",
+      "tags:text",
+      "checksum:varchar(128)",
+      "archived:boolean",
+      "expires_at:timestamp(0) without time zone",
+    ].map((entry, index) => {
+      const [name, data_type] = entry.split(":") as [string, string];
+      return {
+        name,
+        data_type,
+        position: index + 1,
+        nullable: index !== 0 && index % 5 === 0,
+        default: null,
+        primary_key_position: index === 0 ? 1 : null,
+        extra: null,
+      };
+    }),
+    indexes: [
+      { name: "events_wide_pkey", columns: ["id"], unique: true, primary: true, method: "btree" },
+    ],
+    foreign_keys: [],
+  },
   orders: {
     table: "orders",
     columns: [
@@ -238,6 +289,46 @@ function rowsFor(
   cursor: string | null,
   offset: number,
 ): RowsPage | null {
+  if (tbl === "events_wide") {
+    const after = cursor ? ((JSON.parse(atob(cursor)) as number[])[0] ?? 0) : offset;
+    const start = after + 1;
+    const count = Math.max(0, Math.min(limit, 12_000 - after));
+    const columns =
+      DETAIL.events_wide?.columns.map(({ name, data_type }) => ({ name, type: data_type })) ?? [];
+    const rows = Array.from({ length: count }, (_, item) => {
+      const id = start + item;
+      return columns.map((column, index): Cell =>
+        index === 0
+          ? id
+          : id % 11 === 0 && index % 5 === 0
+            ? null
+            : /timestamp/.test(column.type)
+              ? new Date(Date.UTC(2026, 0, 1, 0, 0, id)).toISOString()
+              : /jsonb/.test(column.type)
+                ? JSON.stringify({ id, text: `payload ${"x".repeat(60)}` })
+                : /numeric/.test(column.type)
+                  ? Number((id * 2.75).toFixed(2))
+                  : /boolean/.test(column.type)
+                    ? id % 2 === 0
+                    : /int|bigint|smallint/.test(column.type)
+                      ? id
+                      : `event-${String(id)} ${"long-value-".repeat(8)} ${"x".repeat(60)}`,
+      );
+    });
+    const last = after + count;
+    const more = last < 12_000;
+    return {
+      columns,
+      rows,
+      limit,
+      offset,
+      ordering: "primary_key",
+      order_by: ["id"],
+      next_cursor: more ? encode(last) : null,
+      next_offset: more ? last : null,
+      size_limited: false,
+    };
+  }
   if (tbl === "orders") {
     const after = cursor ? ((JSON.parse(atob(cursor)) as number[])[0] ?? 0) : offset;
     const start = after + 1;
