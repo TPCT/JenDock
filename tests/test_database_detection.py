@@ -526,3 +526,100 @@ def test_missing_database_or_file_password_is_skipped_safely() -> None:
 
 def test_non_database_image_is_ignored() -> None:
     assert parse_database_credentials("redis:7", {}) is None
+
+
+def test_custom_postgres_image_parses_standard_credentials() -> None:
+    result = parse_database_credentials(
+        "elfak-postgres:16-ubuntu24",
+        {
+            "POSTGRES_DB": "app",
+            "POSTGRES_USER": "reader",
+            "POSTGRES_PASSWORD": "secret",
+            "PG_MAJOR": "16",
+            "PGDATA": "/var/lib/postgresql/data",
+        },
+    )
+    assert result is not None and result.credentials is not None
+    assert result.credentials.engine is DatabaseEngine.POSTGRESQL
+    assert result.credentials.database == "app"
+    assert result.credentials.username == "reader"
+    assert result.credentials.password == "secret"
+
+
+@pytest.mark.parametrize(
+    ("image", "env", "expected_engine"),
+    [
+        (
+            "bitnami/mariadb:11",
+            {"MARIADB_DATABASE": "app", "MARIADB_USER": "reader", "MARIADB_PASSWORD": "secret"},
+            DatabaseEngine.MARIADB,
+        ),
+        (
+            "registry.example.com/team/percona-mysql:8",
+            {"MYSQL_DATABASE": "app", "MYSQL_USER": "reader", "MYSQL_PASSWORD": "secret"},
+            DatabaseEngine.MYSQL,
+        ),
+        (
+            "my_postgres.custom",
+            {"POSTGRES_DB": "app", "POSTGRES_PASSWORD": "secret"},
+            DatabaseEngine.POSTGRESQL,
+        ),
+    ],
+)
+def test_custom_image_name_segments_identify_database_engine(
+    image: str, env: dict[str, str], expected_engine: DatabaseEngine
+) -> None:
+    result = parse_database_credentials(image, env)
+    assert result is not None and result.credentials is not None
+    assert result.credentials.engine is expected_engine
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_engine"),
+    [
+        ({"POSTGRES_PASSWORD": "secret"}, DatabaseEngine.POSTGRESQL),
+        (
+            {
+                "MARIADB_DATABASE": "app",
+                "MARIADB_PASSWORD": "secret",
+                "MARIADB_USER": "reader",
+            },
+            DatabaseEngine.MARIADB,
+        ),
+        (
+            {"MYSQL_DATABASE": "app", "MYSQL_PASSWORD": "secret", "MYSQL_USER": "reader"},
+            DatabaseEngine.MYSQL,
+        ),
+    ],
+)
+def test_custom_image_is_identified_by_database_environment(
+    env: dict[str, str], expected_engine: DatabaseEngine
+) -> None:
+    result = parse_database_credentials("acme/db-server:1", env)
+    assert result is not None and result.credentials is not None
+    assert result.credentials.engine is expected_engine
+
+
+@pytest.mark.parametrize(
+    ("image", "env"),
+    [
+        ("acme/api:2", {"APP_DB_PASSWORD": "secret", "DB_HOST": "db"}),
+        ("mysqlrouter:8", {}),
+        ("mysql.example.com/team/api:1", {}),
+    ],
+)
+def test_non_database_image_and_environment_are_ignored(image: str, env: dict[str, str]) -> None:
+    assert parse_database_credentials(image, env) is None
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"MYSQL_HOST": "db", "MYSQL_DATABASE": "app", "MYSQL_PASSWORD": "secret"},
+        {"POSTGRES_HOST": "db", "POSTGRES_PASSWORD": "secret"},
+    ],
+)
+def test_client_database_environment_does_not_identify_server(
+    env: dict[str, str],
+) -> None:
+    assert parse_database_credentials("acme/api:2", env) is None
