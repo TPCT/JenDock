@@ -23,8 +23,20 @@ GitHub-style web UI, a REST API or an MCP endpoint for AI agents.
 **Builds and deploys**
 - GitHub webhooks (HMAC verified) and manual runs; one pinned commit per run, live logs per step.
 - Docker image builds and Compose deployments of exactly the services you name, with health
-  checks, automatic rollback, redeploy of earlier versions and image retention.
+  checks (sent with a `Jendock-HealthCheck/1.0` user agent), automatic rollback and redeploy of
+  earlier versions.
+- Checkouts fetch only the pinned commit (depth 1), and the pipeline file is read with a partial
+  fetch, so slow links and large histories stay fast.
+- After a successful deploy only the images the environment runs are kept (`JENDOCK_IMAGE_RETENTION`
+  raises that) and older dangling layers are pruned.
 - Auto-deploy per environment.
+
+**On-demand environments**
+- Stop and start an environment (`compose stop` / `up -d`; containers and volumes stay), from the
+  UI, the API or MCP. A production stop needs the project slug typed to confirm.
+- Optional auto-stop of a development environment after N hours (1 to 168) of running.
+- A development deploy gives each service without saved limits default limits (0.5 CPU, 512 MiB),
+  labelled "Default" and editable.
 
 **Containers**
 - Inventory, start/stop/restart, live logs and a web terminal.
@@ -34,10 +46,26 @@ GitHub-style web UI, a REST API or an MCP endpoint for AI agents.
 **Database inspector**
 - Browse tables and run read-only queries against the PostgreSQL, MySQL and MariaDB databases of
   an environment, from a short-lived helper container on that environment's network.
+- **Detect databases** finds the environment's own database containers (a service its services
+  depend on, or the only database on a shared network) and creates read-only connections, with
+  the password kept in the encrypted secret store and the real Docker network recorded. MariaDB
+  is told apart from MySQL, and custom images are recognised by a name segment (for example
+  `acme-postgres:16`) or by the server's environment variables. **Detect and clean up** also
+  removes out-of-scope auto-detected connections (never hand-added ones, never one with a
+  successful backup).
+
+**Database backups**
+- A daily dump of every connection to S3 (`mysqldump`/`mariadb-dump` and `pg_dump`), at an hour
+  in Cairo time. Production only, unless a maintainer opts a development environment in.
+- One latest verified copy per connection: the new object is checked, then older ones are
+  deleted; a failed run keeps the old backup and notifies. Dump images are pulled automatically.
+  Settings, Backups page, **Back up now** and restore steps: [docs/backups.md](docs/backups.md).
 
 **Domains**
-- Cloudflare DNS records, an Apache reverse proxy configured through the host helper, and
-  ACME certificates with automatic renewal.
+- Cloudflare DNS records (user and account `cfat_` API tokens), an Apache reverse proxy
+  configured through the host helper, and ACME certificates with automatic renewal.
+- Managed virtual hosts bind the server's public IPv4/IPv6 addresses, so they win over other
+  sites on the same Apache.
 
 **Notifications**
 - Slack, generic webhook and email, with rules per project and environment, retries and a
@@ -54,7 +82,7 @@ GitHub-style web UI, a REST API or an MCP endpoint for AI agents.
 
 **Web UI**
 - Built with [Primer](https://primer.style/react), the design system of GitHub, with light and
-  dark themes.
+  dark themes, a sticky top bar and a full-height sidebar.
 
 ## How it works
 
@@ -147,7 +175,13 @@ the important ones as plain variables in `.env` (see `deployment/env.production.
 | `MAX_CONCURRENT_RUNS` | `JENDOCK_MAX_CONCURRENT_RUNS` | Runs executing at once (default 1) |
 | `BACKUP_ENABLED`, `BACKUP_KEEP`, `BACKUP_HOUR_UTC` | `JENDOCK_BACKUP_*` | Scheduled backups (off by default) |
 | `GITHUB_STATUS_ENABLED` | `JENDOCK_GITHUB_STATUS_ENABLED` | Report commit status to GitHub |
+| | `JENDOCK_BUILD_MEMORY` | Memory ceiling for image builds (default `2g`) |
+| | `JENDOCK_IMAGE_RETENTION` | Older images kept per image besides the deployed ones (default 0) |
+| | `JENDOCK_AUTO_STOP_INTERVAL` | Seconds between auto-stop checks (default 300) |
+| | `JENDOCK_DEV_DEFAULT_CPUS`, `JENDOCK_DEV_DEFAULT_MEMORY_MIB` | Default limits for development services without saved limits (0.5, 512) |
+| | `JENDOCK_INSPECTOR_IMAGE` | Helper image for the database inspector |
 | `BUILD_NETWORK` | `JENDOCK_BUILD_NETWORK` | Docker network for image builds |
+| | | S3 database backups (bucket, region, prefix, hour, dump images) are set in Settings > Integrations, not in the environment ([docs/backups.md](docs/backups.md)) |
 | | `JENDOCK_INGRESS_*` | Domains, Cloudflare, Apache and ACME ([docs/ingress.md](docs/ingress.md)) |
 | | `JENDOCK_NOTIFY_*` | Notification retries, dedupe and thresholds ([docs/notifications.md](docs/notifications.md)) |
 
@@ -174,6 +208,7 @@ Details, including the trust boundaries and their known limits, are in
 |---|---|
 | [docs/deployment.md](docs/deployment.md) | Production installation, checklist, backing out |
 | [docs/operations.md](docs/operations.md) | Backup and restore, reproducible builds |
+| [docs/backups.md](docs/backups.md) | Daily database backups to S3, retention, restore |
 | [docs/security.md](docs/security.md) | Authentication, sessions, roles, tokens, two-factor, audit log |
 | [docs/pipelines.md](docs/pipelines.md) | Supported and rejected Jenkinsfile syntax, round trip, editors, example |
 | [docs/jenkins-compatibility.md](docs/jenkins-compatibility.md) | Comparison with a real Jenkins linter |
