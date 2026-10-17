@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -96,12 +97,46 @@ class CredentialResult:
 
 
 def parse_database_credentials(image: str, env: dict[str, str]) -> CredentialResult | None:
-    """Parse supported database image credentials; ``None`` means an unsupported image."""
-    image_name = image.rsplit("/", 1)[-1].split("@", 1)[0].split(":", 1)[0].lower()
-    if image_name in {"mysql", "mariadb"}:
-        return _mysql_credentials(image_name, env)
-    if image_name in {"postgres", "postgresql"}:
+    """Parse credentials using database image naming or recognized environment keys."""
+    engine = _engine_from_image(image) or _engine_from_env(env)
+    if engine is DatabaseEngine.MARIADB:
+        return _mysql_credentials("mariadb", env)
+    if engine is DatabaseEngine.MYSQL:
+        return _mysql_credentials("mysql", env)
+    if engine is DatabaseEngine.POSTGRESQL:
         return _postgres_credentials(env)
+    return None
+
+
+def _engine_from_image(image: str) -> DatabaseEngine | None:
+    """Identify a database engine from whole image-name segments."""
+    image_name = image.split("@", 1)[0]
+    parts = image_name.split("/")
+    if ":" in parts[-1]:
+        parts[-1] = parts[-1].split(":", 1)[0]
+    parts = [part.lower() for part in parts]
+    if len(parts) > 1 and ("." in parts[0] or ":" in parts[0] or parts[0] == "localhost"):
+        parts = parts[1:]
+    segments = set(filter(None, re.split(r"[-_/.]+", "/".join(parts))))
+    if "mariadb" in segments:
+        return DatabaseEngine.MARIADB
+    if {"postgres", "postgresql"} & segments:
+        return DatabaseEngine.POSTGRESQL
+    if "mysql" in segments:
+        return DatabaseEngine.MYSQL
+    return None
+
+
+def _engine_from_env(env: dict[str, str]) -> DatabaseEngine | None:
+    """Identify a database engine from its conventional environment prefixes."""
+    if any(key in env for key in ("POSTGRES_HOST", "MYSQL_HOST", "MARIADB_HOST")):
+        return None
+    if "POSTGRES_PASSWORD" in env or "POSTGRES_USER" in env:
+        return DatabaseEngine.POSTGRESQL
+    if any(key.startswith("MARIADB_") for key in env):
+        return DatabaseEngine.MARIADB
+    if any(key.startswith("MYSQL_") for key in env):
+        return DatabaseEngine.MYSQL
     return None
 
 
